@@ -1,0 +1,192 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+:root {
+  --ks-bg-canvas: #111214;
+  --ks-bg-chrome: #16171a;
+  --ks-bg-surface: #1c1d21;
+  --ks-bg-elevated: #222328;
+  --ks-bg-hover: #282a30;
+  --ks-border: #26282e;
+  --ks-border-subtle: rgba(255, 255, 255, 0.06);
+  --ks-border-focus: #4a668a;
+  --ks-text: #ececed;
+  --ks-text-secondary: #8e9098;
+  --ks-text-muted: #5e6068;
+  --ks-green: #69b879;
+  --ks-amber: #d9a043;
+  --ks-red: #e05d5d;
+  --ks-blue: #60a5fa;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--ks-bg-canvas);
+  color: var(--ks-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono-ide {
+  font-family: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Ultra-subtle desktop scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.xterm {
+  height: 100%;
+  padding: 8px 10px;
+}
+
+.xterm-viewport {
+  background-color: #111214 !important;
+}
+
+@keyframes ks-spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ks-ring-spin {
+  animation: ks-spin-slow 1.6s linear infinite;
+}
+
+/* Subtle Orca/macOS-style micro-animations & glass transitions */
+@keyframes ks-backdrop-in {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(8px);
+  }
+}
+
+@keyframes ks-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ks-popover-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ks-panel-fade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ks-slide-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes ks-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.ks-backdrop {
+  background: rgba(8, 9, 11, 0.52);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: ks-backdrop-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-modal {
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: ks-modal-in 165ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-popover {
+  background: rgba(22, 23, 27, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: ks-popover-up 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-panel-enter {
+  animation: ks-panel-fade 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-drawer-left {
+  animation: ks-slide-left 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-drawer-bottom {
+  animation: ks-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ks-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid #30323b;
+  background: #22242a;
+  color: #b4b6be;
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ks-backdrop,
+  .ks-modal,
+  .ks-popover,
+  .ks-panel-enter,
+  .ks-drawer-left,
+  .ks-drawer-bottom {
+    animation: none !important;
+    transition: none !important;
+  }
+}

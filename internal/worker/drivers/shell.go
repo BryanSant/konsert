@@ -1,0 +1,100 @@
+package drivers
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
+)
+
+func init() {
+	Register(&ShellDriver{})
+}
+
+// ShellDriver launches an interactive native shell (zsh/bash/sh/pwsh) on the worker
+// for Direct Mode sessions and the Floating Scratch Workspace.
+type ShellDriver struct{}
+
+func (d *ShellDriver) Name() string { return "shell" }
+
+func (d *ShellDriver) Detect() (string, bool) {
+	if runtime.GOOS == "windows" {
+		for _, bin := range []string{"pwsh.exe", "powershell.exe", "cmd.exe"} {
+			if p, err := exec.LookPath(bin); err == nil {
+				return p, true
+			}
+		}
+		return "", false
+	}
+	if sh := strings.TrimSpace(os.Getenv("SHELL")); sh != "" {
+		if p, err := exec.LookPath(sh); err == nil {
+			return p, true
+		}
+	}
+	for _, bin := range []string{"zsh", "bash", "sh"} {
+		if p, err := exec.LookPath(bin); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func (d *ShellDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	bin, ok := d.Detect()
+	if !ok {
+		if runtime.GOOS == "windows" {
+			bin = "cmd.exe"
+		} else {
+			bin = "/bin/sh"
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		if strings.TrimSpace(opts.Prompt) != "" && opts.Mode == "oneshot" {
+			if strings.HasSuffix(strings.ToLower(bin), "cmd.exe") {
+				return LaunchSpec{Binary: bin, Args: []string{"/C", opts.Prompt}, Env: opts.Env}
+			}
+			return LaunchSpec{Binary: bin, Args: []string{"-NoLogo", "-Command", opts.Prompt}, Env: opts.Env}
+		}
+		return LaunchSpec{Binary: bin, Args: nil, Env: opts.Env}
+	}
+
+	if strings.TrimSpace(opts.Prompt) != "" && opts.Mode == "oneshot" {
+		return LaunchSpec{
+			Binary: bin,
+			Args:   []string{"-c", opts.Prompt},
+			Env:    opts.Env,
+		}
+	}
+
+	// Interactive login shell
+	return LaunchSpec{
+		Binary: bin,
+		Args:   []string{"-l"},
+		Env:    opts.Env,
+	}
+}
+
+func (d *ShellDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, _ func(TelemetryEvent)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-opts.OutputLines:
+			if !ok {
+				return
+			}
+		}
+	}
+}
+
+func (d *ShellDriver) ExtractSummary(_ context.Context, opts SummaryOptions) string {
+	if opts.RingSnapshot != nil {
+		if tail := TailCleanSummary(opts.RingSnapshot(), 8, 800); tail != "" {
+			return tail
+		}
+	}
+	return fmt.Sprintf("Shell session exited with code %d", opts.ExitCode)
+}

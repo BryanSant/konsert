@@ -1,0 +1,259 @@
+package drivers
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+func init() {
+	Register(&ClaudeDriver{})
+}
+
+// ClaudeDriver runs Anthropic's Claude Code CLI (`claude`).
+// In default full_access mode, it passes `--dangerously-skip-permissions`.
+type ClaudeDriver struct {
+	mu          sync.Mutex
+	lastSummary map[string]string
+}
+
+func (d *ClaudeDriver) Name() string { return "claude" }
+
+func (d *ClaudeDriver) Detect() (string, bool) {
+	p, err := exec.LookPath("claude")
+	return p, err == nil
+}
+
+func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	args := []string{}
+	if IsFullAccess(opts.PermissionMode) {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	if opts.Mode == "interactive" {
+		if strings.TrimSpace(opts.Prompt) != "" {
+			args = append(args, opts.Prompt)
+		}
+	} else {
+		args = append(args, "-p", opts.Prompt)
+	}
+	return LaunchSpec{
+		Binary: "claude",
+		Args:   args,
+		Env:    opts.Env,
+	}
+}
+
+// encodeClaudeProjectDir converts a filesystem path to Claude Code's ~/.claude/projects/<encoded> directory name.
+func encodeClaudeProjectDir(workdir string) string {
+	cleaned := filepath.Clean(workdir)
+	var b strings.Builder
+	for _, r := range cleaned {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+func (d *ClaudeDriver) setLastSummary(taskID, text string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastSummary == nil {
+		d.lastSummary = make(map[string]string)
+	}
+	d.lastSummary[taskID] = text
+}
+
+func (d *ClaudeDriver) getAndClearLastSummary(taskID string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastSummary == nil {
+		return ""
+	}
+	s := d.lastSummary[taskID]
+	delete(d.lastSummary, taskID)
+	return s
+}
+
+func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit func(TelemetryEvent)) {
+	startTime := time.Now().Add(-2 * time.Second)
+	home, _ := os.UserHomeDir()
+	projectDir := ""
+	if home != "" && opts.Workdir != "" {
+		projectDir = filepath.Join(home, ".claude", "projects", encodeClaudeProjectDir(opts.Workdir))
+	}
+
+	offsets := make(map[string]int64)
+	ticker := time.NewTicker(750 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line, ok := <-opts.OutputLines:
+			if !ok {
+				return
+			}
+			clean := strings.TrimSpace(StripANSI(line))
+			if clean == "" {
+				continue
+			}
+			lower := strings.ToLower(clean)
+			if strings.Contains(lower, "do you want to") || strings.Contains(lower, "allow this") || strings.Contains(lower, "[y/n]") {
+				emit(TelemetryEvent{
+					Kind:    "waiting_input",
+					Message: clean,
+				})
+			}
+		case <-ticker.C:
+			if projectDir == "" {
+				continue
+			}
+			d.pollJSONLDir(opts.TaskID, projectDir, startTime, offsets, emit)
+		}
+	}
+}
+
+type claudeJSONLLine struct {
+	Type    string `json:"type"`
+	Message *struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+type claudeContentBlock struct {
+	Type  string         `json:"type"`
+	Text  string         `json:"text"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input"`
+}
+
+func (d *ClaudeDriver) pollJSONLDir(taskID, dir string, since time.Time, offsets map[string]int64, emit func(TelemetryEvent)) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		fullPath := filepath.Join(dir, entry.Name())
+		info, err := entry.Info()
+		if err != nil || info.ModTime().Before(since) {
+			continue
+		}
+		f, err := os.Open(fullPath)
+		if err != nil {
+			continue
+		}
+		offset := offsets[fullPath]
+		if offset > 0 {
+			if _, err := f.Seek(offset, io.SeekStart); err != nil {
+				_ = f.Close()
+				continue
+			}
+		}
+		reader := bufio.NewReader(f)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				offset += int64(len(line))
+				d.parseJSONLLine(taskID, line, emit)
+			}
+			if err != nil {
+				break
+			}
+		}
+		offsets[fullPath] = offset
+		_ = f.Close()
+	}
+}
+
+func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(TelemetryEvent)) {
+	var rec claudeJSONLLine
+	if err := json.Unmarshal(raw, &rec); err != nil || rec.Message == nil {
+		return
+	}
+	if rec.Message.Role != "assistant" || len(rec.Message.Content) == 0 {
+		return
+	}
+
+	// Content may be a JSON string or an array of content blocks.
+	var textOnly string
+	if err := json.Unmarshal(rec.Message.Content, &textOnly); err == nil {
+		if t := strings.TrimSpace(textOnly); t != "" {
+			d.setLastSummary(taskID, t)
+		}
+		return
+	}
+
+	var blocks []claudeContentBlock
+	if err := json.Unmarshal(rec.Message.Content, &blocks); err != nil {
+		return
+	}
+	var textParts []string
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if t := strings.TrimSpace(b.Text); t != "" {
+				textParts = append(textParts, t)
+			}
+		case "tool_use":
+			kind := "tool_call"
+			msg := b.Name
+			switch strings.ToLower(b.Name) {
+			case "edit", "write", "multiedit", "notebookedit":
+				kind = "file_edit"
+				if fp, ok := b.Input["file_path"].(string); ok {
+					msg = fmt.Sprintf("%s: %s", b.Name, fp)
+				}
+			case "bash":
+				if cmd, ok := b.Input["command"].(string); ok {
+					if len(cmd) > 120 {
+						cmd = cmd[:120] + "..."
+					}
+					msg = fmt.Sprintf("Bash: %s", cmd)
+				}
+			case "read":
+				if fp, ok := b.Input["file_path"].(string); ok {
+					msg = fmt.Sprintf("Read: %s", fp)
+				}
+			}
+			emit(TelemetryEvent{
+				Kind:    kind,
+				Message: msg,
+				Meta:    map[string]any{"tool": b.Name},
+			})
+		}
+	}
+	if len(textParts) > 0 {
+		d.setLastSummary(taskID, strings.Join(textParts, "\n"))
+	}
+}
+
+func (d *ClaudeDriver) ExtractSummary(_ context.Context, opts SummaryOptions) string {
+	if s := d.getAndClearLastSummary(opts.TaskID); s != "" {
+		if len(s) > 2000 {
+			return s[:2000] + "..."
+		}
+		return s
+	}
+	if opts.RingSnapshot != nil {
+		if tail := TailCleanSummary(opts.RingSnapshot(), 15, 1500); tail != "" {
+			return tail
+		}
+	}
+	return fmt.Sprintf("claude exited with code %d", opts.ExitCode)
+}

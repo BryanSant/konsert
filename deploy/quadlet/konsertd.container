@@ -1,0 +1,19 @@
+[Unit]
+Description=Konsert Podman Worker Container
+After=network-online.target
+
+[Container]
+Image=ghcr.io/bryansant/konsertd:latest
+AutoUpdate=registry
+Environment=KONSERT_ISOLATION=container
+Environment=KONSERT_HOST_GROUP=%H
+EnvironmentFile=/etc/konsert/konsertd.env
+Volume=%h/src:/workspace:Z
+Exec=run --max-concurrent=2
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

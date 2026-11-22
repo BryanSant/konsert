@@ -1,0 +1,70 @@
+version: 2
+
+project_name: konsert
+
+before:
+  hooks:
+    - make web
+    - go mod tidy
+
+builds:
+  - id: konsert
+    main: ./cmd/konsert
+    binary: konsert
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: konsertd
+    main: ./cmd/konsertd
+    binary: konsertd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: konsert-archive
+    ids:
+      - konsert
+    formats:
+      - tar.gz
+    name_template: "konsert_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+  - id: konsertd-archive
+    ids:
+      - konsertd
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "konsertd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
