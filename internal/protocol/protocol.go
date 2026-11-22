@@ -272,10 +272,12 @@ type ChatErrorPayload struct {
 }
 
 type FleetUpdatePayload struct {
-	Kind   string `json:"kind"` // "worker" | "task" | "event"
-	Worker any    `json:"worker,omitempty"`
-	Task   any    `json:"task,omitempty"`
-	Event  any    `json:"event,omitempty"`
+	Kind      string `json:"kind"` // "worker" | "task" | "event" | "space" | "space_deleted"
+	Worker    any    `json:"worker,omitempty"`
+	Task      any    `json:"task,omitempty"`
+	Event     any    `json:"event,omitempty"`
+	Space     any    `json:"space,omitempty"`
+	DeletedID string `json:"deleted_id,omitempty"`
 }
 
 // IsTerminalTaskStatus reports whether a task status is final.

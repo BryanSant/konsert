@@ -53,10 +53,31 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("expected status offline, got %s", gotW.Status)
 	}
 
+	// Spaces & task space_id linkage
+	sp := store.Space{
+		ID:       "sp-1",
+		WorkerID: "w1",
+		Name:     "konsert",
+		Path:     "/repo",
+		Branch:   "main",
+	}
+	if err := st.CreateSpace(ctx, sp); err != nil {
+		t.Fatalf("CreateSpace failed: %v", err)
+	}
+	gotSp, err := st.GetSpace(ctx, "sp-1")
+	if err != nil || gotSp.Name != "konsert" || gotSp.Path != "/repo" || gotSp.WorkerID != "w1" {
+		t.Fatalf("GetSpace mismatch: %+v err=%v", gotSp, err)
+	}
+	allSp, err := st.ListSpaces(ctx, "w1")
+	if err != nil || len(allSp) != 1 {
+		t.Fatalf("ListSpaces mismatch: %+v err=%v", allSp, err)
+	}
+
 	// Tasks & Events
 	task := store.Task{
 		ID:             "t1",
 		WorkerID:       "w1",
+		SpaceID:        "sp-1",
 		Agent:          "claude",
 		Workdir:        "/repo",
 		Branch:         "feat/x",
@@ -79,8 +100,15 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("UpdateTaskStatus completed failed: %v", err)
 	}
 	gotT, err := st.GetTask(ctx, "t1")
-	if err != nil || gotT.Status != protocol.TaskStatusCompleted || gotT.ExitCode == nil || *gotT.ExitCode != 0 || gotT.StartedAt == nil || gotT.CompletedAt == nil {
+	if err != nil || gotT.Status != protocol.TaskStatusCompleted || gotT.SpaceID != "sp-1" || gotT.ExitCode == nil || *gotT.ExitCode != 0 || gotT.StartedAt == nil || gotT.CompletedAt == nil {
 		t.Fatalf("GetTask mismatch: %+v err=%v", gotT, err)
+	}
+
+	if err := st.DeleteSpace(ctx, "sp-1"); err != nil {
+		t.Fatalf("DeleteSpace failed: %v", err)
+	}
+	if _, err := st.GetSpace(ctx, "sp-1"); err != store.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after DeleteSpace, got %v", err)
 	}
 
 	evID, err := st.AppendEvent(ctx, store.TaskEvent{TaskID: "t1", Kind: "milestone", Message: "started"})

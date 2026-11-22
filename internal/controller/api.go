@@ -82,6 +82,9 @@ func (s *Server) registerRoutes() {
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
 	s.mux.Handle("GET /api/usage", s.requireBrowserAuth(s.handleGetUsage))
+	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
+	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
+	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.handleDeleteSpace))
 	s.mux.Handle("GET /api/tasks", s.requireBrowserAuth(s.handleListTasks))
 	s.mux.Handle("POST /api/tasks", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/tasks/{id}", s.requireBrowserAuth(s.handleGetTask))
@@ -175,13 +178,107 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, _ := s.store.ListTasks(r.Context(), "", "", 100)
+	spaces, _ := s.store.ListSpaces(r.Context(), "")
 	usage, _ := s.store.GetUsageSummary(r.Context())
+	if tasks == nil {
+		tasks = []store.Task{}
+	}
+	if spaces == nil {
+		spaces = []store.Space{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workers":            res.Workers,
 		"active_tasks_count": res.ActiveTasksCount,
 		"tasks":              tasks,
+		"spaces":             spaces,
 		"usage":              usage,
 	})
+}
+
+func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
+	workerID := r.URL.Query().Get("worker_id")
+	spaces, err := s.store.ListSpaces(r.Context(), workerID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if spaces == nil {
+		spaces = []store.Space{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"spaces": spaces})
+}
+
+func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkerID string `json:"worker_id"`
+		Name     string `json:"name"`
+		Path     string `json:"path"`
+		Branch   string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	body.WorkerID = strings.TrimSpace(body.WorkerID)
+	body.Path = strings.TrimSpace(body.Path)
+	body.Name = strings.TrimSpace(body.Name)
+	if body.WorkerID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id is required"})
+		return
+	}
+	if body.Path == "" {
+		body.Path = "~"
+	}
+	if body.Name == "" {
+		if body.Path == "~" {
+			body.Name = "~"
+		} else {
+			trimmed := strings.TrimRight(body.Path, "/\\")
+			parts := strings.FieldsFunc(trimmed, func(r rune) bool { return r == '/' || r == '\\' })
+			if len(parts) > 0 {
+				body.Name = parts[len(parts)-1]
+			} else {
+				body.Name = body.Path
+			}
+		}
+	}
+	if _, err := s.store.GetWorker(r.Context(), body.WorkerID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	sp := store.Space{
+		ID:        uuid.NewString(),
+		WorkerID:  body.WorkerID,
+		Name:      body.Name,
+		Path:      body.Path,
+		Branch:    strings.TrimSpace(body.Branch),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.store.CreateSpace(r.Context(), sp); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.broadcastFleetUpdate("space", sp)
+	writeJSON(w, http.StatusCreated, sp)
+}
+
+func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteSpace(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "space not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.broadcastFleetUpdate("space_deleted", id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {

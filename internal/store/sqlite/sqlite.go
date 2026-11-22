@@ -207,6 +207,80 @@ func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.T
 	return stale, nil
 }
 
+func (s *SQLiteStore) CreateSpace(ctx context.Context, sp store.Space) error {
+	if sp.CreatedAt.IsZero() {
+		sp.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO spaces (id, worker_id, name, path, branch, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, sp.ID, sp.WorkerID, sp.Name, sp.Path, sp.Branch, formatTime(sp.CreatedAt))
+	return err
+}
+
+func (s *SQLiteStore) GetSpace(ctx context.Context, id string) (store.Space, error) {
+	var sp store.Space
+	var createdAt string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, worker_id, name, path, branch, created_at
+		FROM spaces WHERE id = ?
+	`, id).Scan(&sp.ID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Space{}, store.ErrNotFound
+	}
+	if err != nil {
+		return store.Space{}, err
+	}
+	sp.CreatedAt = parseTime(createdAt)
+	return sp, nil
+}
+
+func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.Space, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if workerID != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, worker_id, name, path, branch, created_at
+			FROM spaces WHERE worker_id = ? ORDER BY created_at ASC
+		`, workerID)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, worker_id, name, path, branch, created_at
+			FROM spaces ORDER BY created_at ASC
+		`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.Space{}
+	for rows.Next() {
+		var sp store.Space
+		var createdAt string
+		if err := rows.Scan(&sp.ID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt); err != nil {
+			return nil, err
+		}
+		sp.CreatedAt = parseTime(createdAt)
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now().UTC()
@@ -241,11 +315,11 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, worker_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+			id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, t.ID, workerID, t.Agent, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, t.ID, workerID, t.SpaceID, t.Agent, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	return err
@@ -313,7 +387,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		completedAt sql.NullString
 	)
 	if err := scanner.Scan(
-		&t.ID, &workerID, &t.Agent, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
+		&t.ID, &workerID, &t.SpaceID, &t.Agent, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&createdAt, &startedAt, &completedAt,
 	); err != nil {
@@ -342,7 +416,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, worker_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+		SELECT id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
@@ -366,7 +440,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 	}
 
 	query := `
-		SELECT id, worker_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+		SELECT id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
 		FROM tasks`

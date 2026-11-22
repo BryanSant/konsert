@@ -437,3 +437,100 @@ func TestOrchestratorChatToolLoop(t *testing.T) {
 		t.Fatalf("expected 4 persisted chat messages, got %d err=%v", len(msgs), err)
 	}
 }
+
+func TestSpacesRESTAndTaskAssociation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "spaces.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-space-1"
+	wCfg.Name = "space-node"
+	wCfg.EnableMockDriver = true
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-space-1")
+
+	workdir := t.TempDir()
+	// POST /api/spaces
+	createBody, _ := json.Marshal(map[string]string{
+		"worker_id": "w-space-1",
+		"name":      "demo-space",
+		"path":      workdir,
+	})
+	resp, err := http.Post(ts.URL+"/api/spaces", "application/json", bytes.NewReader(createBody))
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/spaces failed: resp=%v err=%v", resp, err)
+	}
+	var created struct {
+		ID       string `json:"id"`
+		WorkerID string `json:"worker_id"`
+		Name     string `json:"name"`
+		Path     string `json:"path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil || created.ID == "" {
+		t.Fatalf("decode space failed: %+v err=%v", created, err)
+	}
+	_ = resp.Body.Close()
+
+	// Dispatch task using only space_id (resolves worker_id and repo_path automatically!)
+	disp, err := srv.Service().DispatchTask(ctx, DispatchRequest{
+		SpaceID: created.ID,
+		Agent:   "mock",
+		Prompt:  "STREAM_LINES=1",
+		Mode:    protocol.TaskModeOneshot,
+	})
+	if err != nil {
+		t.Fatalf("DispatchTask via SpaceID failed: %v", err)
+	}
+	if disp.SpaceID != created.ID || disp.WorkerID != "w-space-1" {
+		t.Fatalf("unexpected dispatch result: %+v", disp)
+	}
+	res, err := srv.Service().GetTaskResult(ctx, disp.TaskID, true, 10)
+	if err != nil || res.Status != protocol.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %+v err=%v", res, err)
+	}
+
+	// GET /api/spaces
+	listResp, err := http.Get(ts.URL + "/api/spaces?worker_id=w-space-1")
+	if err != nil || listResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/spaces failed: %v", err)
+	}
+	var listOut struct {
+		Spaces []map[string]any `json:"spaces"`
+	}
+	_ = json.NewDecoder(listResp.Body).Decode(&listOut)
+	_ = listResp.Body.Close()
+	if len(listOut.Spaces) != 1 {
+		t.Fatalf("expected 1 space, got %d", len(listOut.Spaces))
+	}
+
+	// DELETE /api/spaces/{id}
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/spaces/"+created.ID, nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/spaces failed: %v", err)
+	}
+	_ = delResp.Body.Close()
+
+	cancel()
+	<-done
+}

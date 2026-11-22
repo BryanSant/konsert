@@ -30,9 +30,19 @@ type Worker struct {
 	LastSeenAt     time.Time         `json:"last_seen_at"`
 }
 
+type Space struct {
+	ID        string    `json:"id"`
+	WorkerID  string    `json:"worker_id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	Branch    string    `json:"branch,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Task struct {
 	ID             string         `json:"id"`
 	WorkerID       string         `json:"worker_id"`
+	SpaceID        string         `json:"space_id,omitempty"`
 	Agent          string         `json:"agent"`
 	Workdir        string         `json:"workdir"`
 	EffectiveDir   string         `json:"effective_dir"`
@@ -106,6 +116,11 @@ type Store interface {
 	GetWorker(ctx context.Context, id string) (Worker, error)
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error)
+
+	CreateSpace(ctx context.Context, sp Space) error
+	GetSpace(ctx context.Context, id string) (Space, error)
+	ListSpaces(ctx context.Context, workerID string) ([]Space, error)
+	DeleteSpace(ctx context.Context, id string) error
 
 	CreateTask(ctx context.Context, t Task) error
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error

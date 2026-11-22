@@ -907,6 +907,12 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Task = item
 	case "event":
 		p.Event = item
+	case "space":
+		p.Space = item
+	case "space_deleted":
+		if id, ok := item.(string); ok {
+			p.DeletedID = id
+		}
 	}
 	h.broadcastJSON(protocol.MsgFleetUpdate, p)
 }

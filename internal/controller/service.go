@@ -86,6 +86,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 
 type DispatchRequest struct {
 	WorkerSelector WorkerSelector `json:"worker_selector,omitempty"`
+	SpaceID        string         `json:"space_id,omitempty"`
 	Agent          string         `json:"agent"`
 	RepoPath       string         `json:"repo_path"`
 	Branch         string         `json:"branch,omitempty"`
@@ -101,6 +102,7 @@ type DispatchRequest struct {
 type DispatchResult struct {
 	TaskID           string `json:"task_id"`
 	WorkerID         string `json:"worker_id,omitempty"`
+	SpaceID          string `json:"space_id,omitempty"`
 	Status           string `json:"status"`
 	WorkdirEffective string `json:"workdir_effective"`
 }
@@ -108,6 +110,25 @@ type DispatchResult struct {
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
 	if strings.TrimSpace(req.Agent) == "" {
 		return DispatchResult{}, fmt.Errorf("agent is required")
+	}
+	// Resolve defaults from Space when space_id is supplied.
+	if strings.TrimSpace(req.SpaceID) != "" {
+		sp, err := s.store.GetSpace(ctx, req.SpaceID)
+		if err != nil {
+			return DispatchResult{}, fmt.Errorf("space %s not found: %w", req.SpaceID, err)
+		}
+		if req.WorkerSelector.WorkerID == "" {
+			req.WorkerSelector.WorkerID = sp.WorkerID
+		}
+		if strings.TrimSpace(req.RepoPath) == "" {
+			req.RepoPath = sp.Path
+		}
+		if strings.TrimSpace(req.Branch) == "" && sp.Branch != "" {
+			req.Branch = sp.Branch
+		}
+		if req.Origin == "" {
+			req.Origin = protocol.TaskOriginDirect
+		}
 	}
 	origin := req.Origin
 	if origin == "" {
@@ -167,6 +188,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	task := store.Task{
 		ID:             taskID,
+		SpaceID:        req.SpaceID,
 		Agent:          req.Agent,
 		Workdir:        req.RepoPath,
 		EffectiveDir:   req.RepoPath,
@@ -216,6 +238,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	return DispatchResult{
 		TaskID:           task.ID,
 		WorkerID:         task.WorkerID,
+		SpaceID:          task.SpaceID,
 		Status:           task.Status,
 		WorkdirEffective: task.EffectiveDir,
 	}, nil
