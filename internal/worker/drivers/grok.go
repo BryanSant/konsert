@@ -3,7 +3,6 @@ package drivers
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -18,11 +17,14 @@ type GrokDriver struct{}
 func (d *GrokDriver) Name() string { return "grok" }
 
 func (d *GrokDriver) Detect() (string, bool) {
-	p, err := exec.LookPath("grok")
-	return p, err == nil
+	return FindBinary("grok")
 }
 
 func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	bin, ok := d.Detect()
+	if !ok {
+		bin = "grok"
+	}
 	args := []string{}
 	if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--yes")
@@ -35,7 +37,7 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		args = append(args, "-p", opts.Prompt)
 	}
 	return LaunchSpec{
-		Binary: "grok",
+		Binary: bin,
 		Args:   args,
 		Env:    opts.Env,
 	}

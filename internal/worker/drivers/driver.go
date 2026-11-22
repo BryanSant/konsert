@@ -2,13 +2,48 @@ package drivers
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/BryanSant/konsert/internal/protocol"
 )
+
+// FindBinary locates an executable via PATH first, then falls back to common user install directories
+// (~/.local/bin, /opt/homebrew/bin, /usr/local/bin) so daemons launched via launchd/systemd still find CLIs.
+func FindBinary(name string) (string, bool) {
+	if p, err := exec.LookPath(name); err == nil {
+		return p, true
+	}
+	var candidates []string
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, ".local", "bin", name),
+			filepath.Join(home, "bin", name),
+		)
+	}
+	if runtime.GOOS != "windows" {
+		candidates = append(candidates,
+			filepath.Join("/opt/homebrew/bin", name),
+			filepath.Join("/usr/local/bin", name),
+		)
+	}
+	for _, c := range candidates {
+		info, err := os.Stat(c)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if runtime.GOOS == "windows" || info.Mode()&0o111 != 0 {
+			return c, true
+		}
+	}
+	return "", false
+}
 
 // LaunchOptions controls how an AgentDriver constructs its process invocation.
 type LaunchOptions struct {

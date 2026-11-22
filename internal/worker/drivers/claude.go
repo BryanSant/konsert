@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,21 +17,30 @@ func init() {
 	Register(&ClaudeDriver{})
 }
 
+type usageCounter struct {
+	in  int64
+	out int64
+}
+
 // ClaudeDriver runs Anthropic's Claude Code CLI (`claude`).
 // In default full_access mode, it passes `--dangerously-skip-permissions`.
 type ClaudeDriver struct {
-	mu          sync.Mutex
-	lastSummary map[string]string
+	mu           sync.Mutex
+	lastSummary  map[string]string
+	seenUsage    map[string]map[string]usageCounter // taskID -> model -> last reported cumulative totals
 }
 
 func (d *ClaudeDriver) Name() string { return "claude" }
 
 func (d *ClaudeDriver) Detect() (string, bool) {
-	p, err := exec.LookPath("claude")
-	return p, err == nil
+	return FindBinary("claude")
 }
 
 func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	bin, ok := d.Detect()
+	if !ok {
+		bin = "claude"
+	}
 	args := []string{}
 	if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--dangerously-skip-permissions")
@@ -45,7 +53,7 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		args = append(args, "-p", opts.Prompt)
 	}
 	return LaunchSpec{
-		Binary: "claude",
+		Binary: bin,
 		Args:   args,
 		Env:    opts.Env,
 	}
@@ -65,6 +73,31 @@ func encodeClaudeProjectDir(workdir string) string {
 	return b.String()
 }
 
+func claudeCandidateProjectDirs(workdir string) []string {
+	home, _ := os.UserHomeDir()
+	if home == "" || workdir == "" {
+		return nil
+	}
+	base := filepath.Join(home, ".claude", "projects")
+	seen := make(map[string]bool)
+	var dirs []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		enc := filepath.Join(base, encodeClaudeProjectDir(p))
+		if !seen[enc] {
+			seen[enc] = true
+			dirs = append(dirs, enc)
+		}
+	}
+	add(workdir)
+	if resolved, err := filepath.EvalSymlinks(workdir); err == nil {
+		add(resolved)
+	}
+	return dirs
+}
+
 func (d *ClaudeDriver) setLastSummary(taskID, text string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -74,35 +107,72 @@ func (d *ClaudeDriver) setLastSummary(taskID, text string) {
 	d.lastSummary[taskID] = text
 }
 
-func (d *ClaudeDriver) getAndClearLastSummary(taskID string) string {
+func (d *ClaudeDriver) getAndClearState(taskID string) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.lastSummary == nil {
-		return ""
+	var s string
+	if d.lastSummary != nil {
+		s = d.lastSummary[taskID]
+		delete(d.lastSummary, taskID)
 	}
-	s := d.lastSummary[taskID]
-	delete(d.lastSummary, taskID)
+	if d.seenUsage != nil {
+		delete(d.seenUsage, taskID)
+	}
 	return s
 }
 
-func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit func(TelemetryEvent)) {
-	startTime := time.Now().Add(-2 * time.Second)
-	home, _ := os.UserHomeDir()
-	projectDir := ""
-	if home != "" && opts.Workdir != "" {
-		projectDir = filepath.Join(home, ".claude", "projects", encodeClaudeProjectDir(opts.Workdir))
+func (d *ClaudeDriver) computeUsageDelta(taskID, model string, cumIn, cumOut int64) (int64, int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.seenUsage == nil {
+		d.seenUsage = make(map[string]map[string]usageCounter)
 	}
+	byModel := d.seenUsage[taskID]
+	if byModel == nil {
+		byModel = make(map[string]usageCounter)
+		d.seenUsage[taskID] = byModel
+	}
+	prev := byModel[model]
+	dIn := cumIn - prev.in
+	dOut := cumOut - prev.out
+	if dIn < 0 {
+		dIn = 0
+	}
+	if dOut < 0 {
+		dOut = 0
+	}
+	if cumIn > prev.in {
+		prev.in = cumIn
+	}
+	if cumOut > prev.out {
+		prev.out = cumOut
+	}
+	byModel[model] = prev
+	return dIn, dOut
+}
+
+func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit func(TelemetryEvent)) {
+	startTime := time.Now().Add(-3 * time.Second)
+	projectDirs := claudeCandidateProjectDirs(opts.Workdir)
 
 	offsets := make(map[string]int64)
-	ticker := time.NewTicker(750 * time.Millisecond)
+	ticker := time.NewTicker(600 * time.Millisecond)
 	defer ticker.Stop()
+
+	pollAll := func() {
+		for _, dir := range projectDirs {
+			d.pollJSONLDir(opts.TaskID, dir, startTime, offsets, emit)
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			pollAll()
 			return
 		case line, ok := <-opts.OutputLines:
 			if !ok {
+				pollAll()
 				return
 			}
 			clean := strings.TrimSpace(StripANSI(line))
@@ -110,17 +180,18 @@ func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, em
 				continue
 			}
 			lower := strings.ToLower(clean)
-			if strings.Contains(lower, "do you want to") || strings.Contains(lower, "allow this") || strings.Contains(lower, "[y/n]") {
+			if strings.Contains(lower, "do you want to") ||
+				strings.Contains(lower, "allow this") ||
+				strings.Contains(lower, "yes, allow") ||
+				strings.Contains(lower, "allow once") ||
+				strings.Contains(lower, "[y/n]") {
 				emit(TelemetryEvent{
 					Kind:    "waiting_input",
 					Message: clean,
 				})
 			}
 		case <-ticker.C:
-			if projectDir == "" {
-				continue
-			}
-			d.pollJSONLDir(opts.TaskID, projectDir, startTime, offsets, emit)
+			pollAll()
 		}
 	}
 }
@@ -129,8 +200,15 @@ type claudeJSONLLine struct {
 	Type    string `json:"type"`
 	Message *struct {
 		Role    string          `json:"role"`
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
+	ModelUsage map[string]struct {
+		InputTokens              int64 `json:"inputTokens"`
+		OutputTokens             int64 `json:"outputTokens"`
+		CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
+		CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
+	} `json:"modelUsage"`
 }
 
 type claudeContentBlock struct {
@@ -183,10 +261,32 @@ func (d *ClaudeDriver) pollJSONLDir(taskID, dir string, since time.Time, offsets
 
 func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(TelemetryEvent)) {
 	var rec claudeJSONLLine
-	if err := json.Unmarshal(raw, &rec); err != nil || rec.Message == nil {
+	if err := json.Unmarshal(raw, &rec); err != nil {
 		return
 	}
-	if rec.Message.Role != "assistant" || len(rec.Message.Content) == 0 {
+
+	// Capture cumulative modelUsage deltas from Claude Code cost-state entries.
+	if rec.Type == "cost-state" && len(rec.ModelUsage) > 0 {
+		for model, mu := range rec.ModelUsage {
+			totalIn := mu.InputTokens + mu.CacheReadInputTokens + mu.CacheCreationInputTokens
+			dIn, dOut := d.computeUsageDelta(taskID, model, totalIn, mu.OutputTokens)
+			if dIn > 0 || dOut > 0 {
+				emit(TelemetryEvent{
+					Kind:    "usage",
+					Message: fmt.Sprintf("Claude usage (%s): +%d in / +%d out", model, dIn, dOut),
+					Meta: map[string]any{
+						"provider":      "claude",
+						"model":         model,
+						"input_tokens":  dIn,
+						"output_tokens": dOut,
+					},
+				})
+			}
+		}
+		return
+	}
+
+	if rec.Message == nil || rec.Message.Role != "assistant" || len(rec.Message.Content) == 0 {
 		return
 	}
 
@@ -244,7 +344,7 @@ func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(Telem
 }
 
 func (d *ClaudeDriver) ExtractSummary(_ context.Context, opts SummaryOptions) string {
-	if s := d.getAndClearLastSummary(opts.TaskID); s != "" {
+	if s := d.getAndClearState(opts.TaskID); s != "" {
 		if len(s) > 2000 {
 			return s[:2000] + "..."
 		}

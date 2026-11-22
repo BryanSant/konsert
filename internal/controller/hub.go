@@ -453,6 +453,25 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		if err != nil {
 			return
 		}
+		// Record worker-scraped agent token usage (e.g. Claude JSONL cost-state) directly into usage_events.
+		if p.Kind == "usage" && p.Meta != nil {
+			prov, _ := p.Meta["provider"].(string)
+			model, _ := p.Meta["model"].(string)
+			inTok := metaInt64(p.Meta["input_tokens"])
+			outTok := metaInt64(p.Meta["output_tokens"])
+			if prov != "" && (inTok > 0 || outTok > 0) {
+				_ = h.store.RecordUsage(ctx, store.UsageEvent{
+					Provider:     prov,
+					Model:        model,
+					InputTokens:  inTok,
+					OutputTokens: outTok,
+				})
+				if sum, uErr := h.store.GetUsageSummary(ctx); uErr == nil {
+					h.broadcastJSON(protocol.MsgUsageUpdate, sum)
+				}
+			}
+			return
+		}
 		metaJSON := ""
 		if len(p.Meta) > 0 {
 			if b, err := json.Marshal(p.Meta); err == nil {
@@ -975,4 +994,17 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		}
 	}
 	h.broadcastJSON(protocol.MsgFleetUpdate, p)
+}
+
+func metaInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
 }

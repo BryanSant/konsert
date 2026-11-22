@@ -3,7 +3,6 @@ package drivers
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -19,11 +18,14 @@ type AgyDriver struct{}
 func (d *AgyDriver) Name() string { return "agy" }
 
 func (d *AgyDriver) Detect() (string, bool) {
-	p, err := exec.LookPath("agy")
-	return p, err == nil
+	return FindBinary("agy")
 }
 
 func (d *AgyDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	bin, ok := d.Detect()
+	if !ok {
+		bin = "agy"
+	}
 	args := []string{}
 	if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--dangerously-skip-permissions")
@@ -31,14 +33,14 @@ func (d *AgyDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		args = append(args, "--sandbox")
 	}
 	if opts.Mode == "interactive" {
-		if strings.TrimSpace(opts.Prompt) != "" {
-			args = append(args, "--prompt-interactive", opts.Prompt)
+		if p := strings.TrimSpace(opts.Prompt); p != "" {
+			args = append(args, "--prompt-interactive="+p)
 		}
 	} else {
-		args = append(args, "--print", opts.Prompt)
+		args = append(args, "--print="+opts.Prompt)
 	}
 	return LaunchSpec{
-		Binary: "agy",
+		Binary: bin,
 		Args:   args,
 		Env:    opts.Env,
 	}
@@ -57,18 +59,31 @@ func (d *AgyDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit 
 			if clean == "" {
 				continue
 			}
-			lower := strings.ToLower(clean)
-			switch {
-			case strings.Contains(lower, "approve") && (strings.Contains(lower, "[y/n]") || strings.Contains(lower, "confirm")):
-				emit(TelemetryEvent{Kind: "waiting_input", Message: clean})
-			case strings.HasPrefix(clean, "Edited ") || strings.HasPrefix(clean, "Created ") || strings.HasPrefix(clean, "Updated "):
-				emit(TelemetryEvent{Kind: "file_edit", Message: clean})
-			case strings.HasPrefix(clean, "Running ") || strings.HasPrefix(clean, "Executing ") || strings.HasPrefix(clean, "Tool: "):
-				emit(TelemetryEvent{Kind: "tool_call", Message: clean})
-			case strings.HasPrefix(lower, "error:") || strings.HasPrefix(lower, "fatal:"):
-				emit(TelemetryEvent{Kind: "error", Message: clean})
+			if ev, matched := classifyAgyLine(clean); matched {
+				emit(ev)
 			}
 		}
+	}
+}
+
+func classifyAgyLine(clean string) (TelemetryEvent, bool) {
+	lower := strings.ToLower(clean)
+	switch {
+	case (strings.Contains(lower, "approve") || strings.Contains(lower, "allow") || strings.Contains(lower, "permission")) &&
+		(strings.Contains(lower, "[y/n]") || strings.Contains(lower, "confirm") || strings.Contains(lower, "proceed")):
+		return TelemetryEvent{Kind: "waiting_input", Message: clean}, true
+	case strings.HasPrefix(clean, "Edited ") || strings.HasPrefix(clean, "Created ") ||
+		strings.HasPrefix(clean, "Updated ") || strings.HasPrefix(clean, "Wrote ") ||
+		strings.HasPrefix(clean, "Edit ") || strings.HasPrefix(clean, "Write "):
+		return TelemetryEvent{Kind: "file_edit", Message: clean}, true
+	case strings.HasPrefix(clean, "Running ") || strings.HasPrefix(clean, "Executing ") ||
+		strings.HasPrefix(clean, "Tool: ") || strings.HasPrefix(clean, "Read ") ||
+		strings.HasPrefix(clean, "Bash: ") || strings.HasPrefix(clean, "Search "):
+		return TelemetryEvent{Kind: "tool_call", Message: clean}, true
+	case strings.HasPrefix(lower, "error:") || strings.HasPrefix(lower, "fatal:"):
+		return TelemetryEvent{Kind: "error", Message: clean}, true
+	default:
+		return TelemetryEvent{}, false
 	}
 }
 
