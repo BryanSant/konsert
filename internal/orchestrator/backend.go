@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
@@ -66,47 +67,65 @@ type StreamCallbacks struct {
 
 // Service runs the built-in Orchestrator Chat backend with server-side tool execution.
 type Service struct {
+	mu       sync.RWMutex
 	cfg      config.OrchestratorConfig
 	store    store.Store
 	executor ToolExecutor
 	provider Provider
 }
 
-// NewService creates an Orchestrator Service for the configured LLM provider.
-func NewService(cfg config.OrchestratorConfig, st store.Store, executor ToolExecutor) *Service {
-	var prov Provider
+func buildProvider(cfg config.OrchestratorConfig) Provider {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "anthropic":
-		prov = NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
+		return NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
 	case "gemini":
-		prov = NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
+		return NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
 	default:
-		prov = NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
+		return NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
 	}
+}
+
+// NewService creates an Orchestrator Service for the configured LLM provider.
+func NewService(cfg config.OrchestratorConfig, st store.Store, executor ToolExecutor) *Service {
 	return &Service{
 		cfg:      cfg,
 		store:    st,
 		executor: executor,
-		provider: prov,
+		provider: buildProvider(cfg),
 	}
+}
+
+// UpdateConfig hot-reloads the LLM provider, model, base URL, and API key at runtime.
+func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg = cfg
+	s.provider = buildProvider(cfg)
 }
 
 // SetProvider replaces the LLM provider (useful for tests).
 func (s *Service) SetProvider(p Provider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.provider = p
 }
 
 // HandleUserMessage persists the user's message, runs the LLM + tool-calling loop,
 // persists assistant & tool turns, and streams events via cb.
 func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content string, cb StreamCallbacks) error {
+	s.mu.RLock()
+	cfg := s.cfg
+	prov := s.provider
+	s.mu.RUnlock()
+
 	sess, err := s.store.GetChatSession(ctx, sessionID)
 	if err != nil {
 		// Auto-create session if needed.
 		sess = store.ChatSession{
 			ID:        sessionID,
 			Title:     "Orchestrator",
-			Provider:  s.cfg.Provider,
-			Model:     s.cfg.Model,
+			Provider:  cfg.Provider,
+			Model:     cfg.Model,
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		}
@@ -129,10 +148,10 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		return err
 	}
 
-	if s.cfg.APIKey == "" && s.provider != nil && (s.provider.Name() == "openai" || s.provider.Name() == "anthropic" || s.provider.Name() == "gemini") {
+	if cfg.APIKey == "" && prov != nil && (prov.Name() == "openai" || prov.Name() == "anthropic" || prov.Name() == "gemini") {
 		// Allow local OpenAI-compatible servers (e.g. Ollama/vLLM) with custom BaseURL even without APIKey.
-		if s.cfg.BaseURL == "" {
-			msg := fmt.Sprintf("Orchestrator LLM API key is not configured for provider %q. Set KONSERT_LLM_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY) or configure an Ollama/vLLM base_url.", s.cfg.Provider)
+		if cfg.BaseURL == "" {
+			msg := fmt.Sprintf("Orchestrator LLM API key is not configured for provider %q. Open Settings (bottom-left) or set KONSERT_LLM_API_KEY to configure your provider.", cfg.Provider)
 			if cb.OnDelta != nil {
 				cb.OnDelta(sessionID, msg)
 			}
@@ -157,19 +176,19 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	}
 
 	system := defaultSystemPrompt
-	if s.cfg.SystemExtra != "" {
-		system += "\n\n" + s.cfg.SystemExtra
+	if cfg.SystemExtra != "" {
+		system += "\n\n" + cfg.SystemExtra
 	}
-	model := sess.Model
+	model := cfg.Model
 	if model == "" {
-		model = s.cfg.Model
+		model = sess.Model
 	}
 	tools := s.executor.ToolDefinitions()
 
 	const maxTurns = 10
 	var lastMsgID int64
 	for turn := 0; turn < maxTurns; turn++ {
-		reply, err := s.provider.Complete(ctx, model, system, history, tools, func(delta string) {
+		reply, err := prov.Complete(ctx, model, system, history, tools, func(delta string) {
 			if cb.OnDelta != nil && delta != "" {
 				cb.OnDelta(sessionID, delta)
 			}
@@ -182,9 +201,9 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		}
 
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
-			provName := s.cfg.Provider
-			if s.provider != nil {
-				provName = s.provider.Name()
+			provName := cfg.Provider
+			if prov != nil {
+				provName = prov.Name()
 			}
 			_ = s.store.RecordUsage(ctx, store.UsageEvent{
 				Provider:     provName,

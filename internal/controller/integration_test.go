@@ -534,3 +534,102 @@ func TestSpacesRESTAndTaskAssociation(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "settings-git.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// 1. Settings PUT & GET (API key must be masked as bool, never echoed)
+	putBody := `{"llm_provider":"anthropic","llm_model":"claude-sonnet-4-20250514","llm_api_key":"sk-ant-secret","terminal_font_size":14,"notify_desktop":true}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings", strings.NewReader(putBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/settings failed: resp=%v err=%v", resp, err)
+	}
+	var rawBuf bytes.Buffer
+	_, _ = rawBuf.ReadFrom(resp.Body)
+	_ = resp.Body.Close()
+	if strings.Contains(rawBuf.String(), "sk-ant-secret") {
+		t.Fatalf("API key leaked in settings response: %s", rawBuf.String())
+	}
+	var gotSettings settingsResponse
+	if err := json.Unmarshal(rawBuf.Bytes(), &gotSettings); err != nil {
+		t.Fatal(err)
+	}
+	if gotSettings.LLMProvider != "anthropic" || !gotSettings.LLMAPIKeySet || gotSettings.TerminalFontSize != 14 || !gotSettings.NotifyDesktop {
+		t.Fatalf("unexpected settings response: %+v", gotSettings)
+	}
+
+	// 2. Live Git Inspect & Commit over Worker WS RPC
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-git-1"
+	wCfg.EnableMockDriver = true
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-git-1")
+
+	repo := initTempGitRepo(t)
+	// Configure user inside temp repo for commit
+	for _, kv := range [][2]string{{"user.name", "Test"}, {"user.email", "test@example.com"}} {
+		cmd := exec.Command("git", "-C", repo, "config", kv[0], kv[1])
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git config failed: %v %s", err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("init\nchanged line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	inspResp, err := http.Get(ts.URL + "/api/git/inspect?worker_id=w-git-1&workdir=" + repo)
+	if err != nil || inspResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/git/inspect failed: resp=%v err=%v", inspResp, err)
+	}
+	var insp protocol.GitInspectResult
+	if err := json.NewDecoder(inspResp.Body).Decode(&insp); err != nil {
+		t.Fatal(err)
+	}
+	_ = inspResp.Body.Close()
+	if !insp.IsGitRepo || len(insp.Files) != 1 || insp.Files[0].Path != "README.md" || insp.Added < 1 {
+		t.Fatalf("unexpected git inspect result: %+v", insp)
+	}
+
+	commitPayload, _ := json.Marshal(map[string]any{
+		"worker_id": "w-git-1",
+		"workdir":   repo,
+		"message":   "update readme via RPC",
+		"stage_all": true,
+	})
+	cResp, err := http.Post(ts.URL+"/api/git/commit", "application/json", bytes.NewReader(commitPayload))
+	if err != nil || cResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/git/commit failed: resp=%v err=%v", cResp, err)
+	}
+	var cRes protocol.GitCommitResult
+	_ = json.NewDecoder(cResp.Body).Decode(&cRes)
+	_ = cResp.Body.Close()
+	if !cRes.OK || cRes.CommitSHA == "" {
+		t.Fatalf("expected successful commit RPC, got %+v", cRes)
+	}
+
+	cancel()
+	<-done
+}

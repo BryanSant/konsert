@@ -140,5 +140,8 @@ type Store interface {
 	RecordUsage(ctx context.Context, u UsageEvent) error
 	GetUsageSummary(ctx context.Context) (UsageSummary, error)
 
+	GetAllSettings(ctx context.Context) (map[string]string, error)
+	SetSettings(ctx context.Context, kv map[string]string) error
+
 	Close() error
 }

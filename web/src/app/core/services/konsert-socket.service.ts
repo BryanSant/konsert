@@ -8,6 +8,7 @@ import {
   FRAME_PTY_STDIN,
   FRAME_TASK_ID_SIZE,
   PtyFrameEvent,
+  Space,
   Task,
   TaskEvent,
   UsageSummary,
@@ -111,7 +112,14 @@ export class KonsertSocketService {
 
     switch (env.type) {
       case 'fleet.update': {
-        const p = env.payload as { kind: string; worker?: Worker; task?: Task; event?: TaskEvent } | undefined;
+        const p = env.payload as {
+          kind: string;
+          worker?: Worker;
+          task?: Task;
+          event?: TaskEvent;
+          space?: Space;
+          deleted_id?: string;
+        } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
           this.fleetStore.upsertWorker(p.worker);
@@ -119,6 +127,10 @@ export class KonsertSocketService {
           this.fleetStore.upsertTask(p.task);
         } else if (p.kind === 'event' && p.event) {
           this.telemetryStore.appendEvent(p.event);
+        } else if (p.kind === 'space' && p.space) {
+          this.fleetStore.upsertSpace(p.space);
+        } else if (p.kind === 'space_deleted' && p.deleted_id) {
+          this.fleetStore.removeSpace(p.deleted_id);
         }
         break;
       }

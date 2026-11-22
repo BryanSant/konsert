@@ -105,4 +105,43 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     tabs.closeTab('task-direct');
     expect(tabs.activeTabId()).toBe('task-orch');
   });
+
+  it('scopes visible tabs to active Space when multiple tabs share a Space', () => {
+    TestBed.configureTestingModule({});
+    const fleet = TestBed.inject(FleetStore);
+    const tabs = TestBed.inject(TabsStore);
+
+    const space = {
+      id: 'sp-1',
+      worker_id: 'w1',
+      name: 'konsert',
+      path: '/home/dev/konsert',
+      created_at: new Date().toISOString(),
+    };
+    fleet.upsertSpace(space);
+
+    const shellTask: Task = {
+      id: 't-shell',
+      worker_id: 'w1',
+      space_id: 'sp-1',
+      agent: 'shell',
+      workdir: '/home/dev/konsert',
+      effective_dir: '/home/dev/konsert',
+      branch: '',
+      mode: 'interactive',
+      origin: 'direct',
+      permission_mode: 'full_access',
+      orphan_policy: 'fail',
+      prompt: '',
+      status: 'running',
+      summary: '',
+      created_at: new Date().toISOString(),
+    };
+    const claudeTask: Task = { ...shellTask, id: 't-claude', agent: 'claude' };
+
+    tabs.selectSpace(space, [shellTask, claudeTask], 'bocabox');
+    expect(tabs.activeSpaceId()).toBe('sp-1');
+    expect(tabs.visibleTabs().length).toBe(3); // Orchestrator + shell + claude
+    expect(tabs.activeTabId()).toBe('t-shell');
+  });
 });

@@ -1,6 +1,6 @@
 import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PermissionMode, Worker } from '../core/models/konsert.models';
+import { PermissionMode, Space, Worker } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
@@ -11,6 +11,7 @@ import { XtermPaneComponent } from '../features/terminal/xterm-pane.component';
 import { IconComponent } from '../shared/icon.component';
 import { FleetSidebarComponent } from './fleet-sidebar.component';
 import { FloatingScratchComponent } from './floating-scratch.component';
+import { SettingsModalComponent } from './settings-modal.component';
 import { StatusFooterComponent } from './status-footer.component';
 import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.component';
 
@@ -36,6 +37,7 @@ interface PaletteItem {
     TelemetryDrawerComponent,
     StatusFooterComponent,
     FloatingScratchComponent,
+    SettingsModalComponent,
     OrchestratorChatComponent,
     XtermPaneComponent,
   ],
@@ -79,9 +81,18 @@ interface PaletteItem {
           </button>
         </div>
 
-        <!-- Center Minimal Herdr-style Tab Strip -->
+        <!-- Center Minimal Herdr-style Tab Strip (scoped to active Space when selected) -->
         <div class="flex-1 flex items-center gap-1 px-2 h-full overflow-x-auto min-w-0">
-          @for (tab of tabs.openTabs(); track tab.id) {
+          @if (activeSpace(); as sp) {
+            <span class="inline-flex items-center gap-1.5 rounded bg-[#1d2026] border border-[#2c2f38] px-2 py-0.5 text-[11px] text-[#b4b6be] shrink-0 mr-1">
+              <span class="h-3.5 w-3.5 rounded flex items-center justify-center text-[9px] font-semibold bg-[#1f8a8c]/85 text-white">
+                {{ sp.name === '~' ? '~' : sp.name.slice(0, 1).toUpperCase() }}
+              </span>
+              <span class="font-medium text-[#e4e4e7]">{{ sp.name }}</span>
+            </span>
+          }
+
+          @for (tab of tabs.visibleTabs(); track tab.id) {
             <div
               (click)="tabs.selectTab(tab.id)"
               class="group flex items-center gap-1.5 px-2.5 py-1 text-[12px] rounded-md cursor-pointer shrink-0 transition-all duration-150"
@@ -111,8 +122,8 @@ interface PaletteItem {
 
           <button
             type="button"
-            (click)="openSessionModal('direct', null)"
-            title="New direct session"
+            (click)="openNewTabInActiveContext()"
+            [title]="activeSpace() ? 'New tab in ' + activeSpace()!.name : 'New direct session'"
             class="rounded-md p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
           >
             <app-icon name="plus" [size]="14" />
@@ -192,8 +203,10 @@ interface PaletteItem {
         >
           <div class="w-[250px] h-full">
             <app-fleet-sidebar
-              (openDirectForWorker)="openSessionModal('direct', $event)"
+              (openNewSpace)="openNewSpaceModal($event)"
+              (spaceSelected)="handleSpaceSelected($event)"
               (openAddMachine)="addMachineOpen.set(true)"
+              (openSettings)="settingsOpen.set(true)"
             />
           </div>
         </aside>
@@ -204,8 +217,10 @@ interface PaletteItem {
             <div class="ks-drawer-left w-[82vw] max-w-[290px] h-full border-r border-[#26282e] shadow-2xl z-10">
               <app-fleet-sidebar
                 (taskSelected)="mobileFleetOpen.set(false)"
-                (openDirectForWorker)="mobileFleetOpen.set(false); openSessionModal('direct', $event)"
+                (openNewSpace)="mobileFleetOpen.set(false); openNewSpaceModal($event)"
+                (spaceSelected)="mobileFleetOpen.set(false); handleSpaceSelected($event)"
                 (openAddMachine)="mobileFleetOpen.set(false); addMachineOpen.set(true)"
+                (openSettings)="mobileFleetOpen.set(false); settingsOpen.set(true)"
               />
             </div>
             <div class="ks-backdrop flex-1" (click)="mobileFleetOpen.set(false)"></div>
@@ -266,6 +281,102 @@ interface PaletteItem {
 
       <!-- Orca-style Floating Scratch Workspace -->
       <app-floating-scratch />
+
+      <!-- Settings Modal (KON-0Q95Z) -->
+      @if (settingsOpen()) {
+        <app-settings-modal (close)="settingsOpen.set(false)" />
+      }
+
+      <!-- NEW SPACE MODAL (Herdr-style per-machine persisted Space) -->
+      @if (newSpaceModalOpen()) {
+        <div class="ks-backdrop fixed inset-0 z-50 flex items-center justify-center px-4" (click)="newSpaceModalOpen.set(false)">
+          <div class="ks-modal w-full max-w-md rounded-xl border border-[#30323c] bg-[#18191d]/95 backdrop-blur-xl p-5 space-y-4" (click)="$event.stopPropagation()">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-[14px] font-semibold text-[#ececed]">New Space</h3>
+                <p class="text-[11px] text-[#8e9098]">Save a folder or worktree on a machine with multi-tab sessions.</p>
+              </div>
+              <button type="button" (click)="newSpaceModalOpen.set(false)" class="ks-kbd cursor-pointer">Esc</button>
+            </div>
+
+            <form (ngSubmit)="submitNewSpace()" class="space-y-3 text-[12px]">
+              <div>
+                <label class="block text-[11px] text-[#8e9098] mb-1">Machine</label>
+                <select
+                  name="spWorker"
+                  [ngModel]="newSpaceWorkerId()"
+                  (ngModelChange)="newSpaceWorkerId.set($event)"
+                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                >
+                  @for (w of fleet.workers(); track w.id) {
+                    <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] text-[#8e9098] mb-1">Directory Path</label>
+                <input
+                  type="text"
+                  name="spPath"
+                  [ngModel]="newSpacePath()"
+                  (ngModelChange)="newSpacePath.set($event)"
+                  placeholder="~ or /home/user/src/my-repo"
+                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] text-[#8e9098] mb-1">Space Name (optional)</label>
+                  <input
+                    type="text"
+                    name="spName"
+                    [ngModel]="newSpaceName()"
+                    (ngModelChange)="newSpaceName.set($event)"
+                    placeholder="auto from folder"
+                    class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] text-[#8e9098] mb-1">First Tab</label>
+                  <select
+                    name="spAgent"
+                    [ngModel]="newSpaceInitialAgent()"
+                    (ngModelChange)="newSpaceInitialAgent.set($event)"
+                    class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                  >
+                    <option value="shell">shell (zsh / bash)</option>
+                    <option value="claude">claude</option>
+                    <option value="agy">agy</option>
+                    <option value="grok">grok</option>
+                    <option value="mock">mock</option>
+                  </select>
+                </div>
+              </div>
+
+              @if (newSpaceError()) {
+                <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[#f09595]">
+                  {{ newSpaceError() }}
+                </div>
+              }
+
+              <div class="flex justify-end gap-2 pt-1">
+                <button type="button" (click)="newSpaceModalOpen.set(false)" class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#a1a3ab] cursor-pointer">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  [disabled]="creatingSpace() || !newSpaceWorkerId() || !newSpacePath().trim()"
+                  class="rounded-md bg-[#ececed] hover:bg-white disabled:opacity-40 px-4 py-1.5 font-medium text-[#111214] cursor-pointer"
+                >
+                  {{ creatingSpace() ? 'Creating...' : 'Create Space' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      }
 
       <!-- DUAL-MODE MODAL: DIRECT SESSION vs ORCHESTRATED JOB (Frosted Blur + Springy Entrance) -->
       @if (dispatchModalOpen()) {
@@ -640,6 +751,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   // Dual-mode session / job modal
   readonly dispatchModalOpen = signal(false);
   readonly modalOrigin = signal<'direct' | 'orchestrator'>('direct');
+  readonly dispatchSpaceId = signal<string | null>(null);
   readonly dispatchAgent = signal('shell');
   readonly dispatchMode = signal<'oneshot' | 'interactive'>('interactive');
   readonly dispatchWorkerId = signal('');
@@ -649,6 +761,18 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly dispatchPrompt = signal('');
   readonly dispatching = signal(false);
   readonly dispatchError = signal('');
+
+  // New Space modal
+  readonly newSpaceModalOpen = signal(false);
+  readonly newSpaceWorkerId = signal('');
+  readonly newSpacePath = signal('~');
+  readonly newSpaceName = signal('');
+  readonly newSpaceInitialAgent = signal('shell');
+  readonly creatingSpace = signal(false);
+  readonly newSpaceError = signal('');
+
+  // Settings modal
+  readonly settingsOpen = signal(false);
 
   // Add Machine modal
   readonly addMachineOpen = signal(false);
@@ -660,6 +784,11 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly commandPaletteOpen = signal(false);
   readonly commandQuery = signal('');
   readonly paletteIndex = signal(0);
+
+  readonly activeSpace = computed(() => {
+    const sid = this.tabs.activeSpaceId();
+    return sid ? this.fleet.spacesById()[sid] : undefined;
+  });
 
   readonly connectCommand = computed(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -745,6 +874,13 @@ export class AppShellComponent implements OnInit, OnDestroy {
         action: () => this.addMachineOpen.set(true),
       },
       {
+        id: 'act-settings',
+        label: 'Open Settings (LLM, Terminal, Alerts)',
+        section: 'actions',
+        icon: 'settings',
+        action: () => this.settingsOpen.set(true),
+      },
+      {
         id: 'act-left',
         label: 'Toggle Left Sidebar',
         section: 'actions',
@@ -795,11 +931,14 @@ export class AppShellComponent implements OnInit, OnDestroy {
       this.commandPaletteOpen.set(false);
       this.addMachineOpen.set(false);
       this.dispatchModalOpen.set(false);
+      this.newSpaceModalOpen.set(false);
+      this.settingsOpen.set(false);
     }
   }
 
   ngOnInit(): void {
     void this.fleet.refresh();
+    void this.fleet.loadSettings();
     this.socket.connect();
   }
 
@@ -848,16 +987,108 @@ export class AppShellComponent implements OnInit, OnDestroy {
     fn();
   }
 
-  openSessionModal(origin: 'direct' | 'orchestrator', worker: Worker | null): void {
+  openNewTabInActiveContext(): void {
+    const sp = this.activeSpace();
+    if (sp) {
+      const w = this.fleet.workersById()[sp.worker_id] ?? null;
+      this.openSessionModal('direct', w, sp);
+      return;
+    }
+    this.openSessionModal('direct', null);
+  }
+
+  openNewSpaceModal(worker: Worker | null): void {
+    this.newSpaceError.set('');
+    const target = worker || this.fleet.workers().find((w) => w.status === 'online') || this.fleet.workers()[0];
+    this.newSpaceWorkerId.set(target?.id || '');
+    this.newSpacePath.set('~');
+    this.newSpaceName.set('');
+    this.newSpaceInitialAgent.set('shell');
+    this.newSpaceModalOpen.set(true);
+  }
+
+  async submitNewSpace(): Promise<void> {
+    this.creatingSpace.set(true);
+    this.newSpaceError.set('');
+    try {
+      const sp = await this.api.createSpace({
+        worker_id: this.newSpaceWorkerId(),
+        path: this.newSpacePath().trim() || '~',
+        name: this.newSpaceName().trim() || undefined,
+      });
+      this.fleet.upsertSpace(sp);
+      const res = await this.api.dispatchTask({
+        space_id: sp.id,
+        agent: this.newSpaceInitialAgent(),
+        mode: 'interactive',
+        origin: 'direct',
+        permission_mode: this.fleet.settings().default_permission_mode,
+      });
+      await this.fleet.refresh();
+      const task = this.fleet.tasksById()[res.task_id];
+      const w = this.fleet.workersById()[sp.worker_id];
+      if (task) {
+        this.tabs.openTaskTab(task, w?.name);
+      }
+      this.newSpaceModalOpen.set(false);
+    } catch (err) {
+      this.newSpaceError.set(err instanceof Error ? err.message : 'Failed to create space');
+    } finally {
+      this.creatingSpace.set(false);
+    }
+  }
+
+  async handleSpaceSelected(ev: { space: Space; worker: Worker }): Promise<void> {
+    const spaceTasks = this.fleet
+      .tasks()
+      .filter((t) => t.space_id === ev.space.id && (t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned'));
+    if (spaceTasks.length > 0) {
+      this.tabs.selectSpace(ev.space, spaceTasks, ev.worker.name);
+      return;
+    }
+    // Check if there are already mounted tabs for this space
+    const existingTabs = this.tabs.openTabs().filter((t) => t.spaceId === ev.space.id);
+    if (existingTabs.length > 0) {
+      this.tabs.activeSpaceId.set(ev.space.id);
+      this.tabs.activeTabId.set(existingTabs[0].id);
+      return;
+    }
+    // Otherwise launch a fresh interactive shell tab inside this Space automatically (Herdr feel!)
+    this.tabs.activeSpaceId.set(ev.space.id);
+    if (ev.worker.status === 'online') {
+      try {
+        const res = await this.api.dispatchTask({
+          space_id: ev.space.id,
+          agent: 'shell',
+          mode: 'interactive',
+          origin: 'direct',
+          permission_mode: this.fleet.settings().default_permission_mode,
+        });
+        await this.fleet.refresh();
+        const task = this.fleet.tasksById()[res.task_id];
+        if (task) {
+          this.tabs.openTaskTab(task, ev.worker.name);
+        }
+      } catch {
+        this.openSessionModal('direct', ev.worker, ev.space);
+      }
+    }
+  }
+
+  openSessionModal(origin: 'direct' | 'orchestrator', worker: Worker | null, space: Space | null = null): void {
     this.dispatchError.set('');
     this.modalOrigin.set(origin);
-    this.dispatchWorkerId.set(worker?.id || '');
+    this.dispatchSpaceId.set(space?.id || null);
+    this.dispatchWorkerId.set(space?.worker_id || worker?.id || '');
+    this.dispatchPerm.set(this.fleet.settings().default_permission_mode || 'full_access');
     if (origin === 'direct') {
       this.dispatchMode.set('interactive');
-      this.dispatchRepo.set('~');
+      this.dispatchRepo.set(space?.path || '~');
+      this.dispatchBranch.set(space?.branch || '');
       this.dispatchAgent.set('shell');
     } else {
       this.dispatchMode.set('oneshot');
+      this.dispatchRepo.set(space?.path || '~');
       const target = worker || this.fleet.workers().find((w) => w.status === 'online');
       const preferred = target?.agents.find((a) => a !== 'shell') || 'mock';
       this.dispatchAgent.set(preferred);
@@ -892,6 +1123,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
     try {
       const res = await this.api.dispatchTask({
         worker_selector: this.dispatchWorkerId() ? { worker_id: this.dispatchWorkerId() } : undefined,
+        space_id: this.dispatchSpaceId() || undefined,
         agent: this.dispatchAgent(),
         repo_path: this.dispatchRepo().trim() || '~',
         branch: this.dispatchBranch().trim() || undefined,

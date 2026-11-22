@@ -1,17 +1,20 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/auth"
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/orchestrator"
+	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -19,6 +22,7 @@ import (
 
 // Server wires together HTTP REST API, Browser WS, Worker WS, MCP HTTP, and Embedded PWA.
 type Server struct {
+	cfgMu   sync.RWMutex
 	cfg     config.ControllerConfig
 	store   store.Store
 	auth    *auth.Manager
@@ -34,6 +38,10 @@ type Server struct {
 func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger, version string) *Server {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	// Apply persisted settings from SQLite over startup defaults if present.
+	if saved, err := st.GetAllSettings(context.Background()); err == nil {
+		applySavedOrchestratorSettings(&cfg.Orchestrator, saved)
 	}
 	authMgr := auth.NewManager(auth.Options{
 		FleetToken:            cfg.FleetToken,
@@ -85,6 +93,11 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
 	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
 	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.handleDeleteSpace))
+	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
+	s.mux.Handle("PUT /api/settings", s.requireBrowserAuth(s.handleUpdateSettings))
+	s.mux.Handle("GET /api/git/inspect", s.requireBrowserAuth(s.handleGitInspect))
+	s.mux.Handle("POST /api/git/commit", s.requireBrowserAuth(s.handleGitCommit))
+	s.mux.Handle("POST /api/git/worktree/cleanup", s.requireBrowserAuth(s.handleGitWorktreeCleanup))
 	s.mux.Handle("GET /api/tasks", s.requireBrowserAuth(s.handleListTasks))
 	s.mux.Handle("POST /api/tasks", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/tasks/{id}", s.requireBrowserAuth(s.handleGetTask))
@@ -161,13 +174,18 @@ func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.auth.AuthenticateBrowser(r)
+	s.cfgMu.RLock()
+	prov := s.cfg.Orchestrator.Provider
+	model := s.cfg.Orchestrator.Model
+	fleetTokReq := s.cfg.FleetToken != ""
+	s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated":        ok,
 		"auth_required":        s.auth.AuthRequired(),
-		"fleet_token_required": s.cfg.FleetToken != "",
+		"fleet_token_required": fleetTokReq,
 		"user":                 user,
-		"provider":             s.cfg.Orchestrator.Provider,
-		"model":                s.cfg.Orchestrator.Model,
+		"provider":             prov,
+		"model":                model,
 	})
 }
 
@@ -288,6 +306,276 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, usage)
+}
+
+func applySavedOrchestratorSettings(orch *config.OrchestratorConfig, saved map[string]string) {
+	if v := strings.TrimSpace(saved["llm_provider"]); v != "" {
+		orch.Provider = v
+	}
+	if v := strings.TrimSpace(saved["llm_model"]); v != "" {
+		orch.Model = v
+	}
+	if v, ok := saved["llm_base_url"]; ok {
+		orch.BaseURL = strings.TrimSpace(v)
+	}
+	if v := strings.TrimSpace(saved["llm_api_key"]); v != "" {
+		orch.APIKey = v
+	}
+}
+
+type settingsResponse struct {
+	LLMProvider           string `json:"llm_provider"`
+	LLMModel              string `json:"llm_model"`
+	LLMBaseURL            string `json:"llm_base_url"`
+	LLMAPIKeySet          bool   `json:"llm_api_key_set"`
+	DefaultPermissionMode string `json:"default_permission_mode"`
+	TerminalFontSize      int    `json:"terminal_font_size"`
+	NotifySound           bool   `json:"notify_sound"`
+	NotifyDesktop         bool   `json:"notify_desktop"`
+}
+
+func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
+	saved, _ := s.store.GetAllSettings(ctx)
+	s.cfgMu.RLock()
+	orch := s.cfg.Orchestrator
+	s.cfgMu.RUnlock()
+
+	perm := saved["default_permission_mode"]
+	if perm == "" {
+		perm = protocol.PermissionFullAccess
+	}
+	fontSize, _ := strconv.Atoi(saved["terminal_font_size"])
+	if fontSize < 10 || fontSize > 24 {
+		fontSize = 13
+	}
+	notifySound := saved["notify_sound"] != "false"
+	notifyDesktop := saved["notify_desktop"] == "true"
+
+	return settingsResponse{
+		LLMProvider:           orch.Provider,
+		LLMModel:              orch.Model,
+		LLMBaseURL:            orch.BaseURL,
+		LLMAPIKeySet:          orch.APIKey != "",
+		DefaultPermissionMode: perm,
+		TerminalFontSize:      fontSize,
+		NotifySound:           notifySound,
+		NotifyDesktop:         notifyDesktop,
+	}
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.buildSettingsResponse(r.Context()))
+}
+
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		LLMProvider           *string `json:"llm_provider"`
+		LLMModel              *string `json:"llm_model"`
+		LLMBaseURL            *string `json:"llm_base_url"`
+		LLMAPIKey             *string `json:"llm_api_key"`
+		ClearAPIKey           bool    `json:"clear_api_key"`
+		DefaultPermissionMode *string `json:"default_permission_mode"`
+		TerminalFontSize      *int    `json:"terminal_font_size"`
+		NotifySound           *bool   `json:"notify_sound"`
+		NotifyDesktop         *bool   `json:"notify_desktop"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	updates := make(map[string]string)
+	s.cfgMu.Lock()
+	if body.LLMProvider != nil {
+		v := strings.TrimSpace(*body.LLMProvider)
+		if v != "" {
+			s.cfg.Orchestrator.Provider = v
+			updates["llm_provider"] = v
+		}
+	}
+	if body.LLMModel != nil {
+		v := strings.TrimSpace(*body.LLMModel)
+		s.cfg.Orchestrator.Model = v
+		updates["llm_model"] = v
+	}
+	if body.LLMBaseURL != nil {
+		v := strings.TrimSpace(*body.LLMBaseURL)
+		s.cfg.Orchestrator.BaseURL = v
+		updates["llm_base_url"] = v
+	}
+	if body.ClearAPIKey {
+		s.cfg.Orchestrator.APIKey = ""
+		updates["llm_api_key"] = ""
+	} else if body.LLMAPIKey != nil && strings.TrimSpace(*body.LLMAPIKey) != "" {
+		v := strings.TrimSpace(*body.LLMAPIKey)
+		s.cfg.Orchestrator.APIKey = v
+		updates["llm_api_key"] = v
+	}
+	orchCfg := s.cfg.Orchestrator
+	s.cfgMu.Unlock()
+
+	if body.DefaultPermissionMode != nil {
+		v := strings.TrimSpace(*body.DefaultPermissionMode)
+		if v == protocol.PermissionFullAccess || v == protocol.PermissionSandboxed {
+			updates["default_permission_mode"] = v
+		}
+	}
+	if body.TerminalFontSize != nil && *body.TerminalFontSize >= 10 && *body.TerminalFontSize <= 24 {
+		updates["terminal_font_size"] = strconv.Itoa(*body.TerminalFontSize)
+	}
+	if body.NotifySound != nil {
+		updates["notify_sound"] = strconv.FormatBool(*body.NotifySound)
+	}
+	if body.NotifyDesktop != nil {
+		updates["notify_desktop"] = strconv.FormatBool(*body.NotifyDesktop)
+	}
+
+	if err := s.store.SetSettings(r.Context(), updates); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.orch.UpdateConfig(orchCfg)
+	writeJSON(w, http.StatusOK, s.buildSettingsResponse(r.Context()))
+}
+
+func (s *Server) resolveGitTarget(ctx context.Context, workerID, workdir, taskID, spaceID string) (string, string, error) {
+	if taskID != "" {
+		t, err := s.store.GetTask(ctx, taskID)
+		if err != nil {
+			return "", "", err
+		}
+		if workerID == "" {
+			workerID = t.WorkerID
+		}
+		if workdir == "" {
+			if t.EffectiveDir != "" {
+				workdir = t.EffectiveDir
+			} else {
+				workdir = t.Workdir
+			}
+		}
+	}
+	if spaceID != "" {
+		sp, err := s.store.GetSpace(ctx, spaceID)
+		if err != nil {
+			return "", "", err
+		}
+		if workerID == "" {
+			workerID = sp.WorkerID
+		}
+		if workdir == "" {
+			workdir = sp.Path
+		}
+	}
+	if workerID == "" || workdir == "" {
+		return "", "", errors.New("worker_id and workdir (or task_id/space_id) are required")
+	}
+	return workerID, workdir, nil
+}
+
+func (s *Server) handleGitInspect(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), q.Get("worker_id"), q.Get("workdir"), q.Get("task_id"), q.Get("space_id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	rpcCtx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	env, err := s.hub.RequestWorker(rpcCtx, workerID, protocol.MsgGitInspect, protocol.GitInspectRequest{Workdir: workdir})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	res, err := protocol.DecodePayload[protocol.GitInspectResult](env)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkerID string `json:"worker_id"`
+		Workdir  string `json:"workdir"`
+		TaskID   string `json:"task_id"`
+		SpaceID  string `json:"space_id"`
+		Message  string `json:"message"`
+		StageAll *bool  `json:"stage_all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, body.SpaceID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	stageAll := true
+	if body.StageAll != nil {
+		stageAll = *body.StageAll
+	}
+	rpcCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	env, err := s.hub.RequestWorker(rpcCtx, workerID, protocol.MsgGitCommit, protocol.GitCommitRequest{
+		Workdir:  workdir,
+		Message:  body.Message,
+		StageAll: stageAll,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	res, err := protocol.DecodePayload[protocol.GitCommitResult](env)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if res.OK && body.TaskID != "" {
+		ev := store.TaskEvent{
+			TaskID:    body.TaskID,
+			Kind:      "control",
+			Message:   "Git commit " + res.CommitSHA + ": " + strings.TrimSpace(body.Message),
+			CreatedAt: time.Now().UTC(),
+		}
+		if id, err := s.store.AppendEvent(r.Context(), ev); err == nil {
+			ev.ID = id
+		}
+		s.hub.broadcastFleetUpdate("event", ev)
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleGitWorktreeCleanup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		WorkerID string `json:"worker_id"`
+		Workdir  string `json:"workdir"`
+		TaskID   string `json:"task_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, "")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	rpcCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	env, err := s.hub.RequestWorker(rpcCtx, workerID, protocol.MsgGitWorktreeCleanup, protocol.GitWorktreeCleanupRequest{Workdir: workdir})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	res, err := protocol.DecodePayload[protocol.GitWorktreeCleanupResult](env)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {

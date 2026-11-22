@@ -1,8 +1,9 @@
 import { Component, OnDestroy, OnInit, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Task, Worker } from '../core/models/konsert.models';
+import { Space, Task, Worker } from '../core/models/konsert.models';
+import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
-import { FleetStore, basenamePath } from '../core/state/fleet.store';
+import { FleetStore } from '../core/state/fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 
@@ -20,7 +21,7 @@ import { IconComponent } from '../shared/icon.component';
             type="text"
             [ngModel]="query()"
             (ngModelChange)="query.set($event)"
-            placeholder="Search machines, agents..."
+            placeholder="Search spaces, agents..."
             class="w-full rounded-md border border-transparent bg-[#1f2025] focus:border-[#343741] pl-8 pr-2.5 py-1.5 text-[12px] text-[#e4e4e7] placeholder-[#686a72] focus:outline-none transition"
           />
         </div>
@@ -49,11 +50,11 @@ import { IconComponent } from '../shared/icon.component';
       <!-- Herdr-style Spaces / Machines Tree (Upper Section) -->
       <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-0.5">
         <div class="flex items-center justify-between px-1.5 py-1 text-[11px] font-medium text-[#787a82]">
-          <span>Machines</span>
+          <span>Spaces</span>
           <button
             type="button"
-            (click)="openDirectForWorker.emit(null)"
-            title="New direct session"
+            (click)="openNewSpace.emit(null)"
+            title="New space on a machine"
             class="rounded hover:bg-[#24262d] p-0.5 text-[#787a82] hover:text-[#ececed] transition cursor-pointer"
           >
             <app-icon name="plus" [size]="13" />
@@ -69,10 +70,8 @@ import { IconComponent } from '../shared/icon.component';
         @for (group of filteredGroups(); track group.hostGroup) {
           @for (node of group.workers; track node.worker.id) {
             <div class="space-y-0.5">
-              <!-- Machine Row (Herdr style: icon + name on left; + button, soft green dot, chevron on right) -->
-              <div
-                class="group flex items-center justify-between gap-1 rounded-md px-1.5 py-1 hover:bg-[#1e2026] transition"
-              >
+              <!-- Machine Row -->
+              <div class="group flex items-center justify-between gap-1 rounded-md px-1.5 py-1 hover:bg-[#1e2026] transition">
                 <button
                   type="button"
                   (click)="toggleWorker(node.worker.id)"
@@ -94,8 +93,8 @@ import { IconComponent } from '../shared/icon.component';
                 <div class="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    (click)="openDirectForWorker.emit(node.worker)"
-                    title="New direct session on {{ node.worker.name }}"
+                    (click)="openNewSpace.emit(node.worker)"
+                    title="New space on {{ node.worker.name }}"
                     class="opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                   >
                     <app-icon name="plus" [size]="12" />
@@ -117,47 +116,51 @@ import { IconComponent } from '../shared/icon.component';
                 </div>
               </div>
 
-              <!-- Nested Spaces / Sessions on this Machine -->
+              <!-- Nested Persisted Spaces on this Machine (Herdr exact feel!) -->
               @if (!isCollapsed(node.worker.id)) {
                 <div class="pl-2 space-y-0.5 pb-1">
-                  @for (task of node.tasks; track task.id) {
-                    <button
-                      type="button"
-                      (click)="selectTask(task, node.worker)"
-                      class="w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition cursor-pointer"
-                      [class.bg-[#24262e]]="tabs.activeTabId() === task.id"
-                      [class.text-[#f4f4f5]]="tabs.activeTabId() === task.id"
-                      [class.hover:bg-[#1c1e24]]="tabs.activeTabId() !== task.id"
-                      [class.text-[#b4b6be]]="tabs.activeTabId() !== task.id"
+                  @for (sp of node.spaces; track sp.id) {
+                    <div
+                      (click)="onSelectSpace(sp, node.worker)"
+                      class="group/sp w-full flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition cursor-pointer"
+                      [class.bg-[#24262e]]="tabs.activeSpaceId() === sp.id"
+                      [class.text-[#f4f4f5]]="tabs.activeSpaceId() === sp.id"
+                      [class.hover:bg-[#1c1e24]]="tabs.activeSpaceId() !== sp.id"
+                      [class.text-[#b4b6be]]="tabs.activeSpaceId() !== sp.id"
                     >
                       <div class="flex items-center gap-2 min-w-0">
-                        <span
-                          class="h-4 w-4 rounded flex items-center justify-center text-[10px] font-semibold shrink-0"
-                          [class.bg-[#1f8a8c]/85]="task.origin === 'direct'"
-                          [class.text-white]="task.origin === 'direct'"
-                          [class.bg-[#2c3340]]="task.origin !== 'direct'"
-                          [class.text-[#b4c6de]]="task.origin !== 'direct'"
-                        >
-                          {{ spaceInitial(task) }}
+                        <span class="h-4 w-4 rounded flex items-center justify-center text-[10px] font-semibold bg-[#1f8a8c]/85 text-white shrink-0">
+                          {{ spaceInitial(sp.name) }}
                         </span>
-                        <span class="text-[12px] truncate">{{ spaceLabel(task) }}</span>
+                        <span class="text-[12px] truncate">{{ sp.name }}</span>
                       </div>
-                      @if (task.branch) {
-                        <span class="text-[10px] font-mono-ide text-[#686a72] truncate max-w-[78px] shrink-0">
-                          {{ task.branch }}
-                        </span>
-                      }
-                    </button>
+
+                      <div class="flex items-center gap-1 shrink-0">
+                        @if (sp.branch) {
+                          <span class="text-[10px] font-mono-ide text-[#686a72] truncate max-w-[70px]">
+                            {{ sp.branch }}
+                          </span>
+                        }
+                        <button
+                          type="button"
+                          (click)="$event.stopPropagation(); deleteSpace(sp)"
+                          title="Remove space"
+                          class="opacity-0 group-hover/sp:opacity-100 rounded p-0.5 hover:bg-white/10 text-[#686a72] hover:text-[#f09595] transition cursor-pointer"
+                        >
+                          <app-icon name="close" [size]="10" />
+                        </button>
+                      </div>
+                    </div>
                   }
 
                   @if (node.worker.status === 'online') {
                     <button
                       type="button"
-                      (click)="openDirectForWorker.emit(node.worker)"
+                      (click)="openNewSpace.emit(node.worker)"
                       class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] text-[#686a72] hover:text-[#a1a3ab] hover:bg-[#1c1e24] transition cursor-pointer"
                     >
                       <app-icon name="plus" [size]="11" />
-                      <span>New session here</span>
+                      <span>New space there</span>
                     </button>
                   }
                 </div>
@@ -177,7 +180,7 @@ import { IconComponent } from '../shared/icon.component';
         <div class="flex-1 overflow-y-auto space-y-0.5">
           @if (filteredRoster().length === 0) {
             <div class="px-1.5 py-2 text-[11px] text-[#5e6068] leading-relaxed">
-              No active or recent agents yet. Launch a direct session or ask the Orchestrator to dispatch a task.
+              No active or recent agents yet. Open a Space or ask the Orchestrator to dispatch a job.
             </div>
           } @else {
             @if (activeRosterCount() > 0) {
@@ -219,16 +222,19 @@ import { IconComponent } from '../shared/icon.component';
 
       <!-- Herdr-style Bottom Pinned Controls -->
       <div class="border-t border-[#26282e] px-2 py-2 space-y-0.5 shrink-0">
-        @if (auth.authRequired()) {
-          <button
-            type="button"
-            (click)="auth.logout()"
-            class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[#8e9098] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
-          >
+        <button
+          type="button"
+          (click)="openSettings.emit()"
+          class="w-full flex items-center justify-between rounded-md px-2 py-1 text-[12px] text-[#8e9098] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
+        >
+          <span class="inline-flex items-center gap-2">
             <app-icon name="settings" [size]="13" />
-            <span>Sign out ({{ auth.user() }})</span>
-          </button>
-        }
+            <span>Settings</span>
+          </span>
+          @if (auth.authRequired()) {
+            <span class="text-[10px] text-[#5e6068]">{{ auth.user() }}</span>
+          }
+        </button>
         <button
           type="button"
           (click)="openAddMachine.emit()"
@@ -243,13 +249,16 @@ import { IconComponent } from '../shared/icon.component';
 })
 export class FleetSidebarComponent implements OnInit, OnDestroy {
   readonly taskSelected = output<void>();
-  readonly openDirectForWorker = output<Worker | null>();
+  readonly openNewSpace = output<Worker | null>();
+  readonly spaceSelected = output<{ space: Space; worker: Worker }>();
   readonly openAddMachine = output<void>();
+  readonly openSettings = output<void>();
 
   readonly orchestratorId = ORCHESTRATOR_TAB_ID;
   readonly fleet = inject(FleetStore);
   readonly tabs = inject(TabsStore);
   readonly auth = inject(AuthService);
+  private readonly api = inject(ApiClientService);
 
   readonly query = signal('');
   private readonly collapsedWorkers = signal<Record<string, boolean>>({});
@@ -267,8 +276,8 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
           (n) =>
             n.worker.name.toLowerCase().includes(q) ||
             n.worker.host_group.toLowerCase().includes(q) ||
-            n.worker.agents.some((a) => a.toLowerCase().includes(q)) ||
-            n.tasks.some((t) => (t.branch || t.workdir || t.prompt).toLowerCase().includes(q))
+            n.spaces.some((s) => s.name.toLowerCase().includes(q) || s.path.toLowerCase().includes(q)) ||
+            n.worker.agents.some((a) => a.toLowerCase().includes(q))
         ),
       }))
       .filter((g) => g.workers.length > 0);
@@ -317,15 +326,26 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
     return 'server';
   }
 
-  spaceLabel(task: Task): string {
-    const dir = basenamePath(task.effective_dir || task.workdir);
-    return dir || task.agent;
+  spaceInitial(name: string): string {
+    if (name === '~') return '~';
+    return name.slice(0, 1).toUpperCase() || 'S';
   }
 
-  spaceInitial(task: Task): string {
-    const label = this.spaceLabel(task);
-    if (label === '~') return '~';
-    return label.slice(0, 1).toUpperCase() || 'T';
+  onSelectSpace(space: Space, worker: Worker): void {
+    this.spaceSelected.emit({ space, worker });
+    this.taskSelected.emit();
+  }
+
+  async deleteSpace(space: Space): Promise<void> {
+    try {
+      await this.api.deleteSpace(space.id);
+      this.fleet.removeSpace(space.id);
+      if (this.tabs.activeSpaceId() === space.id) {
+        this.tabs.activeSpaceId.set(null);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   selectTask(task: Task, worker?: Worker): void {
@@ -340,7 +360,6 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
     if (secs < 60) return '<1m';
     const mins = Math.floor(secs / 60);
     if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    return `${hrs}h`;
+    return `${Math.floor(mins / 60)}h`;
   }
 }

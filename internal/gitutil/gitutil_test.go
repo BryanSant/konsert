@@ -124,7 +124,28 @@ func TestWorktreeAndCaptureSummary(t *testing.T) {
 		t.Fatalf("unexpected dirty files: %+v", summary.DirtyFiles)
 	}
 
-	if err := RemoveWorktree(ctx, root, wtPath); err != nil {
-		t.Fatalf("RemoveWorktree error: %v", err)
+	// Test live InspectWorkingTree + CommitChanges + CleanupKonsertWorktree
+	insp, err := InspectWorkingTree(ctx, wtPath)
+	if err != nil || !insp.IsGitRepo || !insp.IsWorktree || len(insp.Files) != 1 || insp.Files[0].Path != "untracked.txt" {
+		t.Fatalf("InspectWorkingTree mismatch: %+v err=%v", insp, err)
+	}
+	if !strings.Contains(insp.Files[0].Diff, "+dirty") {
+		t.Fatalf("expected diff preview for untracked file, got %q", insp.Files[0].Diff)
+	}
+
+	// Configure git user locally so CommitChanges works in CI/temp repos
+	run(wtPath, "config", "user.name", "Test")
+	run(wtPath, "config", "user.email", "test@example.com")
+	commitRes, err := CommitChanges(ctx, wtPath, "commit untracked file", true)
+	if err != nil || !commitRes.OK || commitRes.CommitSHA == "" {
+		t.Fatalf("CommitChanges failed: %+v err=%v", commitRes, err)
+	}
+	insp2, _ := InspectWorkingTree(ctx, wtPath)
+	if len(insp2.Files) != 0 {
+		t.Fatalf("expected clean tree after commit, got %+v", insp2.Files)
+	}
+
+	if err := CleanupKonsertWorktree(ctx, wtPath); err != nil {
+		t.Fatalf("CleanupKonsertWorktree error: %v", err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 )
 
 type wsFrame struct {
@@ -52,6 +53,7 @@ type Hub struct {
 	taskWorker    map[string]string                 // taskID -> workerID
 	ptySubs       map[string]map[*browserClient]bool // taskID -> client -> needsSnapshot
 	waiters       map[string][]chan store.Task
+	rpcWaiters    map[string]chan protocol.Envelope
 	pendingStart  map[string]protocol.TaskStartPayload // queued tasks awaiting capacity
 
 	orch *orchestrator.Service
@@ -75,6 +77,7 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		taskWorker:         make(map[string]string),
 		ptySubs:            make(map[string]map[*browserClient]bool),
 		waiters:            make(map[string][]chan store.Task),
+		rpcWaiters:         make(map[string]chan protocol.Envelope),
 		pendingStart:       make(map[string]protocol.TaskStartPayload),
 		StaleWorkerTimeout: 30 * time.Second,
 		ReapInterval:       10 * time.Second,
@@ -353,6 +356,23 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 }
 
 func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env protocol.Envelope) {
+	// Deliver correlated RPC responses (e.g. git.inspect.result, git.commit.result).
+	if env.ID != "" {
+		h.mu.Lock()
+		ch, ok := h.rpcWaiters[env.ID]
+		if ok {
+			delete(h.rpcWaiters, env.ID)
+		}
+		h.mu.Unlock()
+		if ok {
+			select {
+			case ch <- env:
+			default:
+			}
+			return
+		}
+	}
+
 	switch env.Type {
 	case protocol.MsgWorkerHeartbeat:
 		p, err := protocol.DecodePayload[protocol.WorkerHeartbeatPayload](env)
@@ -846,6 +866,46 @@ func (h *Hub) sendToTaskWorkerJSON(taskID, msgType string, payload any) {
 	h.mu.RUnlock()
 	if wc != nil {
 		h.sendWorkerJSON(wc, msgType, payload)
+	}
+}
+
+// RequestWorker sends a correlated control-plane RPC to a connected worker and awaits its reply.
+func (h *Hub) RequestWorker(ctx context.Context, workerID, msgType string, payload any) (protocol.Envelope, error) {
+	h.mu.RLock()
+	wc, ok := h.workers[workerID]
+	h.mu.RUnlock()
+	if !ok {
+		return protocol.Envelope{}, fmt.Errorf("worker %s is not connected", workerID)
+	}
+
+	reqID := uuid.NewString()
+	raw, err := protocol.NewEnvelope(msgType, reqID, payload)
+	if err != nil {
+		return protocol.Envelope{}, err
+	}
+
+	ch := make(chan protocol.Envelope, 1)
+	h.mu.Lock()
+	h.rpcWaiters[reqID] = ch
+	h.mu.Unlock()
+
+	defer func() {
+		h.mu.Lock()
+		delete(h.rpcWaiters, reqID)
+		h.mu.Unlock()
+	}()
+
+	select {
+	case wc.sendCh <- wsFrame{msgType: websocket.MessageText, data: raw}:
+	default:
+		return protocol.Envelope{}, fmt.Errorf("worker %s outbound queue full", workerID)
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return protocol.Envelope{}, ctx.Err()
 	}
 }
 

@@ -207,6 +207,14 @@ export class XtermPaneComponent implements OnDestroy {
         setTimeout(() => this.fitAndNotify(), 25);
       }
     });
+
+    effect(() => {
+      const fs = this.fleetStore.settings().terminal_font_size;
+      if (this.term && fs >= 10 && fs <= 24) {
+        this.term.options.fontSize = fs;
+        this.fitAndNotify();
+      }
+    });
   }
 
   private initTerminal(): void {

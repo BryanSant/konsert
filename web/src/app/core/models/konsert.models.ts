@@ -49,9 +49,57 @@ export interface GitSummary {
   dirty_files?: string[];
 }
 
+export interface Space {
+  id: string;
+  worker_id: string;
+  name: string;
+  path: string;
+  branch?: string;
+  created_at: string;
+}
+
+export interface GitChangedFile {
+  path: string;
+  status: string;
+  added: number;
+  deleted: number;
+  diff?: string;
+}
+
+export interface GitInspectResult {
+  is_git_repo: boolean;
+  branch?: string;
+  effective_dir?: string;
+  is_worktree: boolean;
+  added: number;
+  deleted: number;
+  files: GitChangedFile[];
+  commits?: string[];
+  error?: string;
+}
+
+export interface GitCommitResult {
+  ok: boolean;
+  commit_sha?: string;
+  summary?: string;
+  error?: string;
+}
+
+export interface AppSettings {
+  llm_provider: string;
+  llm_model: string;
+  llm_base_url: string;
+  llm_api_key_set: boolean;
+  default_permission_mode: PermissionMode;
+  terminal_font_size: number;
+  notify_sound: boolean;
+  notify_desktop: boolean;
+}
+
 export interface Task {
   id: string;
   worker_id: string;
+  space_id?: string;
   agent: string;
   workdir: string;
   effective_dir: string;
@@ -134,6 +182,7 @@ export interface FleetSnapshotResponse {
   workers: Worker[];
   active_tasks_count: number;
   tasks: Task[];
+  spaces?: Space[];
   usage?: UsageSummary;
 }
 
@@ -144,6 +193,7 @@ export interface DispatchTaskRequest {
     os?: string;
     tags?: Record<string, string>;
   };
+  space_id?: string;
   agent: string;
   repo_path?: string;
   branch?: string;
@@ -162,6 +212,7 @@ export interface WorkspaceTab {
   pinned: boolean;
   taskId?: string;
   workerId?: string;
+  spaceId?: string;
   agent?: string;
   origin?: TaskOrigin | string;
   interactiveMode: boolean; // Direct/Scratch = true by default; Orchestrated = false (Read-Only)

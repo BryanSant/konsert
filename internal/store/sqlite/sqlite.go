@@ -645,3 +645,42 @@ func (s *SQLiteStore) GetUsageSummary(ctx context.Context) (store.UsageSummary, 
 	}
 	return sum, rows.Err()
 }
+
+func (s *SQLiteStore) GetAllSettings(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) SetSettings(ctx context.Context, kv map[string]string) error {
+	if len(kv) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	ts := formatTime(time.Now().UTC())
+	for k, v := range kv {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+		`, k, v, ts); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}

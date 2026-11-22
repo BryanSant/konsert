@@ -1,10 +1,14 @@
 import { Injectable } from '@angular/core';
 import {
+  AppSettings,
   AuthMe,
   ChatMessage,
   ChatSession,
   DispatchTaskRequest,
   FleetSnapshotResponse,
+  GitCommitResult,
+  GitInspectResult,
+  Space,
   TaskEvent,
 } from '../models/konsert.models';
 
@@ -88,5 +92,64 @@ export class ApiClientService {
 
   listChatMessages(sessionId: string): Promise<{ messages: ChatMessage[] }> {
     return this.request(`/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
+  }
+
+  listSpaces(workerId = ''): Promise<{ spaces: Space[] }> {
+    const q = workerId ? `?worker_id=${encodeURIComponent(workerId)}` : '';
+    return this.request(`/api/spaces${q}`);
+  }
+
+  createSpace(req: { worker_id: string; name?: string; path: string; branch?: string }): Promise<Space> {
+    return this.request('/api/spaces', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  deleteSpace(spaceId: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/spaces/${encodeURIComponent(spaceId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  getSettings(): Promise<AppSettings> {
+    return this.request('/api/settings');
+  }
+
+  updateSettings(payload: Partial<AppSettings> & { llm_api_key?: string; clear_api_key?: boolean }): Promise<AppSettings> {
+    return this.request('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  inspectGit(params: { taskId?: string; spaceId?: string; workerId?: string; workdir?: string }): Promise<GitInspectResult> {
+    const sp = new URLSearchParams();
+    if (params.taskId) sp.set('task_id', params.taskId);
+    if (params.spaceId) sp.set('space_id', params.spaceId);
+    if (params.workerId) sp.set('worker_id', params.workerId);
+    if (params.workdir) sp.set('workdir', params.workdir);
+    return this.request(`/api/git/inspect?${sp.toString()}`);
+  }
+
+  commitGit(req: {
+    task_id?: string;
+    space_id?: string;
+    worker_id?: string;
+    workdir?: string;
+    message: string;
+    stage_all?: boolean;
+  }): Promise<GitCommitResult> {
+    return this.request('/api/git/commit', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  cleanupWorktree(req: { task_id?: string; worker_id?: string; workdir?: string }): Promise<{ ok: boolean; error?: string }> {
+    return this.request('/api/git/worktree/cleanup', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
   }
 }

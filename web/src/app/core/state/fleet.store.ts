@@ -1,9 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Task, UsageSummary, Worker } from '../models/konsert.models';
+import { AppSettings, Space, Task, UsageSummary, Worker } from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
 
 export interface WorkerNodeView {
   worker: Worker;
+  spaces: Space[];
   tasks: Task[];
   activeCount: number;
   effectiveStatus: 'running' | 'waiting_input' | 'idle' | 'offline';
@@ -38,6 +39,17 @@ export class FleetStore {
 
   readonly workers = signal<Worker[]>([]);
   readonly tasks = signal<Task[]>([]);
+  readonly spaces = signal<Space[]>([]);
+  readonly settings = signal<AppSettings>({
+    llm_provider: 'openai',
+    llm_model: 'gpt-4o',
+    llm_base_url: '',
+    llm_api_key_set: false,
+    default_permission_mode: 'full_access',
+    terminal_font_size: 13,
+    notify_sound: true,
+    notify_desktop: false,
+  });
   readonly usage = signal<UsageSummary>({
     total_input_tokens: 0,
     total_output_tokens: 0,
@@ -45,6 +57,14 @@ export class FleetStore {
     by_provider: [],
   });
   readonly loading = signal(false);
+
+  readonly spacesById = computed(() => {
+    const map: Record<string, Space> = {};
+    for (const sp of this.spaces()) {
+      map[sp.id] = sp;
+    }
+    return map;
+  });
 
   readonly workersById = computed(() => {
     const map: Record<string, Worker> = {};
@@ -73,9 +93,11 @@ export class FleetStore {
   readonly groupedFleet = computed<HostGroupView[]>(() => {
     const allWorkers = this.workers();
     const allTasks = this.tasks().filter((t) => t.origin !== 'scratch');
+    const allSpaces = this.spaces();
     const groupMap = new Map<string, WorkerNodeView[]>();
 
     for (const w of allWorkers) {
+      const workerSpaces = allSpaces.filter((sp) => sp.worker_id === w.id);
       const workerTasks = allTasks
         .filter((t) => t.worker_id === w.id)
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -94,6 +116,7 @@ export class FleetStore {
 
       const node: WorkerNodeView = {
         worker: w,
+        spaces: workerSpaces,
         tasks: workerTasks,
         activeCount: activeTasks.length,
         effectiveStatus,
@@ -189,12 +212,38 @@ export class FleetStore {
       const snap = await this.api.getFleet();
       this.workers.set(snap.workers ?? []);
       this.tasks.set(snap.tasks ?? []);
+      if (snap.spaces) {
+        this.spaces.set(snap.spaces);
+      }
       if (snap.usage) {
         this.usage.set(snap.usage);
       }
     } finally {
       this.loading.set(false);
     }
+  }
+
+  async loadSettings(): Promise<void> {
+    try {
+      const s = await this.api.getSettings();
+      this.settings.set(s);
+    } catch {
+      // ignore
+    }
+  }
+
+  upsertSpace(space: Space): void {
+    this.spaces.update((list) => {
+      const idx = list.findIndex((s) => s.id === space.id);
+      if (idx === -1) return [...list, space];
+      const next = [...list];
+      next[idx] = { ...next[idx], ...space };
+      return next;
+    });
+  }
+
+  removeSpace(spaceId: string): void {
+    this.spaces.update((list) => list.filter((s) => s.id !== spaceId));
   }
 
   upsertWorker(worker: Worker): void {

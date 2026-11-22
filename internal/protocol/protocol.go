@@ -29,6 +29,13 @@ const (
 
 	MsgFleetUpdate = "fleet.update"
 	MsgUsageUpdate = "usage.update"
+
+	MsgGitInspect               = "git.inspect"
+	MsgGitInspectResult         = "git.inspect.result"
+	MsgGitCommit                = "git.commit"
+	MsgGitCommitResult          = "git.commit.result"
+	MsgGitWorktreeCleanup       = "git.worktree.cleanup"
+	MsgGitWorktreeCleanupResult = "git.worktree.cleanup.result"
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
@@ -278,6 +285,52 @@ type FleetUpdatePayload struct {
 	Event     any    `json:"event,omitempty"`
 	Space     any    `json:"space,omitempty"`
 	DeletedID string `json:"deleted_id,omitempty"`
+}
+
+type GitChangedFile struct {
+	Path    string `json:"path"`
+	Status  string `json:"status"` // "M", "A", "D", "??", etc.
+	Added   int    `json:"added"`
+	Deleted int    `json:"deleted"`
+	Diff    string `json:"diff,omitempty"`
+}
+
+type GitInspectRequest struct {
+	Workdir string `json:"workdir"`
+}
+
+type GitInspectResult struct {
+	IsGitRepo    bool             `json:"is_git_repo"`
+	Branch       string           `json:"branch,omitempty"`
+	EffectiveDir string           `json:"effective_dir,omitempty"`
+	IsWorktree   bool             `json:"is_worktree"`
+	Added        int              `json:"added"`
+	Deleted      int              `json:"deleted"`
+	Files        []GitChangedFile `json:"files"`
+	Commits      []string         `json:"commits,omitempty"`
+	Error        string           `json:"error,omitempty"`
+}
+
+type GitCommitRequest struct {
+	Workdir  string `json:"workdir"`
+	Message  string `json:"message"`
+	StageAll bool   `json:"stage_all"`
+}
+
+type GitCommitResult struct {
+	OK        bool   `json:"ok"`
+	CommitSHA string `json:"commit_sha,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type GitWorktreeCleanupRequest struct {
+	Workdir string `json:"workdir"`
+}
+
+type GitWorktreeCleanupResult struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // IsTerminalTaskStatus reports whether a task status is final.

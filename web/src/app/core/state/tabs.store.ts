@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { Task, WorkspaceTab } from '../models/konsert.models';
+import { Space, Task, WorkspaceTab } from '../models/konsert.models';
 import { basenamePath } from './fleet.store';
 
 export const ORCHESTRATOR_TAB_ID = 'orchestrator';
@@ -17,6 +17,7 @@ export class TabsStore {
   ]);
 
   readonly activeTabId = signal<string>(ORCHESTRATOR_TAB_ID);
+  readonly activeSpaceId = signal<string | null>(null);
 
   // Floating Scratch Workspace state (persists remote PTY even while minimized)
   readonly scratchOpen = signal(false);
@@ -27,11 +28,39 @@ export class TabsStore {
     return this.openTabs().find((t) => t.id === id) ?? this.openTabs()[0];
   });
 
-  openTaskTab(task: Task, workerName?: string): void {
+  /** Tabs displayed in the center strip: scoped to active Space when one is selected, otherwise all open tabs. */
+  readonly visibleTabs = computed(() => {
+    const spId = this.activeSpaceId();
+    const all = this.openTabs();
+    if (!spId) return all;
+    return all.filter((t) => t.pinned || t.spaceId === spId);
+  });
+
+  selectSpace(space: Space, existingTasksInSpace: Task[], workerName?: string): void {
+    this.activeSpaceId.set(space.id);
+    // Ensure active tasks belonging to this space are opened as tabs in this space.
+    for (const t of existingTasksInSpace) {
+      if (!this.openTabs().some((tab) => tab.id === t.id)) {
+        this.openTaskTab(t, workerName, false);
+      }
+    }
+    const spaceTabs = this.openTabs().filter((t) => t.spaceId === space.id);
+    if (spaceTabs.length > 0) {
+      this.activeTabId.set(spaceTabs[0].id);
+    }
+  }
+
+  openTaskTab(task: Task, workerName?: string, activate = true): void {
     const existing = this.openTabs().find((t) => t.id === task.id);
     if (!existing) {
       const dir = basenamePath(task.effective_dir || task.workdir);
-      const label = dir && dir !== task.agent ? `${dir} · ${task.agent}` : workerName ? `${workerName} · ${task.agent}` : task.agent;
+      const label = task.space_id
+        ? task.agent
+        : dir && dir !== task.agent
+          ? `${dir} · ${task.agent}`
+          : workerName
+            ? `${workerName} · ${task.agent}`
+            : task.agent;
       // Direct Mode & Scratch sessions default to Interactive; Orchestrated runs default to Read-Only.
       const defaultInteractive = task.origin === 'direct' || task.origin === 'scratch';
       this.openTabs.update((tabs) => [
@@ -43,17 +72,27 @@ export class TabsStore {
           pinned: false,
           taskId: task.id,
           workerId: task.worker_id,
+          spaceId: task.space_id || undefined,
           agent: task.agent,
           origin: task.origin || 'orchestrator',
           interactiveMode: defaultInteractive,
         },
       ]);
     }
-    this.activeTabId.set(task.id);
+    if (activate) {
+      this.activeSpaceId.set(task.space_id || null);
+      this.activeTabId.set(task.id);
+    }
   }
 
   selectTab(id: string): void {
-    if (this.openTabs().some((t) => t.id === id)) {
+    const tab = this.openTabs().find((t) => t.id === id);
+    if (tab) {
+      if (tab.id === ORCHESTRATOR_TAB_ID) {
+        this.activeSpaceId.set(null);
+      } else if (tab.spaceId) {
+        this.activeSpaceId.set(tab.spaceId);
+      }
       this.activeTabId.set(id);
     }
   }

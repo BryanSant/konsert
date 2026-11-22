@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
@@ -337,11 +338,77 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			return
 		}
 		_ = d.runner.ResizePty(p.TaskID, p.Cols, p.Rows)
+
+	case protocol.MsgGitInspect:
+		p, err := protocol.DecodePayload[protocol.GitInspectRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitInspectRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 10*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitInspectResult, reqID, protocol.GitInspectResult{Error: vErr.Error(), Files: []protocol.GitChangedFile{}})
+				return
+			}
+			res, iErr := gitutil.InspectWorkingTree(ctx, dir)
+			if iErr != nil {
+				d.sendJSONWithID(protocol.MsgGitInspectResult, reqID, protocol.GitInspectResult{Error: iErr.Error(), Files: []protocol.GitChangedFile{}})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitInspectResult, reqID, res)
+		}(env.ID, p)
+
+	case protocol.MsgGitCommit:
+		p, err := protocol.DecodePayload[protocol.GitCommitRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitCommitRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 15*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitCommitResult, reqID, protocol.GitCommitResult{OK: false, Error: vErr.Error()})
+				return
+			}
+			res, cErr := gitutil.CommitChanges(ctx, dir, req.Message, req.StageAll)
+			if cErr != nil {
+				d.sendJSONWithID(protocol.MsgGitCommitResult, reqID, protocol.GitCommitResult{OK: false, Error: cErr.Error()})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitCommitResult, reqID, res)
+		}(env.ID, p)
+
+	case protocol.MsgGitWorktreeCleanup:
+		p, err := protocol.DecodePayload[protocol.GitWorktreeCleanupRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitWorktreeCleanupRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 15*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: vErr.Error()})
+				return
+			}
+			if err := gitutil.CleanupKonsertWorktree(ctx, dir); err != nil {
+				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: err.Error()})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: true})
+		}(env.ID, p)
 	}
 }
 
 func (d *Daemon) sendJSON(msgType string, payload any) {
-	raw, err := protocol.NewEnvelope(msgType, "", payload)
+	d.sendJSONWithID(msgType, "", payload)
+}
+
+func (d *Daemon) sendJSONWithID(msgType, id string, payload any) {
+	raw, err := protocol.NewEnvelope(msgType, id, payload)
 	if err != nil {
 		return
 	}

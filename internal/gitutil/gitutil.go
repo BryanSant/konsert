@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -76,7 +77,7 @@ func ValidateWorkdir(workdir string, allowedRoots []string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrWorkdirNotAllowed, resolved)
 }
 
-func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+func runGitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -88,7 +89,15 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return strings.TrimRight(stdout.String(), "\r\n"), nil
+}
+
+func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runGitRaw(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // IsGitRepo checks if dir is inside a git repository and returns the repository top-level root.
@@ -184,4 +193,155 @@ func CaptureSummary(ctx context.Context, dir, baseSHA string) (*protocol.GitSumm
 	}
 
 	return summary, nil
+}
+
+// InspectWorkingTree returns live branch, uncommitted files (+N/-M), per-file unified diffs,
+// and recent commits for a working directory on a worker node.
+func InspectWorkingTree(ctx context.Context, dir string) (*protocol.GitInspectResult, error) {
+	res := &protocol.GitInspectResult{
+		EffectiveDir: dir,
+		Files:        []protocol.GitChangedFile{},
+		IsWorktree:   strings.Contains(filepath.ToSlash(dir), "/.konsert-worktrees/"),
+	}
+	if _, ok := IsGitRepo(ctx, dir); !ok {
+		return res, nil
+	}
+	res.IsGitRepo = true
+
+	if br, err := runGit(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+		res.Branch = br
+	}
+
+	// Collect numstat for unstaged + staged changes.
+	type stat struct{ add, del int }
+	stats := make(map[string]stat)
+	parseNumstat := func(out string) {
+		for _, line := range strings.Split(out, "\n") {
+			parts := strings.Split(line, "\t")
+			if len(parts) < 3 {
+				continue
+			}
+			a, _ := strconv.Atoi(parts[0])
+			d, _ := strconv.Atoi(parts[1])
+			p := parts[2]
+			cur := stats[p]
+			cur.add += a
+			cur.del += d
+			stats[p] = cur
+		}
+	}
+	if out, err := runGit(ctx, dir, "diff", "--numstat"); err == nil && out != "" {
+		parseNumstat(out)
+	}
+	if out, err := runGit(ctx, dir, "diff", "--cached", "--numstat"); err == nil && out != "" {
+		parseNumstat(out)
+	}
+
+	// Parse porcelain status (preserve leading status column space!)
+	statusOut, err := runGitRaw(ctx, dir, "status", "--porcelain=v1", "-uall")
+	if err == nil && statusOut != "" {
+		lines := strings.Split(statusOut, "\n")
+		const maxFiles = 60
+		for i, line := range lines {
+			if i >= maxFiles || len(line) < 4 {
+				break
+			}
+			stCode := strings.TrimSpace(line[:2])
+			filePath := strings.TrimSpace(line[3:])
+			if idx := strings.Index(filePath, " -> "); idx >= 0 {
+				filePath = filePath[idx+4:]
+			}
+			filePath = strings.Trim(filePath, `"`)
+			if filePath == "" {
+				continue
+			}
+
+			s := stats[filePath]
+			var diffText string
+			if stCode == "??" {
+				// Preview untracked text file as added lines (capped at 12 KB).
+				full := filepath.Join(dir, filePath)
+				if raw, rErr := os.ReadFile(full); rErr == nil {
+					if len(raw) > 12*1024 {
+						raw = raw[:12*1024]
+					}
+					if !bytes.ContainsRune(raw, 0) {
+						fileLines := strings.Split(string(raw), "\n")
+						s.add = len(fileLines)
+						var b strings.Builder
+						b.WriteString(fmt.Sprintf("--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", filePath, len(fileLines)))
+						for _, fl := range fileLines {
+							b.WriteString("+" + fl + "\n")
+						}
+						diffText = b.String()
+					}
+				}
+			} else {
+				if dOut, dErr := runGit(ctx, dir, "diff", "HEAD", "--", filePath); dErr == nil && dOut != "" {
+					diffText = dOut
+				} else if dOut, dErr := runGit(ctx, dir, "diff", "--", filePath); dErr == nil {
+					diffText = dOut
+				}
+				if len(diffText) > 16*1024 {
+					diffText = diffText[:16*1024] + "\n... (diff truncated)"
+				}
+			}
+
+			res.Added += s.add
+			res.Deleted += s.del
+			res.Files = append(res.Files, protocol.GitChangedFile{
+				Path:    filePath,
+				Status:  stCode,
+				Added:   s.add,
+				Deleted: s.del,
+				Diff:    diffText,
+			})
+		}
+	}
+
+	if commitsOut, err := runGit(ctx, dir, "log", "-n", "8", "--oneline"); err == nil && commitsOut != "" {
+		for _, line := range strings.Split(commitsOut, "\n") {
+			if t := strings.TrimSpace(line); t != "" {
+				res.Commits = append(res.Commits, t)
+			}
+		}
+	}
+
+	return res, nil
+}
+
+// CommitChanges stages (if stageAll) and commits changes in dir with message.
+func CommitChanges(ctx context.Context, dir, message string, stageAll bool) (*protocol.GitCommitResult, error) {
+	if strings.TrimSpace(message) == "" {
+		return &protocol.GitCommitResult{OK: false, Error: "commit message is required"}, nil
+	}
+	if _, ok := IsGitRepo(ctx, dir); !ok {
+		return &protocol.GitCommitResult{OK: false, Error: "directory is not a git repository"}, nil
+	}
+	if stageAll {
+		if _, err := runGit(ctx, dir, "add", "-A"); err != nil {
+			return &protocol.GitCommitResult{OK: false, Error: err.Error()}, nil
+		}
+	}
+	out, err := runGit(ctx, dir, "commit", "-m", message)
+	if err != nil {
+		return &protocol.GitCommitResult{OK: false, Error: err.Error()}, nil
+	}
+	sha, _ := runGit(ctx, dir, "rev-parse", "--short", "HEAD")
+	return &protocol.GitCommitResult{
+		OK:        true,
+		CommitSHA: sha,
+		Summary:   out,
+	}, nil
+}
+
+// CleanupKonsertWorktree safely removes a worktree located under .konsert-worktrees/.
+func CleanupKonsertWorktree(ctx context.Context, workdir string) error {
+	norm := filepath.ToSlash(filepath.Clean(workdir))
+	idx := strings.Index(norm, "/.konsert-worktrees/")
+	if idx < 0 {
+		return fmt.Errorf("refusing to remove directory outside .konsert-worktrees: %s", workdir)
+	}
+	repoRoot := filepath.FromSlash(norm[:idx])
+	return RemoveWorktree(ctx, repoRoot, workdir)
 }
