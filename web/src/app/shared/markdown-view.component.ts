@@ -1,13 +1,14 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, signal } from '@angular/core';
 import { IconComponent } from './icon.component';
 
-interface InlineToken {
+export interface InlineToken {
   kind: 'text' | 'bold' | 'italic' | 'code' | 'link';
   text: string;
   href?: string;
 }
 
-interface MarkdownBlock {
+export interface MarkdownBlock {
   id: number;
   kind: 'h1' | 'h2' | 'h3' | 'code' | 'ul' | 'ol' | 'hr' | 'p';
   lang?: string;
@@ -19,49 +20,32 @@ interface MarkdownBlock {
 @Component({
   selector: 'app-markdown-view',
   standalone: true,
-  imports: [IconComponent],
+  imports: [IconComponent, NgTemplateOutlet],
   template: `
+    <!-- Inline tokens (code / bold / italic / link / text), shared by every block kind. -->
+    <ng-template #inline let-tokens let-codeSize="codeSize">
+      @for (t of tokens; track $index) {
+        @switch (t.kind) {
+          @case ('code') { <code class="font-mono-ide rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]" [class]="codeSize">{{ t.text }}</code> }
+          @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
+          @case ('italic') { <em class="italic">{{ t.text }}</em> }
+          @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
+          @default { {{ t.text }} }
+        }
+      }
+    </ng-template>
+
     <div class="space-y-2.5 text-[13px] text-[#e4e4e7] leading-relaxed break-words">
       @for (block of blocks(); track block.id) {
         @switch (block.kind) {
           @case ('h1') {
-            <h1 class="text-[16px] font-semibold text-[#f4f4f5] pt-1">
-              @for (t of block.tokens ?? []; track $index) {
-                @switch (t.kind) {
-                  @case ('code') { <code class="font-mono-ide text-[12px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                  @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                  @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                  @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                  @default { {{ t.text }} }
-                }
-              }
-            </h1>
+            <h1 class="text-[16px] font-semibold text-[#f4f4f5] pt-1"><ng-container *ngTemplateOutlet="inline; context: { $implicit: block.tokens ?? [], codeSize: 'text-[12px]' }" /></h1>
           }
           @case ('h2') {
-            <h2 class="text-[14.5px] font-semibold text-[#f4f4f5] pt-1">
-              @for (t of block.tokens ?? []; track $index) {
-                @switch (t.kind) {
-                  @case ('code') { <code class="font-mono-ide text-[12px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                  @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                  @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                  @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                  @default { {{ t.text }} }
-                }
-              }
-            </h2>
+            <h2 class="text-[14.5px] font-semibold text-[#f4f4f5] pt-1"><ng-container *ngTemplateOutlet="inline; context: { $implicit: block.tokens ?? [], codeSize: 'text-[12px]' }" /></h2>
           }
           @case ('h3') {
-            <h3 class="text-[13.5px] font-semibold text-[#ececed] pt-0.5">
-              @for (t of block.tokens ?? []; track $index) {
-                @switch (t.kind) {
-                  @case ('code') { <code class="font-mono-ide text-[12px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                  @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                  @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                  @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                  @default { {{ t.text }} }
-                }
-              }
-            </h3>
+            <h3 class="text-[13.5px] font-semibold text-[#ececed] pt-0.5"><ng-container *ngTemplateOutlet="inline; context: { $implicit: block.tokens ?? [], codeSize: 'text-[12px]' }" /></h3>
           }
           @case ('hr') {
             <hr class="border-[#26282f] my-1" />
@@ -73,6 +57,7 @@ interface MarkdownBlock {
                 <button
                   type="button"
                   (click)="copyCode(block.id, block.raw || '')"
+                  [attr.aria-label]="'Copy ' + (block.lang || 'code') + ' block'"
                   class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#24262e] text-[#9a9ca4] hover:text-[#ececed] transition cursor-pointer"
                 >
                   <app-icon name="copy" [size]="11" />
@@ -85,49 +70,19 @@ interface MarkdownBlock {
           @case ('ul') {
             <ul class="list-disc pl-5 space-y-1">
               @for (item of block.items ?? []; track $index) {
-                <li>
-                  @for (t of item; track $index) {
-                    @switch (t.kind) {
-                      @case ('code') { <code class="font-mono-ide text-[11.5px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                      @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                      @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                      @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                      @default { {{ t.text }} }
-                    }
-                  }
-                </li>
+                <li><ng-container *ngTemplateOutlet="inline; context: { $implicit: item, codeSize: 'text-[11.5px]' }" /></li>
               }
             </ul>
           }
           @case ('ol') {
             <ol class="list-decimal pl-5 space-y-1">
               @for (item of block.items ?? []; track $index) {
-                <li>
-                  @for (t of item; track $index) {
-                    @switch (t.kind) {
-                      @case ('code') { <code class="font-mono-ide text-[11.5px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                      @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                      @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                      @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                      @default { {{ t.text }} }
-                    }
-                  }
-                </li>
+                <li><ng-container *ngTemplateOutlet="inline; context: { $implicit: item, codeSize: 'text-[11.5px]' }" /></li>
               }
             </ol>
           }
           @default {
-            <p class="whitespace-pre-wrap">
-              @for (t of block.tokens ?? []; track $index) {
-                @switch (t.kind) {
-                  @case ('code') { <code class="font-mono-ide text-[11.5px] rounded bg-[#23252c] px-1.5 py-0.5 text-[#d4d4d8]">{{ t.text }}</code> }
-                  @case ('bold') { <strong class="font-semibold text-[#f4f4f5]">{{ t.text }}</strong> }
-                  @case ('italic') { <em class="italic">{{ t.text }}</em> }
-                  @case ('link') { <a [href]="t.href" target="_blank" rel="noopener noreferrer" class="text-[#7aa8e8] underline hover:text-[#9ec2f5]">{{ t.text }}</a> }
-                  @default { {{ t.text }} }
-                }
-              }
-            </p>
+            <p class="whitespace-pre-wrap"><ng-container *ngTemplateOutlet="inline; context: { $implicit: block.tokens ?? [], codeSize: 'text-[11.5px]' }" /></p>
           }
         }
       }

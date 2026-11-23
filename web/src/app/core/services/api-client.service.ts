@@ -42,6 +42,66 @@ export const KONSERT_REQUEST_HEADER = 'X-Konsert-Request';
 /** Paths whose 401 means "bad credentials" rather than "session expired". */
 const AUTH_EXEMPT_PATHS = ['/api/auth/login'];
 
+export interface SSHBootstrapRequest {
+  target: string;
+  controller_url?: string;
+  sandbox?: boolean;
+  enable_mock?: boolean;
+}
+
+/** Frames streamed by POST /api/ssh/bootstrap?stream=1. Unknown types are passed through. */
+export type SSHBootstrapEvent =
+  | { type: 'stage'; stage?: string; label?: string; detail?: string }
+  | { type: 'done'; result: SSHBootstrapResult }
+  | { type: string; [key: string]: unknown };
+
+export interface SSHBootstrapOptions {
+  /** Aborts the request (closing the stream) when signalled, e.g. on modal close. */
+  signal?: AbortSignal;
+  /** Receives every streamed frame in order. */
+  onEvent?: (ev: SSHBootstrapEvent) => void;
+}
+
+/**
+ * Parses a `text/event-stream` body, yielding the JSON payload of each `data:` event.
+ * Multi-line data fields are joined per the SSE spec; malformed JSON is skipped.
+ */
+export async function* readServerSentEvents<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  const parse = (block: string): T | undefined => {
+    const data = block
+      .split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).replace(/^ /, ''))
+      .join('\n');
+    if (!data) return undefined;
+    try {
+      return JSON.parse(data) as T;
+    } catch {
+      return undefined;
+    }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let sep: number;
+      while ((sep = buf.indexOf('\n\n')) !== -1) {
+        const ev = parse(buf.slice(0, sep));
+        buf = buf.slice(sep + 2);
+        if (ev !== undefined) yield ev;
+      }
+    }
+    const tail = parse((buf + decoder.decode()).trim());
+    if (tail !== undefined) yield tail;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiClientService {
   private unauthorizedHandler: (() => void) | null = null;
@@ -245,16 +305,35 @@ export class ApiClientService {
     return this.request('/api/ssh/hosts');
   }
 
-  bootstrapSSH(req: {
-    target: string;
-    controller_url?: string;
-    sandbox?: boolean;
-    enable_mock?: boolean;
-  }): Promise<SSHBootstrapResult> {
-    return this.request('/api/ssh/bootstrap', {
+  /**
+   * Bootstraps konsertd on an SSH target. Progress is streamed as server-sent events
+   * (`stage` frames, then a terminal `done` frame carrying the result); every frame is
+   * passed to `opts.onEvent`, so new interactive steps (e.g. host-key confirmation) can
+   * be handled by the caller without changing this method. Falls back to a plain JSON
+   * response when the hub does not stream. Abort via `opts.signal`.
+   */
+  async bootstrapSSH(req: SSHBootstrapRequest, opts: SSHBootstrapOptions = {}): Promise<SSHBootstrapResult> {
+    const res = await this.send('/api/ssh/bootstrap?stream=1', {
       method: 'POST',
+      headers: { Accept: 'text/event-stream' },
       body: JSON.stringify(req),
+      signal: opts.signal,
     });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('text/event-stream') || !res.body) {
+      return (await res.json()) as SSHBootstrapResult;
+    }
+    let result: SSHBootstrapResult | null = null;
+    for await (const ev of readServerSentEvents<SSHBootstrapEvent>(res.body)) {
+      opts.onEvent?.(ev);
+      if (ev.type === 'done' && 'result' in ev && ev.result) {
+        result = ev.result as SSHBootstrapResult;
+      }
+    }
+    if (!result) {
+      throw new Error('SSH bootstrap ended without a result');
+    }
+    return result;
   }
 
   createSession(req: DispatchTaskRequest): Promise<{
