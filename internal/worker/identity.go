@@ -21,9 +21,7 @@ import (
 func ResolveStableWorkerID(baseDir, name, hostGroup, isolation string) string {
 	dir := strings.TrimSpace(baseDir)
 	if dir == "" {
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			dir = filepath.Join(home, ".konsert")
-		}
+		dir = defaultStateDir()
 	}
 
 	filename := workerIDFilename(name, isolation)

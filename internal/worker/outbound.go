@@ -215,8 +215,15 @@ func outboxPath(stateDir, workerID string) string {
 	return filepath.Join(stateDir, "outbox-"+name+".json")
 }
 
-// defaultStateDir is konsertd's per-user state directory (~/.konsert).
+// StateDirEnv overrides konsertd's state directory (worker ID, machine ID, status
+// outbox). Tests and side-by-side daemons use it to stay out of ~/.konsert.
+const StateDirEnv = "KONSERT_STATE_DIR"
+
+// defaultStateDir is konsertd's per-user state directory: $KONSERT_STATE_DIR, else ~/.konsert.
 func defaultStateDir() string {
+	if dir := strings.TrimSpace(os.Getenv(StateDirEnv)); dir != "" {
+		return dir
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""

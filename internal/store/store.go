@@ -208,6 +208,9 @@ type UsageSummary struct {
 type Store interface {
 	UpsertWorker(ctx context.Context, w Worker) error
 	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
+	// TouchWorker marks an existing worker online at seenAt. Unlike UpsertWorker it
+	// never recreates a row, so a heartbeat racing a fleet removal can't resurrect it.
+	TouchWorker(ctx context.Context, id string, seenAt time.Time) error
 	GetWorker(ctx context.Context, id string) (Worker, error)
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error

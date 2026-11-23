@@ -107,7 +107,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      // Keep worker/machine IDs and the status outbox out of the developer's ~/.konsert.
+      env: { ...process.env, KONSERT_STATE_DIR: path.join(tmpDir, 'state') },
     }
   );
   procs.push(worker);

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -412,10 +413,18 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		h.mu.Unlock()
 	}
 
+	// Update-only: if the machine was just removed from the fleet, the heartbeat
+	// must not recreate its row (a read-then-upsert here left ghost workers).
+	if err := h.store.TouchWorker(ctx, wc.id, time.Now().UTC()); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Removed while this connection was still registering: tell konsertd to stop.
+			h.logger.Info("heartbeat from a removed worker; closing its connection", "worker_id", wc.id)
+			_ = wc.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
+			wc.cancel()
+		}
+		return
+	}
 	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
-		w.Status = "online"
-		w.LastSeenAt = time.Now().UTC()
-		_ = h.store.UpsertWorker(ctx, w)
 		h.broadcastFleetUpdate("worker", toWorkerView(w, len(p.ActiveTaskIDs), p.Metrics))
 	}
 }

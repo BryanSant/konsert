@@ -159,6 +159,19 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 	return err
 }
 
+func (s *SQLiteStore) TouchWorker(ctx context.Context, id string, seenAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE workers SET status = 'online', last_seen_at = ? WHERE id = ?
+	`, formatTime(seenAt), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error {
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
