@@ -21,11 +21,12 @@ import { KonsertSocketService } from '../../core/services/konsert-socket.service
 import { FleetStore } from '../../core/state/fleet.store';
 import { TabsStore } from '../../core/state/tabs.store';
 import { IconComponent } from '../../shared/icon.component';
+import { TooltipDirective } from '../../shared/tooltip.directive';
 
 @Component({
   selector: 'app-xterm-pane',
   standalone: true,
-  imports: [IconComponent],
+  imports: [TooltipDirective, IconComponent],
   template: `
     <div class="h-full w-full flex flex-col" [class.p-2]="!embedded()" [class.bg-[#111214]]="true">
       <!-- Herdr-style Framed Terminal Container -->
@@ -98,7 +99,7 @@ import { IconComponent } from '../../shared/icon.component';
                 <button
                   type="button"
                   (click)="cancelTask()"
-                  title="Stop remote process"
+                  ksTooltip="Stop remote process"
                   class="rounded-md border border-[#2a2c33] hover:border-[#e05d5d]/50 hover:bg-[#e05d5d]/10 px-2 py-0.5 text-[11px] text-[#8e9098] hover:text-[#f09595] transition cursor-pointer"
                 >
                   Stop

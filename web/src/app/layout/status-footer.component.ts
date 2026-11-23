@@ -6,6 +6,7 @@ import { KonsertSocketService } from '../core/services/konsert-socket.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | 'wake' | null;
 
@@ -27,7 +28,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 @Component({
   selector: 'app-status-footer',
   standalone: true,
-  imports: [IconComponent],
+  imports: [TooltipDirective, IconComponent],
   template: `
     <footer (keydown.escape)="openPopover.set(null)" class="relative h-7 flex items-center justify-between px-3 border-t border-[#26282e] bg-[#16171a] text-[11px] text-[#8e9098] select-none shrink-0 z-30">
       <!-- Backdrop to close open popover -->
@@ -50,7 +51,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('usage')"
-          title="Subscription quotas & API token usage"
+          ksTooltip="Subscription quotas & API token usage"
           class="inline-flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer min-w-0 overflow-hidden"
         >
           <span class="text-[#86888f] shrink-0">Used</span>
@@ -93,7 +94,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
             (click)="toggleWakeLock()"
             [attr.aria-pressed]="anyAwake()"
             [attr.aria-label]="wakeAriaLabel()"
-            [title]="wakeAriaLabel()"
+            [ksTooltip]="wakeAriaLabel()"
             class="inline-flex items-center gap-1 rounded-l px-1.5 py-0.5 hover:bg-[#22242a] transition cursor-pointer"
             [class.text-[#e6b763]]="anyAwake()"
             [class.text-[#8e9098]]="!anyAwake()"
@@ -112,7 +113,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
             data-testid="keep-awake-details"
             (click)="togglePopover('wake')"
             aria-label="Keep Awake details per host"
-            title="Keep Awake details per host"
+            ksTooltip="Keep Awake details per host"
             aria-haspopup="dialog"
             [attr.aria-expanded]="openPopover() === 'wake'"
             class="inline-flex items-center rounded-r px-0.5 py-0.5 text-[#8e9098] hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
@@ -127,7 +128,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('resources')"
-          title="Fleet Resource Manager & PTYs"
+          ksTooltip="Fleet Resource Manager & PTYs"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'resources'"
           [class.text-[#ececed]]="openPopover() === 'resources'"
@@ -140,7 +141,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('ports')"
-          title="Listening ports across fleet"
+          ksTooltip="Listening ports across fleet"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'ports'"
           [class.text-[#ececed]]="openPopover() === 'ports'"
@@ -153,7 +154,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('hosts')"
-          title="Connected fleet hosts"
+          ksTooltip="Connected fleet hosts"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'hosts'"
           [class.text-[#ececed]]="openPopover() === 'hosts'"
@@ -166,7 +167,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="openCommands.emit()"
-          title="Command Palette (⌘K)"
+          ksTooltip="Command Palette (⌘K)"
           class="hidden md:inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] text-[#8a8c94] transition cursor-pointer ml-1"
         >
           <span class="font-mono-ide text-[10px]">⌘K</span>

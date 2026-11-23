@@ -3,13 +3,14 @@ import { FormsModule } from '@angular/forms';
 import { FSEntry } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { IconComponent } from './icon.component';
+import { TooltipDirective } from './tooltip.directive';
 
 let nextPickerId = 0;
 
 @Component({
   selector: 'app-remote-dir-picker',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent],
   template: `
     <div class="relative">
       <div class="flex items-center gap-1.5">
@@ -39,7 +40,7 @@ let nextPickerId = 0;
         <button
           type="button"
           (click)="toggleBrowse()"
-          title="Browse remote machine folders"
+          ksTooltip="Browse remote machine folders"
           class="inline-flex items-center gap-1.5 rounded-md border border-[#2c2e36] bg-[#1c1e24] hover:bg-[#242730] px-2.5 py-2 text-[11px] font-medium text-[#c8cad0] hover:text-[#ececed] transition cursor-pointer shrink-0"
           [class.border-[#4a668a]]="browseOpen()"
           [class.text-[#ececed]]="browseOpen()"
@@ -96,7 +97,7 @@ let nextPickerId = 0;
                 <button
                   type="button"
                   (click)="navigateBrowse(browseParent())"
-                  title="Parent directory"
+                  ksTooltip="Parent directory" aria-label="Parent directory"
                   class="rounded border border-[#2c2e36] bg-[#1e2027] hover:bg-[#272a33] px-1.5 py-0.5 font-mono-ide text-[10px] text-[#b4b6be] hover:text-[#ececed] transition cursor-pointer shrink-0"
                 >
                   ..

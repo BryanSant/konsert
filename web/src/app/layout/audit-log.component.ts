@@ -1,3 +1,4 @@
+import { TooltipDirective } from '../shared/tooltip.directive';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuditEvent, AuditQuery } from '../core/models/konsert.models';
@@ -35,7 +36,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
 @Component({
   selector: 'app-audit-log',
   standalone: true,
-  imports: [FormsModule],
+  imports: [TooltipDirective, FormsModule],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     <form
@@ -175,7 +176,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
                       type="button"
                       (click)="openTask(ev.task_id)"
                       [attr.aria-label]="'Open task ' + taskLabel(ev.task_id)"
-                      [title]="ev.task_id"
+                      [ksTooltip]="ev.task_id"
                       class="max-w-full truncate font-mono-ide text-[10px] text-[#7aa2d6] hover:text-[#a8c6ee] underline underline-offset-2 cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#4a668a] rounded-sm"
                     >
                       {{ taskLabel(ev.task_id) }}

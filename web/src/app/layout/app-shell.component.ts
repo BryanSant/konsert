@@ -8,6 +8,7 @@ import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { OrchestratorChatComponent } from '../features/orchestrator/orchestrator-chat.component';
 import { XtermPaneComponent } from '../features/terminal/xterm-pane.component';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 import { AddMachineModalComponent } from './add-machine-modal.component';
 import { CommandPaletteComponent, PaletteCommand } from './command-palette.component';
 import { FleetSidebarComponent } from './fleet-sidebar.component';
@@ -25,7 +26,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [
+  imports: [TooltipDirective, 
     IconComponent,
     FleetSidebarComponent,
     TelemetryDrawerComponent,
@@ -68,7 +69,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           <button
             type="button"
             (click)="commandPaletteOpen.set(true)"
-            title="Search / Commands (⌘K)"
+            ksTooltip="Search / Commands (⌘K)" aria-label="Search / Commands (⌘K)"
             class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="search" [size]="14" />
@@ -76,7 +77,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           <button
             type="button"
             (click)="leftOpen.set(!leftOpen())"
-            title="Toggle left sidebar"
+            ksTooltip="Toggle left sidebar" aria-label="Toggle left sidebar"
             [attr.aria-expanded]="leftOpen()"
             aria-controls="ks-left-pane"
             class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
@@ -94,7 +95,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             <button
               type="button"
               (click)="selectInspector(p.id)"
-              [title]="p.title"
+              [ksTooltip]="p.title"
               [attr.aria-label]="p.title"
               [attr.aria-pressed]="rightOpen() && inspectorPanel() === p.id"
               class="hidden md:inline-flex rounded p-1.5 active:scale-95 transition cursor-pointer hover:text-[#ececed]"
@@ -109,7 +110,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           <button
             type="button"
             (click)="rightOpen.set(!rightOpen())"
-            title="Toggle right inspector"
+            ksTooltip="Toggle right inspector" aria-label="Toggle right inspector"
             [attr.aria-expanded]="rightOpen()"
             aria-controls="ks-right-pane"
             class="hidden md:inline-flex rounded p-1.5 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer ml-1"
@@ -212,7 +213,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             <div
               (pointerdown)="startSplitDrag($event)"
               (keydown)="onSplitKeydown($event)"
-              title="Drag to resize split panes"
+              ksTooltip="Drag to resize split panes"
               role="separator"
               tabindex="0"
               aria-orientation="vertical"
@@ -226,7 +227,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             <button
               type="button"
               (click)="tabs.closeSplit()"
-              title="Close split pane (⌘\)"
+              ksTooltip="Close split pane (⌘\)"
               aria-label="Close split pane"
               class="absolute top-1.5 right-2 z-20 rounded bg-[#1b1c20]/90 border border-[#2d3039] hover:bg-[#272a33] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
             >

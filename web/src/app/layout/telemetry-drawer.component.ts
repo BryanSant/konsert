@@ -6,6 +6,7 @@ import { FleetStore, basenamePath } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { TelemetryStore } from '../core/state/telemetry.store';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 import { AuditLogComponent } from './audit-log.component';
 
 export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
@@ -13,7 +14,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
 @Component({
   selector: 'app-telemetry-drawer',
   standalone: true,
-  imports: [FormsModule, IconComponent, AuditLogComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, AuditLogComponent],
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8]">
       <!-- Panel Header -->
@@ -42,7 +43,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               <button
                 type="button"
                 (click)="refreshLiveGit()"
-                title="Refresh Git status"
+                ksTooltip="Refresh Git status" aria-label="Refresh Git status"
                 class="rounded px-1.5 py-0.5 text-[10px] font-sans text-[#8e9098] hover:text-[#ececed] hover:bg-[#24262c] transition cursor-pointer"
               >
                 {{ gitLoading() ? '...' : '↻' }}

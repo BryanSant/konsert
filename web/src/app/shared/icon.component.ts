@@ -264,6 +264,111 @@ import { Component, input } from '@angular/core';
           <path d="M8 7.2v3.6M8 5.2h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       }
+      @case ('hand') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M5.5 8V3.6a1 1 0 0 1 2 0V7.5M7.5 7V2.8a1 1 0 0 1 2 0V7M9.5 7.2V3.8a1 1 0 0 1 2 0v5.4c0 2.7-1.7 4.6-4.2 4.6-1.6 0-2.6-.7-3.4-1.9L2.6 9.6a1 1 0 0 1 1.6-1.2l1.3 1.4"/>
+        </svg>
+      }
+      @case ('shield-check') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8 1.8 13 3.6v4c0 3.1-2.1 5.4-5 6.6-2.9-1.2-5-3.5-5-6.6v-4L8 1.8Z"/><path d="m5.7 8 1.6 1.6 3-3.1"/>
+        </svg>
+      }
+      @case ('shield-alert') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8 1.8 13 3.6v4c0 3.1-2.1 5.4-5 6.6-2.9-1.2-5-3.5-5-6.6v-4L8 1.8Z"/><path d="M8 5.2v3.2M8 10.6v.1"/>
+        </svg>
+      }
+      @case ('eye') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M1.6 8s2.3-4.3 6.4-4.3S14.4 8 14.4 8 12.1 12.3 8 12.3 1.6 8 1.6 8Z"/><circle cx="8" cy="8" r="1.9"/>
+        </svg>
+      }
+      @case ('mic') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <rect x="5.8" y="1.8" width="4.4" height="7.6" rx="2.2"/><path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2"/>
+        </svg>
+      }
+      @case ('check') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="m3.4 8.4 3 3 6.2-6.6"/>
+        </svg>
+      }
+      @case ('x') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="m4.2 4.2 7.6 7.6M11.8 4.2l-7.6 7.6"/>
+        </svg>
+      }
+      @case ('x-circle') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <circle cx="8" cy="8" r="6"/><path d="m5.9 5.9 4.2 4.2M10.1 5.9l-4.2 4.2"/>
+        </svg>
+      }
+      @case ('stop') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.6" fill="currentColor" stroke="none"/>
+        </svg>
+      }
+      @case ('brain') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M6 2.6a2 2 0 0 0-2 2v.2A2.2 2.2 0 0 0 2.8 9a2.2 2.2 0 0 0 1.6 3.4A2 2 0 0 0 8 13V3.6a1.5 1.5 0 0 0-2-1Z"/><path d="M10 2.6a2 2 0 0 1 2 2v.2A2.2 2.2 0 0 1 13.2 9a2.2 2.2 0 0 1-1.6 3.4A2 2 0 0 1 8 13"/>
+        </svg>
+      }
+      @case ('file') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M4 1.8h5l3 3v9.4H4V1.8Z"/><path d="M9 1.8v3h3"/>
+        </svg>
+      }
+      @case ('file-edit') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8.6 14.2H4V1.8h5l3 3v3"/><path d="m9.6 13.6.3-1.7 3.3-3.3 1.4 1.4-3.3 3.3-1.7.3Z"/>
+        </svg>
+      }
+      @case ('globe') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 2.6 4 2.6 6S9.8 12 8 14C6.2 12 5.4 10 5.4 8S6.2 4 8 2Z"/>
+        </svg>
+      }
+      @case ('wrench') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M10.2 2.4a3.2 3.2 0 0 0-3.9 4.3L2.4 10.6a1.4 1.4 0 0 0 2 2l3.9-3.9a3.2 3.2 0 0 0 4.3-3.9l-1.9 1.9-1.6-.4-.4-1.6 1.5-2.3Z"/>
+        </svg>
+      }
+      @case ('list-todo') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="m2.6 4 1.2 1.2L6 3M2.6 9.4l1.2 1.2L6 8.4M8.4 4.2h5M8.4 9.6h5"/>
+        </svg>
+      }
+      @case ('question') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <circle cx="8" cy="8" r="6"/><path d="M6.3 6.2a1.8 1.8 0 0 1 3.5.5c0 1.2-1.8 1.5-1.8 2.6M8 11.3v.1"/>
+        </svg>
+      }
+      @case ('key') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <circle cx="5.4" cy="10.6" r="2.8"/><path d="m7.4 8.6 6-6M11.4 4.6l1.6 1.6M9.8 6.2l1.2 1.2"/>
+        </svg>
+      }
+      @case ('alert') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8 2.2 14.2 13H1.8L8 2.2Z"/><path d="M8 6.4v3M8 11.2v.1"/>
+        </svg>
+      }
+      @case ('refresh') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M13.2 7.2A5.2 5.2 0 0 0 3.6 5M2.8 8.8A5.2 5.2 0 0 0 12.4 11"/><path d="M3.4 2.6V5.2H6M12.6 13.4v-2.6H10"/>
+        </svg>
+      }
+      @case ('arrow-down') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8 3v10M3.8 8.8 8 13l4.2-4.2"/>
+        </svg>
+      }
+      @case ('sparkle') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M8 2.2 9.3 6.7 13.8 8 9.3 9.3 8 13.8 6.7 9.3 2.2 8 6.7 6.7 8 2.2Z"/>
+        </svg>
+      }
       @default {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/>

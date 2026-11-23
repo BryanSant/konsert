@@ -19,6 +19,7 @@ import {
 import { ApiClientService, SSHBootstrapEvent } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
@@ -49,7 +50,7 @@ function isAbort(err: unknown): boolean {
   selector: 'app-add-machine-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, ModalDialogComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent],
   template: `
     <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (close)="close.emit()">
       <div class="flex items-start justify-between gap-3">
@@ -95,7 +96,7 @@ function isAbort(err: unknown): boolean {
                       type="button"
                       (click)="inspectSSHHostMachine(host)"
                       class="inline-flex items-center gap-1.5 rounded-md border border-transparent hover:border-[#32353f] hover:bg-[#24262d] px-2 py-1 text-[11px] text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
-                      title="View machine details or remove"
+                      ksTooltip="View machine details or remove"
                     >
                       <app-icon name="check-circle" [size]="13" />
                       <span>Added · Details</span>

@@ -8,11 +8,12 @@ import { NotificationService } from '../core/services/notification.service';
 import { FleetStore, basenamePath } from '../core/state/fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 @Component({
   selector: 'app-fleet-sidebar',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent],
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8] select-none">
       <!-- Top Search & Orchestrator Navigation -->
@@ -91,7 +92,7 @@ import { IconComponent } from '../shared/icon.component';
             <button
               type="button"
               (click)="toggleCreateForm('workspace')"
-              title="New Workspace (Space)"
+              ksTooltip="New Workspace (Space)" aria-label="New Workspace (Space)"
               class="rounded-md border border-[#262830] bg-[#1b1c20] hover:bg-[#24262d] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer shrink-0"
             >
               <app-icon name="plus" [size]="12" />
@@ -122,7 +123,7 @@ import { IconComponent } from '../shared/icon.component';
             <button
               type="button"
               (click)="toggleCreateForm('project')"
-              title="New Project in Space"
+              ksTooltip="New Project in Space" aria-label="New Project in Space"
               class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
             >
               <app-icon name="plus" [size]="12" />
@@ -169,7 +170,7 @@ import { IconComponent } from '../shared/icon.component';
                   <button
                     type="button"
                     (click)="openAddRepoForm(proj.id)"
-                    title="Add Repo to {{ proj.name }}"
+                    ksTooltip="Add Repo to {{ proj.name }}" attr.aria-label="Add Repo to {{ proj.name }}"
                     class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
                   >
                     <app-icon name="plus" [size]="11" />
@@ -178,7 +179,7 @@ import { IconComponent } from '../shared/icon.component';
                     <button
                       type="button"
                       (click)="$event.stopPropagation(); deleteProject(proj)"
-                      title="Delete Project"
+                      ksTooltip="Delete Project" aria-label="Delete Project"
                       class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                     >
                       <app-icon name="trash" [size]="10" />
@@ -243,7 +244,7 @@ import { IconComponent } from '../shared/icon.component';
                           <button
                             type="button"
                             (click)="$event.stopPropagation(); openAddWorktreeForm(repo.id, repo.path)"
-                            title="Add Worktree"
+                            ksTooltip="Add Worktree" aria-label="Add Worktree"
                             class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
                           >
                             <app-icon name="plus" [size]="10" />
@@ -251,7 +252,7 @@ import { IconComponent } from '../shared/icon.component';
                           <button
                             type="button"
                             (click)="$event.stopPropagation(); deleteRepo(repo)"
-                            title="Remove Repo"
+                            ksTooltip="Remove Repo" aria-label="Remove Repo"
                             class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                           >
                             <app-icon name="close" [size]="10" />
@@ -299,7 +300,7 @@ import { IconComponent } from '../shared/icon.component';
                             <button
                               type="button"
                               (click)="$event.stopPropagation(); deleteWorktree(wt)"
-                              title="Remove worktree entry"
+                              ksTooltip="Remove worktree entry" aria-label="Remove worktree entry"
                               class="opacity-0 group-hover/wt:opacity-100 rounded p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                             >
                               <app-icon name="close" [size]="9" />
@@ -347,7 +348,7 @@ import { IconComponent } from '../shared/icon.component';
             <button
               type="button"
               (click)="openNewSpace.emit(null)"
-              title="New folder shortcut on a machine"
+              ksTooltip="New folder shortcut on a machine" aria-label="New folder shortcut on a machine"
               class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
             >
               <app-icon name="plus" [size]="13" />
@@ -396,7 +397,7 @@ import { IconComponent } from '../shared/icon.component';
                     <button
                       type="button"
                       (click)="openNewSpace.emit(node.worker)"
-                      title="New space on {{ node.worker.name }}"
+                      ksTooltip="New space on {{ node.worker.name }}" attr.aria-label="New space on {{ node.worker.name }}"
                       class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                     >
                       <app-icon name="plus" [size]="12" />
@@ -404,7 +405,7 @@ import { IconComponent } from '../shared/icon.component';
                     <button
                       type="button"
                       (click)="$event.stopPropagation(); openMachineDetails.emit(node.worker)"
-                      title="Machine details &amp; remove {{ node.worker.name }}"
+                      ksTooltip="Machine details &amp; remove {{ node.worker.name }}" attr.aria-label="Machine details &amp; remove {{ node.worker.name }}"
                       class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                     >
                       <app-icon name="info" [size]="12" />
@@ -455,7 +456,7 @@ import { IconComponent } from '../shared/icon.component';
                           <button
                             type="button"
                             (click)="$event.stopPropagation(); deleteSpace(sp)"
-                            title="Remove space"
+                            ksTooltip="Remove space" aria-label="Remove space"
                             class="opacity-0 group-hover/sp:opacity-100 rounded p-0.5 hover:bg-white/10 text-[#86888f] hover:text-[#f09595] transition cursor-pointer"
                           >
                             <app-icon name="close" [size]="10" />
@@ -511,7 +512,7 @@ import { IconComponent } from '../shared/icon.component';
                     <app-icon [name]="item.task.agent" [size]="13" />
                     <span class="text-[12px] text-[#e4e4e7] truncate">{{ item.label }}</span>
                     @if (notifications.isUnread(item.task.id)) {
-                      <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" title="Unread update"></span>
+                      <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" role="img" aria-label="Unread update" ksTooltip="Unread update"></span>
                     }
                   </div>
 
@@ -519,9 +520,9 @@ import { IconComponent } from '../shared/icon.component';
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
                     @if (item.task.status === 'waiting_input') {
-                      <span class="h-2 w-2 rounded-full bg-[#d9a043]" title="Needs you"></span>
+                      <span class="h-2 w-2 rounded-full bg-[#d9a043]" role="img" aria-label="Needs you" ksTooltip="Needs you"></span>
                     } @else {
-                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin" title="Working"></span>
+                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin" role="img" aria-label="Working" ksTooltip="Working"></span>
                     }
                   </div>
                 </button>
@@ -548,7 +549,7 @@ import { IconComponent } from '../shared/icon.component';
                   <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#86888f]">
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
-                    <span class="h-2 w-2 rounded-full border border-[#5e6068]" title="Idle"></span>
+                    <span class="h-2 w-2 rounded-full border border-[#5e6068]" role="img" aria-label="Idle" ksTooltip="Idle"></span>
                   </div>
                 </button>
               }
@@ -575,9 +576,9 @@ import { IconComponent } from '../shared/icon.component';
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
                     @if (item.task.status === 'failed') {
-                      <span class="h-2 w-2 rounded-full bg-[#e05d5d]" title="Failed"></span>
+                      <span class="h-2 w-2 rounded-full bg-[#e05d5d]" role="img" aria-label="Failed" ksTooltip="Failed"></span>
                     } @else {
-                      <span class="h-2 w-2 rounded-full border border-[#484a52]" title="Completed"></span>
+                      <span class="h-2 w-2 rounded-full border border-[#484a52]" role="img" aria-label="Completed" ksTooltip="Completed"></span>
                     }
                   </div>
                 </button>
