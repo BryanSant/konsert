@@ -257,6 +257,7 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 		if protocol.IsTerminalTaskStatus(t.Status) || t.Status == protocol.TaskStatusQueued {
 			continue
 		}
+		h.forgetTask(t.ID)
 		// Passively discovered external sessions should never turn red ("failed") on daemon disconnect.
 		if t.Origin == protocol.TaskOriginExternal {
 			_ = h.store.UpdateTaskStatus(ctx, t.ID, protocol.TaskStatusCompleted, "external session detached", "", nil)
@@ -1197,10 +1198,13 @@ func (h *Hub) WaitForTask(taskID string) (<-chan store.Task, func()) {
 	return ch, cancel
 }
 
+// notifyTaskDone wakes waiters for a task that reached a terminal status and
+// drops the hub's task->worker routing entry for it.
 func (h *Hub) notifyTaskDone(t store.Task) {
 	h.mu.Lock()
 	list := h.waiters[t.ID]
 	delete(h.waiters, t.ID)
+	delete(h.taskWorker, t.ID)
 	h.mu.Unlock()
 
 	for _, ch := range list {
@@ -1209,6 +1213,13 @@ func (h *Hub) notifyTaskDone(t store.Task) {
 		default:
 		}
 	}
+}
+
+// forgetTask drops the task->worker routing entry (task finished, requeued or orphaned).
+func (h *Hub) forgetTask(taskID string) {
+	h.mu.Lock()
+	delete(h.taskWorker, taskID)
+	h.mu.Unlock()
 }
 
 func (h *Hub) workerForTaskLocked(taskID string) *workerConn {
