@@ -4,8 +4,9 @@ package chat
 // server omits the "jsonrpc" member and so do we).
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,23 +14,23 @@ import (
 )
 
 type codexRPCError struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    jsontext.Value `json:"data,omitzero"`
 }
 
 func (e *codexRPCError) Error() string { return fmt.Sprintf("%s (code %d)", e.Message, e.Code) }
 
 type codexWire struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method,omitempty"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *codexRPCError  `json:"error,omitempty"`
+	ID     jsontext.Value `json:"id,omitzero"`
+	Method string         `json:"method,omitempty"`
+	Params jsontext.Value `json:"params,omitzero"`
+	Result jsontext.Value `json:"result,omitzero"`
+	Error  *codexRPCError `json:"error,omitzero"`
 }
 
 type codexReply struct {
-	result json.RawMessage
+	result jsontext.Value
 	err    error
 }
 
@@ -43,8 +44,8 @@ type codexConn struct {
 	pending map[string]chan codexReply
 	closed  bool
 
-	onNotify  func(method string, params json.RawMessage)
-	onRequest func(id json.RawMessage, method string, params json.RawMessage)
+	onNotify  func(method string, params jsontext.Value)
+	onRequest func(id jsontext.Value, method string, params jsontext.Value)
 	onActive  func() // any line received
 }
 
@@ -64,7 +65,7 @@ func (c *codexConn) serve() {
 			c.trace("<", line)
 		}
 		var w codexWire
-		if json.Unmarshal(line, &w) != nil {
+		if unmarshal(line, &w) != nil {
 			continue
 		}
 		if c.onActive != nil {
@@ -105,20 +106,21 @@ func (c *codexConn) serve() {
 	c.mu.Unlock()
 }
 
-func codexIDKey(id json.RawMessage) string {
-	var n json.Number
-	if json.Unmarshal(id, &n) == nil {
-		return n.String()
+// codexIDKey normalizes a JSON-RPC id: numbers keep their literal text, strings
+// their decoded value.
+func codexIDKey(id jsontext.Value) string {
+	v := jsontext.Value(bytes.TrimSpace(id))
+	if v.Kind() == '"' {
+		var s string
+		if unmarshal(v, &s) == nil {
+			return s
+		}
 	}
-	var s string
-	if json.Unmarshal(id, &s) == nil {
-		return s
-	}
-	return string(id)
+	return string(v)
 }
 
 func (c *codexConn) write(v any) error {
-	data, err := json.Marshal(v)
+	data, err := marshalLine(v)
 	if err != nil {
 		return err
 	}
@@ -132,7 +134,7 @@ func (c *codexConn) write(v any) error {
 }
 
 // call sends a request and waits for its result.
-func (c *codexConn) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+func (c *codexConn) call(ctx context.Context, method string, params any) (jsontext.Value, error) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -172,11 +174,11 @@ func (c *codexConn) notify(method string, params any) error {
 	return c.write(msg)
 }
 
-func (c *codexConn) respond(id json.RawMessage, result any) error {
+func (c *codexConn) respond(id jsontext.Value, result any) error {
 	return c.write(map[string]any{"id": id, "result": result})
 }
 
-func (c *codexConn) respondError(id json.RawMessage, code int, msg string) error {
+func (c *codexConn) respondError(id jsontext.Value, code int, msg string) error {
 	return c.write(map[string]any{"id": id, "error": map[string]any{"code": code, "message": msg}})
 }
 

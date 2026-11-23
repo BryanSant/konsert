@@ -9,7 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"sort"
 	"strings"
@@ -190,7 +190,7 @@ func (e *acpEngine) fillFromSession(out *protocol.AgentAccount, res *acpSessionR
 			} `json:"tier"`
 		} `json:"antigravity"`
 	}
-	if len(res.Meta) > 0 && json.Unmarshal(res.Meta, &meta) == nil && meta.Antigravity.Tier.Name != "" {
+	if len(res.Meta) > 0 && unmarshal(res.Meta, &meta) == nil && meta.Antigravity.Tier.Name != "" {
 		out.Plan = meta.Antigravity.Tier.Name
 	}
 }
@@ -205,7 +205,7 @@ func (e *acpEngine) probeACP(ctx context.Context, acct Account) (*acpSessionResu
 
 	// Agent requests during a probe (none expected) are refused.
 	var self atomic.Pointer[acpConn]
-	conn, err := e.start(ctx, acct, dir, acpLaunch{}, func(method string, id json.RawMessage, _ json.RawMessage) {
+	conn, err := e.start(ctx, acct, dir, acpLaunch{}, func(method string, id jsontext.Value, _ jsontext.Value) {
 		if c := self.Load(); c != nil && id != nil {
 			_ = c.rpc.ReplyError(id, rpcMethodNotFound, "Method not found: "+method)
 		}

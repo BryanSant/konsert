@@ -3,7 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -177,7 +177,7 @@ func TestCSRFProtectionOnStateChangingAPI(t *testing.T) {
 	var uploaded struct {
 		RemotePath string `json:"remote_path"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&uploaded); err == nil && uploaded.RemotePath != "" {
+	if err := json.UnmarshalRead(resp.Body, &uploaded); err == nil && uploaded.RemotePath != "" {
 		t.Cleanup(func() { _ = os.Remove(uploaded.RemotePath) })
 	}
 	// A cross-site multipart form post (a CORS "simple" request) is rejected.

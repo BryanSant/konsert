@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -82,7 +82,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	factsJSON := ""
 	var factsUpdatedAt *time.Time
 	if hello.Worker.Facts != nil {
-		if b, mErr := json.Marshal(hello.Worker.Facts); mErr == nil {
+		if b, mErr := json.Marshal(hello.Worker.Facts, protocol.JSONOptions); mErr == nil {
 			factsJSON = string(b)
 			tNow := now
 			factsUpdatedAt = &tNow
@@ -445,7 +445,7 @@ func (h *Hub) onWorkerFacts(ctx context.Context, wc *workerConn, env protocol.En
 	if err != nil {
 		return
 	}
-	b, err := json.Marshal(p.Facts)
+	b, err := json.Marshal(p.Facts, protocol.JSONOptions)
 	if err != nil {
 		return
 	}
@@ -510,7 +510,7 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 	}
 	gitJSON := ""
 	if p.GitSummary != nil {
-		if b, err := json.Marshal(p.GitSummary); err == nil {
+		if b, err := json.Marshal(p.GitSummary, protocol.JSONOptions); err == nil {
 			gitJSON = string(b)
 		}
 	}
@@ -577,7 +577,7 @@ func (h *Hub) onTaskEvent(ctx context.Context, wc *workerConn, env protocol.Enve
 	}
 	metaJSON := ""
 	if len(p.Meta) > 0 {
-		if b, err := json.Marshal(p.Meta); err == nil {
+		if b, err := json.Marshal(p.Meta, protocol.JSONOptions); err == nil {
 			metaJSON = string(b)
 		}
 	}

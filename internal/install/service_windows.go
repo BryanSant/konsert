@@ -4,7 +4,8 @@ package install
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -364,7 +365,7 @@ func readServiceMarker(instance string) (serviceMarker, bool) {
 }
 
 func writeServiceMarker(instance string, m serviceMarker) error {
-	data, err := json.MarshalIndent(m, "", "  ")
+	data, err := json.Marshal(m, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

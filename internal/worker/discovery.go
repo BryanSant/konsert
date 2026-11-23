@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -191,7 +191,7 @@ func ParseHookEventLine(line string) (protocol.ExternalSessionPayload, bool) {
 		return protocol.ExternalSessionPayload{}, false
 	}
 	var ev HookEvent
-	if err := json.Unmarshal([]byte(line), &ev); err != nil || ev.Agent == "" {
+	if err := json.Unmarshal([]byte(line), &ev, protocol.JSONOptions); err != nil || ev.Agent == "" {
 		return protocol.ExternalSessionPayload{}, false
 	}
 	if ev.TaskID != "" {

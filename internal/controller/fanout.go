@@ -15,13 +15,13 @@ import (
 // so machines without relevant work are short-circuited at zero agent LLM token cost.
 type FanOutRequest struct {
 	Kind           string         `json:"kind"` // "worktree_cleanup" | "agent_sweep"
-	WorkerSelector WorkerSelector `json:"worker_selector,omitempty"`
+	WorkerSelector WorkerSelector `json:"worker_selector,omitzero"`
 	Query          string         `json:"query,omitempty"`     // substring match (e.g. "epic-123")
 	RootPath       string         `json:"root_path,omitempty"` // optional root to inspect per host
-	Apply          bool           `json:"apply,omitempty"`     // for worktree_cleanup: actually delete removable matches
+	Apply          bool           `json:"apply,omitzero"`      // for worktree_cleanup: actually delete removable matches
 	Agent          string         `json:"agent,omitempty"`     // for agent_sweep
 	Prompt         string         `json:"prompt,omitempty"`    // for agent_sweep
-	Precheck       bool           `json:"precheck,omitempty"`  // if true for agent_sweep, skip machines with 0 deterministic matches
+	Precheck       bool           `json:"precheck,omitzero"`   // if true for agent_sweep, skip machines with 0 deterministic matches
 	PermissionMode string         `json:"permission_mode,omitempty"`
 }
 
@@ -30,7 +30,7 @@ type FanOutMachineOutcome struct {
 	WorkerName    string                       `json:"worker_name"`
 	Status        string                       `json:"status"` // "no_op" | "matched" | "cleaned" | "dispatched" | "error"
 	Matches       []protocol.WorktreeScanMatch `json:"matches,omitempty"`
-	CleanedCount  int                          `json:"cleaned_count,omitempty"`
+	CleanedCount  int                          `json:"cleaned_count,omitzero"`
 	DispatchedIDs []string                     `json:"dispatched_task_ids,omitempty"`
 	Error         string                       `json:"error,omitempty"`
 }

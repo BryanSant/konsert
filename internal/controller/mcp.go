@@ -3,7 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -220,19 +220,19 @@ type emptyInput struct{}
 type listTasksInput struct {
 	StatusFilter string `json:"status_filter,omitempty" jsonschema:"Filter by task status (queued, running, waiting_input, completed, failed, canceled)"`
 	WorkerID     string `json:"worker_id,omitempty" jsonschema:"Filter by worker ID"`
-	Limit        int    `json:"limit,omitempty" jsonschema:"Maximum tasks to return (default 50)"`
+	Limit        int    `json:"limit,omitzero" jsonschema:"Maximum tasks to return (default 50)"`
 }
 
 type getTaskResultInput struct {
 	TaskID         string `json:"task_id" jsonschema:"Task ID to inspect"`
-	Wait           bool   `json:"wait,omitempty" jsonschema:"Block until task reaches a terminal state while emitting concise milestone progress notifications (default false)"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"Maximum seconds to wait when wait=true (default 300)"`
+	Wait           bool   `json:"wait,omitzero" jsonschema:"Block until task reaches a terminal state while emitting concise milestone progress notifications (default false)"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitzero" jsonschema:"Maximum seconds to wait when wait=true (default 300)"`
 }
 
 type steerTaskInput struct {
 	TaskID        string `json:"task_id" jsonschema:"Running or waiting_input task ID"`
 	InputText     string `json:"input_text" jsonschema:"Text to send to the agent PTY stdin"`
-	AppendNewline *bool  `json:"append_newline,omitempty" jsonschema:"Append trailing newline (default true)"`
+	AppendNewline *bool  `json:"append_newline,omitzero" jsonschema:"Append trailing newline (default true)"`
 }
 
 type cancelTaskInput struct {
@@ -260,11 +260,11 @@ type saveMemoryInput struct {
 
 type recallMemoryInput struct {
 	Scope string `json:"scope,omitempty" jsonschema:"Optional scope filter"`
-	Limit int    `json:"limit,omitempty"`
+	Limit int    `json:"limit,omitzero"`
 }
 
 func jsonToolResult(v any) (*mcp.CallToolResult, any, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, protocol.JSONOptions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -314,7 +314,7 @@ func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Se
 			WorkerID   string                 `json:"worker_id"`
 			WorkerName string                 `json:"worker_name"`
 			Status     string                 `json:"status"`
-			Facts      *protocol.MachineFacts `json:"facts,omitempty"`
+			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
 		}
 		out := []row{}
 		for _, w := range fs.Workers {
@@ -590,7 +590,7 @@ func (e *APIError) Error() string {
 func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, reqBody any, out any) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
-		b, err := json.Marshal(reqBody)
+		b, err := json.Marshal(reqBody, protocol.JSONOptions)
 		if err != nil {
 			return err
 		}

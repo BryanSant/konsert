@@ -31,7 +31,7 @@ type WorkerWakeLockView struct {
 	Supported bool `json:"supported"`
 	// Desired is the effective hub-side wish (per-worker override, else the fleet-wide
 	// setting); nil when nobody asked for anything.
-	Desired *bool `json:"desired,omitempty"`
+	Desired *bool `json:"desired,omitzero"`
 	protocol.HostWakeLockState
 }
 

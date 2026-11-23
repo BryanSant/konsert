@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"path/filepath"

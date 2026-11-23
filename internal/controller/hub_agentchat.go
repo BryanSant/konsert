@@ -7,7 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -74,7 +74,7 @@ type chatRespondRequest struct {
 
 type chatControlRequest struct {
 	SessionID    string `json:"session_id"`
-	Cancel       bool   `json:"cancel,omitempty"`
+	Cancel       bool   `json:"cancel,omitzero"`
 	Model        string `json:"model,omitempty"`
 	Effort       string `json:"effort,omitempty"`
 	ApprovalMode string `json:"approval_mode,omitempty"`
@@ -138,7 +138,7 @@ type AgentAccountView struct {
 	// future or unknown reset); ExhaustedWindow/ExhaustedUntil describe it.
 	Exhausted       bool       `json:"exhausted"`
 	ExhaustedWindow string     `json:"exhausted_window,omitempty"`
-	ExhaustedUntil  *time.Time `json:"exhausted_until,omitempty"`
+	ExhaustedUntil  *time.Time `json:"exhausted_until,omitzero"`
 }
 
 // --- event emission -------------------------------------------------------------
@@ -187,7 +187,7 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	}
 	ev.ChatID = chatID
 	ev.Seq = rt.seq + 1
-	raw, err := json.Marshal(ev)
+	raw, err := json.Marshal(ev, protocol.JSONOptions)
 	if err != nil {
 		return ev, false
 	}
@@ -262,7 +262,7 @@ func applyEventToSession(cs *store.ChatSession, ev protocol.AgentChatEvent) {
 			cs.Status = protocol.ChatStatusFailed
 		}
 		if ev.Error != nil {
-			if b, err := json.Marshal(ev.Error); err == nil {
+			if b, err := json.Marshal(ev.Error, protocol.JSONOptions); err == nil {
 				cs.LastErrorJSON = string(b)
 			}
 		}
@@ -301,7 +301,7 @@ func (h *Hub) onAgentCapabilities(ctx context.Context, wc *workerConn, env proto
 		if a.ID == "" {
 			continue
 		}
-		b, err := json.Marshal(a)
+		b, err := json.Marshal(a, protocol.JSONOptions)
 		if err != nil {
 			continue
 		}
@@ -973,15 +973,15 @@ func (h *Hub) resolveAsks(chatID, reason string) {
 
 // ChatSettingsPatch is a partial agent chat settings change (REST PATCH and chat.control).
 type ChatSettingsPatch struct {
-	Title        *string `json:"title,omitempty"`
-	WorkerID     *string `json:"worker_id,omitempty"`
-	Agent        *string `json:"agent,omitempty"`
-	AccountID    *string `json:"account_id,omitempty"`
-	Model        *string `json:"model,omitempty"`
-	Effort       *string `json:"effort,omitempty"`
-	ApprovalMode *string `json:"approval_mode,omitempty"`
-	Cwd          *string `json:"cwd,omitempty"`
-	FleetTools   *bool   `json:"fleet_tools,omitempty"`
+	Title        *string `json:"title,omitzero"`
+	WorkerID     *string `json:"worker_id,omitzero"`
+	Agent        *string `json:"agent,omitzero"`
+	AccountID    *string `json:"account_id,omitzero"`
+	Model        *string `json:"model,omitzero"`
+	Effort       *string `json:"effort,omitzero"`
+	ApprovalMode *string `json:"approval_mode,omitzero"`
+	Cwd          *string `json:"cwd,omitzero"`
+	FleetTools   *bool   `json:"fleet_tools,omitzero"`
 }
 
 func (p ChatSettingsPatch) empty() bool {
@@ -1241,7 +1241,7 @@ func (h *Hub) RefreshAgentCapabilities(workerID, accountID string) ([]string, er
 type askUserInput struct {
 	Question  string   `json:"question" jsonschema:"The question to ask the user"`
 	Options   []string `json:"options,omitempty" jsonschema:"Optional choices to offer (labels)"`
-	AllowText *bool    `json:"allow_text,omitempty" jsonschema:"Accept a free-form answer (default true when no options are given)"`
+	AllowText *bool    `json:"allow_text,omitzero" jsonschema:"Accept a free-form answer (default true when no options are given)"`
 }
 
 // askUser raises a question elicitation in the chat and blocks until the user

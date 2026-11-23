@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
@@ -28,7 +28,7 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 
 	gitJSON := ""
 	if len(p.ChangedFiles) > 0 {
-		if b, err := json.Marshal(protocol.GitSummary{DirtyFiles: p.ChangedFiles}); err == nil {
+		if b, err := json.Marshal(protocol.GitSummary{DirtyFiles: p.ChangedFiles}, protocol.JSONOptions); err == nil {
 			gitJSON = string(b)
 		}
 	}

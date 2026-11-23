@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"strings"
 	"sync"
@@ -28,7 +28,7 @@ type fakeCodex struct {
 	responses chan map[string]any
 }
 
-func (f *fakeCodex) fixture(name string) json.RawMessage {
+func (f *fakeCodex) fixture(name string) jsontext.Value {
 	b, err := os.ReadFile("testdata/codex/" + name)
 	if err != nil {
 		f.t.Fatal(err)
@@ -55,7 +55,7 @@ func (f *fakeCodex) handler(p *ccFakeProc, msg map[string]any) {
 		reply(f.fixture("initialize_result.json"))
 	case "account/read":
 		if f.loggedIn {
-			reply(json.RawMessage(codexAccountOK))
+			reply(jsontext.Value(codexAccountOK))
 		} else {
 			reply(f.fixture("account_read_logged_out.json"))
 		}
@@ -63,7 +63,7 @@ func (f *fakeCodex) handler(p *ccFakeProc, msg map[string]any) {
 		reply(f.fixture("model_list.json"))
 	case "account/rateLimits/read":
 		if f.loggedIn {
-			reply(json.RawMessage(codexRateLimitsOK))
+			reply(jsontext.Value(codexRateLimitsOK))
 		} else {
 			p.send(map[string]any{"id": id, "error": f.fixture("rate_limits_logged_out_error.json")})
 		}
@@ -393,11 +393,11 @@ func TestCodexFileChangeApprovalAlways(t *testing.T) {
 }
 
 func TestCodexLimitsAndErrorInfo(t *testing.T) {
-	name, status := codexErrorInfo(json.RawMessage(`{"httpConnectionFailed":{"httpStatusCode":401}}`))
+	name, status := codexErrorInfo(jsontext.Value(`{"httpConnectionFailed":{"httpStatusCode":401}}`))
 	if name != "httpConnectionFailed" || status != 401 {
 		t.Fatalf("%s %d", name, status)
 	}
-	name, _ = codexErrorInfo(json.RawMessage(`"usageLimitExceeded"`))
+	name, _ = codexErrorInfo(jsontext.Value(`"usageLimitExceeded"`))
 	if name != "usageLimitExceeded" {
 		t.Fatal(name)
 	}

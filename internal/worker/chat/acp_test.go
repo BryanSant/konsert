@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/url"
 	"os"
 	"path/filepath"

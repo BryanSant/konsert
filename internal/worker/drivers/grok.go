@@ -2,7 +2,6 @@ package drivers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -264,7 +263,7 @@ type grokUsage struct {
 
 func (d *GrokDriver) parseUpdate(t *grokTask, raw []byte, emit func(TelemetryEvent)) {
 	var rec grokUpdateLine
-	if err := json.Unmarshal(raw, &rec); err != nil {
+	if err := unmarshal(raw, &rec); err != nil {
 		return
 	}
 	u := rec.Params.Update

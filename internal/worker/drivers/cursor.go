@@ -2,7 +2,6 @@ package drivers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -206,7 +205,7 @@ type cursorLine struct {
 
 func (d *CursorDriver) parseLine(t *cursorTask, raw []byte, emit func(TelemetryEvent)) {
 	var rec cursorLine
-	if err := json.Unmarshal(raw, &rec); err != nil {
+	if err := unmarshal(raw, &rec); err != nil {
 		return
 	}
 	if rec.Type == "turn_ended" {

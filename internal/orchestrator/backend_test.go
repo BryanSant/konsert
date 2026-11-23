@@ -2,7 +2,8 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,7 +23,7 @@ func assertPaired(t *testing.T, msgs []Message) {
 			want := map[string]bool{}
 			for _, tc := range m.ToolCalls {
 				want[tc.ID] = true
-				if !json.Valid(tc.Arguments) {
+				if !jsontext.Value(tc.Arguments).IsValid() {
 					t.Fatalf("msg %d: invalid arguments %q", i, tc.Arguments)
 				}
 			}
@@ -56,8 +57,8 @@ func TestInvalidToolArgumentsDoNotPoisonHistory(t *testing.T) {
 	svc, st, ex := newTestService(t, config.OrchestratorConfig{})
 	prov := &scriptedProvider{replies: []Message{
 		{Role: "assistant", ToolCalls: []ToolCall{
-			{ID: "call_bad", Name: "fleet_status", Arguments: json.RawMessage(`{"machine": "a`)}, // truncated JSON
-			{ID: "call_ok", Name: "fleet_status", Arguments: json.RawMessage(`{"machine":"b"}`)},
+			{ID: "call_bad", Name: "fleet_status", Arguments: jsontext.Value(`{"machine": "a`)}, // truncated JSON
+			{ID: "call_ok", Name: "fleet_status", Arguments: jsontext.Value(`{"machine":"b"}`)},
 		}},
 		{Role: "assistant", Content: "done"},
 		{Role: "assistant", Content: "second answer"},
@@ -110,9 +111,9 @@ func TestInvalidToolArgumentsDoNotPoisonHistory(t *testing.T) {
 func TestSanitizeToolCalls(t *testing.T) {
 	calls := []ToolCall{
 		{Name: "a", Arguments: nil},
-		{ID: "x", Name: "b", Arguments: json.RawMessage(`[1,2]`)},
-		{ID: "y", Name: "", Arguments: json.RawMessage(`{}`)},
-		{ID: "z", Name: "c", Arguments: json.RawMessage(` {"k":1} `)},
+		{ID: "x", Name: "b", Arguments: jsontext.Value(`[1,2]`)},
+		{ID: "y", Name: "", Arguments: jsontext.Value(`{}`)},
+		{ID: "z", Name: "c", Arguments: jsontext.Value(` {"k":1} `)},
 	}
 	bad := sanitizeToolCalls(calls)
 	if calls[0].ID == "" || string(calls[0].Arguments) != "{}" {
@@ -138,7 +139,7 @@ func TestLoadBoundedHistoryStripsOrphansAnywhere(t *testing.T) {
 	tj := func(calls ...string) string {
 		var tcs []ToolCall
 		for _, c := range calls {
-			tcs = append(tcs, ToolCall{ID: c, Name: "fleet_status", Arguments: json.RawMessage("{}")})
+			tcs = append(tcs, ToolCall{ID: c, Name: "fleet_status", Arguments: jsontext.Value("{}")})
 		}
 		b, _ := json.Marshal(tcs)
 		return string(b)
@@ -194,7 +195,7 @@ func TestMaxTurnsEmitsFinalMessage(t *testing.T) {
 	ctx := context.Background()
 	svc, st, ex := newTestService(t, config.OrchestratorConfig{})
 	svc.SetProvider(&scriptedProvider{replies: []Message{
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "loop", Name: "fleet_status", Arguments: json.RawMessage("{}")}}},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "loop", Name: "fleet_status", Arguments: jsontext.Value("{}")}}},
 	}})
 	var deltas strings.Builder
 	var doneID int64

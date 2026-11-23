@@ -9,7 +9,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -356,7 +355,7 @@ func parseCursorStatus(out string) (state, email, detail string) {
 			Email string `json:"email"`
 		} `json:"userInfo"`
 	}
-	if json.Unmarshal([]byte(out[i:]), &st) != nil {
+	if unmarshal([]byte(out[i:]), &st) != nil {
 		return protocol.AuthUnknown, "", ""
 	}
 	if st.UserInfo != nil {

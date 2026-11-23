@@ -3,7 +3,8 @@ package orchestrator
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,9 +37,9 @@ type ToolDef struct {
 
 // ToolCall represents a single model-initiated tool invocation.
 type ToolCall struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Arguments jsontext.Value `json:"arguments"`
 }
 
 // Message is the provider-agnostic chat message representation.
@@ -48,12 +49,12 @@ type Message struct {
 	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID   string     `json:"tool_call_id,omitempty"`
 	ToolName     string     `json:"tool_name,omitempty"`
-	InputTokens  int64      `json:"input_tokens,omitempty"`
-	OutputTokens int64      `json:"output_tokens,omitempty"`
+	InputTokens  int64      `json:"input_tokens,omitzero"`
+	OutputTokens int64      `json:"output_tokens,omitzero"`
 	// AnthropicContent holds the raw assistant content blocks (including
 	// signed thinking blocks) so a tool-use turn can be continued exactly as
 	// the Anthropic API requires. It lives only in memory for the current turn.
-	AnthropicContent json.RawMessage `json:"-"`
+	AnthropicContent jsontext.Value `json:"-"`
 }
 
 // Provider implements a direct LLM API client.
@@ -65,7 +66,7 @@ type Provider interface {
 // ToolExecutor bridges the orchestrator loop to the controller's FleetService.
 type ToolExecutor interface {
 	ToolDefinitions() []ToolDef
-	ExecuteTool(ctx context.Context, name string, args json.RawMessage) (any, error)
+	ExecuteTool(ctx context.Context, name string, args jsontext.Value) (any, error)
 }
 
 // StreamCallbacks receives real-time chat events for forwarding over browser WebSocket.
@@ -318,7 +319,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 
 		toolJSON := ""
 		if len(reply.ToolCalls) > 0 {
-			b, mErr := json.Marshal(reply.ToolCalls)
+			b, mErr := json.Marshal(reply.ToolCalls, storeJSONOpts)
 			if mErr != nil {
 				return fail(fmt.Errorf("encode tool calls: %w", mErr))
 			}
@@ -369,11 +370,11 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				}
 			}
 
-			resBytes, mErr := json.Marshal(resultPayload)
+			resBytes, mErr := json.Marshal(resultPayload, storeJSONOpts)
 			if mErr != nil {
 				status = "error"
 				resultPayload = map[string]string{"error": "tool result could not be encoded: " + mErr.Error()}
-				resBytes, _ = json.Marshal(resultPayload) // map[string]string always encodes
+				resBytes, _ = json.Marshal(resultPayload, storeJSONOpts) // map[string]string always encodes
 			}
 			if cb.OnTool != nil {
 				cb.OnTool(protocol.ChatToolPayload{
@@ -449,20 +450,20 @@ func sanitizeToolCalls(calls []ToolCall) map[int]string {
 		}
 		args := bytes.TrimSpace(tc.Arguments)
 		if len(args) == 0 {
-			tc.Arguments = json.RawMessage("{}")
+			tc.Arguments = jsontext.Value("{}")
 			continue
 		}
 		var obj map[string]any
-		if !json.Valid(args) || json.Unmarshal(args, &obj) != nil {
+		if json.Unmarshal(args, &obj) != nil {
 			preview := string(args)
 			if len(preview) > 200 {
 				preview = preview[:200] + "..."
 			}
 			invalid[i] = fmt.Sprintf("invalid tool arguments: expected a JSON object, got %q; the call was not executed. Retry with valid JSON arguments.", preview)
-			tc.Arguments = json.RawMessage("{}")
+			tc.Arguments = jsontext.Value("{}")
 			continue
 		}
-		tc.Arguments = json.RawMessage(args)
+		tc.Arguments = jsontext.Value(args)
 		if strings.TrimSpace(tc.Name) == "" {
 			invalid[i] = "tool call is missing a tool name; the call was not executed."
 		}
@@ -609,3 +610,14 @@ func compactOverflowDigest(rows []store.ChatMessage) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// requestJSONOpts encode provider request bodies. Map keys are sorted (as v1 did)
+// so identical requests serialize identically: tool schemas are maps, and a
+// stable prefix keeps provider prompt caching effective. Tool results can carry
+// command output that is not valid UTF-8; it is replaced with U+FFFD rather than
+// failing the request.
+var requestJSONOpts = json.JoinOptions(json.Deterministic(true), jsontext.AllowInvalidUTF8(true))
+
+// storeJSONOpts encode JSON the backend persists and replays (tool calls and
+// results, Anthropic content blocks).
+var storeJSONOpts = jsontext.AllowInvalidUTF8(true)

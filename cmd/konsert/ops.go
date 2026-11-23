@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -176,7 +177,7 @@ func streamTaskLogs(ctx context.Context, c logsClient, out io.Writer, taskID str
 	if err != nil {
 		return err
 	}
-	enc := json.NewEncoder(out)
+	enc := jsontext.NewEncoder(out, cliJSONOpts)
 	for {
 		terminal := protocol.IsTerminalTaskStatus(res.Status)
 		events, err := c.ListTaskEvents(ctx, taskID, afterID)
@@ -185,7 +186,7 @@ func streamTaskLogs(ctx context.Context, c logsClient, out io.Writer, taskID str
 		}
 		for _, ev := range events {
 			if asJSON {
-				if err := enc.Encode(ev); err != nil {
+				if err := json.MarshalEncode(enc, ev); err != nil {
 					return err
 				}
 			} else {
@@ -221,10 +222,13 @@ func formatEvent(ev store.TaskEvent) string {
 	return fmt.Sprintf("%s  %-10s  %s", ts, ev.Kind, msg)
 }
 
+// cliJSONOpts makes CLI JSON output stable (sorted map keys) and tolerant of
+// invalid UTF-8 in remote data.
+var cliJSONOpts = json.JoinOptions(json.Deterministic(true), jsontext.AllowInvalidUTF8(true))
+
+// writeJSONOut writes v as indented JSON followed by a newline.
 func writeJSONOut(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	return json.MarshalEncode(jsontext.NewEncoder(w, cliJSONOpts, jsontext.WithIndent("  ")), v)
 }
 
 // workerVersionLabel renders a worker's version for `konsert status`, marking a

@@ -2,13 +2,14 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
 
@@ -118,7 +119,7 @@ func auditMeta(m map[string]any) string {
 	if len(m) == 0 {
 		return ""
 	}
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(m, protocol.JSONOptions, json.Deterministic(true))
 	if err != nil {
 		return ""
 	}
@@ -131,7 +132,7 @@ func auditMeta(m map[string]any) string {
 // the before_id that fetches the next (older) page.
 type AuditListResponse struct {
 	Events     []store.AuditEvent `json:"events"`
-	NextCursor int64              `json:"next_cursor,omitempty"`
+	NextCursor int64              `json:"next_cursor,omitzero"`
 }
 
 const (
@@ -292,8 +293,8 @@ type ListAuditInput struct {
 	Action   string `json:"action,omitempty" jsonschema:"only this action, e.g. task.steer, task.cancel, git.commit"`
 	Since    string `json:"since,omitempty" jsonschema:"RFC3339 lower time bound"`
 	Until    string `json:"until,omitempty" jsonschema:"RFC3339 upper time bound"`
-	BeforeID int64  `json:"before_id,omitempty" jsonschema:"page cursor: next_cursor of the previous call"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"max events (default 100, max 500)"`
+	BeforeID int64  `json:"before_id,omitzero" jsonschema:"page cursor: next_cursor of the previous call"`
+	Limit    int    `json:"limit,omitzero" jsonschema:"max events (default 100, max 500)"`
 }
 
 func (in ListAuditInput) query() map[string][]string {

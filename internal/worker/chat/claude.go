@@ -13,7 +13,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/http"
@@ -208,14 +208,14 @@ type claudePending struct {
 	id          string
 	kind        string
 	toolName    string
-	input       json.RawMessage
-	suggestions json.RawMessage
+	input       jsontext.Value
+	suggestions jsontext.Value
 	questions   []claudeQuestion
 }
 
 type claudeCtlResult struct {
 	ok       bool
-	response json.RawMessage
+	response jsontext.Value
 	err      string
 }
 
@@ -323,7 +323,7 @@ func claudeMCPConfig(servers []protocol.AgentMCPServer) ([]byte, error) {
 	for _, s := range servers {
 		m[s.Name] = srv{Type: "http", URL: s.URL, Headers: s.Headers}
 	}
-	return json.Marshal(map[string]any{"mcpServers": m})
+	return marshalLine(map[string]any{"mcpServers": m})
 }
 
 // claudeWriteMCPConfig writes the MCP config to a private temp file (the headers carry
@@ -401,7 +401,7 @@ func (s *claudeSession) ensureProc(ctx context.Context) error {
 	var init struct {
 		Mode string `json:"current_permission_mode"`
 	}
-	_ = json.Unmarshal(res, &init)
+	_ = unmarshal(res, &init)
 	if init.Mode != "" {
 		s.mu.Lock()
 		s.mode = init.Mode
@@ -447,7 +447,7 @@ func (s *claudeSession) emitStartError(err error) {
 
 // write sends one JSON line to the CLI.
 func (s *claudeSession) write(v any) error {
-	data, err := json.Marshal(v)
+	data, err := marshalLine(v)
 	if err != nil {
 		return err
 	}
@@ -467,7 +467,7 @@ func (s *claudeSession) write(v any) error {
 }
 
 // control sends a control request and waits for its response.
-func (s *claudeSession) control(ctx context.Context, req map[string]any) (json.RawMessage, error) {
+func (s *claudeSession) control(ctx context.Context, req map[string]any) (jsontext.Value, error) {
 	id := fmt.Sprintf("konsert-%d", s.reqSeq.Add(1))
 	ch := make(chan claudeCtlResult, 1)
 	s.ctlMu.Lock()
@@ -621,7 +621,7 @@ func claudeValidateAnswer(p *claudePending, r protocol.AgentChatRespond) error {
 func claudePermissionAnswer(p *claudePending, r protocol.AgentChatRespond) map[string]any {
 	input := p.input
 	if len(input) == 0 {
-		input = json.RawMessage("{}")
+		input = jsontext.Value("{}")
 	}
 	if p.kind == protocol.ElicitQuestion {
 		if r.OptionID == "reject" {
@@ -638,7 +638,7 @@ func claudePermissionAnswer(p *claudePending, r protocol.AgentChatRespond) map[s
 			}
 		}
 		var in map[string]any
-		_ = json.Unmarshal(input, &in)
+		_ = unmarshal(input, &in)
 		if in == nil {
 			in = map[string]any{}
 		}
@@ -877,17 +877,17 @@ func (s *claudeSession) watchdogLoop() {
 // --- Reading the stream ---------------------------------------------------------------
 
 type claudeLine struct {
-	Type            string          `json:"type"`
-	Subtype         string          `json:"subtype"`
-	SessionID       string          `json:"session_id"`
-	RequestID       string          `json:"request_id"`
-	Request         json.RawMessage `json:"request"`
-	Response        json.RawMessage `json:"response"`
-	Event           json.RawMessage `json:"event"`
-	Message         json.RawMessage `json:"message"`
-	ParentToolUseID *string         `json:"parent_tool_use_id"`
-	Model           string          `json:"model"`
-	PermissionMode  string          `json:"permissionMode"`
+	Type            string         `json:"type"`
+	Subtype         string         `json:"subtype"`
+	SessionID       string         `json:"session_id"`
+	RequestID       string         `json:"request_id"`
+	Request         jsontext.Value `json:"request"`
+	Response        jsontext.Value `json:"response"`
+	Event           jsontext.Value `json:"event"`
+	Message         jsontext.Value `json:"message"`
+	ParentToolUseID *string        `json:"parent_tool_use_id"`
+	Model           string         `json:"model"`
+	PermissionMode  string         `json:"permissionMode"`
 
 	IsError        bool                 `json:"is_error"`
 	Result         string               `json:"result"`
@@ -931,29 +931,29 @@ type claudeUnifiedWind struct {
 }
 
 type claudeContentBlock struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     json.RawMessage `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"`
-	IsError   bool            `json:"is_error"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Input     jsontext.Value `json:"input"`
+	ToolUseID string         `json:"tool_use_id"`
+	Content   jsontext.Value `json:"content"`
+	IsError   bool           `json:"is_error"`
 }
 
 type claudeMessage struct {
-	ID      string          `json:"id"`
-	Model   string          `json:"model"`
-	Content json.RawMessage `json:"content"`
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
+	Content jsontext.Value `json:"content"`
 }
 
 func (m claudeMessage) blocks() []claudeContentBlock {
 	var bs []claudeContentBlock
-	if err := json.Unmarshal(m.Content, &bs); err == nil {
+	if err := unmarshal(m.Content, &bs); err == nil {
 		return bs
 	}
 	var text string
-	if err := json.Unmarshal(m.Content, &text); err == nil && text != "" {
+	if err := unmarshal(m.Content, &text); err == nil && text != "" {
 		return []claudeContentBlock{{Type: "text", Text: text}}
 	}
 	return nil
@@ -970,7 +970,7 @@ func (s *claudeSession) readLoop(proc ccProcess, gen int) {
 			s.eng.trace("<", line)
 		}
 		var l claudeLine
-		if err := json.Unmarshal(line, &l); err != nil {
+		if err := unmarshal(line, &l); err != nil {
 			continue // non-JSON noise
 		}
 		s.mu.Lock()
@@ -992,12 +992,12 @@ func (s *claudeSession) handle(l *claudeLine) {
 	switch l.Type {
 	case "control_response":
 		var r struct {
-			Subtype   string          `json:"subtype"`
-			RequestID string          `json:"request_id"`
-			Response  json.RawMessage `json:"response"`
-			Error     string          `json:"error"`
+			Subtype   string         `json:"subtype"`
+			RequestID string         `json:"request_id"`
+			Response  jsontext.Value `json:"response"`
+			Error     string         `json:"error"`
 		}
-		if json.Unmarshal(l.Response, &r) != nil {
+		if unmarshal(l.Response, &r) != nil {
 			return
 		}
 		s.ctlMu.Lock()
@@ -1088,7 +1088,7 @@ func (s *claudeSession) handleStreamEvent(l *claudeLine) {
 			Thinking string `json:"thinking"`
 		} `json:"delta"`
 	}
-	if json.Unmarshal(l.Event, &ev) != nil {
+	if unmarshal(l.Event, &ev) != nil {
 		return
 	}
 	s.mu.Lock()
@@ -1119,7 +1119,7 @@ func (s *claudeSession) handleStreamEvent(l *claudeLine) {
 
 func (s *claudeSession) handleAssistant(l *claudeLine) {
 	var m claudeMessage
-	if json.Unmarshal(l.Message, &m) != nil {
+	if unmarshal(l.Message, &m) != nil {
 		return
 	}
 	sub := l.ParentToolUseID != nil && *l.ParentToolUseID != ""
@@ -1168,7 +1168,7 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 
 func (s *claudeSession) handleUser(l *claudeLine) {
 	var m claudeMessage
-	if json.Unmarshal(l.Message, &m) != nil {
+	if unmarshal(l.Message, &m) != nil {
 		return
 	}
 	var events []protocol.AgentChatEvent
@@ -1202,13 +1202,13 @@ func (s *claudeSession) handleUser(l *claudeLine) {
 }
 
 // claudeToolResultText flattens a tool_result content (string or content blocks).
-func claudeToolResultText(raw json.RawMessage) string {
+func claudeToolResultText(raw jsontext.Value) string {
 	var str string
-	if json.Unmarshal(raw, &str) == nil {
+	if unmarshal(raw, &str) == nil {
 		return str
 	}
 	var bs []claudeContentBlock
-	if json.Unmarshal(raw, &bs) == nil {
+	if unmarshal(raw, &bs) == nil {
 		var parts []string
 		for _, b := range bs {
 			switch b.Type {
@@ -1443,19 +1443,19 @@ func claudeUsageMessage(label, window string, resets *time.Time) string {
 
 func (s *claudeSession) handleControlRequest(l *claudeLine) {
 	var req struct {
-		Subtype       string          `json:"subtype"`
-		ToolName      string          `json:"tool_name"`
-		DisplayName   string          `json:"display_name"`
-		Title         string          `json:"title"`
-		Description   string          `json:"description"`
-		Input         json.RawMessage `json:"input"`
-		Suggestions   json.RawMessage `json:"permission_suggestions"`
-		BlockedPath   string          `json:"blocked_path"`
-		DecisionRsn   string          `json:"decision_reason"`
-		ToolUseID     string          `json:"tool_use_id"`
-		ActionSummary string          `json:"action_description"`
+		Subtype       string         `json:"subtype"`
+		ToolName      string         `json:"tool_name"`
+		DisplayName   string         `json:"display_name"`
+		Title         string         `json:"title"`
+		Description   string         `json:"description"`
+		Input         jsontext.Value `json:"input"`
+		Suggestions   jsontext.Value `json:"permission_suggestions"`
+		BlockedPath   string         `json:"blocked_path"`
+		DecisionRsn   string         `json:"decision_reason"`
+		ToolUseID     string         `json:"tool_use_id"`
+		ActionSummary string         `json:"action_description"`
 	}
-	if json.Unmarshal(l.Request, &req) != nil {
+	if unmarshal(l.Request, &req) != nil {
 		return
 	}
 	if req.Subtype != "can_use_tool" {
@@ -1536,11 +1536,11 @@ type claudeQuestion struct {
 	} `json:"options"`
 }
 
-func claudeQuestions(input json.RawMessage) []claudeQuestion {
+func claudeQuestions(input jsontext.Value) []claudeQuestion {
 	var in struct {
 		Questions []claudeQuestion `json:"questions"`
 	}
-	_ = json.Unmarshal(input, &in)
+	_ = unmarshal(input, &in)
 	return in.Questions
 }
 
@@ -1635,9 +1635,9 @@ func claudeParseResetEpoch(text string) *time.Time {
 
 // --- Tool calls --------------------------------------------------------------------------
 
-func claudeToolCall(id, name string, input json.RawMessage) *protocol.AgentToolCall {
+func claudeToolCall(id, name string, input jsontext.Value) *protocol.AgentToolCall {
 	var in map[string]any
-	_ = json.Unmarshal(input, &in)
+	_ = unmarshal(input, &in)
 	str := func(k string) string {
 		if v, ok := in[k].(string); ok {
 			return v
@@ -1695,14 +1695,14 @@ func claudeToolCall(id, name string, input json.RawMessage) *protocol.AgentToolC
 	return tc
 }
 
-func claudePlan(input json.RawMessage) []protocol.AgentPlanItem {
+func claudePlan(input jsontext.Value) []protocol.AgentPlanItem {
 	var in struct {
 		Todos []struct {
 			Content string `json:"content"`
 			Status  string `json:"status"`
 		} `json:"todos"`
 	}
-	if json.Unmarshal(input, &in) != nil || len(in.Todos) == 0 {
+	if unmarshal(input, &in) != nil || len(in.Todos) == 0 {
 		return nil
 	}
 	out := make([]protocol.AgentPlanItem, 0, len(in.Todos))

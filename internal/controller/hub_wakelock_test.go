@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -161,7 +161,7 @@ func TestWakeLockREST(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		var out map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&out)
+		_ = json.UnmarshalRead(resp.Body, &out)
 		return resp.StatusCode, out
 	}
 	jsonHdr := map[string]string{"Content-Type": "application/json", "X-Konsert-Request": "1"}
@@ -199,7 +199,7 @@ func TestWakeLockREST(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	var status WakeLockStatus
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &status); err != nil {
 		t.Fatal(err)
 	}
 	if status.Fleet == nil || !status.Fleet.Enabled || len(status.Workers) != 1 || !status.Workers[0].Online ||

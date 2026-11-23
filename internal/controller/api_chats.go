@@ -2,9 +2,8 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -99,15 +98,8 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 
 func (s *Server) handleCreateChatSession(w http.ResponseWriter, r *http.Request) {
 	var body createChatRequest
-	if requestHasBody(r) {
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-			if isBodyTooLarge(err) {
-				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
-				return
-			}
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
-			return
-		}
+	if requestHasBody(r) && !decodeJSONBody(w, r, &body, true) {
+		return
 	}
 	cs, err := s.createChat(r.Context(), body)
 	if err != nil {
@@ -216,10 +208,10 @@ func (s *Server) handleChatEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	out := make([]json.RawMessage, 0, len(evs))
+	out := make([]jsontext.Value, 0, len(evs))
 	last := after
 	for _, e := range evs {
-		out = append(out, json.RawMessage(e.JSON))
+		out = append(out, jsontext.Value(e.JSON))
 		last = e.Seq
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"session": cs, "events": out, "last_seq": last})
