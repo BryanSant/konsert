@@ -229,14 +229,43 @@ Run `konsertd.exe run --controller wss://... --token ...` from a terminal, or re
 Task Scheduler task that runs at logon as your user. ConPTY and Job Objects are used
 automatically.
 
-## 6. Installing the PWA
+## 6. Host Keep Awake
+
+The footer's Keep Awake control can also stop worker hosts from sleeping during long runs.
+konsertd holds the lock with:
+
+| OS | Mechanism |
+|---|---|
+| macOS | `caffeinate -i` (tied to the konsertd process) |
+| Linux | `systemd-inhibit` (logind) |
+| Windows | `SetThreadExecutionState` |
+
+The lock is released when you turn it off, when konsertd stops, and when the controller has
+been unreachable for 3 minutes.
+
+**Linux and polkit:** logind lets any session block *idle*, but blocking *sleep* from a
+non-console session (SSH, a systemd user service, which is how konsertd usually runs)
+requires admin authorization. konsertd then falls back to an idle-only lock and the
+footer shows "idle only". To allow full sleep blocking for the user konsertd runs as, add
+`/etc/polkit-1/rules.d/50-konsert-inhibit.rules`:
+
+```javascript
+polkit.addRule(function (action, subject) {
+  if (action.id == "org.freedesktop.login1.inhibit-block-sleep" &&
+      subject.user == "YOUR_USER") {
+    return polkit.Result.YES;
+  }
+});
+```
+
+## 7. Installing the PWA
 
 Open the controller's HTTPS URL on a phone or desktop browser and use **Install app** /
 **Add to Home Screen**. The service worker caches only the app shell; `/api`, `/ws` and
 `/mcp` always go to the network, so a stale cache never serves fleet data. After a controller
 upgrade the PWA shows a "new version available" prompt.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -245,4 +274,5 @@ upgrade the PWA shows a "new version available" prompt.
 | Worker logs "retry later" (`1013`) | Another konsertd with the same identity is connected; it takes over when that one stops. |
 | Worker stops with "removed from fleet" | The machine was removed in the UI; re-run konsertd to add it back. |
 | `trust_tailscale_headers` has no effect | The controller isn't on a loopback listener, or the request didn't come through Tailscale Serve. |
+| Keep Awake shows "idle only" on a Linux host | polkit refused the sleep inhibitor; see the polkit rule in section 6. |
 | Version badge on a machine | That konsertd's version differs from the controller's; upgrade the worker. |

@@ -269,3 +269,52 @@ func wakeStateEqual(a, b protocol.HostWakeLockState) bool {
 	}
 	return a.Since == nil || a.Since.Equal(*b.Since)
 }
+
+// fallbackWakeBackend tries a full inhibitor first and, when useFallback(err) says the
+// failure is a permission problem, a weaker one. Method reports which one is held.
+//
+// On Linux, logind lets any session block idle, but blocking sleep from a non-console
+// session (SSH, a systemd user service) needs polkit's auth_admin. konsertd usually runs
+// that way, so it falls back to an idle-only inhibitor rather than failing outright.
+type fallbackWakeBackend struct {
+	primary, fallback wakeBackend
+	useFallback       func(error) bool
+	fallbackMethod    string
+
+	mu     sync.Mutex
+	method string
+}
+
+func (b *fallbackWakeBackend) Method() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.method == "" {
+		return b.primary.Method()
+	}
+	return b.method
+}
+
+func (b *fallbackWakeBackend) setMethod(m string) {
+	b.mu.Lock()
+	b.method = m
+	b.mu.Unlock()
+}
+
+func (b *fallbackWakeBackend) Acquire(reason string) (wakeHolder, error) {
+	h, err := b.primary.Acquire(reason)
+	if err == nil {
+		b.setMethod(b.primary.Method())
+		return h, nil
+	}
+	if b.useFallback == nil || !b.useFallback(err) {
+		b.setMethod(b.primary.Method())
+		return nil, err
+	}
+	h, ferr := b.fallback.Acquire(reason)
+	if ferr != nil {
+		b.setMethod(b.primary.Method())
+		return nil, err
+	}
+	b.setMethod(b.fallbackMethod)
+	return h, nil
+}

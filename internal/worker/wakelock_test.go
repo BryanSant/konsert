@@ -334,3 +334,46 @@ func TestDaemonHostWakeLock(t *testing.T) {
 		t.Fatalf("released = %d after shutdown, want 1", r)
 	}
 }
+
+func TestFallbackWakeBackend(t *testing.T) {
+	denied := errors.New("Failed to inhibit: Access denied as the requested operation requires interactive authentication")
+	isDenied := func(err error) bool { return strings.Contains(err.Error(), "Access denied") }
+
+	t.Run("primary succeeds", func(t *testing.T) {
+		p, f := &fakeWakeBackend{}, &fakeWakeBackend{}
+		b := &fallbackWakeBackend{primary: p, fallback: f, useFallback: isDenied, fallbackMethod: "idle only"}
+		if _, err := b.Acquire("r"); err != nil {
+			t.Fatal(err)
+		}
+		if a, _ := f.counts(); a != 0 || b.Method() != "fake" {
+			t.Fatalf("fallback used=%d method=%q", a, b.Method())
+		}
+	})
+	t.Run("permission denied falls back", func(t *testing.T) {
+		p, f := &fakeWakeBackend{err: denied}, &fakeWakeBackend{}
+		b := &fallbackWakeBackend{primary: p, fallback: f, useFallback: isDenied, fallbackMethod: "idle only"}
+		if _, err := b.Acquire("r"); err != nil {
+			t.Fatal(err)
+		}
+		if a, _ := f.counts(); a != 1 || b.Method() != "idle only" {
+			t.Fatalf("fallback used=%d method=%q", a, b.Method())
+		}
+	})
+	t.Run("other errors do not fall back", func(t *testing.T) {
+		p, f := &fakeWakeBackend{err: errors.New("systemd-inhibit not found")}, &fakeWakeBackend{}
+		b := &fallbackWakeBackend{primary: p, fallback: f, useFallback: isDenied, fallbackMethod: "idle only"}
+		if _, err := b.Acquire("r"); err == nil {
+			t.Fatal("expected error")
+		}
+		if a, _ := f.counts(); a != 0 {
+			t.Fatal("fallback must not be tried for non-permission errors")
+		}
+	})
+	t.Run("fallback failure reports the primary error", func(t *testing.T) {
+		p, f := &fakeWakeBackend{err: denied}, &fakeWakeBackend{err: errors.New("boom")}
+		b := &fallbackWakeBackend{primary: p, fallback: f, useFallback: isDenied, fallbackMethod: "idle only"}
+		if _, err := b.Acquire("r"); err == nil || !strings.Contains(err.Error(), "Access denied") {
+			t.Fatalf("got %v", err)
+		}
+	})
+}
