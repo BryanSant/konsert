@@ -40,6 +40,7 @@ func TestGeminiErrorsNeverContainKey(t *testing.T) {
 	deadURL := dead.URL
 	dead.Close()
 	p := NewGeminiProvider(geminiTestKey, deadURL)
+	p.retry.MaxAttempts = 1
 	_, err := p.Complete(context.Background(), "gemini-x", "", []Message{{Role: "user", Content: "hi"}}, nil, nil)
 	if err == nil {
 		t.Fatal("expected network error")

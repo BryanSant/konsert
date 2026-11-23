@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 type GeminiProvider struct {
 	apiKey  string
 	baseURL string
-	client  *http.Client
+	httpOpts
 }
 
 func NewGeminiProvider(apiKey, baseURL string) *GeminiProvider {
@@ -26,9 +25,9 @@ func NewGeminiProvider(apiKey, baseURL string) *GeminiProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &GeminiProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:   apiKey,
+		baseURL:  baseURL,
+		httpOpts: defaultHTTPOpts(),
 	}
 }
 
@@ -118,16 +117,13 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 	// The API key goes in the x-goog-api-key header, never the URL: *url.Error
 	// embeds the full URL in its message, and errors are broadcast to clients.
 	endpoint := fmt.Sprintf("%s/models/%s:generateContent", p.baseURL, url.PathEscape(model))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
-	if err != nil {
-		return Message{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	hdr := http.Header{}
+	hdr.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
-		req.Header.Set("x-goog-api-key", p.apiKey)
+		hdr.Set("x-goog-api-key", p.apiKey)
 	}
 
-	resp, err := p.client.Do(req)
+	resp, err := p.postJSON(ctx, endpoint, hdr, raw)
 	if err != nil {
 		return Message{}, fmt.Errorf("gemini request: %w", err)
 	}

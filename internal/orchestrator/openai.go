@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,7 +15,7 @@ import (
 type OpenAIProvider struct {
 	apiKey  string
 	baseURL string
-	client  *http.Client
+	httpOpts
 }
 
 func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
@@ -25,9 +24,9 @@ func NewOpenAIProvider(apiKey, baseURL string) *OpenAIProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &OpenAIProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:   apiKey,
+		baseURL:  baseURL,
+		httpOpts: defaultHTTPOpts(),
 	}
 }
 
@@ -93,16 +92,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		return Message{}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(raw))
-	if err != nil {
-		return Message{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	hdr := http.Header{}
+	hdr.Set("Content-Type", "application/json")
+	hdr.Set("Accept", "text/event-stream")
 	if p.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+		hdr.Set("Authorization", "Bearer "+p.apiKey)
 	}
 
-	resp, err := p.client.Do(req)
+	resp, err := p.postJSON(ctx, p.baseURL+"/chat/completions", hdr, raw)
 	if err != nil {
 		return Message{}, fmt.Errorf("openai request: %w", err)
 	}

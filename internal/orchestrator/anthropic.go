@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +13,7 @@ import (
 type AnthropicProvider struct {
 	apiKey  string
 	baseURL string
-	client  *http.Client
+	httpOpts
 }
 
 func NewAnthropicProvider(apiKey, baseURL string) *AnthropicProvider {
@@ -23,9 +22,9 @@ func NewAnthropicProvider(apiKey, baseURL string) *AnthropicProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &AnthropicProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:   apiKey,
+		baseURL:  baseURL,
+		httpOpts: defaultHTTPOpts(),
 	}
 }
 
@@ -102,15 +101,12 @@ func (p *AnthropicProvider) Complete(ctx context.Context, model, system string, 
 		return Message{}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(raw))
-	if err != nil {
-		return Message{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	hdr := http.Header{}
+	hdr.Set("Content-Type", "application/json")
+	hdr.Set("x-api-key", p.apiKey)
+	hdr.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(req)
+	resp, err := p.postJSON(ctx, p.baseURL+"/v1/messages", hdr, raw)
 	if err != nil {
 		return Message{}, fmt.Errorf("anthropic request: %w", err)
 	}
