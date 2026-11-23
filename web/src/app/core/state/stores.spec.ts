@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   extractTaskIdsFromToolPayload,
   parseUserMessageWithAttachments,
@@ -11,6 +11,13 @@ import { FleetStore } from './fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from './tabs.store';
 
 describe('FleetStore and TabsStore (Zoneless Signals)', () => {
+  // TabsStore restores its layout from localStorage; start every test from a clean slate
+  // (other specs in the same worker may have persisted tabs).
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
   it('groups workers by host_group, aggregates listening ports, and builds live agent roster', () => {
     TestBed.configureTestingModule({});
     const fleet = TestBed.inject(FleetStore);

@@ -215,7 +215,7 @@ describe('ChatComposerComponent', () => {
     expect(warn.textContent).toMatch(/Claude 2 is out of weekly usage until/);
     expect(warn.textContent).toContain('Use Claude instead?');
     expect($('[data-testid="account-chip"]').textContent).toContain('Out');
-    expect($('[data-testid="account-chip"]').getAttribute('aria-label')).toMatch(/Out of weekly usage until/);
+    expect($('[data-testid="account-chip"]').textContent).toMatch(/agent account: Out of weekly usage until/);
 
     const ta = $<HTMLTextAreaElement>('textarea');
     ta.value = 'hi';

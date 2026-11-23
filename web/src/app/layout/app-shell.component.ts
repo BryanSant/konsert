@@ -64,7 +64,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           </button>
 
           <img src="icon.svg" alt="Konsert" class="h-4 w-4 rounded-sm" />
-          <span class="text-[13px] font-semibold tracking-tight text-[#ececed]">Konsert</span>
+          <h1 class="text-[13px] font-semibold tracking-tight text-[#ececed]">Konsert</h1>
 
           <div class="flex-1"></div>
 

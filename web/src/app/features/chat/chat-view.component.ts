@@ -79,7 +79,7 @@ export function chatTitleFrom(text: string): string {
           </form>
         } @else {
           <ks-popover label="Chats" placement="bottom-start" panelClass="w-[340px] max-h-[420px] overflow-y-auto" [(open)]="switcherOpen">
-            <button type="button" ksPopoverTrigger class="ks-btn gap-2 -ml-1.5 max-w-[46vw]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
+            <button type="button" ksPopoverTrigger class="ks-btn gap-2 -ml-1.5 max-w-[38vw] sm:max-w-[46vw]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
               @if (active(); as s) {
                 <app-icon [name]="s.agent || 'orchestrator'" [size]="14" />
               }
@@ -118,7 +118,7 @@ export function chatTitleFrom(text: string): string {
             }
           </ks-popover>
 
-          <div aria-live="polite" class="min-w-0 flex items-center">
+          <div aria-live="polite" class="min-w-0 hidden sm:flex items-center">
             @if (active()) {
               <ks-status-pill [status]="status()" [subtitle]="subtitle()" data-testid="header-status" />
             }
@@ -134,22 +134,28 @@ export function chatTitleFrom(text: string): string {
         <span class="flex-1"></span>
 
         @if (active() && !renaming()) {
-          <button type="button" class="ks-icon-btn" aria-label="Rename chat" ksTooltip="Rename chat" (click)="startRename()">
+          <button type="button" class="ks-icon-btn hidden sm:inline-flex" aria-label="Rename chat" ksTooltip="Rename chat" (click)="startRename()">
             <app-icon name="edit" [size]="14" />
           </button>
-          <button type="button" class="ks-icon-btn ks-btn-danger" aria-label="Delete chat" ksTooltip="Delete chat" (click)="deleteActive()">
+          <button type="button" class="ks-icon-btn ks-btn-danger hidden sm:inline-flex" aria-label="Delete chat" ksTooltip="Delete chat" (click)="deleteActive()">
             <app-icon name="trash" [size]="14" />
           </button>
         }
-        <button type="button" class="ks-btn" (click)="newChat()" data-testid="new-chat">
+        <button type="button" class="ks-btn" (click)="newChat()" data-testid="new-chat" aria-label="New chat">
           <app-icon name="plus" [size]="13" />
           <span class="hidden sm:inline">New chat</span>
         </button>
-        <button type="button" class="ks-btn" (click)="openNewTerminal.emit()">
+        <button type="button" class="ks-btn" (click)="openNewTerminal.emit()" aria-label="New terminal">
           <app-icon name="shell" [size]="13" />
           <span class="hidden sm:inline">Terminal</span>
         </button>
       </header>
+
+      @if (active()) {
+        <div class="sm:hidden flex items-center gap-2 px-3 pb-1" aria-hidden="true">
+          <ks-status-pill [status]="status()" [subtitle]="subtitle()" [compact]="true" />
+        </div>
+      }
 
       <!-- Body -->
       @if (active(); as s) {

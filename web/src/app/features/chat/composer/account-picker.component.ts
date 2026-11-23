@@ -49,7 +49,6 @@ function capitalize(s: string): string {
         data-testid="account-chip"
         [tone]="chipTone()"
         [disabled]="disabled()"
-        [attr.aria-label]="'Agent account: ' + chipLabel()"
         [ksTooltip]="chipTooltip()"
       >
         @if (current(); as a) {
@@ -69,6 +68,7 @@ function capitalize(s: string): string {
           <app-icon name="orchestrator" [size]="13" />
           <span>No agent</span>
         }
+        <span class="ks-sr-only">{{ srState() }}</span>
       </button>
 
       @if (accounts().length === 0) {
@@ -138,9 +138,20 @@ export class AccountPickerComponent {
     if (h === 'warning') return 'amber' as const;
     return 'default' as const;
   });
+  /** Screen-reader suffix after the visible text: what the chip is and the full state. */
+  readonly srState = computed(() => {
+    const a = this.current();
+    return a ? `, agent account: ${accountStateLine(a)}` : ', choose an agent account';
+  });
+
+  /** Starts with the chip's visible text (label-in-name), then the full state. */
   readonly chipLabel = computed(() => {
     const a = this.current();
-    return a ? `${a.label}, ${accountStateLine(a)}` : 'none';
+    if (!a) return 'No agent, choose an agent account';
+    const h = this.health();
+    const visible =
+      h === 'logged_out' ? `${a.label} Re-login` : h === 'exhausted' ? `${a.label} Out` : h === 'warning' ? `${a.label} ${this.percent()}%` : a.label;
+    return `${visible}, agent account: ${accountStateLine(a)}`;
   });
   readonly chipTooltip = computed(() => {
     const a = this.current();

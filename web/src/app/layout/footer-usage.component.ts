@@ -54,11 +54,11 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
         ksPopoverTrigger
         class="ks-btn ks-btn-sm !h-6 !px-2 gap-2 min-w-0"
         data-testid="footer-usage"
-        [attr.aria-label]="'Subscription usage: ' + summaryLabel()"
       >
+        <span class="ks-sr-only">Subscription usage:</span>
         @if (summary().length > 0) {
-          @for (r of summary(); track r.workerId + r.account.id) {
-            <span class="inline-flex items-center gap-1 shrink-0" [attr.data-account]="r.account.id">
+          @for (r of summary(); track r.workerId + r.account.id; let i = $index) {
+            <span class="items-center gap-1 shrink-0" [class.inline-flex]="i === 0" [class.hidden]="i > 0" [class.md:inline-flex]="i > 0" [attr.data-usage-account]="r.account.id">
               <app-icon [name]="r.account.agent" [size]="11" />
               <span class="text-[#b4b6be]">{{ r.account.label }}</span>
               <ks-usage-ring [percent]="r.percent ?? 0" [tone]="r.health" [size]="11" />
@@ -150,7 +150,7 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
         type="button"
         class="ks-btn ks-btn-sm ks-chip-red !h-6 !px-2 gap-1.5 shrink-0"
         data-testid="footer-auth-alert"
-        [attr.aria-label]="r.account.label + ' on ' + r.host + ' is signed out. Show how to sign in'"
+        [attr.aria-label]="r.account.label + ' signed out on ' + r.host + ', show how to sign in'"
         [ksTooltip]="r.account.label + ' needs you to sign in again'"
         (click)="relogin(r)"
       >
@@ -184,9 +184,6 @@ export class FooterUsageComponent {
       .filter((r) => r.percent !== null && r.health !== 'logged_out')
       .sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))
       .slice(0, 3),
-  );
-  readonly summaryLabel = computed(() =>
-    this.summary().length ? this.summary().map((r) => `${r.account.label} ${r.state}`).join('; ') : 'none reported',
   );
   readonly loggedOut = computed(() => this.rows().filter((r) => r.health === 'logged_out'));
   readonly apiTokens = computed(() => {

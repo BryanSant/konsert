@@ -28,6 +28,24 @@ export interface ContextChange {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent],
   template: `
+    @if (locked()) {
+      <div class="flex flex-wrap items-center gap-3 px-3 pt-2 text-[11.5px] text-[var(--ks-text-muted)]" data-testid="context-locked">
+        <span class="inline-flex items-center gap-1.5" ksTooltip="Machine (fixed for this chat)">
+          <app-icon name="server" [size]="12" />
+          <span class="max-w-[160px] truncate">{{ machineName() }}</span>
+        </span>
+        <span class="inline-flex items-center gap-1.5" [ksTooltip]="cwd()">
+          <app-icon name="folder" [size]="12" />
+          <span class="max-w-[240px] truncate">{{ checkoutLabel() }}</span>
+        </span>
+        @if (displayBranch()) {
+          <span class="inline-flex items-center gap-1.5">
+            <app-icon name="git-branch" [size]="12" />
+            <span class="max-w-[160px] truncate">{{ displayBranch() }}</span>
+          </span>
+        }
+      </div>
+    } @else {
     <div class="flex flex-wrap items-center gap-0.5 px-1 pt-1.5 text-[11.5px]">
       <!-- Machine -->
       <ks-popover label="Machine" placement="top-start" panelClass="w-[260px] max-h-[320px] overflow-y-auto" [(open)]="machineOpen">
@@ -111,7 +129,7 @@ export interface ContextChange {
       </ks-popover>
 
       <!-- Branch -->
-      @if (branch() || branchOptions().length > 0) {
+      @if (displayBranch() || branchOptions().length > 0) {
         <ks-popover label="Branch" placement="top-start" panelClass="w-[260px] max-h-[300px] overflow-y-auto" [(open)]="branchOpen">
           <button
             type="button"
@@ -119,11 +137,11 @@ export interface ContextChange {
             class="ks-btn ks-btn-sm gap-1.5"
             data-testid="context-branch"
             [disabled]="locked() || branchOptions().length === 0"
-            [attr.aria-label]="'Branch: ' + (branch() || 'none')"
+            [attr.aria-label]="'Branch: ' + (displayBranch() || 'none')"
             [ksTooltip]="locked() ? 'Fixed for this chat' : 'Switch to another checkout of this repo'"
           >
             <app-icon name="git-branch" [size]="12" />
-            <span class="max-w-[160px] truncate">{{ branch() || 'no branch' }}</span>
+            <span class="max-w-[160px] truncate">{{ displayBranch() || 'no branch' }}</span>
           </button>
           @for (c of branchOptions(); track c.key) {
             <button type="button" role="menuitemradio" class="ks-menu-item items-center" [attr.aria-checked]="c.path === cwd()" (click)="pickCheckout(c)">
@@ -137,6 +155,7 @@ export interface ContextChange {
         </ks-popover>
       }
     </div>
+    }
   `,
 })
 export class ContextBarComponent {
@@ -197,6 +216,9 @@ export class ContextBarComponent {
     const p = this.cwd() || '~';
     return p === '~' ? 'Home folder' : basenamePath(p);
   });
+
+  /** The chosen branch, else the branch of the checkout the folder belongs to. */
+  readonly displayBranch = computed(() => this.branch() || this.currentCheckout()?.branch || '');
 
   readonly branchOptions = computed(() => {
     const c = this.currentCheckout();

@@ -39,7 +39,7 @@ export interface ElicitationAnswer {
           <span class="mt-0.5 text-[var(--ks-amber)] shrink-0"><app-icon [name]="icon()" [size]="15" /></span>
           <div class="flex-1 min-w-0">
             <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">{{ kicker() }}</div>
-            <h3 [id]="titleId" class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug">{{ headline() }}</h3>
+            <h2 [id]="titleId" class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug">{{ headline() }}</h2>
             @if (el.detail) {
               <div class="mt-1 text-[12px] text-[var(--ks-text-secondary)]">
                 <app-markdown-view [content]="el.detail" />

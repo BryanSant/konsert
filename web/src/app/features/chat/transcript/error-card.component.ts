@@ -62,7 +62,7 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
           <app-icon [name]="view().icon" [size]="15" />
         </span>
         <div class="flex-1 min-w-0">
-          <h3 class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug" data-testid="error-title">{{ view().title }}</h3>
+          <h2 class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug" data-testid="error-title">{{ view().title }}</h2>
           @if (err.kind === 'usage_limit' && err.resets_at) {
             <div class="text-[12px] text-[#f3d29b]" data-testid="error-reset">Resets {{ countdown() }} · {{ resetAt() }}</div>
           }

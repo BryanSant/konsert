@@ -43,10 +43,10 @@ describe('footer usage', () => {
   it('shows per-account usage inline, exhausted Claude 2 first, and a signed-out alert', async () => {
     const { el } = await setup();
     const trigger = el.querySelector('[data-testid="footer-usage"]')!;
-    const inline = Array.from(trigger.querySelectorAll('[data-account]')).map((n) => n.getAttribute('data-account'));
+    const inline = Array.from(trigger.querySelectorAll('[data-usage-account]')).map((n) => n.getAttribute('data-usage-account'));
     expect(inline).toEqual(['claude2', 'claude']);
-    expect(trigger.querySelector('[data-account="claude2"]')!.textContent).toContain('out');
-    expect(trigger.querySelector('[data-account="claude"]')!.textContent).toContain('42%');
+    expect(trigger.querySelector('[data-usage-account="claude2"]')!.textContent).toContain('out');
+    expect(trigger.querySelector('[data-usage-account="claude"]')!.textContent).toContain('42%');
     const alert = el.querySelector('[data-testid="footer-auth-alert"]')!;
     expect(alert.getAttribute('aria-label')).toContain('Codex');
   });

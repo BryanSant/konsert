@@ -177,13 +177,13 @@ export const SPEECH_INPUT_ENABLED = false;
         }
 
         @if (busy()) {
-          <button type="button" class="ks-send-btn" data-testid="stop-button" aria-label="Stop" ksTooltip="Stop" (click)="stop.emit()">
+          <button type="button" class="ks-send-btn ml-auto" data-testid="stop-button" aria-label="Stop" ksTooltip="Stop" (click)="stop.emit()">
             <app-icon name="stop" [size]="14" />
           </button>
         } @else {
           <button
             type="submit"
-            class="ks-send-btn"
+            class="ks-send-btn ml-auto"
             data-testid="send-button"
             [disabled]="!canSend()"
             aria-label="Send message"

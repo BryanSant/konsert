@@ -26,7 +26,7 @@ let nextId = 0;
         ksPopoverTrigger
         data-testid="model-trigger"
         [disabled]="disabled() || models().length === 0"
-        [attr.aria-label]="'Model: ' + trigger().tooltip"
+        [attr.aria-label]="trigger().label + ', model and effort'"
         [ksTooltip]="trigger().tooltip"
       >
         <span class="max-w-[170px] truncate text-[var(--ks-text)]">{{ trigger().label }}</span>

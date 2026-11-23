@@ -23,7 +23,7 @@
   /* Text */
   --ks-text: #ececed;
   --ks-text-secondary: #9a9ca4;
-  --ks-text-muted: #85878f; /* >= 4.5:1 on every surface above */
+  --ks-text-muted: #8f9199; /* >= 4.5:1 on surfaces up to the raised hover */
 
   /* Status hues */
   --ks-green: #69b879;
@@ -259,6 +259,9 @@ dialog.ks-dialog::backdrop {
   line-height: 1.4;
 }
 
+/* Component classes live in the components layer so Tailwind utilities (hidden, sm:*, h-*)
+   can override them per use. */
+@layer components {
 /* ---------- Buttons: flat until hover ---------- */
 .ks-btn,
 .ks-icon-btn,
@@ -450,7 +453,7 @@ dialog.ks-dialog::backdrop {
 .ks-menu-desc {
   font-size: 11.5px;
   line-height: 1.35;
-  color: var(--ks-text-muted);
+  color: #a0a2aa; /* stays >= 4.5:1 on the hovered/active row */
 }
 .ks-menu-sep {
   height: 1px;
@@ -532,6 +535,7 @@ dialog.ks-dialog::backdrop {
 }
 .ks-pulse {
   animation: ks-pulse-dot 1.4s ease-in-out infinite;
+}
 }
 
 @media (prefers-reduced-motion: reduce) {

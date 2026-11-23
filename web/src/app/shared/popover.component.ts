@@ -50,6 +50,9 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'relative inline-flex',
+    // role/label are inputs: never leave them as ARIA attributes on the host element.
+    '[attr.role]': 'null',
+    '[attr.label]': 'null',
     '(keydown)': 'onHostKeydown($event)',
   },
   template: `
