@@ -106,7 +106,9 @@ func TestDefaultRegistryIncludesCopilotAndCursor(t *testing.T) {
 			t.Fatalf("%s driver not registered", name)
 		}
 		spec := d.BuildCommand(LaunchOptions{Prompt: "x", Mode: protocol.TaskModeOneshot})
-		if got := strings.TrimSuffix(filepath.Base(spec.Binary), ".exe"); got != bin {
+		// An installed CLI may be found as cursor-agent.exe or a .cmd shim on Windows.
+		base := filepath.Base(spec.Binary)
+		if got := strings.TrimSuffix(base, filepath.Ext(base)); got != bin {
 			t.Fatalf("%s binary = %q, want %s", name, spec.Binary, bin)
 		}
 	}

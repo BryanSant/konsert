@@ -149,7 +149,8 @@ func (tm *testManager) chatInfo(id string) ChatInfo {
 
 func TestManagerNormalTurnStampsSeq(t *testing.T) {
 	tm := newTestManager(t, nil)
-	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: "/tmp"})
+	cwd := t.TempDir() // the cwd must exist ("/tmp" doesn't on Windows)
+	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: cwd})
 	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t1", Text: "hello"})
 	_, end := tm.col.waitFor(t, 0, "turn_end", kind(protocol.EventTurnEnd))
 
@@ -180,7 +181,7 @@ func TestManagerNormalTurnStampsSeq(t *testing.T) {
 
 	// Re-opening an open chat re-attaches (no new engine) and reports session_ready.
 	sid := tm.chatInfo("c1").AgentSessionID
-	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: "/tmp"})
+	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: cwd})
 	ev, _ := tm.col.waitFor(t, end+1, "re-attach session_ready", kind(protocol.EventSessionReady))
 	if ev.AgentSessionID != sid {
 		t.Fatalf("re-attach changed session: %q vs %q", ev.AgentSessionID, sid)

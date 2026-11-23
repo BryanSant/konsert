@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -139,7 +140,9 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits (Go reports 0666 for any writable file);
+	// the file still lives in a per-user directory there.
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mcp config mode %v", st.Mode().Perm())
 	}
 	b, _ := os.ReadFile(path)

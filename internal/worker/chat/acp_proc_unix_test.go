@@ -14,7 +14,9 @@ import (
 // Kill must stop the whole process group (grandchildren included) and reap the leader.
 func TestProcKillGroupNoZombies(t *testing.T) {
 	acpIsolateHome(t)
-	p, err := StartProc(ProcSpec{Binary: "/bin/sh", Args: []string{"-c", "sleep 60 & echo $!; echo started >&2; wait"}, Dir: t.TempDir()})
+	// stderr is written before the pid line we wait for, so Kill can't land
+	// before it (Wait drains stderr, so the tail then holds it).
+	p, err := StartProc(ProcSpec{Binary: "/bin/sh", Args: []string{"-c", "echo started >&2; sleep 60 & echo $!; wait"}, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

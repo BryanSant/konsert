@@ -67,6 +67,20 @@ func waitForWorkerOnline(t *testing.T, svc *FleetService, workerID string) {
 	t.Fatalf("worker %s did not come online in time", workerID)
 }
 
+// waitForAccountDefaultModel waits until the worker's capabilities report a
+// default model for the agent's default account.
+func waitForAccountDefaultModel(t *testing.T, svc *FleetService, workerID, agent string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if a, ok := svc.hub.lookupAccount(context.Background(), workerID, agent, ""); ok && a.DefaultModel != "" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("worker %s never reported a default model for %s", workerID, agent)
+}
+
 func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -764,7 +778,12 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	wCfg.Name = "localhost"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	// Only the mock (and shell) drivers, so the agent guess doesn't depend on
+	// which agent CLIs happen to be installed on the test host.
+	reg := drivers.NewRegistry()
+	reg.Register(&drivers.MockDriver{})
+	reg.Register(&drivers.ShellDriver{})
+	daemon := worker.NewDaemon(wCfg, reg, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -826,7 +845,10 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
 	_ = repoResp.Body.Close()
 
-	// 3. Session defaults cascade: localhost machine; no guessed model (no capabilities reported)
+	// 3. Session defaults cascade: localhost machine; the model comes from the
+	// agent's reported capabilities (never a guess). Capabilities arrive
+	// asynchronously after registration, so wait for them first.
+	waitForAccountDefaultModel(t, srv.Service(), "w-local-1", "mock")
 	defResp, err := http.Get(ts.URL + "/api/sessions/defaults")
 	if err != nil || defResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/sessions/defaults failed: %v", err)
@@ -834,7 +856,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var defs SessionDefaultsResult
 	_ = json.NewDecoder(defResp.Body).Decode(&defs)
 	_ = defResp.Body.Close()
-	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent == "" || defs.Model != "" {
+	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent != "mock" || defs.Model != "mock-smart" || defs.ModelSource != "capabilities" {
 		t.Fatalf("unexpected initial session defaults: %+v", defs)
 	}
 
