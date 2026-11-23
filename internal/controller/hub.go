@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -45,8 +46,11 @@ type browserClient struct {
 	sendCh chan wsFrame
 	cancel context.CancelFunc
 
-	mu   sync.Mutex
-	subs map[string]bool // subscribed task IDs
+	ctx context.Context // connection lifetime; also canceled on hub shutdown
+
+	mu       sync.Mutex
+	subs     map[string]bool // subscribed task IDs (PTY)
+	chatSubs map[string]bool // chat session IDs this client receives events for
 }
 
 // Hub manages connected worker daemons, browser PWA subscribers,
@@ -63,6 +67,7 @@ type Hub struct {
 	ptySubs       map[string]map[*browserClient]bool // taskID -> client -> needsSnapshot
 	waiters       map[string][]chan store.Task
 	rpcWaiters    map[string]chan protocol.Envelope
+	chatSessions  map[string]*chatSession // per-session turn serialization
 
 	orch *orchestrator.Service
 
@@ -91,6 +96,10 @@ type Hub struct {
 	// re-sends buffered final statuses right after hello, so this must comfortably
 	// exceed that flush and a heartbeat round-trip.
 	LostTaskGrace time.Duration
+
+	// ChatTurnTimeout bounds one orchestrator chat turn, including the time it
+	// waits behind an earlier turn of the same session (default 15m).
+	ChatTurnTimeout time.Duration
 }
 
 // NewHub constructs a Hub backed by store.Store.
@@ -111,9 +120,11 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		ptySubs:            make(map[string]map[*browserClient]bool),
 		waiters:            make(map[string][]chan store.Task),
 		rpcWaiters:         make(map[string]chan protocol.Envelope),
+		chatSessions:       make(map[string]*chatSession),
 		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
 		LostTaskGrace:      45 * time.Second,
+		ChatTurnTimeout:    15 * time.Minute,
 	}
 }
 
@@ -343,6 +354,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	conn.SetReadLimit(20 * 1024 * 1024)
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	defer context.AfterFunc(h.ctx, cancel)()
 
 	// Expect worker.hello as the first message.
 	helloCtx, helloCancel := context.WithTimeout(connCtx, 15*time.Second)
@@ -1011,13 +1023,17 @@ func (h *Hub) ServeBrowserConn(ctx context.Context, conn *websocket.Conn, user s
 	conn.SetReadLimit(2 * 1024 * 1024)
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// Hijacked WebSocket handlers outlive http.Server.Shutdown; tie them to the hub.
+	defer context.AfterFunc(h.ctx, cancel)()
 
 	client := &browserClient{
-		user:   user,
-		conn:   conn,
-		sendCh: make(chan wsFrame, 256), // Bounded queue for backpressure protection
-		cancel: cancel,
-		subs:   make(map[string]bool),
+		user:     user,
+		conn:     conn,
+		sendCh:   make(chan wsFrame, 256), // Bounded queue for backpressure protection
+		cancel:   cancel,
+		ctx:      connCtx,
+		subs:     make(map[string]bool),
+		chatSubs: make(map[string]bool),
 	}
 
 	h.mu.Lock()
@@ -1108,25 +1124,149 @@ func (h *Hub) handleBrowserMessage(ctx context.Context, c *browserClient, env pr
 			})
 			return
 		}
-		go func() {
-			_ = orch.HandleUserMessage(context.Background(), p.SessionID, p.Content, orchestrator.StreamCallbacks{
-				OnDelta: func(sid, delta string) {
-					h.broadcastJSON(protocol.MsgChatDelta, protocol.ChatDeltaPayload{SessionID: sid, Delta: delta})
-				},
-				OnTool: func(tp protocol.ChatToolPayload) {
-					h.broadcastJSON(protocol.MsgChatTool, tp)
-				},
-				OnDone: func(sid string, msgID int64) {
-					h.broadcastJSON(protocol.MsgChatDone, protocol.ChatDonePayload{SessionID: sid, MessageID: msgID})
-				},
-				OnError: func(sid, errMsg string) {
-					h.broadcastJSON(protocol.MsgChatError, protocol.ChatErrorPayload{SessionID: sid, Error: errMsg})
-				},
-				OnUsage: func(sum store.UsageSummary) {
-					h.broadcastJSON(protocol.MsgUsageUpdate, sum)
-				},
+		// The sender always receives the events of the turn it started.
+		h.subscribeChat(c, p.SessionID)
+		h.startChatTurn(c, orch, p)
+
+	case msgChatSubscribe, msgChatUnsubscribe:
+		p, err := protocol.DecodePayload[chatSubscribePayload](env)
+		if err != nil || p.SessionID == "" {
+			return
+		}
+		if env.Type == msgChatSubscribe {
+			h.subscribeChat(c, p.SessionID)
+		} else {
+			c.mu.Lock()
+			delete(c.chatSubs, p.SessionID)
+			c.mu.Unlock()
+		}
+	}
+}
+
+// Browser chat subscription messages. These are hub-local until they are added
+// to internal/protocol; payload: {"session_id": "..."}.
+const (
+	msgChatSubscribe   = "chat.subscribe"
+	msgChatUnsubscribe = "chat.unsubscribe"
+)
+
+type chatSubscribePayload struct {
+	SessionID string `json:"session_id"`
+}
+
+// maxChatTurnsPerSession bounds the running plus waiting turns for one session.
+const maxChatTurnsPerSession = 4
+
+// chatSession serializes orchestrator turns for one chat session.
+type chatSession struct {
+	sem  chan struct{} // capacity 1: held by the running turn
+	refs int           // running + waiting turns; guarded by Hub.mu
+}
+
+func (h *Hub) subscribeChat(c *browserClient, sessionID string) {
+	c.mu.Lock()
+	c.chatSubs[sessionID] = true
+	c.mu.Unlock()
+}
+
+// startChatTurn runs one orchestrator turn on a tracked goroutine. The turn's
+// context ends when the client disconnects, the hub shuts down, or
+// ChatTurnTimeout elapses. Turns of the same session run one at a time, in
+// arrival order; past maxChatTurnsPerSession the request is rejected.
+func (h *Hub) startChatTurn(c *browserClient, orch *orchestrator.Service, p protocol.ChatSendPayload) {
+	h.mu.Lock()
+	cs := h.chatSessions[p.SessionID]
+	if cs == nil {
+		cs = &chatSession{sem: make(chan struct{}, 1)}
+		h.chatSessions[p.SessionID] = cs
+	}
+	if cs.refs >= maxChatTurnsPerSession {
+		h.mu.Unlock()
+		h.sendBrowserJSON(c, protocol.MsgChatError, protocol.ChatErrorPayload{
+			SessionID: p.SessionID,
+			Error:     "too many pending messages for this chat session; wait for the current reply",
+		})
+		return
+	}
+	cs.refs++
+	h.mu.Unlock()
+
+	release := func() {
+		h.mu.Lock()
+		cs.refs--
+		if cs.refs == 0 && h.chatSessions[p.SessionID] == cs {
+			delete(h.chatSessions, p.SessionID)
+		}
+		h.mu.Unlock()
+	}
+
+	timeout := h.ChatTurnTimeout
+	if timeout <= 0 {
+		timeout = 15 * time.Minute
+	}
+	started := h.goBackground(func(context.Context) {
+		defer release()
+		// c.ctx is canceled on client disconnect and on hub shutdown.
+		turnCtx, cancel := context.WithTimeout(c.ctx, timeout)
+		defer cancel()
+		select {
+		case cs.sem <- struct{}{}:
+		case <-turnCtx.Done():
+			return
+		}
+		defer func() { <-cs.sem }()
+		if turnCtx.Err() != nil {
+			return
+		}
+
+		err := orch.HandleUserMessage(turnCtx, p.SessionID, p.Content, orchestrator.StreamCallbacks{
+			OnDelta: func(sid, delta string) {
+				h.sendChatEvent(sid, protocol.MsgChatDelta, protocol.ChatDeltaPayload{SessionID: sid, Delta: delta})
+			},
+			OnTool: func(tp protocol.ChatToolPayload) {
+				h.sendChatEvent(tp.SessionID, protocol.MsgChatTool, tp)
+			},
+			OnDone: func(sid string, msgID int64) {
+				h.sendChatEvent(sid, protocol.MsgChatDone, protocol.ChatDonePayload{SessionID: sid, MessageID: msgID})
+			},
+			OnError: func(sid, errMsg string) {
+				h.sendChatEvent(sid, protocol.MsgChatError, protocol.ChatErrorPayload{SessionID: sid, Error: errMsg})
+			},
+			OnUsage: func(sum store.UsageSummary) {
+				h.broadcastJSON(protocol.MsgUsageUpdate, sum)
+			},
+		})
+		if err != nil && errors.Is(turnCtx.Err(), context.DeadlineExceeded) {
+			h.sendChatEvent(p.SessionID, protocol.MsgChatError, protocol.ChatErrorPayload{
+				SessionID: p.SessionID,
+				Error:     "orchestrator turn timed out",
 			})
-		}()
+		}
+	})
+	if !started {
+		release()
+	}
+}
+
+// sendChatEvent delivers a chat frame only to clients subscribed to sessionID.
+func (h *Hub) sendChatEvent(sessionID, msgType string, payload any) {
+	raw, err := protocol.NewEnvelope(msgType, "", payload)
+	if err != nil {
+		return
+	}
+	frame := wsFrame{msgType: websocket.MessageText, data: raw}
+	h.mu.RLock()
+	targets := make([]*browserClient, 0, len(h.clients))
+	for c := range h.clients {
+		c.mu.Lock()
+		if c.chatSubs[sessionID] {
+			targets = append(targets, c)
+		}
+		c.mu.Unlock()
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		h.sendBrowser(c, frame)
 	}
 }
 

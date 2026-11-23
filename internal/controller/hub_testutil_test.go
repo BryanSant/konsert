@@ -110,8 +110,31 @@ func (th *testHub) dialWorker(t *testing.T, info protocol.WorkerInfo, active []p
 // until resumeReading is called.
 func (th *testHub) dialWorkerOpts(t *testing.T, info protocol.WorkerInfo, active []protocol.ActiveTaskInfo, paused bool) *fakeWorker {
 	t.Helper()
+	fw := th.dialPeer(t, "/ws/worker", paused)
+	fw.send(protocol.MsgWorkerHello, protocol.WorkerHelloPayload{Worker: info, ActiveTasks: active})
+	return fw
+}
+
+// dialBrowser connects a fake PWA client to /ws/client.
+func (th *testHub) dialBrowser(t *testing.T) *fakeWorker {
+	t.Helper()
+	before := th.clientCount()
+	fw := th.dialPeer(t, "/ws/client", false)
+	waitFor(t, 3*time.Second, "browser client to register", func() bool { return th.clientCount() > before })
+	return fw
+}
+
+func (th *testHub) clientCount() int {
+	th.h.mu.RLock()
+	defer th.h.mu.RUnlock()
+	return len(th.h.clients)
+}
+
+// dialPeer opens a WebSocket to path and starts a frame reader.
+func (th *testHub) dialPeer(t *testing.T, path string, paused bool) *fakeWorker {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	conn, _, err := websocket.Dial(ctx, th.wsURL("/ws/worker"), nil)
+	conn, _, err := websocket.Dial(ctx, th.wsURL(path), nil)
 	if err != nil {
 		cancel()
 		t.Fatal(err)
@@ -152,7 +175,6 @@ func (th *testHub) dialWorkerOpts(t *testing.T, info protocol.WorkerInfo, active
 		}
 	}()
 	t.Cleanup(fw.close)
-	fw.send(protocol.MsgWorkerHello, protocol.WorkerHelloPayload{Worker: info, ActiveTasks: active})
 	return fw
 }
 
