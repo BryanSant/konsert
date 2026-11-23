@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -64,7 +64,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
 	switch action + ":" + kind {
 	case "create:workspace":
-		ws := store.Workspace{ID: uuid.NewString(), Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
+		id, err := s.store.NewID(ctx, ids.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		ws := store.Workspace{ID: id, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
 		if ws.Name == "" {
 			return nil, fmt.Errorf("name is required")
 		}
@@ -80,7 +84,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("workspace_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:project":
-		p := store.Project{ID: uuid.NewString(), WorkspaceID: req.WorkspaceID, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
+		id, err := s.store.NewID(ctx, ids.Project)
+		if err != nil {
+			return nil, err
+		}
+		p := store.Project{ID: id, WorkspaceID: req.WorkspaceID, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
 		if p.Name == "" {
 			return nil, fmt.Errorf("name is required")
 		}
@@ -99,7 +107,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("project_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:repo":
-		r := store.Repo{ID: uuid.NewString(), ProjectID: req.ProjectID, WorkerID: req.WorkerID, Name: strings.TrimSpace(req.Name), Path: strings.TrimSpace(req.Path), CreatedAt: time.Now().UTC()}
+		id, err := s.store.NewID(ctx, ids.Repo)
+		if err != nil {
+			return nil, err
+		}
+		r := store.Repo{ID: id, ProjectID: req.ProjectID, WorkerID: req.WorkerID, Name: strings.TrimSpace(req.Name), Path: strings.TrimSpace(req.Path), CreatedAt: time.Now().UTC()}
 		if r.ProjectID == "" {
 			r.ProjectID = store.DefaultProjectID
 		}
@@ -121,7 +133,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("repo_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:worktree":
-		wt := store.Worktree{ID: uuid.NewString(), RepoID: req.RepoID, Branch: req.Branch, Path: req.Path, CreatedAt: time.Now().UTC()}
+		id, err := s.store.NewID(ctx, ids.Worktree)
+		if err != nil {
+			return nil, err
+		}
+		wt := store.Worktree{ID: id, RepoID: req.RepoID, Branch: req.Branch, Path: req.Path, CreatedAt: time.Now().UTC()}
 		if wt.RepoID == "" {
 			return nil, fmt.Errorf("repo_id is required")
 		}

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 )
 
 // maxTurns bounds LLM round-trips (tool-calling rounds) per user message.
@@ -445,7 +445,7 @@ func sanitizeToolCalls(calls []ToolCall) map[int]string {
 	for i := range calls {
 		tc := &calls[i]
 		if strings.TrimSpace(tc.ID) == "" {
-			tc.ID = "call_" + uuid.NewString()[:12]
+			tc.ID = "call_" + strings.ReplaceAll(ids.UUID(), "-", "")
 		}
 		args := bytes.TrimSpace(tc.Arguments)
 		if len(args) == 0 {

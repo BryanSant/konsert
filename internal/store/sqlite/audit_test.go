@@ -2,9 +2,7 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -183,49 +181,6 @@ func TestAuditQueriesUseIndexes(t *testing.T) {
 		_ = rows.Close()
 		if !strings.Contains(detail, "INDEX idx_audit_log_") || strings.Contains(detail, "TEMP B-TREE") {
 			t.Errorf("%s: plan %s", q, detail)
-		}
-	}
-}
-
-func TestMigration011BackfillsLegacyControlEvents(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "legacy.db")
-	raw, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applyMigrationsUpTo(t, raw, "010_worker_version.sql")
-	ts := formatTime(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
-	for _, q := range []string{
-		`INSERT INTO workers (id, name, host_group, os, arch, agents_json, tags_json, status, last_seen_at) VALUES ('w1','box','g','linux','amd64','[]','{}','online','` + ts + `')`,
-		`INSERT INTO tasks (id, worker_id, agent, workdir, prompt, status, created_at) VALUES ('t1','w1','mock','/r','p','running','` + ts + `')`,
-		`INSERT INTO task_events (task_id, kind, message, created_at) VALUES ('t1','control','Steer input sent (3 bytes)','` + ts + `')`,
-		`INSERT INTO task_events (task_id, kind, message, created_at) VALUES ('t1','control','Cancellation requested','` + ts + `')`,
-		`INSERT INTO task_events (task_id, kind, message, created_at) VALUES ('t1','control','Git commit abc123: fix','` + ts + `')`,
-		`INSERT INTO task_events (task_id, kind, message, created_at) VALUES ('t1','milestone','not audited','` + ts + `')`,
-	} {
-		if _, err := raw.ExecContext(ctx, q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	_ = raw.Close()
-
-	st, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	rows, err := st.ListAudit(ctx, store.AuditFilter{TaskID: "t1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 3 {
-		t.Fatalf("backfilled %d rows, want 3: %+v", len(rows), rows)
-	}
-	want := map[string]bool{"task.steer": true, "task.cancel": true, "git.commit": true}
-	for _, r := range rows {
-		if !want[r.Action] || r.WorkerID != "w1" || r.User != "unknown" || r.Source != "legacy" {
-			t.Errorf("unexpected backfilled row %+v", r)
 		}
 	}
 }

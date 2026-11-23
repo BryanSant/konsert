@@ -70,7 +70,7 @@ func TestLiveCopilotOneshot(t *testing.T) {
 	workdir, r, rec, ev := liveSetup(t, "KONSERT_LIVE_COPILOT", &drivers.CopilotDriver{})
 	t.Cleanup(func() { removeCopilotSessionsFor(t, workdir) })
 	runLiveOneshot(t, r, rec, ev, protocol.TaskStartPayload{
-		TaskID: "22222222-6eaf-4000-8000-000000000001", Agent: "copilot", Workdir: workdir,
+		TaskID: "TASK-8SNWS", Agent: "copilot", Workdir: workdir,
 		Prompt: "reply with the single word OK", Mode: protocol.TaskModeOneshot,
 		PermissionMode: protocol.PermissionFullAccess, TimeoutSeconds: 180,
 	})
@@ -85,7 +85,7 @@ func TestLiveCursorOneshot(t *testing.T) {
 	workdir, r, rec, ev := liveSetup(t, "KONSERT_LIVE_CURSOR", &drivers.CursorDriver{})
 	t.Cleanup(func() { removeCursorStateFor(t, workdir) })
 	runLiveOneshot(t, r, rec, ev, protocol.TaskStartPayload{
-		TaskID: "22222222-6eaf-4000-8000-000000000002", Agent: "cursor", Workdir: workdir,
+		TaskID: "TASK-9466G", Agent: "cursor", Workdir: workdir,
 		Prompt: "reply with the single word OK", Mode: protocol.TaskModeOneshot,
 		PermissionMode: protocol.PermissionSandboxed, TimeoutSeconds: 180,
 	})

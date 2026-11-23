@@ -5,14 +5,16 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 func TestEncodeDecodeFrame(t *testing.T) {
-	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	taskID := "TASK-7QK3M"
 	payload := []byte("\x1b[32mhello world\x1b[0m\r\n")
 
 	for _, ft := range []byte{FramePtySnapshot, FramePtyData, FramePtyStdin} {
-		encoded, err := EncodeFrame(ft, uuid, payload)
+		encoded, err := EncodeFrame(ft, taskID, payload)
 		if err != nil {
 			t.Fatalf("EncodeFrame(0x%02x) error: %v", ft, err)
 		}
@@ -23,7 +25,7 @@ func TestEncodeDecodeFrame(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DecodeFrame error: %v", err)
 		}
-		if gotType != ft || gotID != uuid || !bytes.Equal(gotData, payload) {
+		if gotType != ft || gotID != taskID || !bytes.Equal(gotData, payload) {
 			t.Fatalf("mismatch: type=%x id=%q data=%q", gotType, gotID, gotData)
 		}
 	}
@@ -50,8 +52,8 @@ func TestFrameErrors(t *testing.T) {
 	if _, err := EncodeFrame(FramePtyData, "", nil); !errors.Is(err, ErrInvalidTaskID) {
 		t.Fatalf("expected ErrInvalidTaskID for empty id, got %v", err)
 	}
-	if _, err := EncodeFrame(FramePtyData, strings.Repeat("a", 37), nil); !errors.Is(err, ErrInvalidTaskID) {
-		t.Fatalf("expected ErrInvalidTaskID for >36 id, got %v", err)
+	if _, err := EncodeFrame(FramePtyData, strings.Repeat("a", FrameTaskIDSize+1), nil); !errors.Is(err, ErrInvalidTaskID) {
+		t.Fatalf("expected ErrInvalidTaskID for an over-long id, got %v", err)
 	}
 	if _, _, _, err := DecodeFrame(make([]byte, FrameHeaderSize-1)); !errors.Is(err, ErrFrameTooShort) {
 		t.Fatalf("expected ErrFrameTooShort, got %v", err)
@@ -86,5 +88,12 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 	if p.TaskID != "abc" {
 		t.Fatalf("unexpected payload: %+v", p)
+	}
+}
+
+func TestFrameFitsLongestMintedTaskID(t *testing.T) {
+	longest := string(ids.Task) + "-" + strings.Repeat("Z", 12)
+	if err := ValidateTaskID(longest); err != nil {
+		t.Fatalf("ValidateTaskID(%q) = %v", longest, err)
 	}
 }

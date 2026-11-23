@@ -26,8 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 )
 
@@ -168,7 +167,7 @@ func (e *claudeEngine) Open(ctx context.Context, acct Account, opts protocol.Age
 		// another Claude account, or the transcript was deleted): start a new one rather
 		// than failing with "No conversation found".
 		resumeLost = opts.AgentSessionID != ""
-		s.sessionID = uuid.NewString()
+		s.sessionID = ids.UUID()
 	}
 	if resumeLost {
 		emit(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,

@@ -294,7 +294,7 @@ Both Worker (`konsertd` ↔ `konsert` at `/ws/worker`) and Browser (PWA ↔ `kon
 
 ```text
 +---------------+----------------------------------+-------------------------+
-| FrameType (1B)| TaskID (36B UTF-8 UUID, padded)  | Raw PTY Bytes (N bytes) |
+| FrameType (1B)| TaskID (24B UTF-8, zero-padded) | Raw PTY Bytes (N bytes) |
 +---------------+----------------------------------+-------------------------+
   0x01 = pty.snapshot (ring buffer replay on subscribe)
   0x02 = pty.data     (live stdout/stderr chunk)

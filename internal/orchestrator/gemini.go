@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 // GeminiProvider talks directly to the Google Gemini Generative Language API.
@@ -185,7 +185,7 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 				args = json.RawMessage("{}")
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
-				ID:        "call_" + uuid.NewString()[:8],
+				ID:        "call_" + strings.ReplaceAll(ids.UUID(), "-", ""),
 				Name:      part.FunctionCall.Name,
 				Arguments: args,
 			})

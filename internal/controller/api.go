@@ -17,6 +17,7 @@ import (
 
 	"github.com/BryanSant/konsert/internal/auth"
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/secrets"
@@ -24,7 +25,6 @@ import (
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 )
 
 // Server wires together HTTP REST API, Browser WS, Worker WS, MCP HTTP, and Embedded PWA.
@@ -373,8 +373,13 @@ func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	spaceID, err := s.store.NewID(r.Context(), ids.Space)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	sp := store.Space{
-		ID:        uuid.NewString(),
+		ID:        spaceID,
 		WorkerID:  body.WorkerID,
 		Name:      body.Name,
 		Path:      body.Path,

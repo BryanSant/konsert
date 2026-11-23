@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 // machineIDRecord is persisted at <stateDir>/machine-id[-<slug>].
@@ -55,13 +55,13 @@ func ResolveMachineID(baseDir, name, isolation string) string {
 	if raw, err := os.ReadFile(path); err == nil {
 		var rec machineIDRecord
 		if json.Unmarshal(raw, &rec) == nil {
-			if _, perr := uuid.Parse(rec.MachineID); perr == nil && (rec.OSMachineHash == "" || osHash == "" || rec.OSMachineHash == osHash) {
+			if ids.IsUUIDv7(rec.MachineID) && (rec.OSMachineHash == "" || osHash == "" || rec.OSMachineHash == osHash) {
 				return rec.MachineID
 			}
 		}
 	}
 
-	rec := machineIDRecord{MachineID: uuid.NewString(), OSMachineHash: osHash}
+	rec := machineIDRecord{MachineID: ids.UUID(), OSMachineHash: osHash}
 	raw, err := json.Marshal(rec)
 	if err != nil {
 		return ""

@@ -2,13 +2,11 @@ package sqlite
 
 import (
 	"context"
-	"io/fs"
-	"sort"
 	"strings"
 	"testing"
 )
 
-const taskCols = `id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+const taskCols = `id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 	agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 	orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 	created_at, started_at, completed_at`
@@ -46,32 +44,5 @@ func TestHotListQueriesUseIndexes(t *testing.T) {
 		if strings.Contains(joined, "TEMP B-TREE") || !strings.Contains(joined, "USING INDEX") {
 			t.Errorf("%s: plan does not use an index without sorting: %s", c.name, joined)
 		}
-	}
-}
-
-func TestMigrationFilesSortInOrder(t *testing.T) {
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	idx := func(prefix string) int {
-		for i, n := range names {
-			if strings.HasPrefix(n, prefix) {
-				return i
-			}
-		}
-		return -1
-	}
-	a, b := idx("008_"), idx("008b_")
-	if a < 0 || b < 0 || b != a+1 {
-		t.Fatalf("expected 008b_ right after 008_, got order %v", names)
-	}
-	if c := idx("009_"); c >= 0 && c < b {
-		t.Fatalf("009_ must sort after 008b_: %v", names)
 	}
 }

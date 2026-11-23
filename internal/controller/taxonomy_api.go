@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 )
 
 func derivePathLeaf(p string) string {
@@ -66,8 +66,13 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
+	wsID, err := s.store.NewID(r.Context(), ids.Workspace)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	ws := store.Workspace{
-		ID:        uuid.NewString(),
+		ID:        wsID,
 		Name:      name,
 		IsDefault: false,
 		CreatedAt: time.Now().UTC(),
@@ -134,8 +139,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	projectID, err := s.store.NewID(r.Context(), ids.Project)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	proj := store.Project{
-		ID:          uuid.NewString(),
+		ID:          projectID,
 		WorkspaceID: wsID,
 		Name:        name,
 		IsDefault:   false,
@@ -225,8 +235,13 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		name = derivePathLeaf(body.Path)
 	}
 	now := time.Now().UTC()
+	repoID, err := s.store.NewID(r.Context(), ids.Repo)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	repo := store.Repo{
-		ID:        uuid.NewString(),
+		ID:        repoID,
 		ProjectID: projID,
 		WorkerID:  body.WorkerID,
 		Name:      name,
@@ -241,8 +256,13 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	s.hub.broadcastFleetUpdate("repo", repo)
 
 	// Automatically create a primary worktree pointing at the repo's main checkout.
+	wtID, err := s.store.NewID(r.Context(), ids.Worktree)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	wt := store.Worktree{
-		ID:        uuid.NewString(),
+		ID:        wtID,
 		RepoID:    repo.ID,
 		Branch:    strings.TrimSpace(body.Branch),
 		Path:      repo.Path,
@@ -310,8 +330,13 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	if wtPath == "" {
 		wtPath = repo.Path
 	}
+	wtID, err := s.store.NewID(r.Context(), ids.Worktree)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	wt := store.Worktree{
-		ID:        uuid.NewString(),
+		ID:        wtID,
 		RepoID:    repo.ID,
 		Branch:    strings.TrimSpace(body.Branch),
 		Path:      wtPath,

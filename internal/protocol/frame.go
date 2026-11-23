@@ -11,7 +11,8 @@ const (
 	FramePtyData     byte = 0x02
 	FramePtyStdin    byte = 0x03
 
-	FrameTaskIDSize = 36
+	// FrameTaskIDSize fits the longest task ID internal/ids can mint ("TASK-" + 12) with room.
+	FrameTaskIDSize = 24
 	FrameHeaderSize = 1 + FrameTaskIDSize
 )
 
@@ -23,7 +24,8 @@ var (
 
 // ValidateTaskID checks that id is usable as a task ID everywhere a worker uses one: in
 // binary PTY frame headers (at most FrameTaskIDSize bytes) and as a single path component
-// for git worktrees. Valid IDs are 1..36 characters of [A-Za-z0-9-] (UUIDs qualify).
+// for git worktrees. Valid IDs are 1..FrameTaskIDSize characters of [A-Za-z0-9-]; the hub
+// mints ka-style IDs such as TASK-7QK3M (internal/ids).
 func ValidateTaskID(id string) error {
 	if len(id) == 0 || len(id) > FrameTaskIDSize {
 		return fmt.Errorf("%w: length %d (must be 1..%d)", ErrInvalidTaskID, len(id), FrameTaskIDSize)
@@ -43,7 +45,7 @@ func isValidFrameType(t byte) bool {
 }
 
 // EncodeFrame builds a binary PTY frame:
-// [FrameType:1B][TaskID:36B UTF-8 zero-padded][Raw PTY Bytes:NB]
+// [FrameType:1B][TaskID:24B UTF-8 zero-padded][Raw PTY Bytes:NB]
 func EncodeFrame(frameType byte, taskID string, data []byte) ([]byte, error) {
 	if !isValidFrameType(frameType) {
 		return nil, fmt.Errorf("%w: 0x%02x", ErrInvalidFrameType, frameType)

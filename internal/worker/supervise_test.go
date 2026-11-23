@@ -47,7 +47,7 @@ func TestSuperviseCompletesWhenReadNeverEOFs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pty := newLingeringPty(0)
 	rt := &runningTask{
-		id:           "88888888-8888-8888-8888-888888888888",
+		id:           "TASK-0WHA9",
 		effectiveDir: t.TempDir(),
 		pty:          pty,
 		ring:         NewRingBuffer(1024),

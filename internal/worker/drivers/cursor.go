@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 func init() {
@@ -103,7 +103,7 @@ func (d *CursorDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 
 func (d *CursorDriver) newTask(opts LaunchOptions) string {
 	t := &cursorTask{
-		chatID:      uuid.NewString(),
+		chatID:      ids.UUID(),
 		interactive: opts.Mode == "interactive",
 		dataDir:     agentHomeDir(opts.Env, "CURSOR_DATA_DIR", ".cursor"),
 	}

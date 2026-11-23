@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 )
 
 // FleetService is the shared application service used by REST API, MCP Server,
@@ -459,7 +459,10 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		timeoutSecs = *req.TimeoutSeconds
 	}
 
-	taskID := uuid.NewString()
+	taskID, err := s.store.NewID(ctx, ids.Task)
+	if err != nil {
+		return DispatchResult{}, err
+	}
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
 		return DispatchResult{}, err

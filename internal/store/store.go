@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 var (
@@ -12,8 +14,8 @@ var (
 )
 
 const (
-	DefaultWorkspaceID = "space-default"
-	DefaultProjectID   = "project-default"
+	DefaultWorkspaceID = ids.DefaultWorkspace
+	DefaultProjectID   = ids.DefaultProject
 )
 
 type PermissionMode string
@@ -109,6 +111,7 @@ type TaxonomySnapshot struct {
 
 type Task struct {
 	ID             string         `json:"id"`
+	ExternalID     string         `json:"external_id,omitempty"` // worker's key for a discovered session
 	WorkerID       string         `json:"worker_id"`
 	SpaceID        string         `json:"space_id,omitempty"`
 	WorkspaceID    string         `json:"workspace_id,omitempty"`
@@ -278,6 +281,9 @@ type UsageSummary struct {
 }
 
 type Store interface {
+	// NewID mints a unique user-facing ID of the given kind (see internal/ids).
+	NewID(ctx context.Context, kind ids.Kind) (string, error)
+
 	UpsertWorker(ctx context.Context, w Worker) error
 	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
 	// TouchWorker marks an existing worker online at seenAt. Unlike UpsertWorker it
@@ -318,7 +324,9 @@ type Store interface {
 	DeleteWorktree(ctx context.Context, id string) error
 
 	CreateTask(ctx context.Context, t Task) error
-	UpsertExternalTask(ctx context.Context, t Task) error
+	// UpsertExternalTask creates or updates the discovered session keyed by (WorkerID,
+	// ExternalID) and returns its task ID (minted on first sight; t.ID is ignored).
+	UpsertExternalTask(ctx context.Context, t Task) (string, error)
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
 	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error
 	GetTask(ctx context.Context, id string) (Task, error)

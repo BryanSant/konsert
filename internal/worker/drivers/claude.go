@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 func init() {
@@ -45,7 +45,7 @@ func (d *ClaudeDriver) sessionFor(taskID string) string {
 }
 
 func (d *ClaudeDriver) newSession(taskID string) string {
-	id := uuid.NewString()
+	id := ids.UUID()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.sessions == nil {

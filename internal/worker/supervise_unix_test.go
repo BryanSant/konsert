@@ -64,7 +64,7 @@ func TestRunnerTwoMiBLineCompletes(t *testing.T) {
 	rec := newStatusRecorder()
 	runner := NewRunner(scriptRegistry(), false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID:  "66666666-6666-6666-6666-666666666666",
+		TaskID:  "TASK-21VYD",
 		Agent:   "script",
 		Workdir: t.TempDir(),
 		Prompt:  "head -c 2097152 /dev/zero | tr '\\000' a; exit 3",
@@ -85,7 +85,7 @@ func TestRunnerCompletesWhenBackgroundChildHoldsPty(t *testing.T) {
 	runner := NewRunner(scriptRegistry(), false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
 	start := time.Now()
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID:  "77777777-7777-7777-7777-777777777777",
+		TaskID:  "TASK-K18CB",
 		Agent:   "script",
 		Workdir: t.TempDir(),
 		Prompt:  "trap '' HUP; sleep 30 & echo main-done",
@@ -130,7 +130,7 @@ func TestRunnerManagedPIDAndTaskEnv(t *testing.T) {
 	rec := newStatusRecorder()
 	runner := NewRunner(scriptRegistry(), false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
 	workdir := t.TempDir()
-	const id = "12121212-0000-0000-0000-000000000001"
+	const id = "TASK-BZWSQ"
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
 		TaskID:  id,
 		Agent:   "script",

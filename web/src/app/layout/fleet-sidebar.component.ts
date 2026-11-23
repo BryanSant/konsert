@@ -1,6 +1,6 @@
 import { Component, OnDestroy, OnInit, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Project, Repo, Space, Task, Worker, Worktree } from '../core/models/konsert.models';
+import { DEFAULT_PROJECT_ID, Project, Repo, Space, Task, Worker, Worktree } from '../core/models/konsert.models';
 import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
@@ -678,7 +678,7 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
       .filter(
         (t) =>
           t.origin !== 'scratch' &&
-          (!t.repo_id || t.origin === 'external' || t.project_id === 'project-default')
+          (!t.repo_id || t.origin === 'external' || t.project_id === DEFAULT_PROJECT_ID)
       )
       .filter((t) => !q || t.agent.toLowerCase().includes(q) || (t.workdir || '').toLowerCase().includes(q))
       .slice(0, 8);

@@ -1,13 +1,14 @@
 package chat
 
 import (
-	"github.com/BryanSant/konsert/internal/protocol"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BryanSant/konsert/internal/protocol"
 )
 
 func TestResolveCwd(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	_ "modernc.org/sqlite"
@@ -68,7 +69,7 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 
 	if err := runMigrations(ctx, db); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
 	st := &SQLiteStore{db: db}
@@ -591,7 +592,17 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 }
 
 // UpsertExternalTask creates or updates a passively discovered / hook-reported session row.
-func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) error {
+func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (string, error) {
+	if t.WorkerID == "" || t.ExternalID == "" {
+		return "", fmt.Errorf("external task needs worker_id and external_id")
+	}
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE worker_id = ? AND external_id = ?`, t.WorkerID, t.ExternalID).Scan(&t.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.ID, err = s.NewID(ctx, ids.Task)
+	}
+	if err != nil {
+		return "", err
+	}
 	now := time.Now().UTC()
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = now
@@ -617,22 +628,18 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) erro
 	if t.ProjectID == "" {
 		t.ProjectID = store.DefaultProjectID
 	}
-	var workerID any
-	if t.WorkerID != "" {
-		workerID = t.WorkerID
-	}
 	var startedAt any = formatTime(now)
 	var completedAt any
 	if protocol.IsTerminalTaskStatus(t.Status) {
 		completedAt = formatTime(now)
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			workspace_id = excluded.workspace_id,
 			project_id = excluded.project_id,
@@ -645,11 +652,14 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) erro
 			summary = CASE WHEN excluded.summary != '' THEN excluded.summary ELSE tasks.summary END,
 			git_summary_json = CASE WHEN excluded.git_summary_json != '' THEN excluded.git_summary_json ELSE tasks.git_summary_json END,
 			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END
-	`, t.ID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+	`, t.ID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		formatTime(t.CreatedAt), startedAt, completedAt)
-	return err
+	if err != nil {
+		return "", err
+	}
+	return t.ID, nil
 }
 
 func (s *SQLiteStore) UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error {
@@ -714,7 +724,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		completedAt sql.NullString
 	)
 	if err := scanner.Scan(
-		&t.ID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
+		&t.ID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&createdAt, &startedAt, &completedAt,
@@ -744,7 +754,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
@@ -769,7 +779,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 	}
 
 	query := `
-		SELECT id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at

@@ -339,13 +339,13 @@ export class AuditLogComponent implements OnInit {
   }
 
   hostName(workerId: string): string {
-    return this.fleet.workersById()[workerId]?.name || workerId.slice(0, 12);
+    return this.fleet.workersById()[workerId]?.name || `machine …${workerId.slice(-6)}`;
   }
 
   taskLabel(taskId: string): string {
     const t = this.fleet.tasksById()[taskId];
     const name = t ? basenamePath(t.workdir) || t.agent : '';
-    return name ? `${name} · ${taskId.slice(0, 6)}` : taskId.slice(0, 8);
+    return name ? `${name} · ${taskId}` : taskId;
   }
 
   actionLabel(action: string): string {

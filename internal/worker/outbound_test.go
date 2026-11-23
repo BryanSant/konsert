@@ -111,7 +111,7 @@ func TestDaemonRedeliversFinalStatusAfterReconnect(t *testing.T) {
 	c1 := hub.accept(t)
 	c1.waitFor(t, 10*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
 
-	const id = "eeeeeeee-0000-0000-0000-000000000001"
+	const id = "TASK-C5QVS"
 	c1.send(t, protocol.MsgTaskStart, "", protocol.TaskStartPayload{
 		TaskID: id, Agent: "mock", Workdir: t.TempDir(), Prompt: "SLEEP=1", Mode: protocol.TaskModeOneshot,
 	})

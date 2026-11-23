@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
@@ -67,6 +68,9 @@ func (cs *chatServer) createChat(t *testing.T, body map[string]any) store.ChatSe
 	}
 	var s store.ChatSession
 	_ = json.Unmarshal(raw, &s)
+	if !ids.Valid(ids.Chat, s.ID) {
+		t.Fatalf("chat id %q is not a CHAT id", s.ID)
+	}
 	return s
 }
 

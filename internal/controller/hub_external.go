@@ -26,7 +26,6 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		status = protocol.TaskStatusFailed
 	}
 
-	taskID := "ext-" + workerID + "-" + p.ExternalID
 	gitJSON := ""
 	if len(p.ChangedFiles) > 0 {
 		if b, err := json.Marshal(protocol.GitSummary{DirtyFiles: p.ChangedFiles}); err == nil {
@@ -34,7 +33,7 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		}
 	}
 	t := store.Task{
-		ID:             taskID,
+		ExternalID:     p.ExternalID,
 		WorkerID:       workerID,
 		WorkspaceID:    wsID,
 		ProjectID:      projID,
@@ -53,7 +52,9 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		Summary:        p.Summary,
 		GitSummaryJSON: gitJSON,
 	}
-	if err := h.store.UpsertExternalTask(ctx, t); err != nil {
+	taskID, err := h.store.UpsertExternalTask(ctx, t)
+	if err != nil {
+		h.logger.Warn("record external session", "worker_id", workerID, "external_id", p.ExternalID, "err", err)
 		return
 	}
 	if len(p.ChangedFiles) > 0 {

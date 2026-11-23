@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 func init() {
@@ -100,7 +100,7 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 
 func (d *GrokDriver) newTask(opts LaunchOptions) string {
 	t := &grokTask{
-		sessionID:   uuid.NewString(),
+		sessionID:   ids.UUID(),
 		interactive: opts.Mode == "interactive",
 		grokHome:    grokHomeDir(opts.Env),
 	}

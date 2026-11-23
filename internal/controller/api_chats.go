@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -33,9 +33,13 @@ type createChatRequest struct {
 // createChat creates a chat session. Agent chats fill worker, agent, account,
 // model, effort and approval mode from the reported capabilities.
 func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.ChatSession, error) {
+	chatID, err := s.store.NewID(ctx, ids.Chat)
+	if err != nil {
+		return store.ChatSession{}, err
+	}
 	now := time.Now().UTC()
 	cs := store.ChatSession{
-		ID:        uuid.NewString(),
+		ID:        chatID,
 		Title:     strings.TrimSpace(body.Title),
 		CreatedAt: now,
 		UpdatedAt: now,

@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/google/uuid"
 )
 
 // Agent chat, hub side (docs/design/agent-chat.md).
@@ -856,7 +856,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 	if err != nil {
 		return err
 	}
-	turnID := uuid.NewString()
+	turnID := ids.UUID()
 	if id := strings.TrimSpace(req.TurnID); validClientTurnID(id) {
 		turnID = id
 	}
@@ -1262,7 +1262,7 @@ func (h *Hub) askUser(ctx context.Context, chatID string, in askUserInput) (stri
 			opts = append(opts, protocol.AgentElicitationOption{ID: fmt.Sprintf("option_%d", i+1), Label: label, Kind: "choice"})
 		}
 	}
-	id := "ask-" + uuid.NewString()
+	id := "ask-" + ids.UUID()
 	ask := &pendingAsk{options: opts, answer: make(chan askAnswer, 1)}
 	rt := h.chatRT(chatID)
 	rt.mu.Lock()

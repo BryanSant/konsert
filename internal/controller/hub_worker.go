@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 )
 
 // DisconnectWorker closes any active WebSocket session for workerID with WSCloseWorkerRemoved
@@ -639,7 +639,7 @@ func (h *Hub) RequestWorker(ctx context.Context, workerID, msgType string, paylo
 		return protocol.Envelope{}, fmt.Errorf("worker %s is not connected", workerID)
 	}
 
-	reqID := uuid.NewString()
+	reqID := ids.UUID()
 	raw, err := protocol.NewEnvelope(msgType, reqID, payload)
 	if err != nil {
 		return protocol.Envelope{}, err

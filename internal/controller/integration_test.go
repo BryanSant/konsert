@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
@@ -911,7 +913,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	}
 
 	// Deleting built-in default workspace via REST returns 400
-	delDefReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workspaces/space-default", nil)
+	delDefReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workspaces/"+store.DefaultWorkspaceID, nil)
 	delDefResp, err := http.DefaultClient.Do(delDefReq)
 	if err != nil || delDefResp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 deleting default workspace, got %v err=%v", delDefResp, err)
@@ -1124,7 +1126,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		ChangedFiles: []string{"cmd/main.go"},
 		Source:       "hook",
 	})
-	mapped, err := st.GetTask(ctx, "ext-w-match-ssh-agy-42")
+	mapped, err := externalTask(ctx, st, "w-match", "ssh-agy-42")
 	if err != nil || mapped.WorkspaceID != "ws-eng" || mapped.ProjectID != "proj-app1" || mapped.RepoID != "repo-app1" || mapped.Status != protocol.TaskStatusRunning {
 		t.Fatalf("expected external session mapped to Eng/App1/repo-app1, got %+v err=%v", mapped, err)
 	}
@@ -1137,7 +1139,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		Status:     "needs_you",
 		Source:     "passive",
 	})
-	fallback, err := st.GetTask(ctx, "ext-w-match-ssh-claude-99")
+	fallback, err := externalTask(ctx, st, "w-match", "ssh-claude-99")
 	if err != nil || fallback.WorkspaceID != store.DefaultWorkspaceID || fallback.ProjectID != store.DefaultProjectID || fallback.Status != protocol.TaskStatusWaitingInput {
 		t.Fatalf("expected unmanaged external session to fall back to Default Space/Project, got %+v err=%v", fallback, err)
 	}
@@ -1517,4 +1519,21 @@ func TestAuditLogEndToEndWithRealWorker(t *testing.T) {
 
 	cancel()
 	<-daemonDone
+}
+
+// externalTask finds the task recorded for a worker's discovered session.
+func externalTask(ctx context.Context, st *sqlite.SQLiteStore, workerID, externalID string) (store.Task, error) {
+	tasks, err := st.ListTasks(ctx, "", workerID, 0)
+	if err != nil {
+		return store.Task{}, err
+	}
+	for _, t := range tasks {
+		if t.ExternalID == externalID {
+			if !ids.Valid(ids.Task, t.ID) {
+				return t, fmt.Errorf("external task id %q is not a TASK id", t.ID)
+			}
+			return t, nil
+		}
+	}
+	return store.Task{}, store.ErrNotFound
 }

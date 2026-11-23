@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
+	"github.com/BryanSant/konsert/internal/ids"
 )
 
 func init() {
@@ -111,7 +111,7 @@ func (d *CopilotDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 
 func (d *CopilotDriver) newTask(opts LaunchOptions) string {
 	t := &copilotTask{
-		sessionID:   uuid.NewString(),
+		sessionID:   ids.UUID(),
 		interactive: opts.Mode == "interactive",
 		home:        agentHomeDir(opts.Env, "COPILOT_HOME", ".copilot"),
 		cacheDir:    copilotCacheDir(opts.Env),

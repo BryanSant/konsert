@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
@@ -107,6 +108,9 @@ func TestQueuedTaskKeepsSelectorConstraints(t *testing.T) {
 	p, _ := protocol.DecodePayload[protocol.TaskStartPayload](env)
 	if p.TaskID != res.TaskID {
 		t.Fatalf("mac got task %s, want %s", p.TaskID, res.TaskID)
+	}
+	if !ids.Valid(ids.Task, res.TaskID) {
+		t.Fatalf("dispatched task id %q is not a TASK id", res.TaskID)
 	}
 	if got := mustTask(t, th.st, res.TaskID); got.WorkerID != "w-mac" || got.Status != protocol.TaskStatusAssigned {
 		t.Fatalf("task not assigned to w-mac: %+v", got)
