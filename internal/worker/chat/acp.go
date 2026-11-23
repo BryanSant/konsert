@@ -856,16 +856,6 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 	for _, o := range p.Options {
 		perm.options = append(perm.options, protocol.AgentElicitationOption{ID: o.OptionID, Label: o.Name, Kind: o.Kind})
 	}
-	// Konsert's own MCP tools (ask_user, fleet tools) are trusted: answer the agent's
-	// permission request ourselves instead of asking the user for permission to ask them.
-	if allow := s.trustedToolAllowOption(tc, p.ToolCall, perm.options); allow != "" {
-		c := s.conn
-		s.mu.Unlock()
-		if c != nil {
-			_ = c.rpc.Reply(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
-		}
-		return
-	}
 	s.perms[eid] = perm
 	turnID := ""
 	var flush []protocol.AgentChatEvent
@@ -879,6 +869,22 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 			mergeToolCall(known, &u)
 			*tc = *known
 		}
+	}
+	// Konsert's own MCP tools (ask_user, fleet tools) are trusted: answer the agent's
+	// permission request ourselves instead of asking the user for permission to ask them.
+	// Checked after merging the earlier tool_call update, which carries the identifying
+	// rawInput (cursor sends only the id and title in the permission request itself).
+	if allow := s.trustedToolAllowOption(tc, p.ToolCall, perm.options); allow != "" {
+		delete(s.perms, eid)
+		c := s.conn
+		s.mu.Unlock()
+		for _, ev := range flush {
+			s.emitEv(ev)
+		}
+		if c != nil {
+			_ = c.rpc.Reply(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
+		}
+		return
 	}
 	s.mu.Unlock()
 
@@ -914,18 +920,25 @@ func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json
 		} `json:"rawInput"`
 	}
 	_ = json.Unmarshal(raw, &probe)
+	// The merged tool call's input is the agent's rawInput (e.g. cursor:
+	// {"args":…,"providerIdentifier":"konsert","toolName":"ask_user"}).
+	var merged struct {
+		ProviderIdentifier string `json:"providerIdentifier"`
+		ToolName           string `json:"toolName"`
+	}
+	_ = json.Unmarshal([]byte(tc.Input), &merged)
 	trusted := false
 	for _, srv := range s.opts.MCPServers {
 		name := strings.ToLower(strings.TrimSpace(srv.Name))
 		if name == "" {
 			continue
 		}
-		if strings.EqualFold(probe.RawInput.ProviderIdentifier, name) {
+		if strings.EqualFold(probe.RawInput.ProviderIdentifier, name) || strings.EqualFold(merged.ProviderIdentifier, name) {
 			trusted = true
 		}
 		for _, v := range []string{tc.Name, tc.Title, probe.RawInput.ToolName} {
 			v = strings.ToLower(strings.TrimSpace(v))
-			if strings.HasPrefix(v, "mcp__"+name+"__") || strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") {
+			if strings.HasPrefix(v, "mcp__"+name+"__") || strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") || strings.HasPrefix(v, name+"-") {
 				trusted = true
 			}
 		}
