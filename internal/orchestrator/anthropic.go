@@ -97,7 +97,7 @@ func toolInputObject(args json.RawMessage) json.RawMessage {
 
 func (p *AnthropicProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = DefaultAnthropicModel
+		return Message{}, ErrNoModel
 	}
 	maxTokens := p.MaxTokens
 	if maxTokens <= 0 {

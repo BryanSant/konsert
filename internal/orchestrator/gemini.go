@@ -37,7 +37,7 @@ func (p *GeminiProvider) Name() string { return "gemini" }
 
 func (p *GeminiProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = DefaultGeminiModel
+		return Message{}, ErrNoModel
 	}
 
 	var contents []map[string]any

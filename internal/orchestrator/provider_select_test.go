@@ -48,7 +48,7 @@ func TestUnknownProviderNeverFallsBackToOpenAI(t *testing.T) {
 	}
 
 	// Hot reload: a valid provider clears the error, an invalid one sets it again.
-	if err := svc.UpdateConfig(config.OrchestratorConfig{Provider: "openai", BaseURL: srv.URL, APIKey: "k"}); err != nil {
+	if err := svc.UpdateConfig(config.OrchestratorConfig{Provider: "openai", Model: "m", BaseURL: srv.URL, APIKey: "k"}); err != nil {
 		t.Fatalf("UpdateConfig(openai) = %v", err)
 	}
 	if err := svc.HandleUserMessage(context.Background(), "s1", "hi", StreamCallbacks{}); err != nil || hits.Load() != 1 {

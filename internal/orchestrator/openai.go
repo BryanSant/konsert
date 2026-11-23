@@ -37,7 +37,7 @@ func (p *OpenAIProvider) Name() string { return "openai" }
 
 func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = DefaultOpenAIModel
+		return Message{}, ErrNoModel
 	}
 	apiMsgs := make([]map[string]any, 0, len(messages)+1)
 	if system != "" {

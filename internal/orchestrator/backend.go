@@ -19,13 +19,8 @@ import (
 // maxTurns bounds LLM round-trips (tool-calling rounds) per user message.
 const maxTurns = 10
 
-const defaultSystemPrompt = `You are Konsert Orchestrator, coordinating an entire fleet of SSH-connected machines as one logical system.
-Token Efficiency Rules:
-- ALWAYS prefer deterministic daemon RPC tools (inspect_machine_facts, inspect_git_status, list_remote_dir, scan_temp_worktrees, cleanup_worktree, fleet_status, list_tasks) over spawning coding agents for inspection, file discovery, git status, or cleanup scans.
-- Delegate to coding agents (dispatch_task) ONLY for non-deterministic engineering work (writing/refactoring code, debugging, running complex multi-step plans).
-- Use cached Machine Facts to place work on the right machine (OS, hardware/load, virtualization, installed tools like postgres 18 or gcloud auth readiness).
-- Persist important cross-thread fleet context or task handoff notes with save_memory, and rely on compact structured summaries rather than raw terminal output.
-Be concise, structured, and action-oriented.`
+// defaultSystemPrompt is the API-key backend's system prompt.
+const defaultSystemPrompt = RolePrompt + apiToolsPrompt
 
 // ContextProvider optionally supplies a compact live fleet + taxonomy + memory digest for every LLM turn.
 type ContextProvider interface {
@@ -225,6 +220,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		sess = store.ChatSession{
 			ID:        sessionID,
 			Title:     "Orchestrator",
+			Backend:   store.ChatBackendAPI,
 			Provider:  cfg.Provider,
 			Model:     cfg.Model,
 			CreatedAt: time.Now().UTC(),
@@ -246,7 +242,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	if cfg.APIKey == "" && prov != nil && (prov.Name() == "openai" || prov.Name() == "anthropic" || prov.Name() == "gemini") {
 		// Allow local OpenAI-compatible servers (e.g. Ollama/vLLM) with custom BaseURL even without APIKey.
 		if cfg.BaseURL == "" {
-			msg := fmt.Sprintf("Orchestrator LLM API key is not configured for provider %q. Open Settings (bottom-left) or set KONSERT_LLM_API_KEY to configure your provider.", cfg.Provider)
+			msg := fmt.Sprintf("This chat uses the optional API-key backend, which has no API key configured for provider %q. Agent chats run on your logged-in agent CLIs and need no API key: start a new chat with an agent, or add a key in Settings.", cfg.Provider)
 			if cb.OnDelta != nil {
 				cb.OnDelta(sessionID, msg)
 			}
@@ -282,9 +278,6 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	model := cfg.Model
 	if model == "" {
 		model = sess.Model
-	}
-	if model == "" {
-		model = DefaultModel(cfg.Provider)
 	}
 	tools := s.executor.ToolDefinitions()
 
