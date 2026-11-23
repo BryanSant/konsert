@@ -55,6 +55,14 @@ func (d *ShellDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		}
 	}
 
+	// Interactive terminals get shell integration when the shell supports it (zsh, bash,
+	// PowerShell); the launch shape is otherwise the same as below.
+	if opts.ShellIntegration != nil && opts.Mode != "oneshot" {
+		if args, env, ok := opts.ShellIntegration.Command(bin, opts.Prompt); ok {
+			return LaunchSpec{Binary: bin, Args: args, Env: append(append([]string(nil), opts.Env...), env...), ShellIntegration: true}
+		}
+	}
+
 	if runtime.GOOS == "windows" {
 		if strings.TrimSpace(opts.Prompt) != "" && opts.Mode == "oneshot" {
 			if strings.HasSuffix(strings.ToLower(bin), "cmd.exe") {

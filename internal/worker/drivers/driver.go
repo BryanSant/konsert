@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/shellint"
 )
 
 // FindBinary locates an executable via PATH first, then falls back to common user install directories
@@ -63,6 +64,9 @@ type LaunchOptions struct {
 	ApprovalMode string
 	// Effort is the model's reasoning effort ID, mapped to the CLI's effort flag.
 	Effort string
+	// ShellIntegration, when set, asks the shell driver to start an interactive shell
+	// with Konsert's shell integration (command and exit-status marks).
+	ShellIntegration *shellint.Integration
 }
 
 // LaunchSpec describes the command to spawn inside the PTY.
@@ -70,6 +74,8 @@ type LaunchSpec struct {
 	Binary string
 	Args   []string
 	Env    []string
+	// ShellIntegration reports that the shell was started with shell integration.
+	ShellIntegration bool
 }
 
 // TelemetryEvent represents a structured agent milestone emitted while a task runs.

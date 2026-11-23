@@ -1,0 +1,2 @@
+# Embedded shell scripts: keep LF endings on every checkout (bash and zsh reject CRLF).
+* text eol=lf
