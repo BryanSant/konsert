@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, ou
 import { FormsModule } from '@angular/forms';
 import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
-import { FleetStore, guessModelForAgent } from '../core/state/fleet.store';
+import { AgentAccountsStore } from '../core/state/agent-accounts.store';
+import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 import { RemoteDirPickerComponent } from '../shared/remote-dir-picker.component';
@@ -123,20 +124,20 @@ function formatSourceHint(src: string): string {
                   <span class="text-[10px] text-[#86888f]">{{ modelSourceHint() }}</span>
                 }
               </div>
-              <input id="session-dispatch-modal-model"
-                type="text"
+              <select id="session-dispatch-modal-model"
                 name="sessionModel"
-                list="ks-model-suggestions"
                 [ngModel]="model()"
                 (ngModelChange)="onModelChange($event)"
-                placeholder="Auto"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-              />
-              <datalist id="ks-model-suggestions">
-                @for (m of modelSuggestions(); track m) {
-                  <option [value]="m"></option>
+                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+              >
+                <option value="">Agent default</option>
+                @for (m of modelOptions(); track m.id) {
+                  <option [value]="m.id">{{ m.display_name }}</option>
                 }
-              </datalist>
+                @if (model() && !hasModel(model())) {
+                  <option [value]="model()">{{ model() }}</option>
+                }
+              </select>
             </div>
           </div>
         } @else {
@@ -267,24 +268,20 @@ export class SessionDispatchModalComponent implements OnInit {
     return Array.from(new Set([...detected, ...base]));
   });
 
-  readonly modelSuggestions = computed(() => {
-    switch (this.agent().toLowerCase()) {
-      case 'claude':
-        return ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-haiku-3-5'];
-      case 'agy':
-        return ['gemini-2.5-pro', 'gemini-2.5-flash'];
-      case 'codex':
-        return ['o4-mini', 'o3', 'gpt-4.1'];
-      case 'grok':
-        return ['grok-code-fast-1', 'grok-4'];
-      case 'copilot':
-        return ['auto', 'gpt-5.6-sol'];
-      case 'cursor':
-        return ['auto', 'composer-2.5', 'gpt-5.3-codex', 'claude-sonnet-5-thinking-high'];
-      default:
-        return ['claude-sonnet-4-5', 'gemini-2.5-pro', 'o4-mini', 'grok-code-fast-1'];
-    }
+  private readonly agentAccounts = inject(AgentAccountsStore);
+
+  /** The agent's default account on the chosen machine (from capabilities). */
+  readonly account = computed(() => {
+    const list = this.agentAccounts.accountsFor(this.workerId()).filter((a) => a.agent === this.agent());
+    return list.find((a) => a.is_default) ?? list[0] ?? null;
   });
+
+  /** Real models reported by that account; empty when unknown (the agent picks). */
+  readonly modelOptions = computed(() => this.account()?.models ?? []);
+
+  hasModel(id: string): boolean {
+    return this.modelOptions().some((m) => m.id === id);
+  }
 
   ngOnInit(): void {
     const { kind, worker, space, repo, worktree } = this.request();
@@ -325,9 +322,10 @@ export class SessionDispatchModalComponent implements OnInit {
   onAgentChange(agent: string): void {
     this.agent.set(agent);
     this.agentSourceHint.set('');
-    if (this.modelSourceHint() === 'auto' || !this.model().trim()) {
-      this.model.set(guessModelForAgent(agent, this.fleet.settings().llm_model));
-      this.modelSourceHint.set('auto');
+    // A model chosen for another agent does not carry over: use the new agent's default.
+    if (this.model() && !this.hasModel(this.model())) {
+      this.model.set('');
+      this.modelSourceHint.set('');
     }
   }
 
@@ -354,6 +352,7 @@ export class SessionDispatchModalComponent implements OnInit {
         worktree_id: this.worktreeId() || undefined,
         session_kind: this.sessionKind(),
         agent: isChat ? this.agent() : 'shell',
+        account_id: isChat ? this.account()?.id || undefined : undefined,
         model: isChat ? this.model().trim() || undefined : undefined,
         repo_path: this.repoPath().trim() || '~',
         branch: this.branch().trim() || undefined,

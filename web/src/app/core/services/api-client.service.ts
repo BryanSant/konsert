@@ -23,6 +23,8 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
+import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
+import { CHAT_PROTOCOL } from './chat-protocol';
 
 /** Error thrown for non-2xx responses; carries the HTTP status. */
 export class ApiError extends Error {
@@ -261,6 +263,44 @@ export class ApiClientService {
   deleteChatSession(sessionId: string): Promise<{ ok: boolean; id: string }> {
     return this.request(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
+    });
+  }
+
+  // --- Agent chat (subscription agents) -------------------------------------------
+
+  /** Creates an agent chat on a worker's agent account. */
+  createAgentChat(req: AgentChatCreateRequest): Promise<ChatSession> {
+    return this.request(CHAT_PROTOCOL.restCreate, {
+      method: 'POST',
+      body: JSON.stringify({ backend: 'agent', ...req }),
+    });
+  }
+
+  /** Persisted events of a chat after `afterSeq` (0 = all), oldest first. */
+  async listAgentChatEvents(chatId: string, afterSeq = 0): Promise<AgentChatEvent[]> {
+    const res = await this.request<{ events?: AgentChatEvent[] } | AgentChatEvent[]>(
+      CHAT_PROTOCOL.restEvents(chatId, afterSeq),
+    );
+    return Array.isArray(res) ? res : (res.events ?? []);
+  }
+
+  patchAgentChat(chatId: string, patch: AgentChatPatch): Promise<ChatSession> {
+    return this.request(CHAT_PROTOCOL.restChat(chatId), {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  /** Every worker's agent accounts (raw: normalized by AgentAccountsStore). */
+  listAgentAccounts(): Promise<unknown> {
+    return this.request(CHAT_PROTOCOL.restAccounts);
+  }
+
+  /** Asks workers to re-probe capabilities (optionally one worker / account). */
+  refreshAgentAccounts(req: { worker_id?: string; account_id?: string } = {}): Promise<unknown> {
+    return this.request(CHAT_PROTOCOL.restAccountsRefresh, {
+      method: 'POST',
+      body: JSON.stringify(req),
     });
   }
 

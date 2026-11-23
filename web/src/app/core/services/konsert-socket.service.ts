@@ -19,7 +19,11 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
+import { AgentAccount } from '../models/agent-chat.models';
+import { AgentAccountsStore } from '../state/agent-accounts.store';
+import { AgentChatStore } from '../state/agent-chat.store';
 import { AuditStore } from '../state/audit.store';
+import { CHAT_PROTOCOL } from './chat-protocol';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { TelemetryStore } from '../state/telemetry.store';
@@ -38,6 +42,8 @@ export class KonsertSocketService {
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly auditStore = inject(AuditStore);
+  private readonly agentChat = inject(AgentChatStore);
+  private readonly agentAccounts = inject(AgentAccountsStore);
   private readonly notifications = inject(NotificationService);
   private readonly auth = inject(AuthService);
 
@@ -125,8 +131,10 @@ export class KonsertSocketService {
       this.reconnectAttempt = 0;
       this.state.set('connected');
       void this.fleetStore.refresh();
+      void this.agentAccounts.load();
       if (isReconnect) {
         void this.orchestratorStore.onReconnected();
+        void this.agentChat.onReconnected();
         void this.telemetryStore.onReconnected();
       }
       // A new socket starts with no subscriptions: re-subscribe the active chat session.
@@ -195,6 +203,8 @@ export class KonsertSocketService {
           worktree?: Worktree;
           audit?: AuditEvent;
           deleted_id?: string;
+          worker_id?: string;
+          accounts?: AgentAccount[];
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -206,6 +216,8 @@ export class KonsertSocketService {
           this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
         } else if (p.kind === 'event' && p.event) {
           this.telemetryStore.appendEvent(p.event);
+        } else if (p.kind === CHAT_PROTOCOL.fleetAccountsKind && p.worker_id) {
+          this.agentAccounts.applyWorkerAccounts(p.worker_id, p.accounts ?? []);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
         } else if (p.kind === 'space' && p.space) {
@@ -214,6 +226,7 @@ export class KonsertSocketService {
           this.fleetStore.removeSpace(p.deleted_id);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {
           this.fleetStore.removeWorker(p.deleted_id);
+          this.agentAccounts.removeWorker(p.deleted_id);
         } else if (p.kind === 'workspace' && p.workspace) {
           this.fleetStore.upsertWorkspace(p.workspace);
         } else if (p.kind === 'workspace_deleted' && p.deleted_id) {
@@ -251,6 +264,10 @@ export class KonsertSocketService {
       case 'chat.error': {
         const p = env.payload as { session_id: string; error: string };
         this.orchestratorStore.onChatError(p.session_id, p.error);
+        break;
+      }
+      case CHAT_PROTOCOL.wsEvent: {
+        this.agentChat.onEvent(env.payload);
         break;
       }
       case 'usage.update': {
@@ -341,6 +358,11 @@ export class KonsertSocketService {
       return false;
     }
     return true;
+  }
+
+  /** Writes one JSON frame (used by ChatTransportService); false when not delivered. */
+  sendFrame(type: string, payload: unknown): boolean {
+    return this.sendJSON(type, payload);
   }
 
   /** Writes a JSON envelope; returns false if the socket is not open or the write threw. */

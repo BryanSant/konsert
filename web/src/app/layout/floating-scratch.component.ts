@@ -5,17 +5,19 @@ import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { XtermPaneComponent } from '../features/terminal/xterm-pane.component';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 @Component({
   selector: 'app-floating-scratch',
   standalone: true,
-  imports: [FormsModule, IconComponent, XtermPaneComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, XtermPaneComponent],
   template: `
     <!-- Bottom-Right Floating Trigger Button (Orca Image 0 & 1 style) -->
     <button
       type="button"
       (click)="tabs.toggleScratch()"
-      title="Floating Scratch Workspace (⌘J)"
+      ksTooltip="Floating Scratch Workspace (⌘J)"
+      aria-label="Floating Scratch Workspace (⌘J)"
       class="fixed bottom-10 right-4 z-30 h-9 w-9 rounded-lg border shadow-xl flex items-center justify-center transition-all duration-150 active:scale-95 cursor-pointer backdrop-blur-md"
       [class.border-[#4a668a]]="tabs.scratchOpen() || !!tabs.scratchTaskId()"
       [class.bg-[#20232b]/95]="tabs.scratchOpen()"
@@ -69,7 +71,7 @@ import { IconComponent } from '../shared/icon.component';
           <button
             type="button"
             (click)="tabs.scratchOpen.set(false)"
-            title="Minimize (keeps session running)"
+            ksTooltip="Minimize (keeps session running)" aria-label="Minimize (keeps session running)"
             class="rounded p-1 text-[#8e9098] hover:text-[#ececed] hover:bg-[#24262c] transition cursor-pointer"
           >
             <app-icon name="close" [size]="13" />

@@ -1,7 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   AppSettings,
-  ORCHESTRATOR_DEFAULT_MODELS,
   Project,
   Repo,
   SessionDefaults,
@@ -61,7 +60,7 @@ export class FleetStore {
   readonly worktrees = signal<Worktree[]>([]);
   readonly settings = signal<AppSettings>({
     llm_provider: 'openai',
-    llm_model: ORCHESTRATOR_DEFAULT_MODELS.openai,
+    llm_model: '',
     llm_base_url: '',
     llm_api_key_set: false,
     default_agent: '',
@@ -505,10 +504,9 @@ export class FleetStore {
     } else if (s.last_used_model) {
       model = s.last_used_model;
       modelSource = 'last_used';
-    } else {
-      model = guessModelForAgent(agent, s.llm_model);
-      modelSource = 'guess';
     }
+    // Otherwise leave it empty: the agent account's own default model applies (the
+    // composer reads real models from capabilities; nothing is guessed here).
 
     return {
       machine_id: machineId,
@@ -554,26 +552,6 @@ export class FleetStore {
     this.live(() => {
       this.usage.set(summary);
     });
-  }
-}
-
-export function guessModelForAgent(agent: string, fallbackModel = ''): string {
-  switch (agent.toLowerCase()) {
-    case 'claude':
-      return 'claude-sonnet-4-5';
-    case 'agy':
-      return 'gemini-2.5-pro';
-    case 'codex':
-      return 'o4-mini';
-    case 'grok':
-      return 'grok-code-fast-1';
-    case 'copilot':
-    case 'cursor':
-      return 'auto';
-    case 'mock':
-      return 'mock-default';
-    default:
-      return fallbackModel || ORCHESTRATOR_DEFAULT_MODELS.openai;
   }
 }
 

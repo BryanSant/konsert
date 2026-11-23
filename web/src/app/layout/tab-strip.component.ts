@@ -3,13 +3,14 @@ import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 /** Herdr-style tab strip in the top bar (scoped to the active Space when one is selected). */
 @Component({
   selector: 'app-tab-strip',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [TooltipDirective, IconComponent],
   host: { class: 'flex-1 min-w-0 h-full' },
   template: `
     <div class="flex-1 flex items-center gap-1 px-2 h-full overflow-x-auto min-w-0">
@@ -52,7 +53,7 @@ import { IconComponent } from '../shared/icon.component';
               }
               <span class="max-w-[150px] truncate">{{ tab.title }}</span>
               @if (notifications.isUnread(tab.id) && !selected) {
-                <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" title="Attention needed"></span>
+                <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" role="img" aria-label="Attention needed" ksTooltip="Attention needed"></span>
                 <span class="ks-sr-only">(needs attention)</span>
               }
               @if (tabs.splitTabId() === tab.id) {
@@ -65,7 +66,7 @@ import { IconComponent } from '../shared/icon.component';
                 type="button"
                 tabindex="-1"
                 aria-hidden="true"
-                title="Close tab (Delete)"
+                ksTooltip="Close tab (Delete)" aria-label="Close tab (Delete)"
                 (click)="$event.stopPropagation(); tabs.closeTab(tab.id)"
                 class="rounded hover:bg-white/10 p-0.5 text-[#86888f] hover:text-[#ececed] transition cursor-pointer"
               >
@@ -79,7 +80,7 @@ import { IconComponent } from '../shared/icon.component';
       <button
         type="button"
         (click)="newTab.emit()"
-        [title]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
+        [ksTooltip]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
         [attr.aria-label]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
         class="rounded-md p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
       >
@@ -90,7 +91,7 @@ import { IconComponent } from '../shared/icon.component';
         <button
           type="button"
           (click)="toggleSplit.emit()"
-          [title]="tabs.splitTabId() ? 'Close split pane (⌘\\)' : 'Split terminal side-by-side (⌘\\)'"
+          [ksTooltip]="tabs.splitTabId() ? 'Close split pane (⌘\\)' : 'Split terminal side-by-side (⌘\\)'"
           [attr.aria-label]="tabs.splitTabId() ? 'Close split pane' : 'Split terminal side by side'"
           [attr.aria-pressed]="!!tabs.splitTabId()"
           class="hidden md:inline-flex rounded-md p-1 active:scale-95 transition cursor-pointer shrink-0"

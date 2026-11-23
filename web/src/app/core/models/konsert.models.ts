@@ -250,7 +250,10 @@ export interface AppSettings {
   llm_base_url: string;
   llm_api_key_set: boolean;
   default_agent?: string;
+  /** Default agent account id (worker-local, e.g. "claude2"). */
+  default_account_id?: string;
   default_model?: string;
+  default_effort?: string;
   last_used_machine?: string;
   last_used_agent?: string;
   last_used_model?: string;
@@ -364,6 +367,20 @@ export interface ChatSession {
   model: string;
   created_at: string;
   updated_at: string;
+  /** agent: a subscription agent CLI on a worker; api: the optional API-key orchestrator. */
+  backend?: 'agent' | 'api' | string;
+  worker_id?: string;
+  agent?: string;
+  account_id?: string;
+  effort?: string;
+  approval_mode?: string;
+  cwd?: string;
+  agent_session_id?: string;
+  /** ChatStatus of the last turn (starting, idle, working, needs_you, done, failed, cancelled). */
+  status?: string;
+  fleet_tools?: boolean;
+  /** Last seq the hub persisted for this chat (for catch-up). */
+  last_seq?: number;
 }
 
 export interface ChatMessage {
@@ -418,6 +435,8 @@ export interface DispatchTaskRequest {
   worktree_id?: string;
   session_kind?: SessionKind;
   agent?: string;
+  /** Worker-local agent account (its env profile is applied to the session). */
+  account_id?: string;
   model?: string;
   repo_path?: string;
   branch?: string;
@@ -462,18 +481,3 @@ export const FRAME_PTY_DATA = 0x02;
 export const FRAME_PTY_STDIN = 0x03;
 export const FRAME_TASK_ID_SIZE = 36;
 export const FRAME_HEADER_SIZE = 37;
-
-/**
- * Orchestrator default model per LLM provider. Mirrors internal/orchestrator/defaults.go
- * (the hub is the source of truth; these only seed the settings form).
- */
-export const ORCHESTRATOR_DEFAULT_MODELS = {
-  openai: 'gpt-5.1',
-  anthropic: 'claude-sonnet-5-5',
-  gemini: 'gemini-pro-latest',
-} as const;
-
-export function defaultOrchestratorModel(provider: string): string {
-  const key = (provider || 'openai').trim().toLowerCase() as keyof typeof ORCHESTRATOR_DEFAULT_MODELS;
-  return ORCHESTRATOR_DEFAULT_MODELS[key] ?? '';
-}

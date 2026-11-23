@@ -1,9 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   extractTaskIdsFromToolPayload,
   parseUserMessageWithAttachments,
-} from '../../features/orchestrator/orchestrator-chat.component';
+} from '../../features/chat/legacy-adapter';
 import { parseMarkdown } from '../../shared/markdown-view.component';
 import { Task, Worker } from '../models/konsert.models';
 import { NotificationService } from '../services/notification.service';
@@ -11,6 +11,13 @@ import { FleetStore } from './fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from './tabs.store';
 
 describe('FleetStore and TabsStore (Zoneless Signals)', () => {
+  // TabsStore restores its layout from localStorage; start every test from a clean slate
+  // (other specs in the same worker may have persisted tabs).
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
   it('groups workers by host_group, aggregates listening ports, and builds live agent roster', () => {
     TestBed.configureTestingModule({});
     const fleet = TestBed.inject(FleetStore);
@@ -202,13 +209,14 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     fleet.upsertWorker(remoteW);
     fleet.upsertWorker(localW);
 
-    // 1. First-run guess prefers localhost + preferred installed agent (agy) + guessed model
+    // 1. First-run guess prefers localhost + preferred installed agent (agy) (model left to the account default)
     const r1 = fleet.resolveSessionDefaults();
     expect(r1.machine_id).toBe('w-local');
     expect(r1.machine_source).toBe('localhost');
     expect(r1.agent).toBe('agy');
     expect(r1.agent_source).toBe('guess');
-    expect(r1.model).toBe('gemini-2.5-pro');
+    // No guessed model: the agent account's own default applies.
+    expect(r1.model).toBe('');
     expect(r1.model_source).toBe('guess');
 
     // 2. Last-used overrides guess

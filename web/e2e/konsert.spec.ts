@@ -157,16 +157,17 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
 
       // Footer popovers (Usage, Resources, Ports, Hosts)
       const footer = page.locator('app-status-footer');
-      await footer.getByTitle('Subscription quotas & API token usage').click();
-      await expect(footer.getByText('Subscription Quotas & Usage')).toBeVisible();
+      await footer.getByTestId('footer-usage').click();
+      await expect(footer.getByText('Subscription usage', { exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
 
-      await footer.getByTitle('Fleet Resource Manager & PTYs').click();
+      await footer.getByTestId('footer-resources').click();
       await expect(footer.getByText('Resource Manager')).toBeVisible();
 
-      await footer.getByTitle('Listening ports across fleet').click();
+      await footer.getByTestId('footer-ports').click();
       await expect(footer.getByText('Listening Fleet Ports')).toBeVisible();
 
-      await footer.getByTitle('Connected fleet hosts').click();
+      await footer.getByTestId('footer-hosts').click();
       await expect(footer.getByText('Fleet Hosts')).toBeVisible();
       await footer.getByRole('button', { name: new RegExp(env.workerName, 'i') }).click();
 
@@ -180,10 +181,10 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
       await page.keyboard.press('Escape');
       await expect(detailModal).toBeHidden();
     } else {
-      // Mobile-specific check: footer Used popover renders cleanly within 390px viewport
+      // Mobile-specific check: footer usage popover renders cleanly within 390px viewport
       const footer = page.locator('app-status-footer');
-      await footer.getByTitle('Subscription quotas & API token usage').click();
-      const popover = footer.locator('.ks-popover');
+      await footer.getByTestId('footer-usage').click();
+      const popover = footer.getByRole('dialog', { name: 'Subscription usage' });
       await expect(popover).toBeVisible();
       const box = await popover.boundingBox();
       expect(box).not.toBeNull();
