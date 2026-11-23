@@ -38,6 +38,8 @@ type Worker struct {
 	LastSeenAt     time.Time         `json:"last_seen_at"`
 	FactsJSON      string            `json:"facts_json,omitempty"`
 	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitempty"`
+	// Version is the konsertd build version last reported in worker.hello.
+	Version string `json:"version,omitempty"`
 }
 
 // MemoryEntry persists compact Orchestrator fleet/thread/project state in SQLite across context resets.

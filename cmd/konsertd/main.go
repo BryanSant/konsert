@@ -119,6 +119,7 @@ func newRunCmd() *cobra.Command {
 				logger.Warn("sandboxed worker opted in to the unrestricted shell driver (--sandbox-allow-shell)")
 			}
 			daemon.SetAllowSandboxShell(sandboxShell)
+			daemon.SetVersion(version)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
