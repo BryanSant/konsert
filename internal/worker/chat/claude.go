@@ -147,6 +147,7 @@ func (e *claudeEngine) Open(ctx context.Context, acct Account, opts protocol.Age
 		return nil, errors.New(cerr.Message)
 	}
 
+	acct = claudeWithMCPTimeout(acct, opts.MCPServers)
 	s := &claudeSession{
 		eng:     e,
 		acct:    acct,
@@ -163,6 +164,16 @@ func (e *claudeEngine) Open(ctx context.Context, acct Account, opts protocol.Age
 	if opts.AgentSessionID != "" && claudeTranscriptExists(acct, opts.Cwd, opts.AgentSessionID) {
 		s.sessionID = opts.AgentSessionID
 		s.hasTranscript = true
+	} else if opts.AgentSessionID == "" && opts.ForkFrom != "" {
+		// A fork: a new session (our id) that starts as a copy of ForkFrom's conversation
+		// (--resume ForkFrom --fork-session --session-id new). The original is untouched.
+		if !claudeTranscriptExists(acct, opts.Cwd, opts.ForkFrom) {
+			cerr := &protocol.AgentChatError{Kind: protocol.ErrKindOther, Message: "The session to fork isn't stored in " + claudeLabel(acct) + " for " + opts.Cwd + "."}
+			emit(protocol.AgentChatEvent{Kind: protocol.EventError, Error: cerr})
+			return nil, errors.New(cerr.Message)
+		}
+		s.forkFrom = opts.ForkFrom
+		s.sessionID = ids.UUID()
 	} else {
 		// No stored conversation to resume in this account (e.g. the chat moved from
 		// another Claude account, or the transcript was deleted): start a new one rather
@@ -254,7 +265,8 @@ type claudeSession struct {
 	launchedMode   string
 	needRestart    string // non-empty: restart before the next turn (reason)
 	sessionID      string
-	hasTranscript  bool // the CLI has stored the session: restart with --resume
+	hasTranscript  bool   // the CLI has stored the session: restart with --resume
+	forkFrom       string // start as a fork of this session (until our own is stored)
 	turn           *claudeTurn
 	pending        map[string]*claudePending
 	lastActivity   time.Time
@@ -306,12 +318,38 @@ func (s *claudeSession) argsLocked() ([]string, error) {
 	if s.opts.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", s.opts.SystemPrompt)
 	}
-	if s.hasTranscript {
+	switch {
+	case s.hasTranscript:
 		args = append(args, "--resume", s.sessionID)
-	} else {
+	case s.forkFrom != "":
+		args = append(args, "--resume", s.forkFrom, "--fork-session", "--session-id", s.sessionID)
+	default:
 		args = append(args, "--session-id", s.sessionID)
 	}
 	return args, nil
+}
+
+// claudeWithMCPTimeout raises claude's MCP tool-call timeout for Konsert's servers. Its
+// HTTP MCP client otherwise aborts a call that sends nothing back for 60 s (the
+// first-byte budget is max(MCP_TOOL_TIMEOUT or the server's "timeout", 60 s)), which
+// ended ask_user while the user was still reading the question.
+func claudeWithMCPTimeout(acct Account, servers []protocol.AgentMCPServer) Account {
+	secs := 0
+	for _, srv := range servers {
+		secs = max(secs, srv.ToolTimeoutSeconds)
+	}
+	if secs <= 0 {
+		return acct
+	}
+	env := make(map[string]string, len(acct.Env)+1)
+	for k, v := range acct.Env {
+		env[k] = v
+	}
+	if _, ok := env["MCP_TOOL_TIMEOUT"]; !ok {
+		env["MCP_TOOL_TIMEOUT"] = strconv.Itoa(secs * 1000)
+	}
+	acct.Env = env
+	return acct
 }
 
 // claudeMCPConfig renders MCP servers as claude's --mcp-config JSON (HTTP servers).
@@ -320,10 +358,12 @@ func claudeMCPConfig(servers []protocol.AgentMCPServer) ([]byte, error) {
 		Type    string            `json:"type"`
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers,omitempty"`
+		// Timeout is claude's per-server tool-call timeout in milliseconds.
+		Timeout int `json:"timeout,omitzero"`
 	}
 	m := map[string]srv{}
 	for _, s := range servers {
-		m[s.Name] = srv{Type: "http", URL: s.URL, Headers: s.Headers}
+		m[s.Name] = srv{Type: "http", URL: s.URL, Headers: s.Headers, Timeout: s.ToolTimeoutSeconds * 1000}
 	}
 	return marshalLine(map[string]any{"mcpServers": m})
 }
@@ -860,7 +900,7 @@ func (s *claudeSession) watchdogLoop() {
 		}
 		s.mu.Lock()
 		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 &&
-			s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
+			!konsertToolRunning(s.turn.tools) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		var tid string
 		if fire {
 			s.watchdogFired = true
@@ -1744,8 +1784,19 @@ func claudeApprovalModes() []protocol.AgentApprovalMode {
 // sessionID for cwd (claude keeps them in <config dir>/projects/<encoded cwd>/<id>.jsonl).
 // When the location can't be determined it assumes the transcript exists (resume as before).
 func claudeTranscriptExists(acct Account, cwd, sessionID string) bool {
-	if cwd == "" || sessionID == "" {
+	path := claudeTranscriptPath(acct, cwd, sessionID)
+	if path == "" {
 		return true
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// claudeTranscriptPath is where the account stores conversation sessionID for cwd
+// ("" when it can't be determined).
+func claudeTranscriptPath(acct Account, cwd, sessionID string) string {
+	if cwd == "" || sessionID == "" {
+		return ""
 	}
 	cfg := acct.Env["CLAUDE_CONFIG_DIR"]
 	if cfg == "" {
@@ -1754,12 +1805,27 @@ func claudeTranscriptExists(acct Account, cwd, sessionID string) bool {
 	if cfg == "" {
 		home, err := os.UserHomeDir()
 		if err != nil || home == "" {
-			return true
+			return ""
 		}
 		cfg = filepath.Join(home, ".claude")
 	}
-	_, err := os.Stat(filepath.Join(cfg, "projects", claudeProjectDirName(cwd), sessionID+".jsonl"))
-	return err == nil
+	return filepath.Join(cfg, "projects", claudeProjectDirName(cwd), sessionID+".jsonl")
+}
+
+// Discard deletes a forked side-conversation session's stored transcript (Discarder),
+// so it doesn't linger in claude --resume. Only forks are ever discarded.
+func (e *claudeEngine) Discard(acct Account, opts protocol.AgentChatOpen, agentSessionID string) error {
+	if opts.ForkFrom == "" || agentSessionID == "" || agentSessionID == opts.ForkFrom {
+		return nil
+	}
+	path := claudeTranscriptPath(acct, opts.Cwd, agentSessionID)
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func claudeProjectDirName(cwd string) string {

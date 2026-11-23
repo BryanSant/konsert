@@ -65,6 +65,10 @@ type acpAdapter struct {
 	sessionPaths func(home string, env map[string]string, sessionID, cwd string) []string
 	// statusCheck is an optional cheap CLI auth check (state, email, detail).
 	statusCheck func(ctx context.Context, acct Account) (state, email, detail string)
+	// ForkMethod is the agent's own session-fork method when it doesn't advertise the
+	// standard session/fork (grok: _x.ai/session/fork {sourceSessionId, sourceCwd,
+	// newCwd} -> {newSessionId}).
+	ForkMethod string
 }
 
 func (a *acpAdapter) approval(id string) (acpApproval, bool) {
@@ -139,7 +143,7 @@ func ACPAgents() []string { return []string{"grok", "agy", "copilot", "cursor"} 
 // Model and effort switch live: session/set_model and set_config_option
 // "reasoning_effort" (efforts per model come from _meta.reasoningEfforts).
 var grokAdapter = &acpAdapter{
-	Agent: "grok", Label: "Grok", DefaultBinary: "grok",
+	Agent: "grok", Label: "Grok", DefaultBinary: "grok", ForkMethod: "_x.ai/session/fork",
 	Approvals: []acpApproval{
 		{Mode: mode("plan", "Plan", "Read-only: Grok plans and asks before changing anything.", 0, "eye"), ACPMode: "plan", Launch: true},
 		{Mode: mode("default", "Ask", "Ask before edits and commands (unless grok's own config always approves).", 1, "hand"), ACPMode: "default", Launch: true},

@@ -92,16 +92,19 @@ type agentCapabilitiesRefresh struct {
 	AccountID string `json:"account_id,omitempty"`
 }
 
-// askAnswer is the user's reply to an ask_user question.
+// askAnswer ends a pending ask_user or request_user_action call.
 type askAnswer struct {
 	optionID string
 	text     string
-	reason   string // set when the question ended without an answer (cancelled, closed)
+	reason   string // set when the call ended without an answer (cancelled, superseded, ...)
+	// final: text is the complete tool result (an answered question).
+	final bool
 }
 
 type pendingAsk struct {
-	options []protocol.AgentElicitationOption
-	answer  chan askAnswer // buffered (1)
+	answer chan askAnswer // buffered (1)
+	// questionID is set for ask_user calls (the question they wait on).
+	questionID string
 }
 
 // agentChatRT is the hub's in-memory state for one agent chat.
@@ -231,11 +234,21 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	if transition != nil {
 		// Record outside the chat lock's critical path ordering concerns: the timeline
 		// write does not touch chat state.
-		h.recordChatTransition(ctx, cs, before.Status, *transition)
+		if cs.QuestionID == "" {
+			h.recordChatTransition(ctx, cs, before.Status, *transition)
+		}
 		if cs.FleetTools && chatIdle(cs.Status) {
 			// The orchestrator finished a turn: tell it what happened meanwhile.
 			h.scheduleDelivery()
 		}
+		if chatIdle(cs.Status) && !chatIdle(before.Status) {
+			h.onChatIdle(cs)
+		}
+	}
+	if cs.QuestionID != "" {
+		h.onThreadChatEvent(ctx, cs, ev)
+	} else if o.fromWorker != nil && ev.Kind == protocol.EventElicitationOK && ev.Elicitation != nil {
+		h.goBackground(func(bctx context.Context) { h.onElicitationResolved(bctx, cs.ID, ev.Elicitation.ID) })
 	}
 	if ev.TurnID != "" && (ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError) {
 		if err := h.store.CoalesceChatTurn(ctx, chatID, ev.TurnID); err != nil {
@@ -312,6 +325,13 @@ func (h *Hub) onAgentChatEvent(ctx context.Context, wc *workerConn, env protocol
 		h.logger.Debug("dropping agent.chat.event for a chat this worker does not host", "chat_id", ev.ChatID, "worker_id", wc.id)
 		return
 	}
+	if ev.Kind == protocol.EventElicitation && ev.Elicitation != nil && cs.QuestionID == "" {
+		// The agent's own question or permission prompt: a question in the fleet queue,
+		// shown through the same card.
+		el := *ev.Elicitation
+		el.QuestionID = h.questionForElicitation(ctx, cs, &el)
+		ev.Elicitation = &el
+	}
 	h.emitChatEvent(ctx, ev.ChatID, ev, emitOpts{fromWorker: wc})
 }
 
@@ -361,6 +381,8 @@ func (h *Hub) failInterruptedChats(ctx context.Context, wc *workerConn) {
 		if hubAsk {
 			continue
 		}
+		// Its worker elicitations are gone with the old connection.
+		h.expireElicitationQuestions(ctx, cs.ID)
 		h.hubError(ctx, cs.ID, protocol.AgentChatError{
 			Kind:      protocol.ErrKindExit,
 			Message:   "Lost the connection to the worker while the agent was working; the turn was interrupted. Send your message again to continue the conversation.",
@@ -804,15 +826,28 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession, wc *worke
 		AgentSessionID: cs.AgentSessionID,
 		SystemPrompt:   orchestrator.AgentSystemPrompt(cs.FleetTools),
 	}
+	if cs.QuestionID != "" {
+		// A side-conversation answerer: no Konsert tools (it must not ask the user or act
+		// on the fleet), its own read-only instructions, and — for a fork — the asking
+		// session to copy until it has a session of its own.
+		open.SystemPrompt = sideConversationSystemPrompt
+		if cs.AgentSessionID == "" && cs.ForkOf != "" {
+			if parent, err := h.store.GetChatSession(ctx, cs.ForkOf); err == nil {
+				open.ForkFrom = parent.AgentSessionID
+			}
+		}
+		return open, nil
+	}
 	if u := h.chatMCPURL(wc, cs.ID); u != "" {
 		tok, err := h.ensureChatToken(ctx, cs.ID)
 		if err != nil {
 			return open, err
 		}
 		open.MCPServers = []protocol.AgentMCPServer{{
-			Name:    "konsert",
-			URL:     u,
-			Headers: map[string]string{"Authorization": "Bearer " + tok},
+			Name:               "konsert",
+			URL:                u,
+			Headers:            map[string]string{"Authorization": "Bearer " + tok},
+			ToolTimeoutSeconds: h.mcpToolTimeoutSeconds(),
 		}}
 	}
 	return open, nil
@@ -931,6 +966,13 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
 		text = note + "\n\n" + text
 	}
+	// Answers to questions the agent stopped waiting for go with its next prompt.
+	if cs.QuestionID == "" && !strings.HasPrefix(req.Content, eventNotePrefix+" Answer to your earlier question") && !strings.HasPrefix(req.Content, eventNotePrefix+" Correction to your question") {
+		if note := h.takeAnswerNotes(ctx, cs.ID); note != "" {
+			h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
+			text = note + "\n\n" + text
+		}
+	}
 	if !h.sendWorkerJSON(wc, protocol.MsgAgentChatPrompt, protocol.AgentChatPrompt{
 		ChatID: cs.ID, TurnID: turnID, Text: text, Attachments: req.Attachments,
 	}) {
@@ -983,6 +1025,12 @@ func (h *Hub) respondChat(ctx context.Context, req chatRespondRequest) error {
 		Message:  fmt.Sprintf("Answered an agent request in chat %s", cs.ID),
 		MetaJSON: auditMeta(map[string]any{"chat_id": cs.ID, "option_id": req.OptionID}),
 	})
+	// Questions (ask_user and the agent's own prompts) are answered through the question,
+	// which records the answer and delivers it.
+	if qid := h.questionForChatElicitation(ctx, cs.ID, req.ElicitationID); qid != "" {
+		_, err := h.answerQuestion(ctx, qid, questionAnswerInput{OptionID: req.OptionID, Text: req.Text})
+		return err
+	}
 	rt := h.chatRT(cs.ID)
 	rt.mu.Lock()
 	ask := rt.asks[req.ElicitationID]
@@ -1006,21 +1054,28 @@ func (h *Hub) respondChat(ctx context.Context, req chatRespondRequest) error {
 	return nil
 }
 
-// resolveAsks ends every pending ask_user question of a chat without an answer.
-func (h *Hub) resolveAsks(chatID, reason string) {
+// resolveAsks ends every pending ask_user / request_user_action call of a chat without
+// an answer. With cancel (the user stopped the turn, the chat was deleted) its pending
+// questions are cancelled; otherwise (the engine restarts) they stay open and their
+// answers are delivered as notes.
+func (h *Hub) resolveAsks(chatID, reason string, cancel bool) {
 	h.mu.RLock()
 	rt := h.agentChats[chatID]
 	h.mu.RUnlock()
-	if rt == nil {
-		return
+	if rt != nil {
+		rt.mu.Lock()
+		asks := rt.asks
+		rt.asks = make(map[string]*pendingAsk)
+		rt.mu.Unlock()
+		for _, a := range asks {
+			if a.questionID != "" && !cancel {
+				a.answer <- askAnswer{reason: "abandoned"}
+				continue
+			}
+			a.answer <- askAnswer{reason: "cancelled", text: reason}
+		}
 	}
-	rt.mu.Lock()
-	asks := rt.asks
-	rt.asks = make(map[string]*pendingAsk)
-	rt.mu.Unlock()
-	for _, a := range asks {
-		a.answer <- askAnswer{reason: reason}
-	}
+	h.endChatQuestions(context.WithoutCancel(h.ctx), chatID, cancel, reason)
 }
 
 // ChatSettingsPatch is a partial agent chat settings change (REST PATCH and chat.control).
@@ -1130,7 +1185,7 @@ func (h *Hub) updateChatSettings(ctx context.Context, chatID string, p ChatSetti
 	}
 	h.auditChatChanges(ctx, old, cs)
 	if restart {
-		h.resolveAsks(cs.ID, "the chat's settings changed")
+		h.resolveAsks(cs.ID, "the chat's settings changed", false)
 		if wc := h.workerConnFor(old.WorkerID); wc != nil {
 			h.sendWorkerJSON(wc, protocol.MsgAgentChatClose, protocol.AgentChatClose{ChatID: cs.ID})
 		}
@@ -1192,7 +1247,7 @@ func (h *Hub) controlChat(ctx context.Context, req chatControlRequest) error {
 			}
 		}
 		h.setPendingCause("chat:"+cs.ID, protocol.ChatStatusCancelled, cause)
-		h.resolveAsks(cs.ID, "the user cancelled the turn")
+		h.resolveAsks(cs.ID, "the user cancelled the turn", true)
 		if wc := h.workerConnFor(cs.WorkerID); wc != nil {
 			h.sendWorkerJSON(wc, protocol.MsgAgentChatControl, protocol.AgentChatControl{ChatID: cs.ID, Cancel: true})
 		}
@@ -1220,7 +1275,7 @@ func (h *Hub) controlChat(ctx context.Context, req chatControlRequest) error {
 
 // closeChat ends the chat's engine on its worker (the chat can be resumed later).
 func (h *Hub) closeChat(ctx context.Context, chatID string) {
-	h.resolveAsks(chatID, "the chat was closed")
+	h.resolveAsks(chatID, "the chat was closed", false)
 	cs, err := h.store.GetChatSession(ctx, chatID)
 	if err != nil || cs.Backend != store.ChatBackendAgent {
 		return
@@ -1232,7 +1287,7 @@ func (h *Hub) closeChat(ctx context.Context, chatID string) {
 
 // forgetChat revokes a deleted chat's MCP token and drops its runtime state.
 func (h *Hub) forgetChat(chatID, workerID string) {
-	h.resolveAsks(chatID, "the chat was deleted")
+	h.resolveAsks(chatID, "the chat was deleted", true)
 	h.mu.Lock()
 	delete(h.agentChats, chatID)
 	wc := h.workers[workerID]
@@ -1298,91 +1353,6 @@ func (h *Hub) RefreshAgentCapabilities(workerID, accountID string) ([]string, er
 		}
 	}
 	return ids, nil
-}
-
-// --- ask_user ---------------------------------------------------------------------
-
-type askUserInput struct {
-	Question  string   `json:"question" jsonschema:"The question to ask the user"`
-	Options   []string `json:"options,omitempty" jsonschema:"Optional choices to offer (labels)"`
-	AllowText *bool    `json:"allow_text,omitzero" jsonschema:"Accept a free-form answer (default true when no options are given)"`
-}
-
-// askUser raises a question elicitation in the chat and blocks until the user
-// answers (chat.respond), the question is ended (cancel, close, delete), ctx
-// ends, or AskUserTimeout passes. It returns the answer text for the agent.
-func (h *Hub) askUser(ctx context.Context, chatID string, in askUserInput) (string, error) {
-	q := strings.TrimSpace(in.Question)
-	if q == "" {
-		return "", errors.New("question is required")
-	}
-	allowText := len(in.Options) == 0
-	if in.AllowText != nil {
-		allowText = *in.AllowText || len(in.Options) == 0
-	}
-	opts := make([]protocol.AgentElicitationOption, 0, len(in.Options))
-	for i, label := range in.Options {
-		if label = strings.TrimSpace(label); label != "" {
-			opts = append(opts, protocol.AgentElicitationOption{ID: fmt.Sprintf("option_%d", i+1), Label: label, Kind: "choice"})
-		}
-	}
-	id := "ask-" + ids.UUID()
-	ask := &pendingAsk{options: opts, answer: make(chan askAnswer, 1)}
-	rt := h.chatRT(chatID)
-	rt.mu.Lock()
-	rt.asks[id] = ask
-	rt.mu.Unlock()
-	if _, ok := h.emitChatEvent(ctx, chatID, protocol.AgentChatEvent{
-		Kind: protocol.EventElicitation,
-		Elicitation: &protocol.AgentElicitation{
-			ID: id, Kind: protocol.ElicitQuestion, Title: q, Options: opts, AllowText: allowText,
-		},
-	}, emitOpts{}); !ok {
-		rt.mu.Lock()
-		delete(rt.asks, id)
-		rt.mu.Unlock()
-		return "", errors.New("chat not found")
-	}
-
-	timeout := h.AskUserTimeout
-	if timeout <= 0 {
-		timeout = defaultAskUserTimeout
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	var ans askAnswer
-	select {
-	case ans = <-ask.answer:
-	case <-timer.C:
-		ans = askAnswer{reason: fmt.Sprintf("no answer: the user did not answer within %s", timeout.Round(time.Second))}
-	case <-ctx.Done():
-		ans = askAnswer{reason: "no answer: the request was cancelled"}
-	case <-h.ctx.Done():
-		ans = askAnswer{reason: "no answer: the Konsert hub is shutting down"}
-	}
-	rt.mu.Lock()
-	delete(rt.asks, id)
-	rt.mu.Unlock()
-	h.emitChatEvent(ctx, chatID, protocol.AgentChatEvent{
-		Kind:        protocol.EventElicitationOK,
-		Elicitation: &protocol.AgentElicitation{ID: id, Kind: protocol.ElicitQuestion, Title: q},
-	}, emitOpts{})
-	if ans.reason != "" {
-		return ans.reason, nil
-	}
-	answer := strings.TrimSpace(ans.text)
-	for _, o := range opts {
-		if o.ID == ans.optionID {
-			if answer != "" {
-				return o.Label + "\n" + answer, nil
-			}
-			return o.Label, nil
-		}
-	}
-	if answer == "" {
-		return "no answer: the user dismissed the question", nil
-	}
-	return answer, nil
 }
 
 // --- usage windows ----------------------------------------------------------------

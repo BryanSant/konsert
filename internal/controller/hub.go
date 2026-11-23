@@ -130,6 +130,14 @@ type Hub struct {
 	chatFleetBackend FleetBackend
 	// version is reported by per-chat MCP servers.
 	version string
+
+	// questions is the question queue's in-memory state (questions.go).
+	questions questionState
+	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
+	KaPath string
+	// kaShowFn and ghPRFn replace ka/gh in tests.
+	kaShowFn func(ctx context.Context, id string) ([]byte, error)
+	ghPRFn   func(ctx context.Context, repo, number string) ([]byte, error)
 }
 
 // NewHub constructs a Hub backed by store.Store.
@@ -138,7 +146,7 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		logger = slog.Default()
 	}
 	hctx, hcancel := context.WithCancel(context.Background())
-	return &Hub{
+	h := &Hub{
 		ctx:                hctx,
 		cancel:             hcancel,
 		store:              st,
@@ -158,6 +166,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		LostTaskGrace:      45 * time.Second,
 		ChatTurnTimeout:    15 * time.Minute,
 	}
+	h.questions.init()
+	return h
 }
 
 // SetOrchestrator attaches the built-in Orchestrator Chat service to the Hub.

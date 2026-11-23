@@ -69,6 +69,7 @@ func (e *claudeEngine) Probe(ctx context.Context, acct Account) protocol.AgentAc
 		Approvals:       claudeApprovalModes(),
 		DefaultApproval: "default",
 		ChatSupported:   true,
+		Fork:            true, // --resume <id> --fork-session
 		CheckedAt:       e.now().UTC(),
 	}
 	if out.Label == "" {

@@ -39,6 +39,7 @@ type acpInitResult struct {
 			Close  acpPresence `json:"close"`
 			Load   acpPresence `json:"load"`
 			List   acpPresence `json:"list"`
+			Fork   acpPresence `json:"fork"`
 		} `json:"sessionCapabilities"`
 		Meta map[string]jsontext.Value `json:"_meta"`
 	} `json:"agentCapabilities"`

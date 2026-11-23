@@ -416,6 +416,8 @@ type FleetUpdatePayload struct {
 	Hold       any `json:"hold,omitzero"`
 	Request    any `json:"request,omitzero"`
 	Pause      any `json:"pause,omitzero"`
+	// Question carries a question (with its side conversation) when Kind is "question".
+	Question any `json:"question,omitzero"`
 }
 
 type GitChangedFile struct {

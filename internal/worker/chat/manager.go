@@ -379,6 +379,45 @@ func (m *Manager) CloseChat(chatID string) {
 	m.enqueue(c, func() { m.closeSession(c, "closed by hub") })
 }
 
+// Discarder is implemented by engines that can delete what they stored for a session
+// (a side-conversation fork that is no longer needed).
+type Discarder interface {
+	Discard(acct Account, opts protocol.AgentChatOpen, agentSessionID string) error
+}
+
+// DiscardChat ends the chat's engine, deletes what the engine stored for its session
+// (engines implementing Discarder; only forks), and forgets the chat.
+func (m *Manager) DiscardChat(chatID string) {
+	c := m.chat(chatID, false)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() {
+		m.closeSession(c, "discarded by hub")
+		c.mu.Lock()
+		o, sid, acct := c.opts, c.agentSessionID, c.acct
+		c.mu.Unlock()
+		if eng, ok := m.Engine(o.Agent); ok {
+			if d, ok := eng.(Discarder); ok {
+				if cwd, err := ResolveCwd(o.Cwd); err == nil {
+					o.Cwd = cwd
+				}
+				if acct.ID == "" && m.opts.Accounts != nil {
+					acct, _ = m.opts.Accounts.Resolve(o.Agent, o.AccountID)
+				}
+				if err := d.Discard(acct, o, sid); err != nil {
+					m.log.Warn("discarding a chat session failed", "chat_id", chatID, "err", err)
+				}
+			}
+		}
+		m.mu.Lock()
+		if m.chats[chatID] == c {
+			delete(m.chats, chatID)
+		}
+		m.mu.Unlock()
+	})
+}
+
 // Shutdown closes every session and stops the manager. It waits for engines to exit (each
 // bounded by its own Close) or until ctx ends.
 func (m *Manager) Shutdown(ctx context.Context) {

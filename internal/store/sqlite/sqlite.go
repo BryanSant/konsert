@@ -870,7 +870,7 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, taskID string, afterID int
 const chatSessionCols = `id, sid, title, provider, model, created_at, updated_at,
 	backend, worker_id, agent, account_id, effort, approval_mode, cwd,
 	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash,
-	cause_json, suspended_by, suspended_prev, notes_cursor`
+	cause_json, suspended_by, suspended_prev, notes_cursor, question_id, fork_of`
 
 func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession, error) {
 	var cs store.ChatSession
@@ -880,7 +880,7 @@ func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession
 	if err := scanner.Scan(&cs.ID, &cs.SID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
 		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
 		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash,
-		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor); err != nil {
+		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor, &cs.QuestionID, &cs.ForkOf); err != nil {
 		return store.ChatSession{}, err
 	}
 	cs.Cause = parseCause(cause)
@@ -913,11 +913,11 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO chat_sessions (`+chatSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, cs.ID, cs.SID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode, cs.Cwd,
 		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash,
-		causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor)
+		causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor, cs.QuestionID, cs.ForkOf)
 	return err
 }
 
@@ -933,7 +933,8 @@ func (s *SQLiteStore) ListChatSessions(ctx context.Context, limit int) ([]store.
 	if limit <= 0 {
 		limit = 50
 	}
-	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions ORDER BY updated_at DESC LIMIT ?`, limit)
+	// Hidden side-conversation chats (question_id set) are not listed.
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions WHERE question_id = '' ORDER BY updated_at DESC LIMIT ?`, limit)
 }
 
 // ListChatSessionsByWorker returns the agent chat sessions hosted on workerID.

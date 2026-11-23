@@ -304,11 +304,9 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 	}
 	chatID := cs.ID
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "ask_user",
-		Description: "Ask the user a question in the Konsert chat window and wait for the answer. " +
-			"Use it whenever you need a decision or information from the user. Give options for multiple choice; " +
-			"allow_text accepts a free-form answer (always on when no options are given). Returns the user's answer text, " +
-			"or a line starting with \"no answer\" if the user did not answer.",
+		Name:        "ask_user",
+		Description: askUserDescription,
+		InputSchema: askUserSchema,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in askUserInput) (*mcp.CallToolResult, any, error) {
 		ans, err := h.askUser(ctx, chatID, in)
 		if err != nil {
@@ -316,6 +314,19 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: ans}}}, nil, nil
 	})
+	if cs.FleetTools {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "answer_question",
+			Description: "Decide a question the user delegated to you (\"Let the orchestrator decide\"): give the option you choose (label or number) " +
+				"or a text answer, and a rationale the user sees as the receipt. Only for questions Konsert handed to you.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in answerQuestionInput) (*mcp.CallToolResult, any, error) {
+			res, err := h.decideDelegated(ctx, chatID, in)
+			if err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: res}}}, nil, nil
+		})
+	}
 	h.addChatControlTools(srv, cs, control)
 	rt.mcp = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	rt.mcpFleet = cs.FleetTools

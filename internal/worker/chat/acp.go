@@ -301,12 +301,20 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,
 			Text: s.ad.Label + " could not be given Konsert's tools (ask_user, fleet) in this chat."})
 	}
-	resumed := false
+	resumed, forked := false, false
+	if resumeID == "" && s.opts.ForkFrom != "" {
+		// A side-conversation fork: copy the asking session, then attach to the copy.
+		forkID, ferr := s.fork(ctx, conn, s.opts.ForkFrom, mcp)
+		if ferr != nil {
+			return s.abort(conn, "fork session", ferr)
+		}
+		resumeID, forked = forkID, true
+	}
 	if resumeID != "" {
 		resumed, err = s.resume(ctx, conn, resumeID, mcp)
 		if err != nil {
 			ce := s.ecFor(conn, "session/load").classify(err)
-			if ce.Kind == protocol.ErrKindAuth || ce.Kind == protocol.ErrKindExit {
+			if ce.Kind == protocol.ErrKindAuth || ce.Kind == protocol.ErrKindExit || forked {
 				return s.abort(conn, "session/load", err)
 			}
 			s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,
@@ -358,6 +366,42 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 	default:
 	}
 	return nil
+}
+
+// fork copies session id into a new session (standard session/fork when advertised,
+// else the agent's own method) and returns the new session's id.
+func (s *acpSession) fork(ctx context.Context, conn *acpConn, id string, mcp []any) (string, error) {
+	sctx, cancel := context.WithTimeout(ctx, acpSessionTimeout)
+	defer cancel()
+	var res struct {
+		SessionID    string `json:"sessionId"`
+		NewSessionID string `json:"newSessionId"`
+	}
+	switch {
+	case conn.init.AgentCapabilities.SessionCapabilities.Fork.set:
+		if err := conn.rpc.Call(sctx, "session/fork", map[string]any{"sessionId": id, "cwd": s.opts.Cwd, "mcpServers": mcp}, &res); err != nil {
+			return "", err
+		}
+	case s.ad.ForkMethod != "":
+		if err := conn.rpc.Call(sctx, s.ad.ForkMethod, map[string]any{"sourceSessionId": id, "sourceCwd": s.opts.Cwd, "newCwd": s.opts.Cwd}, &res); err != nil {
+			return "", err
+		}
+	default:
+		return "", errors.New(s.ad.Label + " can't fork sessions")
+	}
+	if nid := firstNonEmptyStr(res.NewSessionID, res.SessionID); nid != "" {
+		return nid, nil
+	}
+	return "", &protocolError{msg: "fork returned no session id"}
+}
+
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // resume tries session/resume (no history replay) then session/load (replayed updates
@@ -1363,7 +1407,7 @@ func (s *acpSession) watchdog() {
 		}
 		s.mu.Lock()
 		t := s.turn
-		fire := t != nil && !t.timedOut && !s.suspended && len(s.perms) == 0 && time.Since(t.lastEvent) > s.wdAfter
+		fire := t != nil && !t.timedOut && !s.suspended && len(s.perms) == 0 && !konsertToolRunning(t.tools) && time.Since(t.lastEvent) > s.wdAfter
 		if fire {
 			t.timedOut = true
 		}

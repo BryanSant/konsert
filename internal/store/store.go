@@ -267,6 +267,10 @@ type ChatSession struct {
 	SuspendedPrev string `json:"suspended_prev,omitempty"`
 	// NotesCursor is the last fleet event id delivered to this chat as a note.
 	NotesCursor int64 `json:"-"`
+	// QuestionID marks a hidden side-conversation chat answering about that question;
+	// ForkOf is the chat whose agent session it forked ("" for the orchestrator fallback).
+	QuestionID string `json:"question_id,omitempty"`
+	ForkOf     string `json:"fork_of,omitempty"`
 }
 
 // ChatEvent is one stored agent chat event: JSON is the protocol.AgentChatEvent.
@@ -474,6 +478,18 @@ type Store interface {
 	ListUserRequests(ctx context.Context, f UserRequestFilter) ([]UserRequest, error)
 	// ResolveUserRequest closes an open request; false when it was no longer open.
 	ResolveUserRequest(ctx context.Context, id, status, by, resolution, commandID string, at time.Time) (bool, error)
+
+	// Questions (PRD §5.8b).
+	CreateQuestion(ctx context.Context, q Question) (Question, error)
+	GetQuestion(ctx context.Context, id string) (Question, error)
+	// UpdateQuestion writes every mutable field of an existing question.
+	UpdateQuestion(ctx context.Context, q Question) error
+	ListQuestions(ctx context.Context, f QuestionFilter) ([]Question, error)
+	// AppendQuestionMessage adds a side-conversation message (seq assigned).
+	AppendQuestionMessage(ctx context.Context, m QuestionMessage) (QuestionMessage, error)
+	ListQuestionMessages(ctx context.Context, questionID string) ([]QuestionMessage, error)
+	AddQuestionReject(ctx context.Context, r QuestionReject) error
+	ListQuestionRejects(ctx context.Context, since time.Time) ([]QuestionReject, error)
 
 	UpsertMemory(ctx context.Context, m MemoryEntry) error
 	ListMemory(ctx context.Context, scope string, limit int) ([]MemoryEntry, error)

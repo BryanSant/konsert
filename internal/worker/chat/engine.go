@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 
 	"github.com/BryanSant/konsert/internal/protocol"
 )
@@ -63,4 +64,20 @@ type Session interface {
 
 	// Close terminates the engine process (and its process group) and waits for it.
 	Close() error
+}
+
+// konsertToolRunning reports whether one of Konsert's own MCP tools (ask_user,
+// request_user_action) is still running in a turn: it waits for the user, which is not
+// a stalled turn, so the watchdog stays quiet.
+func konsertToolRunning(tools map[string]*protocol.AgentToolCall) bool {
+	for _, tc := range tools {
+		if tc == nil || (tc.Status != "pending" && tc.Status != "running" && tc.Status != "") {
+			continue
+		}
+		name := strings.ToLower(tc.Name + " " + tc.Title)
+		if strings.Contains(name, "konsert") && (strings.Contains(name, "ask_user") || strings.Contains(name, "request_user_action")) {
+			return true
+		}
+	}
+	return false
 }

@@ -299,12 +299,21 @@ func addHumanControlTools(srv *mcp.Server, b HumanControlBackend, recent func(co
 func (h *Hub) chatConfirm(chatID string) confirmFunc {
 	return func(ctx context.Context, question string) error {
 		f := false
-		ans, err := h.askUser(ctx, chatID, askUserInput{Question: question, Options: []string{"Yes, do it", "No"}, AllowText: &f})
+		text, ans, err := h.askUserAnswer(ctx, chatID, askUserInput{
+			Question: question,
+			Context:  "The orchestrator wants to do this on your behalf.",
+			WhyNow:   "It waits for your confirmation before acting.",
+			Options: []askOption{
+				{Label: "Yes, do it", Consequence: "The orchestrator does it now."},
+				{Label: "No", Consequence: "Nothing happens; the orchestrator asks you what you want instead."},
+			},
+			AllowText: &f,
+		})
 		if err != nil {
 			return err
 		}
-		if ans != "Yes, do it" {
-			return fmt.Errorf("the user did not confirm (%s); don't do it — ask the user what they want instead", ans)
+		if ans == nil || ans.Label != "Yes, do it" {
+			return fmt.Errorf("the user did not confirm (%s); don't do it — ask the user what they want instead", text)
 		}
 		return nil
 	}

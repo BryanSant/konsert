@@ -52,12 +52,13 @@ func (c Cause) IsZero() bool { return c.Actor == "" }
 
 // Fleet event kinds (FleetEvent.Kind).
 const (
-	EventKindStatus  = "status"  // a task or chat status transition (Action: "task" | "chat")
-	EventKindAction  = "action"  // an intervention: cancel, suspend, resume, drain, pause, command, ...
-	EventKindHold    = "hold"    // Action: created | released
-	EventKindRequest = "request" // Action: created | done | declined | canceled | linked
-	EventKindVeto    = "veto"    // Action: the veto reason
-	EventKindNotice  = "notice"  // Konsert told an agent about something (Action: delivered)
+	EventKindStatus   = "status"   // a task or chat status transition (Action: "task" | "chat")
+	EventKindAction   = "action"   // an intervention: cancel, suspend, resume, drain, pause, command, ...
+	EventKindHold     = "hold"     // Action: created | released
+	EventKindRequest  = "request"  // Action: created | done | declined | canceled | linked
+	EventKindVeto     = "veto"     // Action: the veto reason
+	EventKindNotice   = "notice"   // Konsert told an agent about something (Action: delivered)
+	EventKindQuestion = "question" // Action: answered | delegated | decided | overridden
 )
 
 // FleetEvent is one attributed event in the fleet timeline: every status transition and

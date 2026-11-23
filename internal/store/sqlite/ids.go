@@ -22,6 +22,7 @@ var idTables = map[ids.Kind]string{
 	ids.Space:     "spaces",
 	ids.Hold:      "holds",
 	ids.Request:   "user_requests",
+	ids.Question:  "questions",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its

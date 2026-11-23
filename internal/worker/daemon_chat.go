@@ -257,7 +257,11 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 		}
 	case protocol.MsgAgentChatClose:
 		if p, err := protocol.DecodePayload[protocol.AgentChatClose](env); err == nil {
-			d.chat.CloseChat(p.ChatID)
+			if p.Discard {
+				d.chat.DiscardChat(p.ChatID)
+			} else {
+				d.chat.CloseChat(p.ChatID)
+			}
 		}
 	case protocol.MsgAgentChatSuspend:
 		if p, err := protocol.DecodePayload[protocol.AgentChatSuspend](env); err == nil {
