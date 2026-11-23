@@ -118,7 +118,9 @@ export KONSERT_LLM_API_KEY=...
 
 ## Deployment Templates
 
-Production service templates are provided under `deploy/`:
+See **[docs/deploy.md](docs/deploy.md)** for a full production guide: HTTPS via Tailscale Serve (or Caddy/Nginx), the controller as a systemd service, and workers under systemd, launchd, Podman Quadlet and Windows.
+
+Service templates are provided under `deploy/`:
 - `deploy/systemd/konsert.service` & `deploy/systemd/konsertd.service`
 - `deploy/quadlet/konsertd.container` (Podman Quadlet)
 - `deploy/launchd/dev.konsert.konsertd.plist` (macOS launchd)
