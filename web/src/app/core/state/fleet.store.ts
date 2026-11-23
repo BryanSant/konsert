@@ -11,7 +11,9 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
+import { WorkerHeat } from '../models/activity.models';
 import { ApiClientService } from '../services/api-client.service';
+import { ActivityStore } from './activity.store';
 import { ControlStore } from './control.store';
 
 export interface WorkerNodeView {
@@ -50,6 +52,7 @@ export interface AgentRosterItem {
 export class FleetStore {
   private readonly api = inject(ApiClientService);
   private readonly control = inject(ControlStore);
+  private readonly activity = inject(ActivityStore);
 
   readonly workers = signal<Worker[]>([]);
   /** Hub build version from GET /api/fleet, for worker version-mismatch warnings. */
@@ -113,6 +116,18 @@ export class FleetStore {
     const map: Record<string, Task> = {};
     for (const t of this.tasks()) {
       map[t.id] = t;
+    }
+    return map;
+  });
+
+  /**
+   * Machine heat per online worker: the hub's smoothed 0..1 score with its level (cool
+   * < 0.4, warm 0.4-0.75, hot > 0.75) and dominant cause (cpu, mem, gpu, slots).
+   */
+  readonly heatByWorker = computed(() => {
+    const map: Record<string, WorkerHeat> = {};
+    for (const w of this.workers()) {
+      if (w.status === 'online' && w.heat) map[w.id] = w.heat;
     }
     return map;
   });
@@ -307,6 +322,9 @@ export class FleetStore {
       }
       if (snap.pause) {
         this.control.applyPause(snap.pause);
+      }
+      if (snap.activity) {
+        this.activity.applySnapshot(snap.activity);
       }
       for (const op of this.liveLog.slice(logStart)) op();
     } finally {
@@ -556,6 +574,8 @@ export class FleetStore {
           ...next[idx],
           ...worker,
           metrics: worker.metrics ?? next[idx].metrics,
+          // Heat comes with heartbeats; other updates keep it, going offline clears it.
+          heat: worker.status === 'online' ? (worker.heat ?? next[idx].heat) : undefined,
           facts: worker.facts ?? next[idx].facts,
           // Every worker view carries its current launch state; absent means cleared.
           launch_state: worker.launch_state,
