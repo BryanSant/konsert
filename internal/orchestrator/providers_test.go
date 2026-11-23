@@ -55,7 +55,18 @@ func TestOpenAIProviderStreamingAndToolCall(t *testing.T) {
 }
 
 func TestAnthropicProviderToolUse(t *testing.T) {
-	respJSON := `{"content":[{"type":"text","text":"Checking fleet."},{"type":"tool_use","id":"toolu_1","name":"fleet_status","input":{}}]}`
+	respJSON := strings.Join([]string{
+		`event: message_start`,
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Checking fleet."}}`,
+		`data: {"type":"content_block_stop","index":0}`,
+		`data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"fleet_status","input":{}}}`,
+		`data: {"type":"content_block_stop","index":1}`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}`,
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
 	p := NewAnthropicProvider("ant-key", "https://example.invalid")
 	p.client = &http.Client{
 		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -84,8 +95,8 @@ func TestGeminiProviderFunctionCall(t *testing.T) {
 	p := NewGeminiProvider("gem-key", "https://example.invalid/v1beta")
 	p.client = &http.Client{
 		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			if !strings.Contains(r.URL.RawQuery, "key=gem-key") {
-				t.Errorf("missing key query param")
+			if r.Header.Get("x-goog-api-key") != "gem-key" || r.URL.RawQuery != "" {
+				t.Errorf("key must be sent only in the x-goog-api-key header")
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,

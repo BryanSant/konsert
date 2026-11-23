@@ -1,8 +1,10 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,7 +13,11 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
+	"github.com/google/uuid"
 )
+
+// maxTurns bounds LLM round-trips (tool-calling rounds) per user message.
+const maxTurns = 10
 
 const defaultSystemPrompt = `You are Konsert Orchestrator, coordinating an entire fleet of SSH-connected machines as one logical system.
 Token Efficiency Rules:
@@ -49,6 +55,10 @@ type Message struct {
 	ToolName     string     `json:"tool_name,omitempty"`
 	InputTokens  int64      `json:"input_tokens,omitempty"`
 	OutputTokens int64      `json:"output_tokens,omitempty"`
+	// AnthropicContent holds the raw assistant content blocks (including
+	// signed thinking blocks) so a tool-use turn can be continued exactly as
+	// the Anthropic API requires. It lives only in memory for the current turn.
+	AnthropicContent json.RawMessage `json:"-"`
 }
 
 // Provider implements a direct LLM API client.
@@ -79,35 +89,100 @@ type Service struct {
 	store    store.Store
 	executor ToolExecutor
 	provider Provider
+	// maxTokens caps output tokens per LLM call; 0 means provider defaults
+	// (DefaultMaxTokens for Anthropic, unset for OpenAI/Gemini).
+	maxTokens int
+	// providerErr is set when cfg names an unsupported provider.
+	providerErr error
 }
 
-func buildProvider(cfg config.OrchestratorConfig) Provider {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+// SupportedProviders lists the provider names the orchestrator accepts.
+// An empty provider name means "openai".
+var SupportedProviders = []string{"openai", "anthropic", "gemini"}
+
+// ErrUnknownProvider is returned (wrapped) for a provider name the orchestrator
+// does not support.
+var ErrUnknownProvider = errors.New("unknown LLM provider")
+
+// ValidateProvider reports whether name is a supported provider ("" is allowed
+// and means openai). Use it to reject bad config before it is applied.
+func ValidateProvider(name string) error {
+	n := normalizeProvider(name)
+	for _, p := range SupportedProviders {
+		if n == p {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w %q (supported: %s)", ErrUnknownProvider, strings.TrimSpace(name), strings.Join(SupportedProviders, ", "))
+}
+
+// buildProvider constructs the configured provider. An unknown provider name is
+// an error: silently falling back to OpenAI would send the configured API key
+// to api.openai.com.
+func buildProvider(cfg config.OrchestratorConfig, maxTokens int) (Provider, error) {
+	if err := ValidateProvider(cfg.Provider); err != nil {
+		return nil, err
+	}
+	switch normalizeProvider(cfg.Provider) {
 	case "anthropic":
-		return NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p, nil
 	case "gemini":
-		return NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p, nil
 	default:
-		return NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p, nil
 	}
 }
 
 // NewService creates an Orchestrator Service for the configured LLM provider.
+// If the provider name is unknown the Service is still returned (so the hub can
+// start), but every chat turn fails with that error and no request is sent;
+// ProviderError reports it.
 func NewService(cfg config.OrchestratorConfig, st store.Store, executor ToolExecutor) *Service {
-	return &Service{
+	s := &Service{
 		cfg:      cfg,
 		store:    st,
 		executor: executor,
-		provider: buildProvider(cfg),
 	}
+	s.provider, s.providerErr = buildProvider(cfg, 0)
+	return s
 }
 
-// UpdateConfig hot-reloads the LLM provider, model, base URL, and API key at runtime.
-func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) {
+// UpdateConfig hot-reloads the LLM provider, model, base URL, and API key at
+// runtime. It returns an error for an unknown provider; the new config is
+// still recorded and chat turns fail with that error until it is fixed (they
+// never fall back to another provider).
+func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cfg = cfg
-	s.provider = buildProvider(cfg)
+	s.provider, s.providerErr = buildProvider(cfg, s.maxTokens)
+	return s.providerErr
+}
+
+// ProviderError returns the error from building the configured provider, if any.
+func (s *Service) ProviderError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.providerErr
+}
+
+// SetMaxTokens sets the per-call output token ceiling (0 restores provider
+// defaults) and rebuilds the provider. It exists until OrchestratorConfig grows
+// a max_tokens field that NewService/UpdateConfig can read directly.
+func (s *Service) SetMaxTokens(n int) {
+	if n < 0 {
+		n = 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxTokens = n
+	s.provider, s.providerErr = buildProvider(s.cfg, n)
 }
 
 // SetProvider replaces the LLM provider (useful for tests).
@@ -115,6 +190,7 @@ func (s *Service) SetProvider(p Provider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.provider = p
+	s.providerErr = nil
 }
 
 // HandleUserMessage persists the user's message, runs the LLM + tool-calling loop,
@@ -123,7 +199,25 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	s.mu.RLock()
 	cfg := s.cfg
 	prov := s.provider
+	provErr := s.providerErr
 	s.mu.RUnlock()
+
+	// fail scrubs secrets from err (errors reach every browser and MCP caller),
+	// reports it via OnError and returns the scrubbed error.
+	fail := func(err error) error {
+		err = redactError(err, cfg.APIKey)
+		if cb.OnError != nil {
+			cb.OnError(sessionID, err.Error())
+		}
+		return err
+	}
+
+	if provErr != nil {
+		return fail(provErr)
+	}
+	if prov == nil {
+		return fail(errors.New("orchestrator LLM provider is not configured"))
+	}
 
 	sess, err := s.store.GetChatSession(ctx, sessionID)
 	if err != nil {
@@ -137,10 +231,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			UpdatedAt: time.Now().UTC(),
 		}
 		if createErr := s.store.CreateChatSession(ctx, sess); createErr != nil {
-			if cb.OnError != nil {
-				cb.OnError(sessionID, createErr.Error())
-			}
-			return createErr
+			return fail(createErr)
 		}
 	}
 
@@ -149,10 +240,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		Role:      "user",
 		Content:   content,
 	}); err != nil {
-		if cb.OnError != nil {
-			cb.OnError(sessionID, err.Error())
-		}
-		return err
+		return fail(err)
 	}
 
 	if cfg.APIKey == "" && prov != nil && (prov.Name() == "openai" || prov.Name() == "anthropic" || prov.Name() == "gemini") {
@@ -176,10 +264,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 
 	history, checkpoint, err := s.loadBoundedHistory(ctx, sessionID, 24)
 	if err != nil {
-		if cb.OnError != nil {
-			cb.OnError(sessionID, err.Error())
-		}
-		return err
+		return fail(err)
 	}
 
 	system := defaultSystemPrompt
@@ -198,10 +283,13 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	if model == "" {
 		model = sess.Model
 	}
+	if model == "" {
+		model = DefaultModel(cfg.Provider)
+	}
 	tools := s.executor.ToolDefinitions()
 
-	const maxTurns = 10
 	var lastMsgID int64
+	finished := false
 	for turn := 0; turn < maxTurns; turn++ {
 		reply, err := prov.Complete(ctx, model, system, history, tools, func(delta string) {
 			if cb.OnDelta != nil && delta != "" {
@@ -209,10 +297,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			}
 		})
 		if err != nil {
-			if cb.OnError != nil {
-				cb.OnError(sessionID, err.Error())
-			}
-			return err
+			return fail(err)
 		}
 
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
@@ -233,24 +318,36 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			}
 		}
 
+		// Validate tool calls before anything is persisted: a call with malformed
+		// arguments must not be dropped from the assistant row while its tool
+		// result is saved (that orphan would 400 every later request).
+		invalid := sanitizeToolCalls(reply.ToolCalls)
+
 		toolJSON := ""
 		if len(reply.ToolCalls) > 0 {
-			b, _ := json.Marshal(reply.ToolCalls)
+			b, mErr := json.Marshal(reply.ToolCalls)
+			if mErr != nil {
+				return fail(fmt.Errorf("encode tool calls: %w", mErr))
+			}
 			toolJSON = string(b)
 		}
-		lastMsgID, _ = s.store.AppendChatMessage(ctx, store.ChatMessage{
+		lastMsgID, err = s.store.AppendChatMessage(ctx, store.ChatMessage{
 			SessionID: sessionID,
 			Role:      "assistant",
 			Content:   reply.Content,
 			ToolJSON:  toolJSON,
 		})
+		if err != nil {
+			return fail(fmt.Errorf("save assistant message: %w", err))
+		}
 		history = append(history, reply)
 
 		if len(reply.ToolCalls) == 0 {
+			finished = true
 			break
 		}
 
-		for _, tc := range reply.ToolCalls {
+		for i, tc := range reply.ToolCalls {
 			var parsedArgs any
 			_ = json.Unmarshal(tc.Arguments, &parsedArgs)
 
@@ -264,15 +361,27 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				})
 			}
 
-			res, execErr := s.executor.ExecuteTool(ctx, tc.Name, tc.Arguments)
 			status := "completed"
-			var resultPayload any = res
-			if execErr != nil {
+			var resultPayload any
+			if reason, bad := invalid[i]; bad {
+				// Never execute a call whose arguments we could not parse; tell the model instead.
 				status = "error"
-				resultPayload = map[string]string{"error": execErr.Error()}
+				resultPayload = map[string]string{"error": reason}
+			} else {
+				res, execErr := s.executor.ExecuteTool(ctx, tc.Name, tc.Arguments)
+				resultPayload = res
+				if execErr != nil {
+					status = "error"
+					resultPayload = map[string]string{"error": execErr.Error()}
+				}
 			}
 
-			resBytes, _ := json.Marshal(resultPayload)
+			resBytes, mErr := json.Marshal(resultPayload)
+			if mErr != nil {
+				status = "error"
+				resultPayload = map[string]string{"error": "tool result could not be encoded: " + mErr.Error()}
+				resBytes, _ = json.Marshal(resultPayload) // map[string]string always encodes
+			}
 			if cb.OnTool != nil {
 				cb.OnTool(protocol.ChatToolPayload{
 					SessionID: sessionID,
@@ -284,17 +393,22 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				})
 			}
 
-			metaBytes, _ := json.Marshal(map[string]any{
+			metaBytes, mErr := json.Marshal(map[string]any{
 				"call_id": tc.ID,
 				"name":    tc.Name,
 				"status":  status,
 			})
-			_, _ = s.store.AppendChatMessage(ctx, store.ChatMessage{
+			if mErr != nil {
+				return fail(fmt.Errorf("encode tool metadata: %w", mErr))
+			}
+			if _, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 				SessionID: sessionID,
 				Role:      "tool",
 				Content:   string(resBytes),
 				ToolJSON:  string(metaBytes),
-			})
+			}); err != nil {
+				return fail(fmt.Errorf("save tool result: %w", err))
+			}
 
 			history = append(history, Message{
 				Role:       "tool",
@@ -305,10 +419,62 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		}
 	}
 
+	if !finished {
+		// The model was still calling tools when the round limit hit: end with an
+		// explicit assistant message instead of silently stopping.
+		msg := fmt.Sprintf("I stopped after %d tool-calling rounds without reaching a final answer. Ask me to continue if you want me to keep going.", maxTurns)
+		if cb.OnDelta != nil {
+			cb.OnDelta(sessionID, msg)
+		}
+		id, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+			SessionID: sessionID,
+			Role:      "assistant",
+			Content:   msg,
+		})
+		if err != nil {
+			return fail(fmt.Errorf("save assistant message: %w", err))
+		}
+		lastMsgID = id
+	}
+
 	if cb.OnDone != nil {
 		cb.OnDone(sessionID, lastMsgID)
 	}
 	return nil
+}
+
+// sanitizeToolCalls makes every tool call safe to persist and replay: missing
+// IDs are generated, and arguments that are not a valid JSON object are
+// replaced with {}. It returns the indexes of invalid calls with a reason that
+// is sent back to the model as the tool's error result.
+func sanitizeToolCalls(calls []ToolCall) map[int]string {
+	invalid := map[int]string{}
+	for i := range calls {
+		tc := &calls[i]
+		if strings.TrimSpace(tc.ID) == "" {
+			tc.ID = "call_" + uuid.NewString()[:12]
+		}
+		args := bytes.TrimSpace(tc.Arguments)
+		if len(args) == 0 {
+			tc.Arguments = json.RawMessage("{}")
+			continue
+		}
+		var obj map[string]any
+		if !json.Valid(args) || json.Unmarshal(args, &obj) != nil {
+			preview := string(args)
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			invalid[i] = fmt.Sprintf("invalid tool arguments: expected a JSON object, got %q; the call was not executed. Retry with valid JSON arguments.", preview)
+			tc.Arguments = json.RawMessage("{}")
+			continue
+		}
+		tc.Arguments = json.RawMessage(args)
+		if strings.TrimSpace(tc.Name) == "" {
+			invalid[i] = "tool call is missing a tool name; the call was not executed."
+		}
+	}
+	return invalid
 }
 
 // loadBoundedHistory keeps the prompt compact when threads grow long by summarizing overflow turns
@@ -367,7 +533,59 @@ func (s *Service) loadBoundedHistory(ctx context.Context, sessionID string, maxR
 		}
 		msgs = append(msgs, m)
 	}
-	return msgs, checkpoint, nil
+	return pairToolMessages(msgs), checkpoint, nil
+}
+
+// pairToolMessages enforces the provider contract that every tool result
+// directly follows the assistant message that issued its call, and every
+// issued call has a result. Anywhere in the window (not only at its start) it
+// drops tool rows with no matching preceding call, and removes calls whose
+// results are missing (e.g. a turn interrupted mid-way, or legacy rows whose
+// tool calls failed to persist). Otherwise every later request in the session
+// would be rejected with HTTP 400.
+func pairToolMessages(in []Message) []Message {
+	out := make([]Message, 0, len(in))
+	for i := 0; i < len(in); i++ {
+		m := in[i]
+		if m.Role == "tool" {
+			continue // a tool row not consumed by the assistant branch below is an orphan
+		}
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" {
+				continue // empty assistant turns are rejected by some providers
+			}
+			out = append(out, m)
+			continue
+		}
+		// Collect the contiguous run of tool results after this assistant message.
+		pending := make(map[string]bool, len(m.ToolCalls))
+		for _, tc := range m.ToolCalls {
+			pending[tc.ID] = true
+		}
+		var results []Message
+		answered := map[string]bool{}
+		j := i + 1
+		for ; j < len(in) && in[j].Role == "tool"; j++ {
+			id := in[j].ToolCallID
+			if pending[id] && !answered[id] {
+				answered[id] = true
+				results = append(results, in[j])
+			}
+		}
+		var kept []ToolCall
+		for _, tc := range m.ToolCalls {
+			if answered[tc.ID] {
+				kept = append(kept, tc)
+			}
+		}
+		m.ToolCalls = kept
+		if len(kept) > 0 || strings.TrimSpace(m.Content) != "" {
+			out = append(out, m)
+			out = append(out, results...)
+		}
+		i = j - 1
+	}
+	return out
 }
 
 func compactOverflowDigest(rows []store.ChatMessage) string {

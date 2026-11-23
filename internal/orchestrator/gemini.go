@@ -1,12 +1,12 @@
 package orchestrator
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -16,7 +16,9 @@ import (
 type GeminiProvider struct {
 	apiKey  string
 	baseURL string
-	client  *http.Client
+	// MaxTokens, when >0, is sent as generationConfig.maxOutputTokens.
+	MaxTokens int
+	httpOpts
 }
 
 func NewGeminiProvider(apiKey, baseURL string) *GeminiProvider {
@@ -25,9 +27,9 @@ func NewGeminiProvider(apiKey, baseURL string) *GeminiProvider {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &GeminiProvider{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		client:  &http.Client{},
+		apiKey:   apiKey,
+		baseURL:  baseURL,
+		httpOpts: defaultHTTPOpts(),
 	}
 }
 
@@ -35,7 +37,7 @@ func (p *GeminiProvider) Name() string { return "gemini" }
 
 func (p *GeminiProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = "gemini-2.5-pro"
+		model = DefaultGeminiModel
 	}
 
 	var contents []map[string]any
@@ -90,6 +92,9 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 	reqBody := map[string]any{
 		"contents": contents,
 	}
+	if p.MaxTokens > 0 {
+		reqBody["generationConfig"] = map[string]any{"maxOutputTokens": p.MaxTokens}
+	}
 	if system != "" {
 		reqBody["systemInstruction"] = map[string]any{
 			"parts": []map[string]any{{"text": system}},
@@ -114,14 +119,16 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 		return Message{}, err
 	}
 
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, model, p.apiKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return Message{}, err
+	// The API key goes in the x-goog-api-key header, never the URL: *url.Error
+	// embeds the full URL in its message, and errors are broadcast to clients.
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent", p.baseURL, url.PathEscape(model))
+	hdr := http.Header{}
+	hdr.Set("Content-Type", "application/json")
+	if p.apiKey != "" {
+		hdr.Set("x-goog-api-key", p.apiKey)
 	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := p.postJSON(ctx, endpoint, hdr, raw)
 	if err != nil {
 		return Message{}, fmt.Errorf("gemini request: %w", err)
 	}
