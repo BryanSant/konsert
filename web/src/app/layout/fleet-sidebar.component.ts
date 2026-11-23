@@ -90,7 +90,7 @@ import { IconComponent } from '../shared/icon.component';
                   }
                 </button>
 
-                <div class="flex items-center gap-1.5 shrink-0">
+                <div class="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     (click)="openNewSpace.emit(node.worker)"
@@ -99,8 +99,16 @@ import { IconComponent } from '../shared/icon.component';
                   >
                     <app-icon name="plus" [size]="12" />
                   </button>
+                  <button
+                    type="button"
+                    (click)="$event.stopPropagation(); deleteWorker(node.worker)"
+                    title="Remove machine {{ node.worker.name }}"
+                    class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#686a72] hover:text-[#f09595] transition cursor-pointer"
+                  >
+                    <app-icon name="trash" [size]="11" />
+                  </button>
                   <span
-                    class="h-1.5 w-1.5 rounded-full"
+                    class="h-1.5 w-1.5 rounded-full mx-0.5"
                     [class.bg-[#69b879]]="node.worker.status === 'online' && node.effectiveStatus !== 'waiting_input'"
                     [class.bg-[#d9a043]]="node.effectiveStatus === 'waiting_input'"
                     [class.bg-[#484a52]]="node.worker.status !== 'online'"
@@ -341,6 +349,24 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
       await this.api.deleteSpace(space.id);
       this.fleet.removeSpace(space.id);
       if (this.tabs.activeSpaceId() === space.id) {
+        this.tabs.activeSpaceId.set(null);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async deleteWorker(worker: Worker): Promise<void> {
+    const activeSpaces = this.fleet.spaces().filter((s) => s.worker_id === worker.id);
+    if (worker.status === 'online' || activeSpaces.length > 0) {
+      const ok = window.confirm(`Remove machine "${worker.name}" from Konsert?`);
+      if (!ok) return;
+    }
+    try {
+      await this.api.deleteWorker(worker.id);
+      this.fleet.removeWorker(worker.id);
+      const curSpace = this.tabs.activeSpaceId();
+      if (curSpace && activeSpaces.some((s) => s.id === curSpace)) {
         this.tabs.activeSpaceId.set(null);
       }
     } catch {

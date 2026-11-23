@@ -225,7 +225,7 @@ export class XtermPaneComponent implements OnDestroy {
       cursorBlink: true,
       fontSize: 13,
       lineHeight: 1.25,
-      fontFamily: '"JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontFamily: '"JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       theme: {
         background: '#111214',
         foreground: '#e4e4e7',

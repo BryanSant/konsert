@@ -36,6 +36,9 @@ const (
 	MsgGitCommitResult          = "git.commit.result"
 	MsgGitWorktreeCleanup       = "git.worktree.cleanup"
 	MsgGitWorktreeCleanupResult = "git.worktree.cleanup.result"
+
+	MsgFSList       = "fs.list"
+	MsgFSListResult = "fs.list.result"
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
@@ -331,6 +334,26 @@ type GitWorktreeCleanupRequest struct {
 type GitWorktreeCleanupResult struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+}
+
+type FSEntry struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	IsDir     bool   `json:"is_dir"`
+	IsGitRepo bool   `json:"is_git_repo,omitempty"`
+}
+
+type FSListRequest struct {
+	Path     string `json:"path"`
+	Prefix   string `json:"prefix,omitempty"`
+	DirsOnly bool   `json:"dirs_only"`
+}
+
+type FSListResult struct {
+	CurrentDir string    `json:"current_dir"`
+	ParentDir  string    `json:"parent_dir,omitempty"`
+	Entries    []FSEntry `json:"entries"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // IsTerminalTaskStatus reports whether a task status is final.

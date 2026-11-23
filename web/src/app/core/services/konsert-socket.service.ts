@@ -131,6 +131,8 @@ export class KonsertSocketService {
           this.fleetStore.upsertSpace(p.space);
         } else if (p.kind === 'space_deleted' && p.deleted_id) {
           this.fleetStore.removeSpace(p.deleted_id);
+        } else if (p.kind === 'worker_deleted' && p.deleted_id) {
+          this.fleetStore.removeWorker(p.deleted_id);
         }
         break;
       }

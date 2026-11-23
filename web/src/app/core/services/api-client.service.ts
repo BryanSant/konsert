@@ -5,9 +5,12 @@ import {
   ChatMessage,
   ChatSession,
   DispatchTaskRequest,
+  FSListResult,
   FleetSnapshotResponse,
   GitCommitResult,
   GitInspectResult,
+  SSHBootstrapResult,
+  SSHHost,
   Space,
   TaskEvent,
 } from '../models/konsert.models';
@@ -148,6 +151,37 @@ export class ApiClientService {
 
   cleanupWorktree(req: { task_id?: string; worker_id?: string; workdir?: string }): Promise<{ ok: boolean; error?: string }> {
     return this.request('/api/git/worktree/cleanup', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  deleteWorker(workerId: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  listRemoteFS(params: { workerId?: string; path: string; prefix?: string; dirsOnly?: boolean }): Promise<FSListResult> {
+    const sp = new URLSearchParams();
+    if (params.workerId) sp.set('worker_id', params.workerId);
+    sp.set('path', params.path || '~');
+    if (params.prefix) sp.set('prefix', params.prefix);
+    if (params.dirsOnly === false) sp.set('dirs_only', 'false');
+    return this.request(`/api/fs/list?${sp.toString()}`);
+  }
+
+  listSSHHosts(): Promise<{ hosts: SSHHost[] }> {
+    return this.request('/api/ssh/hosts');
+  }
+
+  bootstrapSSH(req: {
+    target: string;
+    controller_url?: string;
+    sandbox?: boolean;
+    enable_mock?: boolean;
+  }): Promise<SSHBootstrapResult> {
+    return this.request('/api/ssh/bootstrap', {
       method: 'POST',
       body: JSON.stringify(req),
     });

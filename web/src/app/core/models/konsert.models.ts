@@ -85,6 +85,38 @@ export interface GitCommitResult {
   error?: string;
 }
 
+export interface FSEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  is_git_repo?: boolean;
+}
+
+export interface FSListResult {
+  current_dir: string;
+  parent_dir?: string;
+  entries: FSEntry[];
+  error?: string;
+}
+
+export interface SSHHost {
+  alias: string;
+  hostname: string;
+  user?: string;
+  port?: string;
+  display: string;
+  added: boolean;
+}
+
+export interface SSHBootstrapResult {
+  ok: boolean;
+  target: string;
+  remote_os?: string;
+  remote_arch?: string;
+  message?: string;
+  error?: string;
+}
+
 export interface AppSettings {
   llm_provider: string;
   llm_model: string;

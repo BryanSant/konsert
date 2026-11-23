@@ -633,3 +633,107 @@ func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "fs-del.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-fs-1"
+	wCfg.Name = "fs-node"
+	wCfg.EnableMockDriver = true
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-fs-1")
+
+	// Prepare nested directories including a git repo inside a temp root.
+	rootDir := t.TempDir()
+	alphaRepo := filepath.Join(rootDir, "alpha-repo")
+	betaDir := filepath.Join(rootDir, "beta-tools")
+	if err := os.MkdirAll(filepath.Join(alphaRepo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(betaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Browse full directory
+	fsResp, err := http.Get(ts.URL + "/api/fs/list?worker_id=w-fs-1&path=" + rootDir)
+	if err != nil || fsResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/fs/list failed: resp=%v err=%v", fsResp, err)
+	}
+	var fsRes protocol.FSListResult
+	if err := json.NewDecoder(fsResp.Body).Decode(&fsRes); err != nil {
+		t.Fatal(err)
+	}
+	_ = fsResp.Body.Close()
+	if len(fsRes.Entries) != 2 || fsRes.Entries[0].Name != "alpha-repo" || !fsRes.Entries[0].IsGitRepo {
+		t.Fatalf("unexpected fs list result: %+v", fsRes)
+	}
+
+	// 2. Type-ahead partial path prefix match
+	partialPath := filepath.Join(rootDir, "alp")
+	taResp, err := http.Get(ts.URL + "/api/fs/list?worker_id=w-fs-1&path=" + partialPath)
+	if err != nil || taResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/fs/list type-ahead failed: resp=%v err=%v", taResp, err)
+	}
+	var taRes protocol.FSListResult
+	if err := json.NewDecoder(taResp.Body).Decode(&taRes); err != nil {
+		t.Fatal(err)
+	}
+	_ = taResp.Body.Close()
+	if len(taRes.Entries) != 1 || taRes.Entries[0].Name != "alpha-repo" {
+		t.Fatalf("expected single alpha-repo match for partial path, got %+v", taRes)
+	}
+
+	// 3. SSH hosts endpoint returns valid JSON array
+	sshResp, err := http.Get(ts.URL + "/api/ssh/hosts")
+	if err != nil || sshResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/ssh/hosts failed: resp=%v err=%v", sshResp, err)
+	}
+	_ = sshResp.Body.Close()
+
+	// 4. Delete worker via REST API
+	cancel() // stop daemon reconnect loop before deleting so it doesn't immediately re-register
+	<-done
+
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workers/w-fs-1", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/workers/w-fs-1 failed: resp=%v err=%v", delResp, err)
+	}
+	_ = delResp.Body.Close()
+
+	// Confirm worker is gone from /api/fleet
+	fleetResp, err := http.Get(ts.URL + "/api/fleet")
+	if err != nil || fleetResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/fleet failed: %v", err)
+	}
+	var fleetOut struct {
+		Workers []map[string]any `json:"workers"`
+	}
+	_ = json.NewDecoder(fleetResp.Body).Decode(&fleetOut)
+	_ = fleetResp.Body.Close()
+	if len(fleetOut.Workers) != 0 {
+		t.Fatalf("expected 0 workers after delete, got %d", len(fleetOut.Workers))
+	}
+}

@@ -132,4 +132,22 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	if err != nil || len(msgs) != 1 || msgs[0].Content != "check fleet" {
 		t.Fatalf("ListChatMessages mismatch: %+v err=%v", msgs, err)
 	}
+
+	// DeleteWorker cascades spaces and unlinks tasks without deleting task history.
+	if err := st.CreateSpace(ctx, store.Space{ID: "sp-del", WorkerID: "w1", Name: "repo", Path: "/repo"}); err != nil {
+		t.Fatalf("CreateSpace for delete test failed: %v", err)
+	}
+	if err := st.DeleteWorker(ctx, "w1"); err != nil {
+		t.Fatalf("DeleteWorker failed: %v", err)
+	}
+	if _, err := st.GetWorker(ctx, "w1"); err != store.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after DeleteWorker, got %v", err)
+	}
+	if _, err := st.GetSpace(ctx, "sp-del"); err != store.ErrNotFound {
+		t.Fatalf("expected worker space deleted after DeleteWorker, got %v", err)
+	}
+	gotTAfter, err := st.GetTask(ctx, "t1")
+	if err != nil || gotTAfter.WorkerID != "" {
+		t.Fatalf("expected task preserved with empty worker_id, got %+v err=%v", gotTAfter, err)
+	}
 }

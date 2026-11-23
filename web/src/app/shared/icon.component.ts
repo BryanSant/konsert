@@ -183,6 +183,22 @@ import { Component, input } from '@angular/core';
           <path d="M5.5 4.2h7.5M5.5 8h7.5M5.5 11.8h7.5M2.8 4.2h.5M2.8 8h.5M2.8 11.8h.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       }
+      @case ('folder') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M2.2 4.3A1.3 1.3 0 0 1 3.5 3h2.8l1.4 1.5h4.8a1.3 1.3 0 0 1 1.3 1.3v5.9a1.3 1.3 0 0 1-1.3 1.3h-9a1.3 1.3 0 0 1-1.3-1.3V4.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+      }
+      @case ('check-circle') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <circle cx="8" cy="8" r="5.6" stroke="currentColor" stroke-width="1.3"/>
+          <path d="m5.6 8.2 1.7 1.7 3.3-3.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      }
+      @case ('trash') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M3 4.5h10M6 4.5V3.3c0-.44.36-.8.8-.8h2.4c.44 0 .8.36.8.8v1.2M4.5 4.5l.6 8.2c.04.45.42.8.87.8h4.06c.45 0 .83-.35.87-.8l.6-8.2" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      }
       @default {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/>

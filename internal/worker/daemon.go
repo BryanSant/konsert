@@ -7,7 +7,10 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -400,6 +403,109 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			}
 			d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: true})
 		}(env.ID, p)
+
+	case protocol.MsgFSList:
+		p, err := protocol.DecodePayload[protocol.FSListRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.FSListRequest) {
+			d.sendJSONWithID(protocol.MsgFSListResult, reqID, d.handleFSList(req))
+		}(env.ID, p)
+	}
+}
+
+func (d *Daemon) handleFSList(req protocol.FSListRequest) protocol.FSListResult {
+	rawPath := strings.TrimSpace(req.Path)
+	if rawPath == "" {
+		rawPath = "~"
+	}
+	// Expand leading ~
+	if rawPath == "~" || strings.HasPrefix(rawPath, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if rawPath == "~" {
+				rawPath = home
+			} else {
+				rawPath = filepath.Join(home, rawPath[2:])
+			}
+		}
+	}
+
+	// Support type-ahead partial paths (e.g. "/Users/bsant/src/kon" -> dir="/Users/bsant/src", prefix="kon")
+	prefix := strings.ToLower(strings.TrimSpace(req.Prefix))
+	dirToRead := rawPath
+	if info, err := os.Stat(rawPath); err != nil || !info.IsDir() {
+		dirToRead = filepath.Dir(rawPath)
+		if prefix == "" {
+			prefix = strings.ToLower(filepath.Base(rawPath))
+		}
+	}
+
+	validatedDir, vErr := gitutil.ValidateWorkdir(dirToRead, d.cfg.AllowedRoots)
+	if vErr != nil {
+		return protocol.FSListResult{Error: vErr.Error(), Entries: []protocol.FSEntry{}}
+	}
+
+	dirEntries, err := os.ReadDir(validatedDir)
+	if err != nil {
+		return protocol.FSListResult{CurrentDir: validatedDir, Error: err.Error(), Entries: []protocol.FSEntry{}}
+	}
+
+	showHidden := strings.HasPrefix(prefix, ".")
+	var entries []protocol.FSEntry
+	for _, de := range dirEntries {
+		name := de.Name()
+		if !showHidden && strings.HasPrefix(name, ".") {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(strings.ToLower(name), prefix) {
+			continue
+		}
+		isDir := de.IsDir()
+		fullPath := filepath.Join(validatedDir, name)
+		if !isDir && de.Type()&os.ModeSymlink != 0 {
+			if st, sErr := os.Stat(fullPath); sErr == nil && st.IsDir() {
+				isDir = true
+			}
+		}
+		if req.DirsOnly && !isDir {
+			continue
+		}
+		isGit := false
+		if isDir {
+			if _, gErr := os.Stat(filepath.Join(fullPath, ".git")); gErr == nil {
+				isGit = true
+			}
+		}
+		entries = append(entries, protocol.FSEntry{
+			Name:      name,
+			Path:      fullPath,
+			IsDir:     isDir,
+			IsGitRepo: isGit,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsDir != entries[j].IsDir {
+			return entries[i].IsDir
+		}
+		if entries[i].IsGitRepo != entries[j].IsGitRepo {
+			return entries[i].IsGitRepo
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+	if len(entries) > 80 {
+		entries = entries[:80]
+	}
+
+	parent := filepath.Dir(validatedDir)
+	if parent == validatedDir {
+		parent = ""
+	}
+	return protocol.FSListResult{
+		CurrentDir: validatedDir,
+		ParentDir:  parent,
+		Entries:    entries,
 	}
 }
 

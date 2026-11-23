@@ -211,6 +211,19 @@ func (h *Hub) WorkerMetrics(workerID string) *protocol.WorkerMetrics {
 	return h.workerMetrics[workerID]
 }
 
+// DisconnectWorker closes any active WebSocket session for workerID and clears cached metrics.
+func (h *Hub) DisconnectWorker(workerID string) {
+	h.mu.Lock()
+	wc, ok := h.workers[workerID]
+	delete(h.workers, workerID)
+	delete(h.workerMetrics, workerID)
+	h.mu.Unlock()
+	if ok && wc != nil {
+		wc.cancel()
+		_ = wc.conn.Close(websocket.StatusNormalClosure, "worker removed by operator")
+	}
+}
+
 // ServeWorkerConn handles a single authenticated konsertd WebSocket connection until disconnect.
 func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	conn.SetReadLimit(4 * 1024 * 1024)
@@ -988,7 +1001,7 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Event = item
 	case "space":
 		p.Space = item
-	case "space_deleted":
+	case "space_deleted", "worker_deleted":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}

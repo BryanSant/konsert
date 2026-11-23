@@ -174,6 +174,33 @@ func (s *SQLiteStore) ListWorkers(ctx context.Context) ([]store.Worker, error) {
 	return workers, rows.Err()
 }
 
+func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// Preserve task history by unlinking worker_id before deleting the worker row.
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET worker_id = NULL WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM workers WHERE id = ?`, id)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		_ = tx.Rollback()
+		return store.ErrNotFound
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error) {
 	cutoffStr := formatTime(cutoff)
 	rows, err := s.db.QueryContext(ctx, `

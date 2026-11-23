@@ -15,6 +15,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -89,6 +90,10 @@ func (s *Server) registerRoutes() {
 
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
+	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.handleDeleteWorker))
+	s.mux.Handle("GET /api/fs/list", s.requireBrowserAuth(s.handleFSList))
+	s.mux.Handle("GET /api/ssh/hosts", s.requireBrowserAuth(s.handleSSHHosts))
+	s.mux.Handle("POST /api/ssh/bootstrap", s.requireBrowserAuth(s.handleSSHBootstrap))
 	s.mux.Handle("GET /api/usage", s.requireBrowserAuth(s.handleGetUsage))
 	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
 	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
@@ -297,6 +302,126 @@ func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.broadcastFleetUpdate("space_deleted", id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.hub.DisconnectWorker(id)
+	if err := s.store.DeleteWorker(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.broadcastFleetUpdate("worker_deleted", id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+func (s *Server) handleFSList(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	workerID := strings.TrimSpace(q.Get("worker_id"))
+	if workerID == "" {
+		// Pick first online worker if not explicitly specified
+		workers, _ := s.store.ListWorkers(r.Context())
+		for _, wk := range workers {
+			if wk.Status == "online" && s.hub.IsWorkerConnected(wk.ID) {
+				workerID = wk.ID
+				break
+			}
+		}
+	}
+	if workerID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no online worker selected"})
+		return
+	}
+	dirsOnly := q.Get("dirs_only") != "false"
+	rpcCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	env, err := s.hub.RequestWorker(rpcCtx, workerID, protocol.MsgFSList, protocol.FSListRequest{
+		Path:     q.Get("path"),
+		Prefix:   q.Get("prefix"),
+		DirsOnly: dirsOnly,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	res, err := protocol.DecodePayload[protocol.FSListResult](env)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleSSHHosts(w http.ResponseWriter, r *http.Request) {
+	hosts, err := sshutil.DiscoverHosts()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	workers, _ := s.store.ListWorkers(r.Context())
+	type hostView struct {
+		sshutil.SSHHost
+		Added bool `json:"added"`
+	}
+	out := make([]hostView, 0, len(hosts))
+	for _, h := range hosts {
+		added := false
+		for _, wk := range workers {
+			if strings.EqualFold(wk.Name, h.Alias) ||
+				strings.EqualFold(wk.HostGroup, h.Alias) ||
+				(h.HostName != "" && strings.EqualFold(wk.Name, h.HostName)) {
+				added = true
+				break
+			}
+		}
+		out = append(out, hostView{SSHHost: h, Added: added})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hosts": out})
+}
+
+func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Target        string `json:"target"`
+		ControllerURL string `json:"controller_url"`
+		Sandbox       bool   `json:"sandbox"`
+		EnableMock    bool   `json:"enable_mock"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if strings.TrimSpace(body.Target) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is required"})
+		return
+	}
+	ctrlURL := strings.TrimSpace(body.ControllerURL)
+	if ctrlURL == "" {
+		scheme := "ws"
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			scheme = "wss"
+		}
+		ctrlURL = scheme + "://" + r.Host + "/ws/worker"
+	}
+	s.cfgMu.RLock()
+	fleetTok := s.cfg.FleetToken
+	s.cfgMu.RUnlock()
+
+	res := sshutil.BootstrapRemoteWorker(r.Context(), sshutil.BootstrapOptions{
+		Target:        body.Target,
+		ControllerURL: ctrlURL,
+		FleetToken:    fleetTok,
+		Sandbox:       body.Sandbox,
+		EnableMock:    body.EnableMock,
+	})
+	if !res.OK {
+		writeJSON(w, http.StatusBadGateway, res)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {

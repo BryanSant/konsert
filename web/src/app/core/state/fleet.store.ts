@@ -138,11 +138,11 @@ export class FleetStore {
       .sort((a, b) => a.hostGroup.localeCompare(b.hostGroup));
   });
 
-  /** Herdr-style live Agents roster across all hosts (active first, then recent). */
+  /** Herdr-style live Agents roster across all hosts (coding agents only, excluding plain shells). */
   readonly agentsRoster = computed<AgentRosterItem[]>(() => {
     const wMap = this.workersById();
     return this.tasks()
-      .filter((t) => t.origin !== 'scratch')
+      .filter((t) => t.origin !== 'scratch' && t.agent !== 'shell')
       .map((t) => {
         const isActive = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned';
         const dirName = basenamePath(t.effective_dir || t.workdir);
@@ -244,6 +244,11 @@ export class FleetStore {
 
   removeSpace(spaceId: string): void {
     this.spaces.update((list) => list.filter((s) => s.id !== spaceId));
+  }
+
+  removeWorker(workerId: string): void {
+    this.workers.update((list) => list.filter((w) => w.id !== workerId));
+    this.spaces.update((list) => list.filter((s) => s.worker_id !== workerId));
   }
 
   upsertWorker(worker: Worker): void {

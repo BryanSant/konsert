@@ -57,12 +57,34 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     };
     fleet.upsertTask(task);
 
+    // Plain shell sessions must NOT appear in the lower-left Agents roster
+    const shellTask: Task = {
+      ...task,
+      id: 'task-shell-1',
+      agent: 'shell',
+      origin: 'direct',
+    };
+    fleet.upsertTask(shellTask);
+
     expect(fleet.onlineWorkersCount()).toBe(1);
-    expect(fleet.activeTasksCount()).toBe(1);
+    expect(fleet.activeTasksCount()).toBe(2);
     expect(fleet.listeningPorts().length).toBe(1);
     expect(fleet.listeningPorts()[0].port).toBe(8420);
     expect(fleet.agentsRoster().length).toBe(1);
+    expect(fleet.agentsRoster()[0].task.agent).toBe('claude');
     expect(fleet.agentsRoster()[0].workerName).toBe('bocabox');
+
+    // removeWorker removes worker and its spaces
+    fleet.upsertSpace({
+      id: 'sp-w1',
+      worker_id: 'w1',
+      name: 'konsert',
+      path: '/home/dev/konsert',
+      created_at: new Date().toISOString(),
+    });
+    fleet.removeWorker('w1');
+    expect(fleet.workersById()['w1']).toBeUndefined();
+    expect(fleet.spaces().length).toBe(0);
   });
 
   it('defaults Orchestrated tabs to Read-Only and Direct sessions to Interactive', () => {
