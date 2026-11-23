@@ -203,7 +203,7 @@ export interface ComposerSubmit {
           <button type="button" class="ks-send-btn ml-auto" data-testid="stop-button" aria-label="Stop" ksTooltip="Stop" (click)="stop.emit()">
             <app-icon name="stop" [size]="14" />
           </button>
-        } @else {
+        } @else if (!hideSend()) {
           <button
             type="submit"
             class="ks-send-btn ml-auto"
@@ -245,6 +245,8 @@ export class ChatComposerComponent {
   readonly allowEmpty = input(false);
   /** Accessible name and tooltip of the send button. */
   readonly sendLabel = input('Send message');
+  /** Hide the round send button when the host provides its own primary action (Enter still submits). */
+  readonly hideSend = input(false);
   readonly allowAttachments = input(true);
 
   readonly submitted = output<ComposerSubmit>();

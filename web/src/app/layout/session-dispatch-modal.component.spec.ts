@@ -127,10 +127,12 @@ describe('SessionDispatchModalComponent (shared composer)', () => {
     });
   });
 
-  it('starts an interactive agent session with an empty prompt from the send button', async () => {
+  it('starts an interactive agent session with an empty prompt from the single primary button', async () => {
     const { $, render, host } = await setup();
-    const send = $<HTMLButtonElement>('[data-testid="send-button"]');
-    expect(send.getAttribute('aria-label')).toBe('Start session');
+    // One primary action: the composer's own send button is hidden inside the dialog.
+    expect($('[data-testid="send-button"]')).toBeNull();
+    const send = $<HTMLButtonElement>('[data-testid="dispatch-submit"]');
+    expect(send.textContent?.trim()).toBe('Start session');
     expect(send.disabled).toBe(false);
     send.click();
     await render();

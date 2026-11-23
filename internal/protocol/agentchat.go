@@ -331,4 +331,4 @@ type AgentApprovalMode struct {
 const SandboxMaxRisk = 3
 
 // SandboxDisabledReason is the AgentApprovalMode.Disabled text on sandboxed workers.
-const SandboxDisabledReason = "This machine runs konsertd with --sandbox, which refuses full-access modes."
+const SandboxDisabledReason = "This machine runs konsertd in sandbox mode, which refuses full-access modes."

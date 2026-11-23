@@ -84,6 +84,7 @@ export interface SessionDispatchRequest {
             [allowAttachments]="false"
             [blockedReason]="submitting() ? 'Starting…' : ''"
             sendLabel="Start session"
+            [hideSend]="true"
             placeholder="What should the agent do? Leave empty for an interactive session"
             (submitted)="start($event)"
             (refreshAccounts)="agentAccounts.refresh(selection().workerId)"
