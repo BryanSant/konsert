@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -91,41 +92,84 @@ type Service struct {
 	// maxTokens caps output tokens per LLM call; 0 means provider defaults
 	// (DefaultMaxTokens for Anthropic, unset for OpenAI/Gemini).
 	maxTokens int
+	// providerErr is set when cfg names an unsupported provider.
+	providerErr error
 }
 
-func buildProvider(cfg config.OrchestratorConfig, maxTokens int) Provider {
+// SupportedProviders lists the provider names the orchestrator accepts.
+// An empty provider name means "openai".
+var SupportedProviders = []string{"openai", "anthropic", "gemini"}
+
+// ErrUnknownProvider is returned (wrapped) for a provider name the orchestrator
+// does not support.
+var ErrUnknownProvider = errors.New("unknown LLM provider")
+
+// ValidateProvider reports whether name is a supported provider ("" is allowed
+// and means openai). Use it to reject bad config before it is applied.
+func ValidateProvider(name string) error {
+	n := normalizeProvider(name)
+	for _, p := range SupportedProviders {
+		if n == p {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w %q (supported: %s)", ErrUnknownProvider, strings.TrimSpace(name), strings.Join(SupportedProviders, ", "))
+}
+
+// buildProvider constructs the configured provider. An unknown provider name is
+// an error: silently falling back to OpenAI would send the configured API key
+// to api.openai.com.
+func buildProvider(cfg config.OrchestratorConfig, maxTokens int) (Provider, error) {
+	if err := ValidateProvider(cfg.Provider); err != nil {
+		return nil, err
+	}
 	switch normalizeProvider(cfg.Provider) {
 	case "anthropic":
 		p := NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
 		p.MaxTokens = maxTokens
-		return p
+		return p, nil
 	case "gemini":
 		p := NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
 		p.MaxTokens = maxTokens
-		return p
+		return p, nil
 	default:
 		p := NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
 		p.MaxTokens = maxTokens
-		return p
+		return p, nil
 	}
 }
 
 // NewService creates an Orchestrator Service for the configured LLM provider.
+// If the provider name is unknown the Service is still returned (so the hub can
+// start), but every chat turn fails with that error and no request is sent;
+// ProviderError reports it.
 func NewService(cfg config.OrchestratorConfig, st store.Store, executor ToolExecutor) *Service {
-	return &Service{
+	s := &Service{
 		cfg:      cfg,
 		store:    st,
 		executor: executor,
-		provider: buildProvider(cfg, 0),
 	}
+	s.provider, s.providerErr = buildProvider(cfg, 0)
+	return s
 }
 
-// UpdateConfig hot-reloads the LLM provider, model, base URL, and API key at runtime.
-func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) {
+// UpdateConfig hot-reloads the LLM provider, model, base URL, and API key at
+// runtime. It returns an error for an unknown provider; the new config is
+// still recorded and chat turns fail with that error until it is fixed (they
+// never fall back to another provider).
+func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cfg = cfg
-	s.provider = buildProvider(cfg, s.maxTokens)
+	s.provider, s.providerErr = buildProvider(cfg, s.maxTokens)
+	return s.providerErr
+}
+
+// ProviderError returns the error from building the configured provider, if any.
+func (s *Service) ProviderError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.providerErr
 }
 
 // SetMaxTokens sets the per-call output token ceiling (0 restores provider
@@ -138,7 +182,7 @@ func (s *Service) SetMaxTokens(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.maxTokens = n
-	s.provider = buildProvider(s.cfg, n)
+	s.provider, s.providerErr = buildProvider(s.cfg, n)
 }
 
 // SetProvider replaces the LLM provider (useful for tests).
@@ -146,6 +190,7 @@ func (s *Service) SetProvider(p Provider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.provider = p
+	s.providerErr = nil
 }
 
 // HandleUserMessage persists the user's message, runs the LLM + tool-calling loop,
@@ -154,6 +199,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	s.mu.RLock()
 	cfg := s.cfg
 	prov := s.provider
+	provErr := s.providerErr
 	s.mu.RUnlock()
 
 	// fail scrubs secrets from err (errors reach every browser and MCP caller),
@@ -164,6 +210,13 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			cb.OnError(sessionID, err.Error())
 		}
 		return err
+	}
+
+	if provErr != nil {
+		return fail(provErr)
+	}
+	if prov == nil {
+		return fail(errors.New("orchestrator LLM provider is not configured"))
 	}
 
 	sess, err := s.store.GetChatSession(ctx, sessionID)
