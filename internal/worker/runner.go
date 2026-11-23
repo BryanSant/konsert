@@ -48,6 +48,9 @@ type Runner struct {
 	callbacks    RunnerCallbacks
 	logger       *slog.Logger
 
+	// allowSandboxShell opts a sandboxed worker in to the unrestricted shell driver.
+	allowSandboxShell atomic.Bool
+
 	mu    sync.RWMutex
 	tasks map[string]*runningTask
 }
@@ -68,6 +71,20 @@ func NewRunner(registry *drivers.Registry, sandbox bool, allowedRoots []string, 
 		logger:       logger,
 		tasks:        make(map[string]*runningTask),
 	}
+}
+
+// SetAllowSandboxShell opts a sandboxed worker in to running the shell driver. A shell
+// ignores permission mode entirely, so sandboxed workers refuse it by default.
+func (r *Runner) SetAllowSandboxShell(allow bool) {
+	r.allowSandboxShell.Store(allow)
+}
+
+// AgentAllowed reports whether this runner will accept tasks for the named driver.
+func (r *Runner) AgentAllowed(agent string) bool {
+	if r.sandbox && agent == drivers.ShellDriverName && !r.allowSandboxShell.Load() {
+		return false
+	}
+	return true
 }
 
 // ActiveTasks returns snapshots of currently running tasks for worker.hello re-adoption.
@@ -114,6 +131,11 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 	if r.sandbox && permMode == protocol.PermissionFullAccess {
 		r.failTask(req.TaskID, "", "worker is in sandboxed mode and refuses full_access tasks")
 		return fmt.Errorf("sandboxed worker refuses full_access task %s", req.TaskID)
+	}
+
+	if !r.AgentAllowed(req.Agent) {
+		r.failTask(req.TaskID, "", "worker is in sandboxed mode and refuses the unrestricted shell driver (start konsertd with --sandbox-allow-shell to opt in)")
+		return fmt.Errorf("sandboxed worker refuses shell task %s", req.TaskID)
 	}
 
 	drv, ok := r.registry.Get(req.Agent)

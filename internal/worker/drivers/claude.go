@@ -25,9 +25,9 @@ type usageCounter struct {
 // ClaudeDriver runs Anthropic's Claude Code CLI (`claude`).
 // In default full_access mode, it passes `--dangerously-skip-permissions`.
 type ClaudeDriver struct {
-	mu           sync.Mutex
-	lastSummary  map[string]string
-	seenUsage    map[string]map[string]usageCounter // taskID -> model -> last reported cumulative totals
+	mu          sync.Mutex
+	lastSummary map[string]string
+	seenUsage   map[string]map[string]usageCounter // taskID -> model -> last reported cumulative totals
 }
 
 func (d *ClaudeDriver) Name() string { return "claude" }
@@ -48,12 +48,14 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
 	}
+	// "--" terminates option parsing so a prompt that begins with '-' (for example
+	// "--dangerously-skip-permissions") can never be interpreted as a CLI flag.
 	if opts.Mode == "interactive" {
 		if strings.TrimSpace(opts.Prompt) != "" {
-			args = append(args, opts.Prompt)
+			args = append(args, "--", opts.Prompt)
 		}
 	} else {
-		args = append(args, "-p", opts.Prompt)
+		args = append(args, "-p", "--", opts.Prompt)
 	}
 	return LaunchSpec{
 		Binary: bin,

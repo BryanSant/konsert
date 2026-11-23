@@ -95,6 +95,23 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	return d
 }
 
+// SetAllowSandboxShell opts a --sandbox worker in to the unrestricted shell driver.
+func (d *Daemon) SetAllowSandboxShell(allow bool) {
+	d.runner.SetAllowSandboxShell(allow)
+}
+
+// advertisedAgents lists installed drivers that this worker will actually accept tasks for.
+func (d *Daemon) advertisedAgents() []string {
+	installed := d.registry.DetectInstalled(d.cfg.EnableMockDriver)
+	out := make([]string, 0, len(installed))
+	for _, a := range installed {
+		if d.runner.AgentAllowed(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // WorkerID returns the stable ID for this worker daemon.
 func (d *Daemon) WorkerID() string {
 	return d.cfg.WorkerID
@@ -201,7 +218,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			Arch:           runtime.GOARCH,
 			Isolation:      d.cfg.Isolation,
 			PermissionMode: permMode,
-			Agents:         d.registry.DetectInstalled(d.cfg.EnableMockDriver),
+			Agents:         d.advertisedAgents(),
 			Tags:           d.cfg.Tags,
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,

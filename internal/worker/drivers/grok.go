@@ -11,7 +11,7 @@ func init() {
 }
 
 // GrokDriver runs the Grok CLI (`grok`).
-// In default full_access mode, it runs with auto-approval enabled.
+// In default full_access mode, it runs with auto-approval enabled (`--always-approve`).
 type GrokDriver struct{}
 
 func (d *GrokDriver) Name() string { return "grok" }
@@ -27,17 +27,19 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 	args := []string{}
 	if IsFullAccess(opts.PermissionMode) {
-		args = append(args, "--yes")
+		args = append(args, "--always-approve")
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
 	}
+	// The prompt is either "="-joined to its flag or placed after "--", so a prompt that
+	// begins with '-' can never be parsed as a CLI flag.
 	if opts.Mode == "interactive" {
 		if strings.TrimSpace(opts.Prompt) != "" {
-			args = append(args, opts.Prompt)
+			args = append(args, "--", opts.Prompt)
 		}
 	} else {
-		args = append(args, "-p", opts.Prompt)
+		args = append(args, "--single="+opts.Prompt)
 	}
 	return LaunchSpec{
 		Binary: bin,
