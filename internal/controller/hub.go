@@ -32,6 +32,13 @@ type workerConn struct {
 	activeTasks map[string]bool
 }
 
+// activeCount returns the number of tasks the worker is running, under wc.mu.
+func (wc *workerConn) activeCount() int {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	return len(wc.activeTasks)
+}
+
 type browserClient struct {
 	user   string
 	conn   *websocket.Conn
@@ -285,9 +292,7 @@ func (h *Hub) ActiveTaskCounts() map[string]int {
 	defer h.mu.RUnlock()
 	counts := make(map[string]int, len(h.workers))
 	for id, wc := range h.workers {
-		wc.mu.Lock()
-		counts[id] = len(wc.activeTasks)
-		wc.mu.Unlock()
+		counts[id] = wc.activeCount()
 	}
 	return counts
 }
@@ -617,7 +622,7 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 						Tags:           w.Tags,
 						MaxConcurrent:  w.MaxConcurrent,
 						Status:         w.Status,
-						ActiveTasks:    len(wc.activeTasks),
+						ActiveTasks:    wc.activeCount(),
 						LastSeenAt:     w.LastSeenAt,
 						Metrics:        h.WorkerMetrics(wc.id),
 						Facts:          &factsCopy,
