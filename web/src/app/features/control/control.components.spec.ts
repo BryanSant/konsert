@@ -141,7 +141,18 @@ describe('control components', () => {
     const bRoot = banner.nativeElement as HTMLElement;
     expect(byTestId(bRoot, 'paused-banner')).toBeNull();
 
+    // Pause everything asks first; Cancel leaves the fleet running.
     byTestId(button.nativeElement, 'pause-everything')!.click();
+    await settle(button);
+    expect(api['pauseFleet']).not.toHaveBeenCalled();
+    byTestId(button.nativeElement, 'pause-cancel')!.click();
+    await settle(button);
+    expect(byTestId(button.nativeElement, 'pause-confirm')).toBeNull();
+    expect(api['pauseFleet']).not.toHaveBeenCalled();
+
+    byTestId(button.nativeElement, 'pause-everything')!.click();
+    await settle(button);
+    byTestId(button.nativeElement, 'pause-confirm')!.click();
     await settle(button);
     await settle(banner);
     expect(api['pauseFleet']).toHaveBeenCalled();

@@ -201,6 +201,8 @@ test.describe('Human control (mock engine)', () => {
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'working');
 
     await page.getByTestId('pause-everything').click();
+    await expect(page.getByRole('dialog', { name: 'Pause everything?' })).toBeVisible();
+    await page.getByTestId('pause-confirm').click();
     const banner = page.getByTestId('paused-banner');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('Everything is paused');

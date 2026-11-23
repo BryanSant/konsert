@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ControlStore } from '../../core/state/control.store';
+import { FleetStore } from '../../core/state/fleet.store';
+import { ModalDialogComponent } from '../../shared/modal-dialog.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 
@@ -15,14 +17,16 @@ export function shortWhen(iso: string | undefined): string {
 }
 
 /**
- * Fleet-wide Pause everything, always one click away in the top bar: stops dispatching and
- * suspends running managed work. While paused it turns into Resume.
+ * Fleet-wide Pause everything: an emergency control that stays visible in the top bar but
+ * is deliberately quiet, and asks for confirmation (Cancel is the default) because it is
+ * almost never what the user wants. It stops dispatching and suspends running managed work.
+ * While paused it turns into Resume, which needs no confirmation.
  */
 @Component({
   selector: 'ks-pause-everything',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TooltipDirective],
+  imports: [IconComponent, TooltipDirective, ModalDialogComponent],
   host: { class: 'inline-flex' },
   template: `
     @if (control.paused()) {
@@ -41,21 +45,45 @@ export function shortWhen(iso: string | undefined): string {
     } @else {
       <button
         type="button"
-        class="ks-btn ks-btn-sm"
+        class="ks-btn ks-btn-sm text-[var(--ks-text-muted)]"
         data-testid="pause-everything"
         [disabled]="control.isBusy('fleet')"
-        (click)="control.pauseEverything()"
-        ksTooltip="Stop dispatching and suspend all running managed work"
+        (click)="confirming.set(true)"
+        ksTooltip="Emergency stop: suspend all agent work and stop dispatching (asks first)"
         aria-label="Pause everything"
       >
         <app-icon name="pause" [size]="11" />
-        <span class="hidden sm:inline">Pause everything</span>
+        <span class="hidden lg:inline">Pause all</span>
       </button>
+    }
+    @if (confirming()) {
+      <app-modal-dialog labelledBy="pause-confirm-title" describedBy="pause-confirm-body" panelClass="w-full max-w-[420px] p-5" (close)="confirming.set(false)">
+        <h2 id="pause-confirm-title" class="text-[15px] font-semibold text-[var(--ks-text)] m-0">Pause everything?</h2>
+        <p id="pause-confirm-body" class="mt-2 mb-0 text-[13px] leading-relaxed text-[var(--ks-text-secondary)]">
+          This suspends every running agent session and terminal on {{ machines() }} and stops new work
+          from being dispatched until you press Resume. Nothing is lost, and agents are told you paused them.
+        </p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="ks-btn" data-testid="pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
+          <button type="button" class="ks-btn ks-btn-danger" data-testid="pause-confirm" (click)="confirm()">Pause everything</button>
+        </div>
+      </app-modal-dialog>
     }
   `,
 })
 export class PauseEverythingComponent {
   readonly control = inject(ControlStore);
+  private readonly fleet = inject(FleetStore);
+  readonly confirming = signal(false);
+  readonly machines = computed(() => {
+    const n = this.fleet.onlineWorkersCount();
+    return n === 1 ? '1 machine' : `${n} machines`;
+  });
+
+  async confirm(): Promise<void> {
+    this.confirming.set(false);
+    await this.control.pauseEverything();
+  }
 }
 
 /** Banner shown under the top bar while the fleet is paused. */
