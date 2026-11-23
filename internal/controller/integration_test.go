@@ -97,6 +97,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	// Browser login flow sets cookie.
 	loginReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/auth/login", strings.NewReader(`{"token":"admin-tok-456"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
 	loginResp, err := http.DefaultClient.Do(loginReq)
 	if err != nil || loginResp.StatusCode != http.StatusOK || len(loginResp.Cookies()) == 0 {
 		t.Fatalf("expected 200 + session cookie on login, got status=%d err=%v", loginResp.StatusCode, err)

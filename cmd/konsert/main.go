@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"text/tabwriter"
-	"time"
 
 	"github.com/BryanSant/konsert/internal/auth"
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/controller"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
 	"github.com/spf13/cobra"
 )
 
@@ -50,6 +47,9 @@ func newServeCmd() *cobra.Command {
 		fleetToken            string
 		adminToken            string
 		mcpToken              string
+		tokensFile            string
+		publicURL             string
+		allowedOrigins        []string
 		noAuth                bool
 		trustTailscaleHeaders bool
 		enableMCPHTTP         bool
@@ -87,56 +87,39 @@ func newServeCmd() *cobra.Command {
 			if cmd.Flags().Changed("enable-mcp-http") {
 				cfg.EnableMCPHTTP = enableMCPHTTP
 			}
+			if cmd.Flags().Changed("tokens-file") {
+				cfg.TokensFile = tokensFile
+			}
+			if cmd.Flags().Changed("public-url") {
+				cfg.PublicURL = publicURL
+			}
+			if cmd.Flags().Changed("allowed-origin") {
+				cfg.AllowedOrigins = allowedOrigins
+			}
+
+			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			if err := prepareServeConfig(&cfg, os.Stderr, logger); err != nil {
+				return err
+			}
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-
-			st, err := sqlite.Open(ctx, cfg.DBPath)
-			if err != nil {
-				return err
-			}
-			defer st.Close()
-
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-			srv := controller.NewServer(cfg, st, logger, version)
-			go srv.Hub().RunReaper(ctx)
-
-			httpSrv := &http.Server{
-				Addr:              cfg.ListenAddr,
-				Handler:           srv,
-				ReadHeaderTimeout: 10 * time.Second,
-			}
-
-			go func() {
-				<-ctx.Done()
-				srv.Hub().Close()
-				shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer shCancel()
-				_ = httpSrv.Shutdown(shCtx)
-			}()
-
-			logger.Info("konsert controller listening",
-				"addr", cfg.ListenAddr,
-				"db", cfg.DBPath,
-				"mcp_http", cfg.EnableMCPHTTP,
-				"auth_enabled", !cfg.NoAuth && cfg.AdminToken != "",
-			)
-			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				return err
-			}
-			return nil
+			return runServe(ctx, cfg, logger, nil)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to controller YAML config")
-	cmd.Flags().StringVar(&listenAddr, "listen", ":8420", "HTTP/WS listen address")
+	cmd.Flags().StringVar(&listenAddr, "listen", "", "HTTP/WS listen address (default :8420, or 127.0.0.1:8420 with --no-auth)")
 	cmd.Flags().StringVar(&dbPath, "db", "konsert.db", "SQLite database path")
-	cmd.Flags().StringVar(&fleetToken, "fleet-token", "", "Pre-shared bearer token for konsertd workers")
-	cmd.Flags().StringVar(&adminToken, "admin-token", "", "Admin passphrase/token for PWA and REST API")
+	cmd.Flags().StringVar(&fleetToken, "fleet-token", "", "Pre-shared bearer token for konsertd workers (auto-generated if unset)")
+	cmd.Flags().StringVar(&adminToken, "admin-token", "", "Admin passphrase/token for PWA and REST API (auto-generated if unset)")
 	cmd.Flags().StringVar(&mcpToken, "mcp-token", "", "Bearer token for /mcp HTTP endpoint (defaults to admin-token)")
-	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (for isolated local development)")
-	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve")
+	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that persists auto-generated tokens (default konsert-tokens.yaml next to --db)")
+	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (isolated local development only; binds to loopback by default)")
+	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve (honored only from loopback peers)")
 	cmd.Flags().BoolVar(&enableMCPHTTP, "enable-mcp-http", true, "Enable Streamable HTTP/SSE MCP endpoint at /mcp")
+	cmd.Flags().StringVar(&publicURL, "public-url", "", "Externally reachable base URL of this controller (e.g. https://konsert.example.ts.net); used for SSH-bootstrapped workers and as an allowed browser origin")
+	cmd.Flags().StringSliceVar(&allowedOrigins, "allowed-origin", nil, "Extra browser origin allowed to use the REST API and /ws/client (repeatable; e.g. http://localhost:4200)")
 
 	return cmd
 }
