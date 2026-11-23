@@ -57,7 +57,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	if saved, err := st.GetAllSettings(context.Background()); err == nil {
 		merged := cfg.Orchestrator
 		applySavedOrchestratorSettings(&merged, saved)
-		if err := merged.Validate(); err != nil {
+		if err := validateOrchestratorConfig(merged); err != nil {
 			logger.Error("ignoring invalid saved orchestrator settings; using startup config", "err", err)
 		} else {
 			cfg.Orchestrator = merged
@@ -73,6 +73,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	hub := NewHub(st, logger)
 	svc := NewFleetService(st, hub)
 	orch := orchestrator.NewService(cfg.Orchestrator, st, svc)
+	orch.SetMaxTokens(cfg.Orchestrator.MaxTokens)
 	hub.SetOrchestrator(orch)
 
 	s := &Server{
@@ -246,7 +247,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.auth.AuthenticateBrowser(r)
 	s.cfgMu.RLock()
 	prov := s.cfg.Orchestrator.Provider
-	model := s.cfg.Orchestrator.Model
+	model := effectiveModel(s.cfg.Orchestrator)
 	fleetTokReq := !s.cfg.NoAuth
 	s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -602,7 +603,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 
 	return settingsResponse{
 		LLMProvider:           orch.Provider,
-		LLMModel:              orch.Model,
+		LLMModel:              effectiveModel(orch),
 		LLMBaseURL:            orch.BaseURL,
 		LLMAPIKeySet:          orch.APIKey != "",
 		DefaultAgent:          saved["default_agent"],
@@ -894,7 +895,7 @@ func (s *Server) handleCreateChatSession(w http.ResponseWriter, r *http.Request)
 		body.Title = "Orchestrator Session"
 	}
 	s.cfgMu.RLock()
-	defProvider, defModel := s.cfg.Orchestrator.Provider, s.cfg.Orchestrator.Model
+	defProvider, defModel := s.cfg.Orchestrator.Provider, effectiveModel(s.cfg.Orchestrator)
 	s.cfgMu.RUnlock()
 	if body.Provider == "" {
 		body.Provider = defProvider

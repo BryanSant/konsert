@@ -6,12 +6,14 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -218,4 +220,24 @@ func TestCreateChatSessionDuringSettingsUpdate(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestConfigProvidersMatchOrchestrator(t *testing.T) {
+	if !slices.Equal(config.SupportedProviders, orchestrator.SupportedProviders) {
+		t.Fatalf("config.SupportedProviders %v != orchestrator.SupportedProviders %v", config.SupportedProviders, orchestrator.SupportedProviders)
+	}
+	for _, p := range append(slices.Clone(orchestrator.SupportedProviders), "", "OpenAI", "antropic") {
+		if (config.ValidateProvider(p) == nil) != (orchestrator.ValidateProvider(p) == nil) {
+			t.Errorf("provider %q: config and orchestrator validation disagree", p)
+		}
+	}
+}
+
+func TestEffectiveModelDefaults(t *testing.T) {
+	if got := effectiveModel(config.OrchestratorConfig{Provider: "anthropic"}); got != orchestrator.DefaultAnthropicModel {
+		t.Fatalf("got %q", got)
+	}
+	if got := effectiveModel(config.OrchestratorConfig{Provider: "openai", Model: "x"}); got != "x" {
+		t.Fatalf("got %q", got)
+	}
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -53,6 +54,8 @@ type OrchestratorConfig struct {
 	APIKey      string `yaml:"api_key"`      // Or read from env
 	Model       string `yaml:"model"`        // e.g. "gpt-4o", "claude-sonnet-4-20250514", "gemini-2.5-pro"
 	SystemExtra string `yaml:"system_extra"` // Optional additional system instructions
+	// MaxTokens caps output tokens per LLM call; 0 uses the provider default.
+	MaxTokens int `yaml:"max_tokens"`
 }
 
 // WorkerConfig holds configuration for the konsertd worker daemon.
@@ -77,7 +80,6 @@ func DefaultControllerConfig() ControllerConfig {
 		EnableMCPHTTP: true,
 		Orchestrator: OrchestratorConfig{
 			Provider: "openai",
-			Model:    "gpt-4o",
 		},
 	}
 }
@@ -161,6 +163,13 @@ func applyControllerEnv(cfg *ControllerConfig) {
 	}
 	if v := os.Getenv("KONSERT_LLM_MODEL"); v != "" {
 		cfg.Orchestrator.Model = v
+	}
+	if v := os.Getenv("KONSERT_LLM_MAX_TOKENS"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			cfg.Orchestrator.MaxTokens = n
+		} else {
+			cfg.Orchestrator.MaxTokens = -1 // rejected by Validate
+		}
 	}
 	// Fallback provider-specific API keys if KONSERT_LLM_API_KEY is unset.
 	if cfg.Orchestrator.APIKey == "" {

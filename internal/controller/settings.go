@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 )
 
@@ -82,7 +84,7 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 	if keyOrURLChange && !admin {
 		return errAdminScopeRequired
 	}
-	if err := next.Validate(); err != nil {
+	if err := validateOrchestratorConfig(next); err != nil {
 		return errInvalidSettings{err}
 	}
 
@@ -115,9 +117,21 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 	}
 	if next != s.cfg.Orchestrator {
 		s.cfg.Orchestrator = next
-		s.orch.UpdateConfig(next)
+		if err := s.orch.UpdateConfig(next); err != nil {
+			return errInvalidSettings{err}
+		}
+		s.orch.SetMaxTokens(next.MaxTokens)
 	}
 	return nil
+}
+
+// validateOrchestratorConfig applies config validation plus the orchestrator's own
+// provider check (config cannot import orchestrator, so both run here).
+func validateOrchestratorConfig(c config.OrchestratorConfig) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	return orchestrator.ValidateProvider(c.Provider)
 }
 
 // settingsUpdateFromMap converts the string map used by the MCP update_settings tool.
@@ -226,4 +240,13 @@ func writeSettingsError(w http.ResponseWriter, err error) {
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
+}
+
+// effectiveModel is the configured model, or the orchestrator default for the
+// provider when none is set.
+func effectiveModel(c config.OrchestratorConfig) string {
+	if m := strings.TrimSpace(c.Model); m != "" {
+		return m
+	}
+	return orchestrator.DefaultModel(c.Provider)
 }

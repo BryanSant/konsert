@@ -18,7 +18,8 @@ func TestControllerConfigValidate(t *testing.T) {
 		wantErr string
 	}{
 		{"typo provider", func(c *ControllerConfig) { c.Orchestrator.Provider = "antropic" }, `"antropic" is not supported`},
-		{"empty provider", func(c *ControllerConfig) { c.Orchestrator.Provider = "" }, "is not supported"},
+		{"empty provider means openai", func(c *ControllerConfig) { c.Orchestrator.Provider = "" }, ""},
+		{"negative max tokens", func(c *ControllerConfig) { c.Orchestrator.MaxTokens = -1 }, "max_tokens"},
 		{"provider case-insensitive", func(c *ControllerConfig) { c.Orchestrator.Provider = "Anthropic" }, ""},
 		{"base url no scheme", func(c *ControllerConfig) { c.Orchestrator.BaseURL = "api.example.com/v1" }, "must use scheme"},
 		{"base url ftp", func(c *ControllerConfig) { c.Orchestrator.BaseURL = "ftp://example.com" }, "must use scheme"},

@@ -64,12 +64,20 @@ func (o OrchestratorConfig) Validate() error {
 			errs = append(errs, err)
 		}
 	}
+	if o.MaxTokens < 0 {
+		errs = append(errs, fmt.Errorf("orchestrator.max_tokens must be zero or positive, got %d", o.MaxTokens))
+	}
 	return errors.Join(errs...)
 }
 
-// ValidateProvider reports whether p names a supported LLM provider (case-insensitive).
+// ValidateProvider reports whether p names a supported LLM provider (case-insensitive;
+// empty means openai). It mirrors orchestrator.ValidateProvider, which config cannot
+// import (orchestrator imports config); a controller test keeps the lists in sync.
 func ValidateProvider(p string) error {
 	norm := strings.ToLower(strings.TrimSpace(p))
+	if norm == "" {
+		norm = ProviderOpenAI
+	}
 	for _, s := range SupportedProviders {
 		if norm == s {
 			return nil
