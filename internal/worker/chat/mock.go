@@ -1,0 +1,465 @@
+package chat
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/BryanSant/konsert/internal/protocol"
+)
+
+// MockEngine is an in-process engine with deterministic, keyword-driven behaviour, enabled
+// with --enable-mock-driver. It drives hub and web end-to-end tests without paid calls.
+//
+// Prompt keywords (case-insensitive, first match wins):
+//
+//	crash       exit error (code 3, stderr tail); the session is dead and the next prompt resumes
+//	fail auth   ErrKindAuth with relogin help
+//	limit       EventRateLimit (exhausted) then ErrKindUsageLimit, window five_hour, resets_at
+//	permission  tool call + permission elicitation; waits for agent.chat.respond
+//	ask         question elicitation (options + free text); waits for agent.chat.respond
+//	slow        streams a delta per step for SlowDuration; cancellable
+//	(anything)  thought, message deltas, a tool call, message, usage, turn_end
+type MockEngine struct {
+	// StepDelay separates scripted events (default 20 ms).
+	StepDelay time.Duration
+	// SlowDuration is how long a "slow" turn runs unless cancelled (default 60 s).
+	SlowDuration time.Duration
+	// Now is the clock used for resets_at (default time.Now).
+	Now func() time.Time
+
+	mu      sync.Mutex
+	counter int
+	// exhausted marks accounts whose "limit" turn ran: Probe then reports the seven_day
+	// window exhausted until the time stored here.
+	exhausted map[string]time.Time
+}
+
+func (e *MockEngine) markExhausted(accountID string, until time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exhausted == nil {
+		e.exhausted = map[string]time.Time{}
+	}
+	e.exhausted[accountID] = until
+}
+
+func (e *MockEngine) exhaustedUntil(accountID string) (time.Time, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, ok := e.exhausted[accountID]
+	if ok && !e.now().Before(t) {
+		delete(e.exhausted, accountID)
+		return time.Time{}, false
+	}
+	return t, ok
+}
+
+// NewMockEngine returns a MockEngine with default timings.
+func NewMockEngine() *MockEngine { return &MockEngine{} }
+
+func (e *MockEngine) step() time.Duration {
+	if e.StepDelay > 0 {
+		return e.StepDelay
+	}
+	return 20 * time.Millisecond
+}
+
+func (e *MockEngine) now() time.Time {
+	if e.Now != nil {
+		return e.Now()
+	}
+	return time.Now()
+}
+
+// Agent implements Engine.
+func (e *MockEngine) Agent() string { return MockAgent }
+
+var mockModels = []protocol.AgentModel{
+	{ID: "mock-smart", DisplayName: "Mock Smart", Description: "Deterministic scripted replies", IsDefault: true,
+		Efforts: []protocol.AgentEffort{
+			{ID: "low", Label: "Low", Short: "Low"}, {ID: "medium", Label: "Medium", Short: "Med"},
+			{ID: "high", Label: "High", Short: "High"}, {ID: "max", Label: "Max", Short: "Max"},
+		}, DefaultEffort: "high", ContextTokens: 200000},
+	{ID: "mock-fast", DisplayName: "Mock Fast", Description: "Same script, fewer efforts",
+		Efforts: []protocol.AgentEffort{
+			{ID: "low", Label: "Low", Short: "Low"}, {ID: "medium", Label: "Medium", Short: "Med"},
+		}, DefaultEffort: "medium", ContextTokens: 100000},
+	{ID: "mock-mini", DisplayName: "Mock Mini", Description: "No effort levels", ContextTokens: 32000},
+}
+
+var mockApprovals = []protocol.AgentApprovalMode{
+	{ID: "plan", Label: "Plan", Description: "Read-only: proposes changes", Risk: 0, Icon: "eye"},
+	{ID: "default", Label: "Ask", Description: "Asks before edits and commands", Risk: 1, Icon: "hand"},
+	{ID: "accept-edits", Label: "Accept edits", Description: "Edits freely, asks before commands", Risk: 2, Icon: "edit"},
+	{ID: "auto", Label: "Auto", Description: "Approves safe actions itself", Risk: 3, Icon: "shield-check"},
+	{ID: "full-access", Label: "Full access", Description: "Never asks", Risk: 4, Icon: "shield-alert"},
+}
+
+// Probe implements Engine: two plans with different usage, no process spawned.
+func (e *MockEngine) Probe(_ context.Context, acct Account) protocol.AgentAccount {
+	now := e.now().UTC()
+	five := now.Add(3 * time.Hour).Truncate(time.Minute)
+	week := now.Add(4 * 24 * time.Hour).Truncate(time.Hour)
+	out := protocol.AgentAccount{
+		ID: acct.ID, Agent: MockAgent, Label: acct.Label, IsDefault: acct.IsDefault, Version: "mock-1.0",
+		Auth:   protocol.AgentAuthStatus{State: protocol.AuthOK, Method: "oauth", Email: "mock@example.com"},
+		Plan:   "max",
+		Models: append([]protocol.AgentModel(nil), mockModels...), ModelsSource: "discovered", DefaultModel: "mock-smart",
+		Approvals: append([]protocol.AgentApprovalMode(nil), mockApprovals...), DefaultApproval: "default",
+		Usage: []protocol.AgentRateLimit{
+			{Window: "five_hour", UsedPercent: 12, ResetsAt: &five, State: "ok"},
+			{Window: "seven_day", UsedPercent: 40, ResetsAt: &week, State: "ok"},
+		},
+		CheckedAt: now, ChatSupported: true,
+	}
+	if acct.Env["KONSERT_MOCK_ACCOUNT"] == "mock2" || acct.ID == "mock2" {
+		out.Plan = "pro"
+		out.Auth.Email = "mock2@example.com"
+		out.Usage = []protocol.AgentRateLimit{
+			{Window: "five_hour", UsedPercent: 87, ResetsAt: &five, State: "warning"},
+			{Window: "seven_day", UsedPercent: 65, ResetsAt: &week, State: "ok"},
+		}
+	}
+	if until, ok := e.exhaustedUntil(acct.ID); ok {
+		u := until.UTC()
+		for i := range out.Usage {
+			if out.Usage[i].Window == "seven_day" {
+				out.Usage[i] = protocol.AgentRateLimit{Window: "seven_day", UsedPercent: 100, ResetsAt: &u, State: "exhausted"}
+			}
+		}
+	}
+	return out
+}
+
+// Open implements Engine.
+func (e *MockEngine) Open(ctx context.Context, acct Account, opts protocol.AgentChatOpen, emit Emit) (Session, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	e.counter++
+	n := e.counter
+	e.mu.Unlock()
+	sid := opts.AgentSessionID
+	if sid == "" {
+		sid = "mock-session-" + opts.ChatID + "-" + itoa(n)
+	}
+	model := opts.Model
+	if model == "" {
+		model = "mock-smart"
+	}
+	mode := opts.ApprovalMode
+	if mode == "" {
+		mode = "default"
+	}
+	s := &mockSession{
+		eng: e, acct: acct, emit: emit, sid: sid,
+		model: model, effort: opts.Effort, mode: mode, resumed: opts.AgentSessionID != "",
+		done: make(chan struct{}), answers: map[string]chan protocol.AgentChatRespond{},
+	}
+	emit(protocol.AgentChatEvent{Kind: protocol.EventSessionReady, AgentSessionID: sid, Model: model, Effort: opts.Effort, ApprovalMode: mode})
+	return s, nil
+}
+
+type mockSession struct {
+	eng     *MockEngine
+	acct    Account
+	emit    Emit
+	sid     string
+	resumed bool
+
+	mu      sync.Mutex
+	model   string
+	effort  string
+	mode    string
+	busy    bool
+	cancel  context.CancelFunc
+	dead    bool
+	closed  bool
+	answers map[string]chan protocol.AgentChatRespond
+	wg      sync.WaitGroup
+
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+// Done is closed when the mock "process" exits (crash or Close).
+func (s *mockSession) Done() <-chan struct{} { return s.done }
+
+func (s *mockSession) AgentSessionID() string { return s.sid }
+
+func (s *mockSession) Prompt(_ context.Context, p protocol.AgentChatPrompt) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.dead || s.closed:
+		return errors.New("mock session has exited")
+	case s.busy:
+		return errors.New("a turn is already running")
+	}
+	s.busy = true
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer cancel()
+		s.run(ctx, p)
+		s.mu.Lock()
+		s.busy = false
+		s.cancel = nil
+		s.mu.Unlock()
+	}()
+	return nil
+}
+
+func (s *mockSession) Respond(_ context.Context, r protocol.AgentChatRespond) error {
+	s.mu.Lock()
+	ch, ok := s.answers[r.ElicitationID]
+	if ok {
+		delete(s.answers, r.ElicitationID)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return errors.New("no pending elicitation " + r.ElicitationID)
+	}
+	ch <- r
+	return nil
+}
+
+func (s *mockSession) Control(_ context.Context, c protocol.AgentChatControl) error {
+	s.mu.Lock()
+	if c.Model != "" {
+		s.model = c.Model
+	}
+	if c.Effort != "" {
+		s.effort = c.Effort
+	}
+	if c.ApprovalMode != "" {
+		s.mode = c.ApprovalMode
+	}
+	cancel := s.cancel
+	model, effort, mode := s.model, s.effort, s.mode
+	s.mu.Unlock()
+	if c.Cancel && cancel != nil {
+		cancel()
+	}
+	if c.Model != "" || c.Effort != "" || c.ApprovalMode != "" {
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventSessionReady, AgentSessionID: s.sid, Model: model, Effort: effort, ApprovalMode: mode})
+	}
+	return nil
+}
+
+func (s *mockSession) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.mu.Unlock()
+	s.wg.Wait()
+	s.doneOnce.Do(func() { close(s.done) })
+	return nil
+}
+
+// sleep waits one step; false when ctx ended.
+func (s *mockSession) sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+func (s *mockSession) cancelled(turn string) {
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
+}
+
+func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool {
+	for _, w := range strings.SplitAfter(text, " ") {
+		if !s.sleep(ctx, s.eng.step()) {
+			return false
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: msgID, Text: w})
+	}
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: turn, MessageID: msgID, Text: text})
+	return true
+}
+
+func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
+	text := strings.ToLower(p.Text)
+	turn := p.TurnID
+	step := s.eng.step()
+	switch {
+	case strings.Contains(text, "crash"):
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "Working on it"})
+		if !s.sleep(ctx, step) {
+			s.cancelled(turn)
+			return
+		}
+		code := 3
+		s.mu.Lock()
+		s.dead = true
+		s.mu.Unlock()
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+			Kind: protocol.ErrKindExit, Message: "mock exited with code 3", ExitCode: &code,
+			Stderr: "mock: loading session " + s.sid + "\nmock: fatal: simulated crash (keyword \"crash\")",
+		}})
+		s.doneOnce.Do(func() { close(s.done) })
+
+	case strings.Contains(text, "fail auth"):
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+			Kind: protocol.ErrKindAuth, Message: s.acct.Label + " needs you to sign in again (mock)",
+			Relogin: &protocol.AgentRelogin{Command: "mock login", Env: map[string]string{"KONSERT_MOCK_ACCOUNT": s.acct.ID},
+				URL: "https://example.com/mock/login", Note: "Simulated by the mock engine"},
+		}})
+
+	case strings.Contains(text, "limit"):
+		resets := s.eng.now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
+		// The account's weekly window shows as exhausted in later probes.
+		s.eng.markExhausted(s.acct.ID, s.eng.now().UTC().Add(3*time.Hour).Truncate(time.Minute))
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventRateLimit, TurnID: turn, RateLimit: &protocol.AgentRateLimit{
+			Window: "five_hour", UsedPercent: 100, ResetsAt: &resets, State: "exhausted"}})
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+			Kind: protocol.ErrKindUsageLimit, Message: "5-hour usage limit reached (mock)", Window: "five_hour", ResetsAt: &resets,
+		}})
+
+	case strings.Contains(text, "permission"):
+		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: rm -rf build/", Status: "pending", Input: `{"command":"rm -rf build/"}`}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf build/?", ToolCall: tool,
+			Options: []protocol.AgentElicitationOption{
+				{ID: "allow_once", Label: "Allow once", Kind: "allow_once"},
+				{ID: "allow_always", Label: "Always allow", Kind: "allow_always"},
+				{ID: "reject_once", Label: "Reject", Kind: "reject_once"},
+			}}
+		ans, ok := s.ask(ctx, turn, el)
+		if !ok {
+			s.cancelled(turn)
+			return
+		}
+		done := *tool
+		reply := "Permission denied, so I left build/ alone."
+		if strings.HasPrefix(ans.OptionID, "allow") {
+			done.Status, done.Output, reply = "completed", "removed build/", "Done: build/ was removed."
+		} else {
+			done.Status = "failed"
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case strings.Contains(text, "ask"):
+		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitQuestion, Title: "Which color should the button be?",
+			Options: []protocol.AgentElicitationOption{
+				{ID: "blue", Label: "Blue", Kind: "choice"}, {ID: "green", Label: "Green", Kind: "choice"},
+			}, AllowText: true}
+		ans, ok := s.ask(ctx, turn, el)
+		if !ok {
+			s.cancelled(turn)
+			return
+		}
+		answer := ans.Text
+		if answer == "" {
+			answer = ans.OptionID
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, "You answered: "+answer) {
+			s.cancelled(turn)
+			return
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case strings.Contains(text, "slow"):
+		dur := s.eng.SlowDuration
+		if dur <= 0 {
+			dur = 60 * time.Second
+		}
+		deadline := time.Now().Add(dur)
+		tick := max(step, 200*time.Millisecond)
+		i := 0
+		for time.Now().Before(deadline) {
+			if !s.sleep(ctx, tick) {
+				s.cancelled(turn)
+				return
+			}
+			i++
+			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "tick " + itoa(i) + " "})
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	default:
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: turn, Text: "Thinking about the request."})
+		if !s.deltas(ctx, turn, "m1-"+turn, "Let me look at the files.") {
+			s.cancelled(turn)
+			return
+		}
+		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Read", Kind: "read", Title: "Read README.md", Status: "running", Paths: []string{"README.md"}}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		if !s.sleep(ctx, step) {
+			s.cancelled(turn)
+			return
+		}
+		done := *tool
+		done.Status, done.Output = "completed", "# Konsert\n"
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		s.mu.Lock()
+		model := s.model
+		s.mu.Unlock()
+		if !s.deltas(ctx, turn, "m2-"+turn, "Mock reply from "+model+": "+p.Text) {
+			s.cancelled(turn)
+			return
+		}
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+	}
+}
+
+// ask emits an elicitation and waits for the answer (false when cancelled).
+func (s *mockSession) ask(ctx context.Context, turn string, el *protocol.AgentElicitation) (protocol.AgentChatRespond, bool) {
+	ch := make(chan protocol.AgentChatRespond, 1)
+	s.mu.Lock()
+	s.answers[el.ID] = ch
+	s.mu.Unlock()
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: turn, Elicitation: el})
+	select {
+	case <-ctx.Done():
+		s.mu.Lock()
+		delete(s.answers, el.ID)
+		s.mu.Unlock()
+		return protocol.AgentChatRespond{}, false
+	case ans := <-ch:
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitationOK, TurnID: turn, Elicitation: &protocol.AgentElicitation{ID: el.ID, Kind: el.Kind, Title: el.Title}})
+		return ans, true
+	}
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}

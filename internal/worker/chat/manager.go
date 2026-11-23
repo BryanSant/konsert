@@ -1,0 +1,881 @@
+package chat
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/BryanSant/konsert/internal/protocol"
+)
+
+// Sink receives every stamped event (ChatID, Seq and At set). It must not block: konsertd
+// queues events as control messages.
+type Sink func(protocol.AgentChatEvent)
+
+// AccountResolver turns (agent, account id) into a runnable Account. *AccountRegistry
+// implements it.
+type AccountResolver interface {
+	Resolve(agent, accountID string) (Account, error)
+}
+
+// Defaults for ManagerOptions.
+const (
+	DefaultIdleTimeout   = 15 * time.Minute
+	DefaultTurnWatchdog  = 10 * time.Minute
+	DefaultCancelGrace   = 15 * time.Second
+	DefaultOpenTimeout   = 2 * time.Minute
+	DefaultCloseTimeout  = 10 * time.Second
+	defaultSweepInterval = 30 * time.Second
+)
+
+// ManagerOptions configures a Manager.
+type ManagerOptions struct {
+	// Engines maps agent name to engine. More can be added with Register.
+	Engines  map[string]Engine
+	Accounts AccountResolver
+	Sink     Sink
+	Logger   *slog.Logger
+
+	// IdleTimeout closes an engine with no turn running after this long (resumed on the
+	// next prompt). Default 15 min.
+	IdleTimeout time.Duration
+	// TurnWatchdog emits ErrKindTimeout when a running turn produced no event for this
+	// long (elicitations waiting for the user do not count). Default 10 min.
+	TurnWatchdog time.Duration
+	// CancelGrace is how long a cancelled turn may take to end before the manager ends it
+	// itself with StopReason "cancelled". Default 15 s.
+	CancelGrace time.Duration
+	// SweepInterval is how often idle sessions and watchdogs are checked. Default 30 s.
+	SweepInterval time.Duration
+	// OnFailure is called (on its own goroutine) for every EventError, e.g. to refresh
+	// capabilities after auth or usage_limit failures.
+	OnFailure func(chatID, accountID string, err protocol.AgentChatError)
+	// OnRateLimit is called (on its own goroutine) with the account's subscription window
+	// state seen in a chat: every EventRateLimit, and an exhausted window derived from an
+	// ErrKindUsageLimit error. konsertd feeds it into the cached capabilities.
+	OnRateLimit func(accountID string, rl protocol.AgentRateLimit)
+	// SeqBase returns the first Seq of a chat in this process. The default is the current
+	// time in milliseconds × 1000, so Seq keeps increasing across konsertd restarts.
+	SeqBase func() int64
+	// Now is the clock (tests).
+	Now func() time.Time
+}
+
+// Manager owns every chat session on this worker: ChatID → engine session, per-chat Seq,
+// one turn at a time, a turn watchdog, idle close with resume, and shutdown.
+//
+// All operations of one chat run in order on that chat's own goroutine, so callers (the
+// daemon's read loop) never block on an engine.
+type Manager struct {
+	opts ManagerOptions
+	log  *slog.Logger
+
+	mu      sync.Mutex
+	engines map[string]Engine
+	chats   map[string]*chatState
+	closed  bool
+
+	stop     chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
+}
+
+// chatState is one chat. Operations are serialized by the op queue; mu guards the fields
+// below and event emission (so Seq order equals sink order).
+type chatState struct {
+	id string
+
+	qmu     sync.Mutex
+	queue   []func()
+	running bool
+
+	mu             sync.Mutex
+	opts           protocol.AgentChatOpen
+	acct           Account
+	sess           Session
+	gen            int // incremented whenever sess is replaced or dropped
+	agentSessionID string
+	seq            int64
+	turnID         string
+	turnActive     bool
+	cancelAt       time.Time // when a cancel was requested for the running turn
+	lastEvent      time.Time // last event (or user response) of the running turn
+	timedOut       bool      // watchdog fired for the current quiet period
+	lastActivity   time.Time
+	pending        map[string]bool // open elicitations
+	errorSeen      bool            // an EventError was emitted by the current open attempt
+}
+
+// NewManager creates a Manager and starts its sweeper.
+func NewManager(opts ManagerOptions) *Manager {
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+	if opts.IdleTimeout <= 0 {
+		opts.IdleTimeout = DefaultIdleTimeout
+	}
+	if opts.TurnWatchdog <= 0 {
+		opts.TurnWatchdog = DefaultTurnWatchdog
+	}
+	if opts.CancelGrace <= 0 {
+		opts.CancelGrace = DefaultCancelGrace
+	}
+	if opts.SweepInterval <= 0 {
+		opts.SweepInterval = defaultSweepInterval
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+	if opts.SeqBase == nil {
+		opts.SeqBase = func() int64 { return time.Now().UnixMilli() * 1000 }
+	}
+	if opts.Sink == nil {
+		opts.Sink = func(protocol.AgentChatEvent) {}
+	}
+	m := &Manager{
+		opts:    opts,
+		log:     opts.Logger,
+		engines: map[string]Engine{},
+		chats:   map[string]*chatState{},
+		stop:    make(chan struct{}),
+	}
+	for agent, e := range opts.Engines {
+		if e != nil {
+			m.engines[agent] = e
+		}
+	}
+	m.wg.Add(1)
+	go m.sweepLoop()
+	return m
+}
+
+// Register adds (or replaces) the engine for its Agent().
+func (m *Manager) Register(e Engine) {
+	m.RegisterFor(e.Agent(), e)
+}
+
+// RegisterFor adds (or replaces) the engine serving agent (one engine value may serve
+// several agents, e.g. the ACP engine).
+func (m *Manager) RegisterFor(agent string, e Engine) {
+	m.mu.Lock()
+	m.engines[agent] = e
+	m.mu.Unlock()
+}
+
+// Engine returns the engine registered for agent.
+func (m *Manager) Engine(agent string) (Engine, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.engines[agent]
+	return e, ok
+}
+
+// Agents lists agents with a registered engine.
+func (m *Manager) Agents() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.engines))
+	for a := range m.engines {
+		out = append(out, a)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// chat returns the chat state, creating it when create is set.
+func (m *Manager) chat(id string, create bool) *chatState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil
+	}
+	c := m.chats[id]
+	if c == nil && create {
+		c = &chatState{id: id, seq: m.opts.SeqBase(), pending: map[string]bool{}, lastActivity: m.opts.Now()}
+		m.chats[id] = c
+	}
+	return c
+}
+
+// enqueue runs op on the chat's goroutine after earlier ops.
+func (m *Manager) enqueue(c *chatState, op func()) {
+	c.qmu.Lock()
+	c.queue = append(c.queue, op)
+	if c.running {
+		c.qmu.Unlock()
+		return
+	}
+	c.running = true
+	c.qmu.Unlock()
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		for {
+			c.qmu.Lock()
+			if len(c.queue) == 0 {
+				c.running = false
+				c.qmu.Unlock()
+				return
+			}
+			next := c.queue[0]
+			c.queue[0] = nil
+			c.queue = c.queue[1:]
+			c.qmu.Unlock()
+			next()
+		}
+	}()
+}
+
+// --- public operations (non-blocking) -------------------------------------------------
+
+// Open opens or re-attaches to the chat's engine session. Idempotent per ChatID.
+func (m *Manager) Open(o protocol.AgentChatOpen) {
+	if o.ChatID == "" {
+		return
+	}
+	c := m.chat(o.ChatID, true)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() { m.doOpen(c, o) })
+}
+
+// Prompt starts a turn (reopening the engine with resume if it was closed).
+func (m *Manager) Prompt(p protocol.AgentChatPrompt) {
+	if p.ChatID == "" {
+		return
+	}
+	c := m.chat(p.ChatID, true)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() { m.doPrompt(c, p) })
+}
+
+// Respond answers an elicitation.
+func (m *Manager) Respond(r protocol.AgentChatRespond) {
+	c := m.chat(r.ChatID, false)
+	if c == nil {
+		m.emitDetached(r.ChatID, "", errEvent(protocol.ErrKindProtocol, "chat is not open on this worker", false))
+		return
+	}
+	m.enqueue(c, func() { m.doRespond(c, r) })
+}
+
+// Control changes model/effort/approval mode or cancels the running turn.
+func (m *Manager) Control(ctl protocol.AgentChatControl) {
+	c := m.chat(ctl.ChatID, false)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() { m.doControl(c, ctl) })
+}
+
+// CloseChat ends the chat's engine process; the chat can be resumed by a later Open or
+// Prompt. Seq continues.
+func (m *Manager) CloseChat(chatID string) {
+	c := m.chat(chatID, false)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() { m.closeSession(c, "closed by hub") })
+}
+
+// Shutdown closes every session and stops the manager. It waits for engines to exit (each
+// bounded by its own Close) or until ctx ends.
+func (m *Manager) Shutdown(ctx context.Context) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
+	m.closed = true
+	chats := make([]*chatState, 0, len(m.chats))
+	for _, c := range m.chats {
+		chats = append(chats, c)
+	}
+	m.mu.Unlock()
+	m.stopOnce.Do(func() { close(m.stop) })
+
+	var wg sync.WaitGroup
+	for _, c := range chats {
+		c.mu.Lock()
+		s := c.sess
+		c.sess = nil
+		c.gen++
+		c.turnActive = false
+		c.mu.Unlock()
+		if s == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = s.Close()
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		m.log.Warn("agent chat shutdown timed out; some engines may still be exiting")
+	}
+}
+
+// ChatInfo is a snapshot of one chat for diagnostics and tests.
+type ChatInfo struct {
+	ChatID         string
+	Agent          string
+	AccountID      string
+	Open           bool
+	TurnActive     bool
+	TurnID         string
+	AgentSessionID string
+	LastSeq        int64
+	Cancelling     bool // a cancel was requested for the running turn
+}
+
+// Chats returns snapshots of all known chats.
+func (m *Manager) Chats() []ChatInfo {
+	m.mu.Lock()
+	chats := make([]*chatState, 0, len(m.chats))
+	for _, c := range m.chats {
+		chats = append(chats, c)
+	}
+	m.mu.Unlock()
+	out := make([]ChatInfo, 0, len(chats))
+	for _, c := range chats {
+		c.mu.Lock()
+		out = append(out, ChatInfo{
+			ChatID: c.id, Agent: c.opts.Agent, AccountID: c.acct.ID, Open: c.sess != nil,
+			TurnActive: c.turnActive, TurnID: c.turnID, AgentSessionID: c.agentSessionID, LastSeq: c.seq,
+			Cancelling: c.turnActive && !c.cancelAt.IsZero(),
+		})
+		c.mu.Unlock()
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ChatID < out[j].ChatID })
+	return out
+}
+
+// --- operations (run on the chat goroutine) -------------------------------------------
+
+func (m *Manager) doOpen(c *chatState, o protocol.AgentChatOpen) {
+	c.mu.Lock()
+	alive := c.sess != nil
+	sameTarget := c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID && c.opts.Cwd == o.Cwd
+	c.mu.Unlock()
+	if alive && sameTarget {
+		// Re-attach: apply changed settings live and report the session as ready.
+		ctl := protocol.AgentChatControl{ChatID: c.id}
+		c.mu.Lock()
+		if o.Model != "" && o.Model != c.opts.Model {
+			ctl.Model = o.Model
+		}
+		if o.Effort != "" && o.Effort != c.opts.Effort {
+			ctl.Effort = o.Effort
+		}
+		if o.ApprovalMode != "" && o.ApprovalMode != c.opts.ApprovalMode {
+			ctl.ApprovalMode = o.ApprovalMode
+		}
+		o.AgentSessionID = c.agentSessionID
+		c.opts = o
+		c.lastActivity = m.opts.Now()
+		c.mu.Unlock()
+		if ctl.Model != "" || ctl.Effort != "" || ctl.ApprovalMode != "" {
+			m.doControl(c, ctl)
+		}
+		c.mu.Lock()
+		m.emitLocked(c, protocol.AgentChatEvent{
+			Kind: protocol.EventSessionReady, AgentSessionID: c.agentSessionID,
+			Model: c.opts.Model, Effort: c.opts.Effort, ApprovalMode: c.opts.ApprovalMode,
+		})
+		c.mu.Unlock()
+		return
+	}
+	if alive {
+		// Different agent/account/cwd: replace the engine.
+		m.closeSession(c, "reopened with different settings")
+	}
+	c.mu.Lock()
+	prev := c.agentSessionID
+	if o.AgentSessionID == "" && c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID {
+		o.AgentSessionID = prev
+	}
+	c.opts = o
+	if o.AgentSessionID != "" {
+		c.agentSessionID = o.AgentSessionID
+	}
+	c.mu.Unlock()
+	m.ensureOpen(c, "")
+}
+
+// ensureOpen starts the engine session if none is running. It reports success; on
+// failure an EventError has been emitted (with turnID, if any).
+func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
+	if m.isClosed() {
+		return false
+	}
+	c.mu.Lock()
+	if c.sess != nil {
+		c.mu.Unlock()
+		return true
+	}
+	o := c.opts
+	if c.agentSessionID != "" {
+		o.AgentSessionID = c.agentSessionID
+	}
+	c.mu.Unlock()
+	if o.Agent == "" {
+		m.emitError(c, turnID, errEvent(protocol.ErrKindProtocol, "chat is not open on this worker (agent.chat.open was never received)", false))
+		return false
+	}
+	eng, ok := m.Engine(o.Agent)
+	if !ok {
+		m.emitError(c, turnID, errEvent(protocol.ErrKindNotFound, fmt.Sprintf("no chat engine for agent %q on this worker", o.Agent), false))
+		return false
+	}
+	if m.opts.Accounts == nil {
+		m.emitError(c, turnID, errEvent(protocol.ErrKindOther, "no agent accounts configured", false))
+		return false
+	}
+	acct, err := m.opts.Accounts.Resolve(o.Agent, o.AccountID)
+	if err != nil {
+		kind := protocol.ErrKindAuth
+		if errors.Is(err, ErrAccountNotFound) {
+			kind = protocol.ErrKindNotFound
+		}
+		m.emitError(c, turnID, errEvent(kind, err.Error(), false))
+		return false
+	}
+
+	c.mu.Lock()
+	c.gen++
+	gen := c.gen
+	c.acct = acct
+	c.errorSeen = false
+	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting})
+	c.mu.Unlock()
+
+	emit := func(ev protocol.AgentChatEvent) { m.onEngineEvent(c, gen, ev) }
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultOpenTimeout)
+	defer cancel()
+	sess, err := eng.Open(ctx, acct, o, emit)
+	if err != nil || sess == nil {
+		if err == nil {
+			err = errors.New("engine returned no session")
+		}
+		c.mu.Lock()
+		seen := c.errorSeen && c.gen == gen
+		c.gen++ // drop any late events of the failed attempt
+		c.mu.Unlock()
+		if !seen {
+			m.emitError(c, turnID, errEvent(protocol.ErrKindOther, fmt.Sprintf("could not start %s: %v", o.Agent, err), false))
+		}
+		return false
+	}
+	// Session methods are never called with c.mu held: an engine may emit (which takes
+	// c.mu) while holding its own lock.
+	sid := sess.AgentSessionID()
+	c.mu.Lock()
+	if c.gen != gen || m.isClosed() {
+		// The session died (exit error), was closed while opening, or konsertd is stopping.
+		c.mu.Unlock()
+		_ = sess.Close()
+		return false
+	}
+	c.sess = sess
+	if sid != "" {
+		c.agentSessionID = sid
+	}
+	c.lastActivity = m.opts.Now()
+	c.mu.Unlock()
+	if d, ok := sess.(interface{ Done() <-chan struct{} }); ok {
+		m.wg.Add(1)
+		go m.watchDone(c, gen, d.Done())
+	}
+	return true
+}
+
+// watchDone turns an engine process exit that the engine did not report into an exit error.
+func (m *Manager) watchDone(c *chatState, gen int, done <-chan struct{}) {
+	defer m.wg.Done()
+	select {
+	case <-m.stop:
+		return
+	case <-done:
+	}
+	c.mu.Lock()
+	if c.gen != gen || c.sess == nil {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	m.onEngineEvent(c, gen, protocol.AgentChatEvent{
+		Kind:  protocol.EventError,
+		Error: &protocol.AgentChatError{Kind: protocol.ErrKindExit, Message: c.opts.Agent + " exited unexpectedly"},
+	})
+}
+
+func (m *Manager) doPrompt(c *chatState, p protocol.AgentChatPrompt) {
+	c.mu.Lock()
+	if c.turnActive {
+		busy := c.turnID
+		c.mu.Unlock()
+		ev := errEvent(protocol.ErrKindOther, "a turn is already running in this chat ("+busy+"); wait for it to finish or cancel it", true)
+		m.emitDetachedTurn(c, p.TurnID, ev)
+		return
+	}
+	c.lastActivity = m.opts.Now()
+	c.mu.Unlock()
+
+	if !m.ensureOpen(c, p.TurnID) {
+		return
+	}
+
+	c.mu.Lock()
+	sess := c.sess
+	if sess == nil {
+		c.mu.Unlock()
+		m.emitError(c, p.TurnID, errEvent(protocol.ErrKindExit, "the agent session ended before the turn could start", true))
+		return
+	}
+	now := m.opts.Now()
+	c.turnActive = true
+	c.turnID = p.TurnID
+	c.lastEvent = now
+	c.timedOut = false
+	c.cancelAt = time.Time{}
+	c.pending = map[string]bool{}
+	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: p.TurnID, Status: protocol.ChatStatusWorking})
+	c.mu.Unlock()
+
+	if err := sess.Prompt(context.Background(), p); err != nil {
+		c.mu.Lock()
+		stillOurs := c.turnActive && c.turnID == p.TurnID
+		c.mu.Unlock()
+		if stillOurs {
+			m.emitError(c, p.TurnID, errEvent(protocol.ErrKindOther, "the agent refused the message: "+err.Error(), true))
+		}
+	}
+}
+
+func (m *Manager) doRespond(c *chatState, r protocol.AgentChatRespond) {
+	c.mu.Lock()
+	sess := c.sess
+	if sess != nil {
+		c.lastEvent = m.opts.Now()
+		c.timedOut = false
+		c.lastActivity = c.lastEvent
+	}
+	c.mu.Unlock()
+	if sess == nil {
+		m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindProtocol, "the agent session is not running; the question can no longer be answered", false))
+		return
+	}
+	if err := sess.Respond(context.Background(), r); err != nil {
+		m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindProtocol, "could not deliver the answer: "+err.Error(), false))
+		return
+	}
+	c.mu.Lock()
+	delete(c.pending, r.ElicitationID)
+	c.mu.Unlock()
+}
+
+func (m *Manager) doControl(c *chatState, ctl protocol.AgentChatControl) {
+	c.mu.Lock()
+	if ctl.Model != "" {
+		c.opts.Model = ctl.Model
+	}
+	if ctl.Effort != "" {
+		c.opts.Effort = ctl.Effort
+	}
+	if ctl.ApprovalMode != "" {
+		c.opts.ApprovalMode = ctl.ApprovalMode
+	}
+	sess := c.sess
+	if ctl.Cancel && c.turnActive && c.cancelAt.IsZero() {
+		c.cancelAt = m.opts.Now()
+	}
+	c.lastActivity = m.opts.Now()
+	c.mu.Unlock()
+	if sess == nil {
+		// Applied on the next open.
+		return
+	}
+	if err := sess.Control(context.Background(), ctl); err != nil {
+		m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindOther, "could not apply the change: "+err.Error(), false))
+	}
+}
+
+// closeSession closes the engine (if any) and marks the chat closed; the next prompt
+// resumes the agent session.
+func (m *Manager) closeSession(c *chatState, why string) {
+	c.mu.Lock()
+	s := c.sess
+	c.sess = nil
+	c.gen++
+	wasTurn := c.turnActive
+	turn := c.turnID
+	c.turnActive = false
+	c.pending = map[string]bool{}
+	if wasTurn {
+		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
+	}
+	if s != nil {
+		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusIdle, Text: why})
+	}
+	c.mu.Unlock()
+	if s != nil {
+		m.rememberSessionID(c, s)
+		closeWithTimeout(s, m.log, c.id)
+	}
+}
+
+// rememberSessionID records the agent session id of a session being dropped, for resume.
+// It runs without c.mu held (see ensureOpen).
+func (m *Manager) rememberSessionID(c *chatState, s Session) {
+	if id := s.AgentSessionID(); id != "" {
+		c.mu.Lock()
+		c.agentSessionID = id
+		c.mu.Unlock()
+	}
+}
+
+func closeWithTimeout(s Session, log *slog.Logger, chatID string) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = s.Close()
+	}()
+	select {
+	case <-done:
+	case <-time.After(DefaultCloseTimeout):
+		log.Warn("agent engine did not close in time", "chat_id", chatID)
+	}
+}
+
+func (m *Manager) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
+
+// --- events ---------------------------------------------------------------------------
+
+// onEngineEvent stamps and forwards an engine event, tracking turn and session state.
+func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEvent) {
+	c.mu.Lock()
+	if c.gen != gen {
+		c.mu.Unlock()
+		return // a replaced or dead session
+	}
+	var dead Session
+	var failure *protocol.AgentChatError
+	switch ev.Kind {
+	case protocol.EventSessionReady:
+		if ev.AgentSessionID != "" {
+			c.agentSessionID = ev.AgentSessionID
+		}
+	case protocol.EventElicitation:
+		if ev.Elicitation != nil {
+			c.pending[ev.Elicitation.ID] = true
+		}
+	case protocol.EventElicitationOK:
+		if ev.Elicitation != nil {
+			delete(c.pending, ev.Elicitation.ID)
+		}
+	case protocol.EventTurnEnd:
+		if ev.TurnID == "" {
+			ev.TurnID = c.turnID
+		}
+		c.turnActive = false
+		c.pending = map[string]bool{}
+	case protocol.EventError:
+		if ev.TurnID == "" && c.turnActive {
+			ev.TurnID = c.turnID
+		}
+		c.turnActive = false
+		c.pending = map[string]bool{}
+		c.errorSeen = true
+		if ev.Error != nil {
+			e := *ev.Error
+			failure = &e
+			if e.Kind == protocol.ErrKindExit {
+				// The engine died: drop it; the next prompt resumes the agent session.
+				dead = c.sess
+				c.sess = nil
+				c.gen++
+				// The agent session id is already known from session_ready / Open; the
+				// dead session's methods are not called under c.mu.
+			}
+		}
+	}
+	if ev.TurnID == "" && c.turnActive && ev.Kind != protocol.EventSessionReady {
+		ev.TurnID = c.turnID
+	}
+	if c.turnActive {
+		c.lastEvent = m.opts.Now()
+		c.timedOut = false
+	}
+	c.lastActivity = m.opts.Now()
+	m.emitLocked(c, ev)
+	acctID := c.acct.ID
+	c.mu.Unlock()
+
+	if dead != nil {
+		go closeWithTimeout(dead, m.log, c.id)
+	}
+	if failure != nil && m.opts.OnFailure != nil {
+		go m.opts.OnFailure(c.id, acctID, *failure)
+	}
+	if m.opts.OnRateLimit != nil && acctID != "" {
+		if rl, ok := rateLimitOf(ev); ok {
+			go m.opts.OnRateLimit(acctID, rl)
+		}
+	}
+}
+
+// rateLimitOf extracts subscription window state from an event.
+func rateLimitOf(ev protocol.AgentChatEvent) (protocol.AgentRateLimit, bool) {
+	switch {
+	case ev.Kind == protocol.EventRateLimit && ev.RateLimit != nil && ev.RateLimit.Window != "":
+		return *ev.RateLimit, true
+	case ev.Kind == protocol.EventError && ev.Error != nil && ev.Error.Kind == protocol.ErrKindUsageLimit:
+		w := ev.Error.Window
+		if w == "" {
+			w = "unknown"
+		}
+		return protocol.AgentRateLimit{Window: w, UsedPercent: 100, ResetsAt: ev.Error.ResetsAt, State: "exhausted"}, true
+	}
+	return protocol.AgentRateLimit{}, false
+}
+
+// emitLocked stamps ev and hands it to the sink. c.mu must be held.
+func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
+	c.seq++
+	ev.Seq = c.seq
+	ev.ChatID = c.id
+	ev.At = m.opts.Now().UTC()
+	m.opts.Sink(ev)
+}
+
+// emitError emits a manager-generated error that ends turnID (if it is the running turn).
+func (m *Manager) emitError(c *chatState, turnID string, ev protocol.AgentChatEvent) {
+	c.mu.Lock()
+	ev.TurnID = turnID
+	if c.turnActive && c.turnID == turnID {
+		c.turnActive = false
+		c.pending = map[string]bool{}
+	}
+	c.errorSeen = true
+	m.emitLocked(c, ev)
+	acctID := c.acct.ID
+	c.mu.Unlock()
+	if ev.Error != nil && m.opts.OnFailure != nil {
+		go m.opts.OnFailure(c.id, acctID, *ev.Error)
+	}
+}
+
+// emitDetachedTurn emits an error about a request without touching the running turn.
+func (m *Manager) emitDetachedTurn(c *chatState, turnID string, ev protocol.AgentChatEvent) {
+	c.mu.Lock()
+	ev.TurnID = turnID
+	m.emitLocked(c, ev)
+	c.mu.Unlock()
+}
+
+// emitDetached emits an error for a chat this worker does not know.
+func (m *Manager) emitDetached(chatID, turnID string, ev protocol.AgentChatEvent) {
+	if chatID == "" {
+		return
+	}
+	c := m.chat(chatID, true)
+	if c == nil {
+		return
+	}
+	m.emitDetachedTurn(c, turnID, ev)
+}
+
+func errEvent(kind, msg string, retryable bool) protocol.AgentChatEvent {
+	return protocol.AgentChatEvent{
+		Kind:  protocol.EventError,
+		Error: &protocol.AgentChatError{Kind: kind, Message: msg, Retryable: retryable},
+	}
+}
+
+// --- sweeper: watchdog, cancel grace, idle close --------------------------------------
+
+func (m *Manager) sweepLoop() {
+	defer m.wg.Done()
+	t := time.NewTicker(m.opts.SweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-t.C:
+			m.Sweep()
+		}
+	}
+}
+
+// Sweep runs one watchdog / idle pass (the sweeper calls it periodically; tests call it
+// directly with a fake clock).
+func (m *Manager) Sweep() {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
+	chats := make([]*chatState, 0, len(m.chats))
+	for _, c := range m.chats {
+		chats = append(chats, c)
+	}
+	m.mu.Unlock()
+	now := m.opts.Now()
+	for _, c := range chats {
+		c.mu.Lock()
+		switch {
+		case c.turnActive && !c.cancelAt.IsZero() && now.Sub(c.cancelAt) >= m.opts.CancelGrace:
+			// The engine did not end a cancelled turn: end it here.
+			turn := c.turnID
+			c.turnActive = false
+			c.pending = map[string]bool{}
+			m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
+		case c.turnActive && len(c.pending) == 0 && !c.timedOut && now.Sub(c.lastEvent) >= m.opts.TurnWatchdog:
+			// The turn stays running (the user may cancel or keep waiting).
+			c.timedOut = true
+			mins := int(m.opts.TurnWatchdog.Round(time.Minute) / time.Minute)
+			msg := fmt.Sprintf("no progress from %s for %d minutes; cancel the turn or keep waiting", c.opts.Agent, mins)
+			if mins < 1 {
+				msg = fmt.Sprintf("no progress from %s for %s; cancel the turn or keep waiting", c.opts.Agent, m.opts.TurnWatchdog)
+			}
+			m.emitLocked(c, protocol.AgentChatEvent{
+				Kind: protocol.EventError, TurnID: c.turnID,
+				Error: &protocol.AgentChatError{Kind: protocol.ErrKindTimeout, Message: msg, Retryable: true},
+			})
+		}
+		idle := c.sess != nil && !c.turnActive && now.Sub(c.lastActivity) >= m.opts.IdleTimeout
+		c.mu.Unlock()
+		if idle {
+			m.enqueue(c, func() {
+				c.mu.Lock()
+				still := c.sess != nil && !c.turnActive && m.opts.Now().Sub(c.lastActivity) >= m.opts.IdleTimeout
+				c.mu.Unlock()
+				if still {
+					m.log.Debug("closing idle agent chat engine", "chat_id", c.id)
+					m.closeSession(c, "engine stopped after idle timeout; it resumes on the next message")
+				}
+			})
+		}
+	}
+}
