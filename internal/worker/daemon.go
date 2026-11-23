@@ -124,6 +124,9 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		OnTaskEvent: func(p protocol.TaskEventPayload) {
 			d.sendJSON(protocol.MsgTaskEvent, p)
 		},
+		OnOperatorCommand: func(p protocol.OperatorCommandPayload) {
+			d.sendJSON(protocol.MsgOperatorCommand, p)
+		},
 		OnPtyFrame: func(frameType byte, taskID string, data []byte) {
 			frame, err := protocol.EncodeFrame(frameType, taskID, data)
 			if err != nil {

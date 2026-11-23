@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -17,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/konsert/internal/worker/shellint"
 )
 
 // RunnerCallbacks delivers worker task events, status updates, and PTY frames back to the daemon transport.
@@ -24,6 +27,9 @@ type RunnerCallbacks struct {
 	OnTaskStatus func(payload protocol.TaskStatusPayload)
 	OnTaskEvent  func(payload protocol.TaskEventPayload)
 	OnPtyFrame   func(frameType byte, taskID string, data []byte)
+	// OnOperatorCommand reports a command the user ran in a Konsert terminal (shell
+	// integration): once when it starts and once when it ends.
+	OnOperatorCommand func(payload protocol.OperatorCommandPayload)
 }
 
 type runningTask struct {
@@ -36,6 +42,10 @@ type runningTask struct {
 	ring         *RingBuffer
 	streamActive atomic.Bool
 	cancelFunc   context.CancelFunc
+
+	// Shell integration (Konsert terminals): marks are parsed out of the PTY stream.
+	shellParser  *shellint.Parser
+	shellTracker *shellint.Tracker
 
 	mu       sync.Mutex
 	status   string
@@ -58,7 +68,14 @@ type Runner struct {
 	tasks    map[string]*runningTask
 	starting map[string]*pendingStart
 	accounts chat.AccountResolver // agent accounts for TaskStartPayload.AccountID
+
+	// commands keeps full terminal command lines in memory for shellint.HistoryTTL.
+	commands *shellint.History
 }
+
+// CommandHistory returns the in-memory history of commands run in Konsert terminals
+// (full, unredacted text; expires after shellint.HistoryTTL; never written to disk).
+func (r *Runner) CommandHistory() *shellint.History { return r.commands }
 
 // SetAccounts sets the agent account resolver used for tasks with an AccountID.
 func (r *Runner) SetAccounts(a chat.AccountResolver) {
@@ -83,6 +100,7 @@ func NewRunner(registry *drivers.Registry, sandbox bool, allowedRoots []string, 
 		logger:       logger,
 		tasks:        make(map[string]*runningTask),
 		starting:     make(map[string]*pendingStart),
+		commands:     shellint.NewHistory(),
 	}
 }
 
@@ -339,6 +357,18 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		acctEnv = chat.EnvList(acct)
 	}
 
+	// Konsert terminals (interactive shell tasks) get shell integration so the daemon
+	// learns each command the user runs. Failing to prepare it only loses the events.
+	var integ *shellint.Integration
+	if req.Agent == drivers.ShellDriverName && req.Mode != protocol.TaskModeOneshot {
+		base := cmp.Or(defaultStateDir(), os.TempDir())
+		if dir, err := shellint.Prepare(filepath.Join(base, "shell-integration")); err != nil {
+			r.logger.Warn("shell integration unavailable", "task_id", req.TaskID, "err", err)
+		} else {
+			integ = &shellint.Integration{Dir: dir, Nonce: shellint.NewNonce()}
+		}
+	}
+
 	spec := drv.BuildCommand(drivers.LaunchOptions{
 		TaskID:         req.TaskID,
 		Prompt:         req.Prompt,
@@ -350,6 +380,8 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		AccountID:      req.AccountID,
 		ApprovalMode:   req.ApprovalMode,
 		Effort:         req.Effort,
+
+		ShellIntegration: integ,
 	})
 
 	// Exactly one task context: with a deadline when the task has a timeout.
@@ -389,6 +421,10 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		ring:         NewRingBuffer(DefaultRingBufferSize),
 		cancelFunc:   cancel,
 		status:       protocol.TaskStatusRunning,
+	}
+	if spec.ShellIntegration && integ != nil {
+		rt.shellParser = &shellint.Parser{}
+		rt.shellTracker = shellint.NewTracker(req.TaskID, integ.Nonce, r.commands, r.callbacks.OnOperatorCommand)
 	}
 
 	r.mu.Lock()
@@ -552,6 +588,10 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 
 	gitSummary, _ := gitutil.CaptureSummary(context.Background(), rt.effectiveDir, rt.baseSHA)
 
+	if rt.shellTracker != nil {
+		rt.shellTracker.Close(exitCode)
+	}
+
 	if r.callbacks.OnTaskEvent != nil {
 		r.callbacks.OnTaskEvent(protocol.TaskEventPayload{
 			TaskID:  rt.id,
@@ -595,18 +635,38 @@ func (r *Runner) pumpPtyOutput(rt *runningTask, lineCh chan<- string) {
 	for {
 		n, err := rt.pty.Read(buf)
 		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			_, _ = rt.ring.Write(chunk)
-			ls.feed(chunk, emit)
-			if rt.streamActive.Load() && r.callbacks.OnPtyFrame != nil {
-				r.callbacks.OnPtyFrame(protocol.FramePtyData, rt.id, chunk)
+			var chunk []byte
+			if rt.shellParser != nil {
+				// Strips Konsert-private marks; the result never aliases buf.
+				var marks []shellint.Mark
+				chunk, marks = rt.shellParser.Feed(buf[:n])
+				rt.shellTracker.Handle(marks)
+			} else {
+				chunk = make([]byte, n)
+				copy(chunk, buf[:n])
 			}
+			r.forwardPtyOutput(rt, chunk, &ls, emit)
 		}
 		if err != nil {
+			if rt.shellParser != nil {
+				r.forwardPtyOutput(rt, rt.shellParser.Flush(), &ls, emit)
+			}
 			ls.flush(emit)
 			return
 		}
+	}
+}
+
+// forwardPtyOutput tees one chunk of terminal output into the ring buffer, the telemetry
+// line splitter and (when subscribed) the live stream.
+func (r *Runner) forwardPtyOutput(rt *runningTask, chunk []byte, ls *lineSplitter, emit func(string)) {
+	if len(chunk) == 0 {
+		return
+	}
+	_, _ = rt.ring.Write(chunk)
+	ls.feed(chunk, emit)
+	if rt.streamActive.Load() && r.callbacks.OnPtyFrame != nil {
+		r.callbacks.OnPtyFrame(protocol.FramePtyData, rt.id, chunk)
 	}
 }
 
