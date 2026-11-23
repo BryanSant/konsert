@@ -141,7 +141,11 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		},
 	}, logger)
 
-	d.discovery = NewSessionDiscovery("", d.runner.IsManagedPID, func(p protocol.ExternalSessionPayload) {
+	// Anything descending from konsertd itself (PTY tasks, chat engines and their helpers)
+	// is managed, not an external session.
+	self := os.Getpid()
+	isManaged := func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) }
+	d.discovery = NewSessionDiscovery("", isManaged, func(p protocol.ExternalSessionPayload) {
 		d.sendJSON(protocol.MsgExternalSession, p)
 	})
 

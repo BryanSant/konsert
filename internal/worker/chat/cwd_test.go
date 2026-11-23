@@ -37,3 +37,17 @@ func TestChdirFailureIsNotNotInstalled(t *testing.T) {
 		t.Fatal("a missing binary must still be not-installed")
 	}
 }
+
+// Chat engine processes carry the managed-task marker so konsertd's global agent hooks
+// don't report them as separate external sessions (seen live: the Agents roster filled
+// with konsertd's own chat processes).
+func TestManagedMarkerDoesNotMutateAccount(t *testing.T) {
+	orig := Account{ID: "claude", Env: map[string]string{"CLAUDE_CONFIG_DIR": "/x"}}
+	got := withManagedMarker(orig, "chat-1")
+	if got.Env[ManagedTaskEnv] != "chat:chat-1" || got.Env["CLAUDE_CONFIG_DIR"] != "/x" {
+		t.Fatalf("marker env = %v", got.Env)
+	}
+	if _, leaked := orig.Env[ManagedTaskEnv]; leaked {
+		t.Fatal("registry account env was modified")
+	}
+}

@@ -479,7 +479,7 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 	emit := func(ev protocol.AgentChatEvent) { m.onEngineEvent(c, gen, ev) }
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultOpenTimeout)
 	defer cancel()
-	sess, err := eng.Open(ctx, acct, o, emit)
+	sess, err := eng.Open(ctx, withManagedMarker(acct, c.id), o, emit)
 	if err != nil || sess == nil {
 		if err == nil {
 			err = errors.New("engine returned no session")
@@ -929,4 +929,21 @@ func ResolveCwd(cwd string) (string, error) {
 		return "", fmt.Errorf("working directory %s is not a directory", cwd)
 	}
 	return cwd, nil
+}
+
+// ManagedTaskEnv marks processes started by konsertd. Hook scripts installed into the
+// agents' global config (e.g. claude settings) see it and don't report konsertd's own
+// chat sessions as separate external sessions. Same name as worker.ManagedTaskEnv.
+const ManagedTaskEnv = "KONSERT_TASK_ID"
+
+// withManagedMarker returns acct with ManagedTaskEnv set for chatID (a copy; the
+// registry's account is not modified).
+func withManagedMarker(acct Account, chatID string) Account {
+	env := make(map[string]string, len(acct.Env)+1)
+	for k, v := range acct.Env {
+		env[k] = v
+	}
+	env[ManagedTaskEnv] = "chat:" + chatID
+	acct.Env = env
+	return acct
 }
