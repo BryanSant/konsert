@@ -199,6 +199,9 @@ type WorkerInfo struct {
 	// Version is konsertd's build version (ldflags main.version). Empty or "dev"
 	// means unknown and never counts as a mismatch with the hub.
 	Version string `json:"version,omitempty"`
+	// Hostname is the OS hostname of the daemon's machine (its Name may differ). The hub
+	// uses it, with a loopback peer address, to recognize a daemon on its own host.
+	Hostname string `json:"hostname,omitempty"`
 }
 
 // ActiveTaskInfo is sent in worker.hello so the controller can re-adopt in-flight tasks on restart.

@@ -313,6 +313,28 @@ export class FleetStore {
     }
   }
 
+  /**
+   * Asks the hub to start a hub-managed machine's konsertd again. The machine shows
+   * "starting" until the hub reports the outcome over the socket.
+   */
+  async retryStart(workerId: string): Promise<void> {
+    this.live(() =>
+      this.workers.update((list) =>
+        list.map((w) => (w.id === workerId ? { ...w, launch_state: 'starting' as const, launch_error: undefined } : w)),
+      ),
+    );
+    try {
+      await this.api.startWorker(workerId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not start konsertd';
+      this.live(() =>
+        this.workers.update((list) =>
+          list.map((w) => (w.id === workerId ? { ...w, launch_state: 'failed' as const, launch_error: msg } : w)),
+        ),
+      );
+    }
+  }
+
   async loadSettings(): Promise<void> {
     try {
       const s = await this.api.getSettings();
@@ -530,6 +552,9 @@ export class FleetStore {
           ...worker,
           metrics: worker.metrics ?? next[idx].metrics,
           facts: worker.facts ?? next[idx].facts,
+          // Every worker view carries its current launch state; absent means cleared.
+          launch_state: worker.launch_state,
+          launch_error: worker.launch_error,
         };
         return next;
       });

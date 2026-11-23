@@ -410,12 +410,35 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                     >
                       <app-icon name="info" [size]="13" />
                     </button>
-                    <span
-                      class="h-1.5 w-1.5 rounded-full mx-0.5"
-                      [class.bg-[#69b879]]="node.worker.status === 'online' && node.effectiveStatus !== 'waiting_input'"
-                      [class.bg-[#d9a043]]="node.effectiveStatus === 'waiting_input'"
-                      [class.bg-[#484a52]]="node.worker.status !== 'online'"
-                    ></span>
+                    @if (node.worker.status !== 'online' && node.worker.launch_state === 'failed') {
+                      <button
+                        type="button"
+                        (click)="$event.stopPropagation(); retryStart(node.worker)"
+                        [ksTooltip]="launchFailedLabel(node.worker)"
+                        [attr.aria-label]="launchFailedLabel(node.worker)"
+                        class="ks-icon-btn ks-icon-btn-sm text-[var(--ks-red)]"
+                        data-testid="launch-retry"
+                      >
+                        <app-icon name="refresh" [size]="12" />
+                      </button>
+                    }
+                    @if (node.worker.status !== 'online' && node.worker.launch_state === 'starting') {
+                      <span
+                        role="img"
+                        class="h-2 w-2 rounded-full border-[1.5px] border-[var(--ks-blue)] border-t-transparent ks-ring-spin mx-0.5"
+                        ksTooltip="Starting konsertd on {{ node.worker.name }}"
+                        attr.aria-label="Starting konsertd on {{ node.worker.name }}"
+                        data-testid="launch-starting"
+                      ></span>
+                    } @else {
+                      <span
+                        class="h-1.5 w-1.5 rounded-full mx-0.5"
+                        [class.bg-[#69b879]]="node.worker.status === 'online' && node.effectiveStatus !== 'waiting_input'"
+                        [class.bg-[#d9a043]]="node.effectiveStatus === 'waiting_input'"
+                        [class.bg-[var(--ks-red)]]="node.worker.status !== 'online' && node.worker.launch_state === 'failed'"
+                        [class.bg-[#484a52]]="node.worker.status !== 'online' && node.worker.launch_state !== 'failed'"
+                      ></span>
+                    }
                     <button
                       type="button"
                       (click)="toggleWorker(node.worker.id)"
@@ -897,6 +920,14 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
   }
 
   /** True when the worker's konsertd build differs from the hub's (dev/unknown never do). */
+  launchFailedLabel(w: Worker): string {
+    return `Couldn't start konsertd on ${w.name}: ${w.launch_error || 'unknown error'}. Click to retry.`;
+  }
+
+  retryStart(w: Worker): void {
+    void this.fleet.retryStart(w.id);
+  }
+
   hasVersionMismatch(w: Worker): boolean {
     return isVersionMismatch(this.fleet.controllerVersion(), w.version);
   }

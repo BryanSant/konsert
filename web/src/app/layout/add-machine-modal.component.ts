@@ -5,11 +5,13 @@ import {
   OnInit,
   computed,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
+  LocalHostInfo,
   SSHBootstrapResult,
   SSHHost,
   SSHHostKey,
@@ -18,6 +20,7 @@ import {
 } from '../core/models/konsert.models';
 import { ApiClientService, SSHBootstrapEvent } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
+import { SetupStore } from '../core/state/setup.store';
 import { IconComponent } from '../shared/icon.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
@@ -25,6 +28,8 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
 export function workerMatchesHost(w: Worker, host: SSHHost): boolean {
   const alias = host.alias.toLowerCase();
+  // A machine the hub installed over ssh is exactly its target (aliases may share a HostName).
+  if (w.ssh_target) return w.ssh_target.toLowerCase() === alias;
   return (
     w.name.toLowerCase() === alias ||
     w.host_group.toLowerCase() === alias ||
@@ -38,6 +43,15 @@ function needsHostKeyConfirmation(r: SSHBootstrapResult): boolean {
     (!!r.host_key_confirmation_required || r.stage === SSH_STAGE_HOST_KEY_CONFIRMATION) &&
     (r.host_keys?.length ?? 0) > 0
   );
+}
+
+/** What adding this machine will do, shown under its name. */
+export function localHostSummary(local: LocalHostInfo): string {
+  if (local.connected) return local.added ? 'konsertd is running · added' : 'konsertd is running — will attach';
+  if (!local.konsertd_found) return `konsertd not found: ${local.fix || 'install konsertd next to konsert or on PATH'}`;
+  if (local.error) return local.error;
+  if (local.launch_state === 'failed') return `Could not start konsertd: ${local.launch_error || 'unknown error'}`;
+  return 'Will start konsertd (installed to start at login)';
 }
 
 function isAbort(err: unknown): boolean {
@@ -55,9 +69,16 @@ function isAbort(err: unknown): boolean {
     <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5" (close)="close.emit()">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">Add a machine</h3>
+          <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">
+            {{ firstRun() ? 'Add your first machine' : 'Add a machine' }}
+          </h3>
           <p class="text-[12px] text-[#8e9098] mt-1 leading-relaxed">
-            A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, and agents there keep running while your laptop sleeps.
+            @if (firstRun()) {
+              Agents run on machines you connect. Start with this one, add others over ssh, or close this to use
+              Konsert as a control plane only.
+            } @else {
+              A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, and agents there keep running while your laptop sleeps.
+            }
           </p>
         </div>
         <button
@@ -68,6 +89,63 @@ function isAbort(err: unknown): boolean {
         >
           Esc
         </button>
+      </div>
+
+      <!-- This machine (the hub's host) -->
+      <div class="space-y-2" data-testid="local-host">
+        <div class="text-[11px] text-[#8a8c94]">This machine</div>
+        @if (setup.loading() && !local()) {
+          <div class="rounded-lg bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">Looking for konsertd...</div>
+        } @else if (local(); as lh) {
+          <div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[#22242a]/80 transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <app-icon name="monitor" [size]="14" class="text-[#8a8c94]" />
+              <div class="min-w-0">
+                <div class="text-[12.5px] font-medium text-[#e4e4e7] truncate">This machine ({{ lh.hostname }})</div>
+                <div
+                  class="text-[11.5px] truncate"
+                  [class.text-[#86888f]]="lh.konsertd_found && !lh.error && lh.launch_state !== 'failed'"
+                  [class.text-[#f09595]]="!lh.konsertd_found || !!lh.error || lh.launch_state === 'failed'"
+                  [ksTooltip]="localSummary()"
+                  data-testid="local-host-state"
+                >
+                  {{ localSummary() }}
+                </div>
+              </div>
+            </div>
+            <div class="shrink-0">
+              @if (localPhase() === 'online' || (lh.added && lh.connected)) {
+                <span class="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-[#8fd49d]">
+                  <app-icon name="check-circle" [size]="13" />
+                  <span>Online</span>
+                </span>
+              } @else if (localPhase() === 'starting') {
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-[#24262d] px-3 py-1 text-[11px] text-[#c8cad0]">
+                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
+                  <span>Starting konsertd...</span>
+                </span>
+              } @else if (lh.konsertd_found || lh.connected) {
+                <button
+                  type="button"
+                  [disabled]="localBusy() || (!lh.connected && !lh.worker_id)"
+                  (click)="addLocal()"
+                  class="ks-btn ks-btn-sm ks-btn-soft"
+                  data-testid="add-local"
+                >
+                  {{ lh.connected ? 'Attach' : localPhase() === 'failed' || lh.launch_state === 'failed' ? 'Retry' : 'Add' }}
+                </button>
+              }
+            </div>
+          </div>
+        } @else if (setup.error()) {
+          <div class="rounded-lg bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">Could not check this machine: {{ setup.error() }}</div>
+        }
+        @if (localMsg()) {
+          <div class="rounded-lg bg-[#69b879]/10 px-3 py-2.5 text-[11.5px] text-[#98dba5]">{{ localMsg() }}</div>
+        }
+        @if (localError()) {
+          <div role="alert" class="rounded-lg bg-[#e05d5d]/10 px-3 py-2.5 text-[11.5px] text-[#f09595] break-words">{{ localError() }}</div>
+        }
       </div>
 
       <!-- From your ssh config -->
@@ -260,7 +338,10 @@ function isAbort(err: unknown): boolean {
 export class AddMachineModalComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
+  readonly setup = inject(SetupStore);
 
+  /** Opened automatically on a hub's first run. */
+  readonly firstRun = input(false);
   readonly close = output<void>();
   /** User asked to see an already-added machine. */
   readonly inspectMachine = output<string>();
@@ -282,9 +363,29 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   /** The hub refuses changed host keys outright; flag that error prominently. */
   readonly hostKeyChanged = computed(() => /host key .* has changed/i.test(this.sshErrorMsg()));
 
+  readonly local = this.setup.local;
+  readonly localSummary = computed(() => {
+    const lh = this.local();
+    return lh ? localHostSummary(lh) : '';
+  });
+  /** The local machine being added (by worker id), followed until it is online. */
+  readonly localAddId = signal('');
+  readonly localBusy = signal(false);
+  readonly localMsg = signal('');
+  readonly localError = signal('');
+  readonly localPhase = computed<'idle' | 'starting' | 'online' | 'failed'>(() => {
+    const id = this.localAddId();
+    if (!id) return 'idle';
+    const w = this.fleet.workersById()[id];
+    if (w?.status === 'online') return 'online';
+    if (w?.launch_state === 'failed') return 'failed';
+    return 'starting';
+  });
+
   /** Aborts an in-flight bootstrap stream when the modal closes. */
   private bootstrapAbort: AbortController | null = null;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private destroyed = false;
 
   readonly connectCommand = computed(() => {
     const parts = [`konsertd run --controller ${workerControllerUrl()}`];
@@ -295,6 +396,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   });
 
   async ngOnInit(): Promise<void> {
+    void this.setup.load();
     this.sshHostsLoading.set(true);
     try {
       const res = await this.api.listSSHHosts();
@@ -307,8 +409,44 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.bootstrapAbort?.abort();
     for (const t of this.timers) clearTimeout(t);
+  }
+
+  /** Adds this machine: attaches its running konsertd, or has the hub start one. */
+  async addLocal(): Promise<void> {
+    if (this.localBusy()) return;
+    this.localBusy.set(true);
+    this.localMsg.set('');
+    this.localError.set('');
+    try {
+      const res = await this.api.addLocalWorker();
+      this.setup.markCompleted();
+      this.localAddId.set(res.worker_id);
+      await this.fleet.refresh();
+      if (res.state === 'connected') {
+        this.localMsg.set(`Attached the konsertd running on ${this.local()?.hostname ?? 'this machine'}.`);
+      }
+      this.watchLocal();
+    } catch (err) {
+      this.localError.set(err instanceof Error ? err.message : 'Could not add this machine');
+    } finally {
+      this.localBusy.set(false);
+    }
+  }
+
+  /** Follows a starting local daemon; the socket usually reports first, this is a fallback. */
+  private watchLocal(): void {
+    if (this.destroyed) return;
+    const phase = this.localPhase();
+    if (phase === 'online' || phase === 'failed') {
+      void this.setup.load();
+      return;
+    }
+    this.later(() => {
+      void this.fleet.refresh().then(() => this.watchLocal());
+    }, 2000);
   }
 
   inspectSSHHostMachine(host: SSHHost): void {
@@ -349,6 +487,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
         this.sshErrorMsg.set(`${prefix}${result.error || `Failed to add ${clean}`}`);
         return;
       }
+      this.setup.markCompleted();
       this.sshStatusMsg.set(result.message || `konsertd ready on ${clean}.`);
       this.sshHosts.update((list) =>
         list.map((h) => (h.alias === clean || h.display === clean ? { ...h, added: true } : h)),

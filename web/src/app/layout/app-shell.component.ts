@@ -4,6 +4,7 @@ import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
 import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
+import { SetupStore } from '../core/state/setup.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { ChatViewComponent } from '../features/chat/chat-view.component';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
@@ -305,8 +306,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
       @if (addMachineOpen()) {
         <app-add-machine-modal
-          (close)="addMachineOpen.set(false)"
-          (inspectMachine)="addMachineOpen.set(false); inspectedWorkerId.set($event)"
+          [firstRun]="setup.needsSetup()"
+          (close)="closeAddMachine()"
+          (inspectMachine)="closeAddMachine(); inspectedWorkerId.set($event)"
         />
       }
 
@@ -328,6 +330,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly socket = inject(KonsertSocketService);
   readonly notifications = inject(NotificationService);
   private readonly launcher = inject(SessionLauncherService);
+  readonly setup = inject(SetupStore);
 
   readonly leftOpen = signal(true);
   readonly rightOpen = signal(true);
@@ -380,6 +383,16 @@ export class AppShellComponent implements OnInit, OnDestroy {
       .catch(() => undefined);
     void this.fleet.loadSettings();
     this.socket.connect();
+    // First run (persisted by the hub): open Add Machine with this machine on top.
+    void this.setup.load().then((s) => {
+      if (s?.needs_setup) this.addMachineOpen.set(true);
+    });
+  }
+
+  /** Closing Add Machine also dismisses first-run setup, so it does not reopen on load. */
+  closeAddMachine(): void {
+    this.addMachineOpen.set(false);
+    void this.setup.dismiss();
   }
 
   ngOnDestroy(): void {
@@ -418,7 +431,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
 
   closeAllModals(): void {
     this.commandPaletteOpen.set(false);
-    this.addMachineOpen.set(false);
+    if (this.addMachineOpen()) this.closeAddMachine();
     this.sessionRequest.set(null);
     this.newSpaceFor.set(null);
     this.settingsOpen.set(false);

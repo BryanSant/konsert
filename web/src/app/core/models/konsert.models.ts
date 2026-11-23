@@ -71,6 +71,49 @@ export interface Worker {
   facts?: MachineFacts;
   /** konsertd build version from worker.hello; empty when unknown. */
   version?: string;
+  /** How the hub (re)starts this machine's konsertd; absent when it was started by hand. */
+  launch?: WorkerLaunch;
+  /** SSH target the hub installs/starts konsertd through (launch 'ssh'). */
+  ssh_target?: string;
+  /** Last start attempt by the hub; absent once the daemon is connected. */
+  launch_state?: WorkerLaunchState;
+  launch_error?: string;
+  launch_at?: string;
+}
+
+export type WorkerLaunch = 'local' | 'ssh';
+export type WorkerLaunchState = 'starting' | 'failed';
+
+/** The hub's own machine, as GET /api/setup reports it. */
+export interface LocalHostInfo {
+  hostname: string;
+  konsertd_path?: string;
+  konsertd_found: boolean;
+  /** How to make konsertd available when it was not found. */
+  fix?: string;
+  /** Identity of the local daemon (running, or the one `konsertd install` will start). */
+  worker_id?: string;
+  worker_sid?: string;
+  /** A konsertd on this machine is connected: adding it only attaches. */
+  connected: boolean;
+  /** The hub already starts this machine's konsertd. */
+  added: boolean;
+  launch_state?: WorkerLaunchState;
+  launch_error?: string;
+  /** `konsertd id` failed. */
+  error?: string;
+}
+
+export interface SetupStatus {
+  /** First run: no machines and the Add Machine dialog was never completed or dismissed. */
+  needs_setup: boolean;
+  local: LocalHostInfo;
+}
+
+export interface AddLocalWorkerResult {
+  worker_id: string;
+  worker_sid?: string;
+  state: 'connected' | 'starting';
 }
 
 /** Per-host wake lock (caffeinate / systemd-inhibit / SetThreadExecutionState). */
@@ -242,6 +285,11 @@ export interface SSHBootstrapResult {
   service_mode?: string;
   message?: string;
   error?: string;
+  /** The remote daemon's identity (workers.id) and the --name it was installed with. */
+  worker_id?: string;
+  name?: string;
+  /** Installed as a Windows logon task that starts at the user's next login. */
+  start_deferred?: boolean;
   /** Set (with host_keys) when the host key is unknown; resubmit with accept_host_key. */
   host_key_confirmation_required?: boolean;
   host_keys?: SSHHostKey[];

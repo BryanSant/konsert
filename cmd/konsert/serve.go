@@ -18,6 +18,10 @@ import (
 // shutdownTimeout bounds how long shutdown waits for in-flight work to drain.
 const shutdownTimeout = 10 * time.Second
 
+// launchGrace is how long after startup the hub waits for configured daemons to
+// reconnect before starting the ones that did not (a variable for tests).
+var launchGrace = 15 * time.Second
+
 // runServe runs the controller until ctx is cancelled (or the listener fails), then
 // shuts down in order: cancel the server-lifetime context, close hub sockets, drain
 // HTTP handlers (including hijacked WebSocket handlers), wait for background
@@ -70,6 +74,9 @@ func runServe(ctx context.Context, cfg config.ControllerConfig, logger *slog.Log
 		"mcp_http", cfg.EnableMCPHTTP,
 		"auth_enabled", !cfg.NoAuth,
 	)
+	srv.SetListenAddr(ln.Addr().String())
+	// Start configured daemons (local and SSH hosts) that do not reconnect on their own.
+	srv.StartLaunchReconciler(launchGrace)
 	if onListening != nil {
 		onListening(ln.Addr())
 	}

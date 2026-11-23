@@ -73,6 +73,10 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		cancel:      cancel,
 		activeTasks: make(map[string]bool),
 		baseURL:     workerBaseURLFrom(ctx),
+		loopback:    isLoopbackAddr(workerRemoteAddrFrom(ctx)),
+		name:        hello.Worker.Name,
+		hostGroup:   hello.Worker.HostGroup,
+		hostname:    hello.Worker.Hostname,
 	}
 
 	// Register worker in SQLite and Hub.
@@ -109,6 +113,14 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	}
 	if stored, err := h.store.GetWorker(ctx, wModel.ID); err == nil {
 		wModel.SID = stored.SID
+		wModel.Launch, wModel.SSHTarget = stored.Launch, stored.SSHTarget
+		wModel.LaunchAt = stored.LaunchAt
+		// The daemon is up: a pending or failed start is resolved.
+		if stored.LaunchState != store.LaunchStateNone {
+			if err := h.store.SetWorkerLaunchState(ctx, wModel.ID, store.LaunchStateNone, "", now); err == nil {
+				wModel.LaunchAt = &now
+			}
+		}
 	}
 
 	h.mu.Lock()

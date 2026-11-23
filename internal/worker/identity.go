@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/google/uuid"
 )
@@ -78,6 +79,33 @@ func ResolveStableWorkerID(baseDir, name, hostGroup, isolation string) string {
 		}
 	}
 	return deterministicWorkerID(name, hostGroup, isolation)
+}
+
+// WorkerIDFor is the identity a daemon running with cfg uses: its explicit worker_id, else
+// the persisted identity for its name and isolation (created on first use). `konsertd id`
+// prints it, so the hub learns a host's workers.id before that daemon ever connects.
+func WorkerIDFor(cfg config.WorkerConfig) string {
+	if id := strings.TrimSpace(cfg.WorkerID); id != "" {
+		return id
+	}
+	name := cfg.Name
+	if name == "" {
+		name, _ = os.Hostname()
+		if name == "" {
+			name = "worker"
+		}
+	}
+	hostGroup := cfg.HostGroup
+	if hostGroup == "" {
+		hostGroup = name
+	}
+	return ResolveStableWorkerID("", name, hostGroup, cfg.Isolation)
+}
+
+// osHostname is this machine's hostname ("" if unknown).
+func osHostname() string {
+	h, _ := os.Hostname()
+	return h
 }
 
 func workerIDFilename(name, isolation string) string {
