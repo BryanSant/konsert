@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -29,7 +31,7 @@ type BootstrapOptions struct {
 
 // BootstrapStage records one discrete step in the zero-touch SSH onboarding pipeline.
 type BootstrapStage struct {
-	Stage  string `json:"stage"` // "connecting" | "host_key_confirmation" | "installing_daemon" | "configuring_service" | "installing_hooks" | "inspecting_facts" | "ready"
+	Stage  string `json:"stage"` // "connecting" | "host_key_confirmation" | "installing_daemon" | "installing_hooks" | "configuring_service" | "ready"
 	Label  string `json:"label"`
 	Status string `json:"status"` // "ok" | "skipped" | "error"
 	Detail string `json:"detail,omitempty"`
@@ -48,9 +50,16 @@ type BootstrapResult struct {
 	Stage          string           `json:"stage,omitempty"`
 	Stages         []BootstrapStage `json:"stages,omitempty"`
 	HooksInstalled bool             `json:"hooks_installed,omitzero"`
-	ServiceMode    string           `json:"service_mode,omitempty"` // "systemd" | "launchd" | "nohup"
+	ServiceMode    string           `json:"service_mode,omitempty"` // "systemd" | "launchd" | "schtasks" | "nohup"
 	Message        string           `json:"message,omitempty"`
 	Error          string           `json:"error,omitempty"`
+	// WorkerID is the remote daemon's identity (`konsertd id`): its workers.id. Name is
+	// the --name it was installed with.
+	WorkerID string `json:"worker_id,omitempty"`
+	Name     string `json:"name,omitempty"`
+	// StartDeferred is set when konsertd was installed but is not running yet: a Windows
+	// logon task only runs while the user is logged on, so it starts at the next login.
+	StartDeferred bool `json:"start_deferred,omitzero"`
 	// HostKeyConfirmationRequired is set (with HostKeys) when the remote host key is
 	// unknown. Re-submit with accept_host_key set to the confirmed fingerprint.
 	HostKeyConfirmationRequired bool      `json:"host_key_confirmation_required,omitzero"`
@@ -72,8 +81,9 @@ func (s *session) scp(ctx context.Context, src, remotePath string) error {
 	return err
 }
 
-// workerConfigFile is the YAML written to ~/.konsert/worker.yaml on the remote host.
-type workerConfigFile struct {
+// nohupConfigFile is the YAML a POSIX host without a systemd user manager (a container,
+// WSL without systemd) runs konsertd from, under nohup.
+type nohupConfigFile struct {
 	ControllerURL    string `yaml:"controller_url"`
 	FleetToken       string `yaml:"fleet_token"`
 	Name             string `yaml:"name"`
@@ -82,22 +92,38 @@ type workerConfigFile struct {
 	EnableMockDriver bool   `yaml:"enable_mock_driver"`
 }
 
-// writeWorkerConfigCmd reads the config from stdin, so the fleet token never appears
-// in any process's argv on either host.
-const writeWorkerConfigCmd = `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
-	`cat > "$HOME/.konsert/worker.yaml.tmp" && chmod 600 "$HOME/.konsert/worker.yaml.tmp" && ` +
-	`mv -f "$HOME/.konsert/worker.yaml.tmp" "$HOME/.konsert/worker.yaml"`
+// writeNohupConfigCmd reads the config from stdin, so the fleet token never appears in
+// any process's argv on either host.
+const writeNohupConfigCmd = `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
+	`cat > "$HOME/.konsert/konsertd-nohup.yaml.tmp" && chmod 600 "$HOME/.konsert/konsertd-nohup.yaml.tmp" && ` +
+	`mv -f "$HOME/.konsert/konsertd-nohup.yaml.tmp" "$HOME/.konsert/konsertd-nohup.yaml"`
 
-// BootstrapRemoteWorker connects over SSH, ensures konsertd exists on the remote host,
-// writes ~/.konsert/worker.yaml & persistent user service (systemd/launchd/nohup),
-// installs agent hooks (`konsertd install-hooks`), and starts konsertd so initial MachineFacts arrive.
+// nohupStartCmd (re)starts the nohup daemon recorded in its pid file.
+func nohupStartCmd(exe string) string {
+	return `PIDF="$HOME/.konsert/konsertd-nohup.pid"
+if [ -f "$PIDF" ]; then OLD=$(cat "$PIDF"); if ps -p "$OLD" -o args= 2>/dev/null | grep -q 'konsertd.* run'; then kill "$OLD"; sleep 1; fi; fi
+nohup ` + shQuote(exe) + ` run -c "$HOME/.konsert/konsertd-nohup.yaml" </dev/null >>"$HOME/.konsert/konsertd.log" 2>&1 &
+echo $! > "$PIDF"`
+}
+
+// noUserManager matches `konsertd install`'s error on Linux without a systemd user instance.
+var noUserManager = regexp.MustCompile(`no systemd user instance is reachable`)
+
+var uuidLine = regexp.MustCompile(`(?m)^\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*$`)
+
+// BootstrapRemoteWorker connects over SSH, makes sure konsertd is on the remote host
+// (copying a matching build from the controller when it is not), learns its worker id
+// (`konsertd id`), installs agent hooks (`konsertd install-hooks`) and registers and
+// starts the daemon with `konsertd install`: a systemd user unit on Linux, a LaunchAgent
+// on macOS, a hidden logon task on Windows. It is idempotent, so the hub also uses it to
+// restart a configured host whose daemon is down.
 func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) BootstrapResult {
 	t, err := ParseTarget(opts.Target)
 	if err != nil {
 		return BootstrapResult{OK: false, Target: strings.TrimSpace(opts.Target), Stage: "connecting", Error: err.Error()}
 	}
 	target := t.String()
-	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 90*time.Second)
 	defer cancel()
 
 	var stages []BootstrapStage
@@ -161,7 +187,7 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		// rejects any other key the real connection presents.
 		sess.extraOpts = []string{"-o", fmt.Sprintf("UserKnownHostsFile=%q", khPath)}
 		unameOut, err = sess.ssh(ctx, unameCmd, nil)
-		if err == nil {
+		if classifyHostKeyError(err) == hostKeyOK {
 			if perr := appendKnownHost(key.knownHosts); perr == nil {
 				stages = append(stages, BootstrapStage{Stage: StageHostKeyConfirmation, Label: "Confirm host key", Status: "ok", Detail: "trusted " + key.Fingerprint})
 			} else {
@@ -169,99 +195,141 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 			}
 		}
 	}
-	if err != nil {
-		return fail("connecting", "Connecting", "", "", fmt.Sprintf("SSH connection failed: %v", err))
+	rOS, rArch, ok := parseUname(unameOut)
+	if err != nil || !ok || isWindowsUname(rOS) {
+		// No POSIX uname (Windows OpenSSH lands in PowerShell or cmd.exe), or a Git
+		// Bash/MSYS uname on PATH: ask PowerShell instead.
+		probe, perr := sess.ssh(ctx, encodePS(windowsProbeScript), nil)
+		arch, wok := parseWindowsProbe(probe)
+		switch {
+		case perr == nil && wok:
+			rOS, rArch, err = "windows", arch, nil
+		case err != nil:
+			return fail("connecting", "Connecting", "", "", fmt.Sprintf("SSH connection failed: %v", err))
+		default:
+			return fail("connecting", "Connecting", "", "", "unable to detect remote OS/arch")
+		}
 	}
-	lines := strings.Split(strings.TrimSpace(unameOut), "\n")
-	if len(lines) < 2 {
-		return fail("connecting", "Connecting", "", "", "unable to detect remote OS/arch")
-	}
-	rOS := strings.ToLower(strings.TrimSpace(lines[0]))
-	rArch := normalizeArch(strings.ToLower(strings.TrimSpace(lines[1])))
 	stages = append(stages, BootstrapStage{Stage: "connecting", Label: "Connecting", Status: "ok", Detail: rOS + "/" + rArch})
+
+	var sh remoteShell = posixShell{}
+	if rOS == "windows" {
+		sh = windowsShell{}
+	}
 
 	// Stage 2: Installing daemon
 	notify("installing_daemon", "Installing daemon", "Checking or transferring konsertd binary")
-	_, hasRemote := sess.ssh(ctx, "command -v konsertd || test -x \"$HOME/.local/bin/konsertd\"", nil)
-	if hasRemote != nil {
-		localBin := findMatchingLocalKonsertd(rOS, rArch)
+	findOut, err := sess.ssh(ctx, sh.findKonsertd(), nil)
+	if err != nil {
+		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("look for konsertd failed: %v", err))
+	}
+	exe, found := parseFind(findOut)
+	if exe == "" {
+		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("unexpected reply looking for konsertd: %q", strings.TrimSpace(findOut)))
+	}
+	if !found {
+		localBin := FindKonsertd(rOS, rArch)
 		if localBin == "" {
 			return fail("installing_daemon", "Installing daemon", rOS, rArch,
-				fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary found in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.", target, rOS, rArch))
+				fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary (%s) next to konsert or in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.",
+					target, rOS, rArch, konsertdFileName(rOS, rArch)))
 		}
-		if _, err := sess.ssh(ctx, "mkdir -p \"$HOME/.local/bin\"", nil); err != nil {
-			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("mkdir ~/.local/bin failed: %v", err))
+		if _, err := sess.ssh(ctx, sh.prepareInstall(exe), nil); err != nil {
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("create the konsertd directory failed: %v", err))
 		}
-		if err := sess.scp(ctx, localBin, "~/.local/bin/konsertd"); err != nil {
+		if err := sess.scp(ctx, localBin, sh.scpPath(exe)); err != nil {
 			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("scp konsertd failed: %v", err))
 		}
-		_, _ = sess.ssh(ctx, "chmod +x \"$HOME/.local/bin/konsertd\"", nil)
-		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "transferred ~/.local/bin/konsertd"})
+		if c := sh.finishCopy(exe); c != "" {
+			if _, err := sess.ssh(ctx, c, nil); err != nil {
+				return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("chmod konsertd failed: %v", err))
+			}
+		}
+		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "transferred " + exe})
 	} else {
-		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "already installed"})
+		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "already installed: " + exe})
 	}
 
-	// Stage 3: Configuring ~/.konsert/worker.yaml (sent over stdin) + persistent service
-	notify("configuring_service", "Configuring service", "Writing worker config and persistence")
-	configYAML, err := yaml.Marshal(workerConfigFile{
-		ControllerURL:    opts.ControllerURL,
-		FleetToken:       opts.FleetToken,
-		Name:             t.Host,
-		HostGroup:        t.Host,
-		Sandbox:          opts.Sandbox,
-		EnableMockDriver: opts.EnableMock,
-	})
+	// The daemon's identity, learned before it starts (so the two can never race to
+	// create it). It is the same one `run --name <host>` uses.
+	name := t.Host
+	runFlags := []string{"--name", name, "--host-group", name}
+	idOut, err := sess.ssh(ctx, sh.konsertd(exe, append([]string{"id"}, runFlags...), false), nil)
 	if err != nil {
-		return fail("configuring_service", "Configuring service", rOS, rArch, fmt.Sprintf("render worker config: %v", err))
+		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("konsertd id failed (is the remote konsertd too old?): %v", err))
 	}
-	if _, err := sess.ssh(ctx, writeWorkerConfigCmd, configYAML); err != nil {
-		return fail("configuring_service", "Configuring service", rOS, rArch, fmt.Sprintf("write ~/.konsert/worker.yaml failed: %v", err))
+	m := uuidLine.FindStringSubmatch(idOut)
+	if m == nil {
+		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("konsertd id printed no worker id: %q", strings.TrimSpace(idOut)))
 	}
-	stages = append(stages, BootstrapStage{Stage: "configuring_service", Label: "Configuring service", Status: "ok", Detail: "~/.konsert/worker.yaml"})
+	workerID := strings.ToLower(m[1])
 
-	// Stage 4: Installing agent hooks & skills (`konsertd install-hooks`)
+	// Stage 3: Installing agent hooks & skills (`konsertd install-hooks`)
 	notify("installing_hooks", "Installing hooks", "Installing Claude/Antigravity/Codex telemetry hooks")
 	hooksInstalled := false
-	if _, hErr := sess.ssh(ctx, `BIN=$(command -v konsertd || echo "$HOME/.local/bin/konsertd"); "$BIN" install-hooks`, nil); hErr == nil {
+	if _, hErr := sess.ssh(ctx, sh.konsertd(exe, []string{"install-hooks"}, false), nil); hErr == nil {
 		hooksInstalled = true
 		stages = append(stages, BootstrapStage{Stage: "installing_hooks", Label: "Installing hooks", Status: "ok", Detail: "agent hooks active"})
 	} else {
 		stages = append(stages, BootstrapStage{Stage: "installing_hooks", Label: "Installing hooks", Status: "skipped", Detail: hErr.Error()})
 	}
 
-	// Stage 5: Starting persistent daemon & triggering initial fact inspection
-	notify("inspecting_facts", "Inspecting facts", "Starting konsertd and collecting machine facts")
-	serviceMode := "nohup"
-	startScript := `BIN=$(command -v konsertd || echo "$HOME/.local/bin/konsertd")
-CFG="$HOME/.konsert/worker.yaml"
-if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
-  mkdir -p "$HOME/.config/systemd/user"
-  cat > "$HOME/.config/systemd/user/konsertd.service" <<SVC_EOF
-[Unit]
-Description=Konsert Worker Daemon
-After=network-online.target
-
-[Service]
-ExecStart=$BIN run -c $CFG
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=default.target
-SVC_EOF
-  systemctl --user daemon-reload && systemctl --user enable konsertd.service && systemctl --user restart konsertd.service && echo "systemd" && exit 0
-fi
-pkill -f "konsertd run" >/dev/null 2>&1 || true
-nohup "$BIN" run -c "$CFG" </dev/null >/tmp/konsertd.log 2>&1 & echo "nohup:$!"`
-	startOut, err := sess.ssh(ctx, startScript, nil)
-	if err != nil {
-		return fail("inspecting_facts", "Inspecting facts", rOS, rArch, fmt.Sprintf("start konsertd failed: %v", err))
+	// Stage 4: Register and start the daemon (`konsertd install`).
+	notify("configuring_service", "Starting konsertd", "Registering konsertd to start automatically and starting it")
+	installArgs := append([]string{"install", "--controller", opts.ControllerURL}, runFlags...)
+	if opts.Sandbox {
+		installArgs = append(installArgs, "--sandbox")
 	}
-	if strings.HasPrefix(strings.TrimSpace(startOut), "systemd") {
-		serviceMode = "systemd"
+	if opts.EnableMock {
+		installArgs = append(installArgs, "--enable-mock-driver")
 	}
-	stages = append(stages, BootstrapStage{Stage: "inspecting_facts", Label: "Inspecting facts", Status: "ok", Detail: "started via " + serviceMode})
-	notify("ready", "Ready", fmt.Sprintf("konsertd running on %s (%s/%s)", target, rOS, rArch))
+	var tokenStdin []byte
+	if opts.FleetToken != "" {
+		installArgs = append(installArgs, sh.tokenArgs()...)
+		tokenStdin = []byte(opts.FleetToken + "\n")
+	}
+	serviceMode := map[string]string{"linux": "systemd", "darwin": "launchd", "windows": "schtasks"}[rOS]
+	startDeferred := false
+	if _, err := sess.ssh(ctx, sh.konsertd(exe, installArgs, tokenStdin != nil), tokenStdin); err != nil {
+		if rOS == "windows" || !noUserManager.MatchString(err.Error()) {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("konsertd install failed: %v", err))
+		}
+		// No systemd user manager (container, WSL without systemd): run it under nohup,
+		// from a config written over stdin. The hub restarts it the same way.
+		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name}, false), nil)
+		cfg, merr := yaml.Marshal(nohupConfigFile{
+			ControllerURL: opts.ControllerURL, FleetToken: opts.FleetToken, Name: name, HostGroup: name,
+			Sandbox: opts.Sandbox, EnableMockDriver: opts.EnableMock,
+		})
+		if merr != nil {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("render worker config: %v", merr))
+		}
+		if _, err := sess.ssh(ctx, writeNohupConfigCmd, cfg); err != nil {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("write ~/.konsert/konsertd-nohup.yaml failed: %v", err))
+		}
+		if _, err := sess.ssh(ctx, nohupStartCmd(exe), nil); err != nil {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("start konsertd failed: %v", err))
+		}
+		serviceMode = "nohup"
+	}
+	if rOS == "windows" {
+		// A logon task (InteractiveToken) only runs while the user is logged on to Windows.
+		if st, err := sess.ssh(ctx, sh.konsertd(exe, []string{"status", "--name", name}, false), nil); err == nil && notRunning(st) {
+			startDeferred = true
+		}
+	}
+	detail := "started via " + serviceMode
+	if startDeferred {
+		detail = "installed as a logon task; starts at the next Windows login of this user"
+	}
+	stages = append(stages, BootstrapStage{Stage: "configuring_service", Label: "Starting konsertd", Status: "ok", Detail: detail})
+	msg := fmt.Sprintf("Connected %s (%s/%s, %s, hooks=%t)", target, rOS, rArch, serviceMode, hooksInstalled)
+	if startDeferred {
+		msg = fmt.Sprintf("Installed konsertd on %s; it will start at the next Windows login (no one is logged on now)", target)
+		notify("ready", "Installed", msg)
+	} else {
+		notify("ready", "Ready", fmt.Sprintf("konsertd started on %s (%s/%s)", target, rOS, rArch))
+	}
 
 	return BootstrapResult{
 		OK:             true,
@@ -272,8 +340,54 @@ nohup "$BIN" run -c "$CFG" </dev/null >/tmp/konsertd.log 2>&1 & echo "nohup:$!"`
 		Stages:         stages,
 		HooksInstalled: hooksInstalled,
 		ServiceMode:    serviceMode,
-		Message:        fmt.Sprintf("Connected %s (%s/%s, %s, hooks=%t)", target, rOS, rArch, serviceMode, hooksInstalled),
+		Message:        msg,
+		WorkerID:       workerID,
+		Name:           name,
+		StartDeferred:  startDeferred,
 	}
+}
+
+// parseUname parses `uname -s && uname -m`.
+func parseUname(out string) (osName, arch string, ok bool) {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		return "", "", false
+	}
+	return strings.ToLower(strings.TrimSpace(lines[0])), normalizeArch(strings.ToLower(strings.TrimSpace(lines[1]))), true
+}
+
+// isWindowsUname reports a Git Bash / MSYS / Cygwin uname, i.e. a Windows host.
+func isWindowsUname(osName string) bool {
+	for _, p := range []string{"mingw", "msys", "cygwin", "windows"} {
+		if strings.HasPrefix(osName, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseFind parses findKonsertd's "found:<path>" / "missing:<path>" reply.
+func parseFind(out string) (path string, found bool) {
+	for _, l := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
+		l = strings.TrimSpace(l)
+		if p, ok := strings.CutPrefix(l, "found:"); ok && p != "" {
+			return p, true
+		}
+		if p, ok := strings.CutPrefix(l, "missing:"); ok && p != "" {
+			return p, false
+		}
+	}
+	return "", false
+}
+
+// notRunning reports `konsertd status` output saying the daemon is not running.
+func notRunning(status string) bool {
+	for _, l := range strings.Split(strings.ReplaceAll(status, "\r", ""), "\n") {
+		if k, v, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == "Running" {
+			return strings.HasPrefix(strings.TrimSpace(v), "no")
+		}
+	}
+	return false
 }
 
 func normalizeArch(raw string) string {
@@ -287,24 +401,49 @@ func normalizeArch(raw string) string {
 	}
 }
 
-func findMatchingLocalKonsertd(targetOS, targetArch string) string {
-	candidates := []string{
-		filepath.Join("dist", fmt.Sprintf("konsertd-%s-%s", targetOS, targetArch)),
+// konsertdFileName is the cross-built binary name `make build-all` writes to dist/.
+func konsertdFileName(targetOS, targetArch string) string {
+	name := fmt.Sprintf("konsertd-%s-%s", targetOS, targetArch)
+	if targetOS == "windows" {
+		name += ".exe"
 	}
+	return name
+}
+
+// FindKonsertd returns the absolute path of a konsertd binary for targetOS/targetArch
+// on the controller machine, or "". It looks next to the running konsert executable,
+// then in dist/ and bin/ of the working directory, and, for this machine's own
+// platform, on PATH.
+func FindKonsertd(targetOS, targetArch string) string {
+	cross := konsertdFileName(targetOS, targetArch)
+	native := targetOS == runtime.GOOS && targetArch == runtime.GOARCH
+	plain := "konsertd"
+	if targetOS == "windows" {
+		plain += ".exe"
+	}
+	var candidates []string
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		candidates = append(candidates,
-			filepath.Join(dir, fmt.Sprintf("konsertd-%s-%s", targetOS, targetArch)),
-		)
-		if targetOS == runtime.GOOS && targetArch == runtime.GOARCH {
-			candidates = append(candidates, filepath.Join(dir, "konsertd"))
+		if r, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = r
 		}
+		dir := filepath.Dir(exe)
+		if native {
+			candidates = append(candidates, filepath.Join(dir, plain))
+		}
+		candidates = append(candidates, filepath.Join(dir, cross))
 	}
-	if targetOS == runtime.GOOS && targetArch == runtime.GOARCH {
-		candidates = append(candidates, filepath.Join("bin", "konsertd"))
+	candidates = append(candidates, filepath.Join("dist", cross))
+	if native {
+		candidates = append(candidates, filepath.Join("bin", plain))
+		if p, err := exec.LookPath(plain); err == nil {
+			candidates = append(candidates, p)
+		}
 	}
 	for _, c := range candidates {
 		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			if abs, err := filepath.Abs(c); err == nil {
+				return abs
+			}
 			return c
 		}
 	}

@@ -183,6 +183,66 @@ func (s *SQLiteStore) TouchWorker(ctx context.Context, id string, seenAt time.Ti
 	return nil
 }
 
+func (s *SQLiteStore) EnsureWorker(ctx context.Context, w store.Worker) (store.Worker, error) {
+	if strings.TrimSpace(w.ID) == "" {
+		return store.Worker{}, errors.New("worker id is required")
+	}
+	if w.HostGroup == "" {
+		w.HostGroup = w.Name
+	}
+	if w.Isolation == "" {
+		w.Isolation = "host"
+	}
+	if w.PermissionMode == "" {
+		w.PermissionMode = store.PermissionFullAccess
+	}
+	if w.MaxConcurrent <= 0 {
+		w.MaxConcurrent = 2
+	}
+	if w.LastSeenAt.IsZero() {
+		w.LastSeenAt = time.Now().UTC()
+	}
+	// Keep the sid of a known machine (the conflict clause never touches it); mint one
+	// for a new row.
+	sid := ""
+	err := s.db.QueryRowContext(ctx, `SELECT sid FROM workers WHERE id = ?`, w.ID).Scan(&sid)
+	if errors.Is(err, sql.ErrNoRows) {
+		sid, err = s.NewSID(ctx, ids.Machine)
+	}
+	if err != nil {
+		return store.Worker{}, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO workers (id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at,
+			launch, ssh_target, controller_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '{}', ?, 'offline', ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			launch = excluded.launch,
+			ssh_target = excluded.ssh_target,
+			controller_url = excluded.controller_url
+	`, w.ID, sid, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode), w.MaxConcurrent,
+		formatTime(w.LastSeenAt), w.Launch, w.SSHTarget, w.ControllerURL); err != nil {
+		return store.Worker{}, err
+	}
+	return s.GetWorker(ctx, w.ID)
+}
+
+func (s *SQLiteStore) SetWorkerLaunchState(ctx context.Context, id, state, errMsg string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE workers SET launch_state = ?, launch_error = ?, launch_at = ? WHERE id = ?
+	`, state, errMsg, formatTime(at), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error {
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
@@ -200,6 +260,10 @@ func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON strin
 	return nil
 }
 
+// workerColumns is the column list scanWorker reads, in order.
+const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
+		launch, ssh_target, controller_url, launch_state, launch_error, launch_at`
+
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
 		w            store.Worker
@@ -209,10 +273,12 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 		lastSeen     string
 		factsJSON    string
 		factsUpdated sql.NullString
+		launchAt     sql.NullString
 	)
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
+		&w.Launch, &w.SSHTarget, &w.ControllerURL, &w.LaunchState, &w.LaunchError, &launchAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound
@@ -225,6 +291,10 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	if factsUpdated.Valid && factsUpdated.String != "" {
 		ft := parseTime(factsUpdated.String)
 		w.FactsUpdatedAt = &ft
+	}
+	if launchAt.Valid && launchAt.String != "" {
+		lt := parseTime(launchAt.String)
+		w.LaunchAt = &lt
 	}
 	_ = json.Unmarshal([]byte(agentsJSON), &w.Agents)
 	_ = json.Unmarshal([]byte(tagsJSON), &w.Tags)
@@ -239,7 +309,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 
 func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
+		SELECT `+workerColumns+`
 		FROM workers WHERE id = ?
 	`, id)
 	return scanWorker(row)
@@ -247,7 +317,7 @@ func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, e
 
 func (s *SQLiteStore) ListWorkers(ctx context.Context) ([]store.Worker, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
+		SELECT `+workerColumns+`
 		FROM workers ORDER BY host_group ASC, name ASC
 	`)
 	if err != nil {

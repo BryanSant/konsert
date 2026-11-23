@@ -43,7 +43,29 @@ type Worker struct {
 	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitzero"`
 	// Version is the konsertd build version last reported in worker.hello.
 	Version string `json:"version,omitempty"`
+
+	// Launch is how the hub (re)starts this machine's konsertd: LaunchManual (""),
+	// LaunchLocal or LaunchSSH. SSHTarget and ControllerURL are what an SSH (re)start
+	// uses. The fields are set by EnsureWorker/SetWorkerLaunchState, never by
+	// UpsertWorker, so a worker.hello keeps them.
+	Launch        string     `json:"launch,omitempty"`
+	SSHTarget     string     `json:"ssh_target,omitempty"`
+	ControllerURL string     `json:"controller_url,omitempty"`
+	LaunchState   string     `json:"launch_state,omitempty"` // "" | "starting" | "failed"
+	LaunchError   string     `json:"launch_error,omitempty"`
+	LaunchAt      *time.Time `json:"launch_at,omitzero"`
 }
+
+// Worker launch modes and states (workers.launch / workers.launch_state).
+const (
+	LaunchManual = ""
+	LaunchLocal  = "local"
+	LaunchSSH    = "ssh"
+
+	LaunchStateNone     = ""
+	LaunchStateStarting = "starting"
+	LaunchStateFailed   = "failed"
+)
 
 // MemoryEntry persists compact Orchestrator fleet/thread/project state in SQLite across context resets.
 type MemoryEntry struct {
@@ -303,6 +325,13 @@ type Store interface {
 	// (when w.SID is empty) and never changes after.
 
 	UpsertWorker(ctx context.Context, w Worker) error
+	// EnsureWorker records how the hub launches a machine. A machine not seen yet is
+	// created offline (with a minted sid) from w's identity fields, so a configured host
+	// exists before its daemon ever connects; an existing row only gets w's Launch,
+	// SSHTarget and ControllerURL. Returns the stored row.
+	EnsureWorker(ctx context.Context, w Worker) (Worker, error)
+	// SetWorkerLaunchState records the outcome of a start attempt ("" clears it).
+	SetWorkerLaunchState(ctx context.Context, id, state, errMsg string, at time.Time) error
 	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
 	// TouchWorker marks an existing worker online at seenAt. Unlike UpsertWorker it
 	// never recreates a row, so a heartbeat racing a fleet removal can't resurrect it.

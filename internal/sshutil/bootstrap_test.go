@@ -126,6 +126,8 @@ type fakeSSH struct {
 	knownKey  bool // host key already trusted
 	hostBlob  string
 	trustFile string // set when UserKnownHostsFile override is used
+	// remote answers remote commands once the host key is trusted (default posixRemote).
+	remote func(cmd string, stdin []byte) (string, error)
 }
 
 func (f *fakeSSH) run(_ context.Context, name string, args []string, stdin []byte) (string, error) {
@@ -155,11 +157,23 @@ func (f *fakeSSH) run(_ context.Context, name string, args []string, stdin []byt
 		return "", errors.New("No ED25519 host key is known for box and you have requested strict checking.\nHost key verification failed.")
 	}
 	cmd := args[len(args)-1]
+	if f.remote != nil {
+		return f.remote(cmd, stdin)
+	}
+	return posixRemote(cmd, stdin)
+}
+
+const testWorkerID = "01890a5d-ac96-774b-bcce-b302099a8057"
+
+// posixRemote simulates a Linux host with konsertd in ~/.local/bin and a user systemd.
+func posixRemote(cmd string, _ []byte) (string, error) {
 	switch {
 	case strings.HasPrefix(cmd, "uname"):
 		return "Linux\nx86_64\n", nil
-	case strings.Contains(cmd, "systemctl"):
-		return "systemd\n", nil
+	case strings.Contains(cmd, "command -v konsertd"):
+		return "found:/home/me/.local/bin/konsertd\n", nil
+	case strings.HasPrefix(cmd, "/home/me/.local/bin/konsertd id "):
+		return testWorkerID + "\n", nil
 	}
 	return "", nil
 }
@@ -197,7 +211,7 @@ func TestBootstrapNeverPutsTokenInArgv(t *testing.T) {
 		}
 		if strings.Contains(string(f.stdins[i]), token) {
 			sawStdin = true
-			if !strings.Contains(c[len(c)-1], `cat > "$HOME/.konsert/worker.yaml.tmp"`) {
+			if !strings.Contains(c[len(c)-1], " install ") || !strings.HasSuffix(c[len(c)-1], " --token-stdin") {
 				t.Fatalf("token stdin sent to unexpected command %q", c)
 			}
 		}
@@ -206,7 +220,7 @@ func TestBootstrapNeverPutsTokenInArgv(t *testing.T) {
 		}
 	}
 	if !sawStdin {
-		t.Fatal("worker config with token must be written over stdin")
+		t.Fatal("the fleet token must reach konsertd install over stdin")
 	}
 }
 
