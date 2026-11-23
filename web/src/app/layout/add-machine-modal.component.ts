@@ -13,6 +13,7 @@ import { SSHHost, Worker } from '../core/models/konsert.models';
 import { ApiClientService, SSHBootstrapEvent } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { IconComponent } from '../shared/icon.component';
+import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
 export function workerMatchesHost(w: Worker, host: SSHHost): boolean {
@@ -29,168 +30,168 @@ function isAbort(err: unknown): boolean {
 }
 
 /** Herdr-style Add Machine: SSH config discovery, one-click bootstrap, manual fallback. */
+
 @Component({
   selector: 'app-add-machine-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, ModalDialogComponent],
   template: `
-    <div class="ks-backdrop fixed inset-0 z-50 flex items-center justify-center px-4" (click)="close.emit()">
-      <div class="ks-modal w-full max-w-[540px] rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (click)="$event.stopPropagation()">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <h3 class="text-[15px] font-semibold text-[#ececed]">Add a machine</h3>
-            <p class="text-[12px] text-[#8e9098] mt-1 leading-relaxed">
-              A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, and agents there keep running while your laptop sleeps.
-            </p>
-          </div>
-          <button
-            type="button"
-            (click)="close.emit()"
-            class="text-[11px] text-[#6d7078] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
-          >
-            Esc
-          </button>
+    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (close)="close.emit()">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">Add a machine</h3>
+          <p class="text-[12px] text-[#8e9098] mt-1 leading-relaxed">
+            A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, and agents there keep running while your laptop sleeps.
+          </p>
         </div>
-
-        <!-- From your ssh config -->
-        <div class="space-y-2">
-          <div class="text-[11px] text-[#787a82]">From your ssh config</div>
-
-          @if (sshHostsLoading()) {
-            <div class="py-6 text-center text-[12px] text-[#6d7078]">Reading ~/.ssh/config...</div>
-          } @else if (sshHosts().length === 0) {
-            <div class="rounded-lg border border-[#26282f] bg-[#151619] px-3 py-3 text-[12px] text-[#6d7078]">
-              No hosts found in <code class="font-mono-ide text-[#9a9ca4]">~/.ssh/config</code>. Enter an SSH target below or use the manual command.
-            </div>
-          } @else {
-            <div class="max-h-[290px] overflow-y-auto -mx-1 px-1 space-y-1">
-              @for (host of sshHosts(); track host.alias) {
-                <div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[#22242a]/80 transition">
-                  <div class="flex items-center gap-2.5 min-w-0">
-                    <app-icon name="server" [size]="14" class="text-[#787a82]" />
-                    <span class="text-[12.5px] font-medium text-[#e4e4e7] shrink-0">{{ host.alias }}</span>
-                    <span class="text-[12px] text-[#6d7078] truncate">{{ host.display }}</span>
-                  </div>
-
-                  <div class="shrink-0">
-                    @if (host.added) {
-                      <button
-                        type="button"
-                        (click)="inspectSSHHostMachine(host)"
-                        class="inline-flex items-center gap-1.5 rounded-md border border-transparent hover:border-[#32353f] hover:bg-[#24262d] px-2 py-1 text-[11px] text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
-                        title="View machine details or remove"
-                      >
-                        <app-icon name="check-circle" [size]="13" />
-                        <span>Added · Details</span>
-                      </button>
-                    } @else if (bootstrappingTarget() === host.alias) {
-                      <span class="inline-flex items-center gap-1.5 rounded-md border border-[#32353f] bg-[#24262d] px-2.5 py-1 text-[11px] text-[#c8cad0]">
-                        <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
-                        <span>{{ sshStageLabel() || 'Connecting...' }}</span>
-                      </span>
-                    } @else {
-                      <button
-                        type="button"
-                        [disabled]="!!bootstrappingTarget()"
-                        (click)="bootstrapSSHHost(host.alias)"
-                        class="rounded-md border border-[#32353f] bg-[#24262d] hover:bg-[#2d3039] disabled:opacity-45 px-3 py-1 text-[11px] font-medium text-[#e4e4e7] transition cursor-pointer"
-                      >
-                        Add
-                      </button>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-          }
-        </div>
-
-        <!-- Or type how ssh reaches it -->
-        <div class="pt-1 space-y-1.5">
-          <div class="text-[11px] text-[#787a82]">Or type how ssh reaches it</div>
-          <form (ngSubmit)="bootstrapCustomSSH()" class="flex items-center gap-2">
-            <input
-              type="text"
-              name="customSshTarget"
-              [ngModel]="customSshTarget()"
-              (ngModelChange)="customSshTarget.set($event)"
-              placeholder="user@host"
-              autocomplete="off"
-              spellcheck="false"
-              class="flex-1 rounded-lg border border-[#383c48] focus:border-[#4a668a] bg-[#141518] px-3 py-2 text-[12.5px] text-[#ececed] placeholder-[#5e6068] focus:outline-none transition"
-            />
-            <button
-              type="submit"
-              [disabled]="!customSshTarget().trim() || !!bootstrappingTarget()"
-              class="rounded-lg border border-[#32353f] bg-[#2a2c34] hover:bg-[#343741] disabled:opacity-45 px-4 py-2 text-[12px] font-medium text-[#e4e4e7] transition cursor-pointer shrink-0"
-            >
-              {{ bootstrappingTarget() && bootstrappingTarget() === customSshTarget().trim() ? 'Adding...' : 'Add' }}
-            </button>
-          </form>
-        </div>
-
-        @if (bootstrappingTarget() && sshStageDetail()) {
-          <div class="rounded-lg border border-[#2d3039] bg-[#141518] px-3 py-2 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
-            <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin shrink-0"></span>
-            <span class="font-medium text-[#e4e4e7]">{{ sshStageLabel() }}:</span>
-            <span class="truncate">{{ sshStageDetail() }}</span>
-          </div>
-        }
-        @if (sshStatusMsg()) {
-          <div class="rounded-lg border border-[#69b879]/30 bg-[#69b879]/10 px-3 py-2 text-[11.5px] text-[#98dba5]">
-            {{ sshStatusMsg() }}
-          </div>
-        }
-        @if (sshErrorMsg()) {
-          <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[11.5px] text-[#f09595] break-words">
-            {{ sshErrorMsg() }}
-          </div>
-        }
-
-        <!-- Collapsible manual konsertd command for containers / Windows / no-SSH hosts -->
-        <div class="pt-1 border-t border-[#26282f]">
-          <button
-            type="button"
-            (click)="showManualConnect.set(!showManualConnect())"
-            class="inline-flex items-center gap-1.5 text-[11px] text-[#787a82] hover:text-[#c8cad0] transition cursor-pointer"
-          >
-            <app-icon [name]="showManualConnect() ? 'chevron-down' : 'chevron-right'" [size]="12" />
-            <span>Manual konsertd command (containers, Windows, or outbound-only hosts)</span>
-          </button>
-
-          @if (showManualConnect()) {
-            <div class="mt-2.5 space-y-2.5 text-[12px]">
-              <div class="flex items-center gap-3 text-[11px]">
-                <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
-                  <input type="checkbox" [ngModel]="sandbox()" (ngModelChange)="sandbox.set($event)" class="accent-[#4a668a]" />
-                  <span>Opt-in sandboxed mode</span>
-                </label>
-                <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
-                  <input type="checkbox" [ngModel]="enableMock()" (ngModelChange)="enableMock.set($event)" class="accent-[#4a668a]" />
-                  <span>Include mock driver</span>
-                </label>
-              </div>
-
-              <div class="rounded-lg border border-[#2b2d35] bg-[#111214] p-3 space-y-2">
-                <div class="flex items-center justify-between text-[11px] text-[#787a82]">
-                  <span>Connect command</span>
-                  <button
-                    type="button"
-                    (click)="copyConnectCmd()"
-                    class="inline-flex items-center gap-1 rounded px-2 py-0.5 bg-[#202228] hover:bg-[#2a2c34] active:scale-95 text-[#d4d4d8] transition cursor-pointer"
-                  >
-                    <app-icon name="copy" [size]="11" />
-                    <span>{{ copiedCmd() ? 'Copied' : 'Copy' }}</span>
-                  </button>
-                </div>
-                <pre class="font-mono-ide text-[11px] text-[#e4e4e7] whitespace-pre-wrap break-all">{{ connectCommand() }}</pre>
-              </div>
-            </div>
-          }
-        </div>
+        <button
+          type="button"
+          (click)="close.emit()"
+          aria-label="Close dialog"
+          class="text-[11px] text-[#6d7078] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
+        >
+          Esc
+        </button>
       </div>
-    </div>
+
+      <!-- From your ssh config -->
+      <div class="space-y-2">
+        <div class="text-[11px] text-[#787a82]">From your ssh config</div>
+
+        @if (sshHostsLoading()) {
+          <div class="py-6 text-center text-[12px] text-[#6d7078]">Reading ~/.ssh/config...</div>
+        } @else if (sshHosts().length === 0) {
+          <div class="rounded-lg border border-[#26282f] bg-[#151619] px-3 py-3 text-[12px] text-[#6d7078]">
+            No hosts found in <code class="font-mono-ide text-[#9a9ca4]">~/.ssh/config</code>. Enter an SSH target below or use the manual command.
+          </div>
+        } @else {
+          <div class="max-h-[290px] overflow-y-auto -mx-1 px-1 space-y-1">
+            @for (host of sshHosts(); track host.alias) {
+              <div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[#22242a]/80 transition">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <app-icon name="server" [size]="14" class="text-[#787a82]" />
+                  <span class="text-[12.5px] font-medium text-[#e4e4e7] shrink-0">{{ host.alias }}</span>
+                  <span class="text-[12px] text-[#6d7078] truncate">{{ host.display }}</span>
+                </div>
+
+                <div class="shrink-0">
+                  @if (host.added) {
+                    <button
+                      type="button"
+                      (click)="inspectSSHHostMachine(host)"
+                      class="inline-flex items-center gap-1.5 rounded-md border border-transparent hover:border-[#32353f] hover:bg-[#24262d] px-2 py-1 text-[11px] text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      title="View machine details or remove"
+                    >
+                      <app-icon name="check-circle" [size]="13" />
+                      <span>Added · Details</span>
+                    </button>
+                  } @else if (bootstrappingTarget() === host.alias) {
+                    <span class="inline-flex items-center gap-1.5 rounded-md border border-[#32353f] bg-[#24262d] px-2.5 py-1 text-[11px] text-[#c8cad0]">
+                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
+                      <span>{{ sshStageLabel() || 'Connecting...' }}</span>
+                    </span>
+                  } @else {
+                    <button
+                      type="button"
+                      [disabled]="!!bootstrappingTarget()"
+                      (click)="bootstrapSSHHost(host.alias)"
+                      class="rounded-md border border-[#32353f] bg-[#24262d] hover:bg-[#2d3039] disabled:opacity-45 px-3 py-1 text-[11px] font-medium text-[#e4e4e7] transition cursor-pointer"
+                    >
+                      Add
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Or type how ssh reaches it -->
+      <div class="pt-1 space-y-1.5">
+        <div class="text-[11px] text-[#787a82]">Or type how ssh reaches it</div>
+        <form (ngSubmit)="bootstrapCustomSSH()" class="flex items-center gap-2">
+          <input
+            type="text"
+            name="customSshTarget"
+            [ngModel]="customSshTarget()"
+            (ngModelChange)="customSshTarget.set($event)"
+            placeholder="user@host"
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 rounded-lg border border-[#383c48] focus:border-[#4a668a] bg-[#141518] px-3 py-2 text-[12.5px] text-[#ececed] placeholder-[#5e6068] focus:outline-none transition"
+          />
+          <button
+            type="submit"
+            [disabled]="!customSshTarget().trim() || !!bootstrappingTarget()"
+            class="rounded-lg border border-[#32353f] bg-[#2a2c34] hover:bg-[#343741] disabled:opacity-45 px-4 py-2 text-[12px] font-medium text-[#e4e4e7] transition cursor-pointer shrink-0"
+          >
+            {{ bootstrappingTarget() && bootstrappingTarget() === customSshTarget().trim() ? 'Adding...' : 'Add' }}
+          </button>
+        </form>
+      </div>
+
+      @if (bootstrappingTarget() && sshStageDetail()) {
+        <div class="rounded-lg border border-[#2d3039] bg-[#141518] px-3 py-2 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
+          <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin shrink-0"></span>
+          <span class="font-medium text-[#e4e4e7]">{{ sshStageLabel() }}:</span>
+          <span class="truncate">{{ sshStageDetail() }}</span>
+        </div>
+      }
+      @if (sshStatusMsg()) {
+        <div class="rounded-lg border border-[#69b879]/30 bg-[#69b879]/10 px-3 py-2 text-[11.5px] text-[#98dba5]">
+          {{ sshStatusMsg() }}
+        </div>
+      }
+      @if (sshErrorMsg()) {
+        <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[11.5px] text-[#f09595] break-words">
+          {{ sshErrorMsg() }}
+        </div>
+      }
+
+      <!-- Collapsible manual konsertd command for containers / Windows / no-SSH hosts -->
+      <div class="pt-1 border-t border-[#26282f]">
+        <button
+          type="button"
+          (click)="showManualConnect.set(!showManualConnect())"
+          class="inline-flex items-center gap-1.5 text-[11px] text-[#787a82] hover:text-[#c8cad0] transition cursor-pointer"
+        >
+          <app-icon [name]="showManualConnect() ? 'chevron-down' : 'chevron-right'" [size]="12" />
+          <span>Manual konsertd command (containers, Windows, or outbound-only hosts)</span>
+        </button>
+
+        @if (showManualConnect()) {
+          <div class="mt-2.5 space-y-2.5 text-[12px]">
+            <div class="flex items-center gap-3 text-[11px]">
+              <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
+                <input type="checkbox" [ngModel]="sandbox()" (ngModelChange)="sandbox.set($event)" class="accent-[#4a668a]" />
+                <span>Opt-in sandboxed mode</span>
+              </label>
+              <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
+                <input type="checkbox" [ngModel]="enableMock()" (ngModelChange)="enableMock.set($event)" class="accent-[#4a668a]" />
+                <span>Include mock driver</span>
+              </label>
+            </div>
+
+            <div class="rounded-lg border border-[#2b2d35] bg-[#111214] p-3 space-y-2">
+              <div class="flex items-center justify-between text-[11px] text-[#787a82]">
+                <span>Connect command</span>
+                <button
+                  type="button"
+                  (click)="copyConnectCmd()"
+                  class="inline-flex items-center gap-1 rounded px-2 py-0.5 bg-[#202228] hover:bg-[#2a2c34] active:scale-95 text-[#d4d4d8] transition cursor-pointer"
+                >
+                  <app-icon name="copy" [size]="11" />
+                  <span>{{ copiedCmd() ? 'Copied' : 'Copy' }}</span>
+                </button>
+              </div>
+              <pre class="font-mono-ide text-[11px] text-[#e4e4e7] whitespace-pre-wrap break-all">{{ connectCommand() }}</pre>
+            </div>
+          </div>
+        }
+      </div>
+    </app-modal-dialog>
   `,
 })
 export class AddMachineModalComponent implements OnInit, OnDestroy {

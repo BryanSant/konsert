@@ -53,6 +53,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           <button
             type="button"
             (click)="mobileFleetOpen.set(!mobileFleetOpen())"
+            aria-label="Toggle fleet sidebar"
+            [attr.aria-expanded]="mobileFleetOpen()"
             class="md:hidden rounded p-1 text-[#8e9098] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="sidebar-left" [size]="15" />
@@ -75,6 +77,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             type="button"
             (click)="leftOpen.set(!leftOpen())"
             title="Toggle left sidebar"
+            [attr.aria-expanded]="leftOpen()"
+            aria-controls="ks-left-pane"
             class="hidden md:inline-flex rounded p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="sidebar-left" [size]="14" />
@@ -91,6 +95,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               type="button"
               (click)="selectInspector(p.id)"
               [title]="p.title"
+              [attr.aria-label]="p.title"
+              [attr.aria-pressed]="rightOpen() && inspectorPanel() === p.id"
               class="hidden md:inline-flex rounded p-1.5 active:scale-95 transition cursor-pointer hover:text-[#ececed]"
               [class.bg-[#24262d]]="rightOpen() && inspectorPanel() === p.id"
               [class.text-[#ececed]]="rightOpen() && inspectorPanel() === p.id"
@@ -104,6 +110,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             type="button"
             (click)="rightOpen.set(!rightOpen())"
             title="Toggle right inspector"
+            [attr.aria-expanded]="rightOpen()"
+            aria-controls="ks-right-pane"
             class="hidden md:inline-flex rounded p-1.5 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer ml-1"
           >
             <app-icon name="sidebar-right" [size]="14" />
@@ -113,6 +121,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           <button
             type="button"
             (click)="mobileTelemetryOpen.set(!mobileTelemetryOpen())"
+            aria-label="Toggle inspector"
+            [attr.aria-expanded]="mobileTelemetryOpen()"
             class="md:hidden rounded p-1 text-[#8e9098] hover:text-[#ececed] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="sidebar-right" [size]="15" />
@@ -124,6 +134,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
       <div class="flex flex-1 min-h-0 relative overflow-hidden">
         <!-- Desktop Left Sidebar (smooth width/opacity collapse) -->
         <aside
+          id="ks-left-pane"
+          aria-label="Fleet"
+          [attr.inert]="leftOpen() ? null : ''"
           class="hidden md:block shrink-0 h-full overflow-hidden transition-[width,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
           [class.w-[250px]]="leftOpen()"
           [class.opacity-100]="leftOpen()"
@@ -146,7 +159,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
         <!-- Mobile Slide-Over Fleet Drawer (< 768px) -->
         @if (mobileFleetOpen()) {
-          <div class="md:hidden fixed inset-0 z-40 flex">
+          <div class="md:hidden fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Fleet">
             <div class="ks-drawer-left w-[82vw] max-w-[290px] h-full border-r border-[#26282e] shadow-2xl z-10">
               <app-fleet-sidebar
                 (taskSelected)="mobileFleetOpen.set(false)"
@@ -163,12 +176,15 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         }
 
         <!-- Center Active Pane Container (Supports Side-by-Side Split Terminal Panes!) -->
-        <main #mainPane class="flex-1 min-w-0 h-full relative overflow-hidden bg-[#111214]">
+        <main #mainPane aria-label="Sessions" class="flex-1 min-w-0 h-full relative overflow-hidden bg-[#111214]">
           @let splitActive = isSplitVisible();
           @for (tab of tabs.openTabs(); track tab.id) {
             @let isPrimary = tabs.activeTabId() === tab.id;
             @let isSecondary = splitActive && tabs.splitTabId() === tab.id;
             <div
+              role="tabpanel"
+              [id]="'ks-tabpanel-' + tab.id"
+              [attr.aria-labelledby]="'ks-tab-' + tab.id"
               class="absolute top-0 bottom-0"
               [class.hidden]="!isPrimary && !isSecondary"
               [style.left]="isSecondary ? 'calc(' + (tabs.splitRatio() * 100) + '% + 2px)' : '0'"
@@ -190,7 +206,15 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             <!-- Draggable Vertical Split Divider -->
             <div
               (pointerdown)="startSplitDrag($event)"
+              (keydown)="onSplitKeydown($event)"
               title="Drag to resize split panes"
+              role="separator"
+              tabindex="0"
+              aria-orientation="vertical"
+              aria-label="Resize split panes"
+              [attr.aria-valuenow]="Math.round(tabs.splitRatio() * 100)"
+              aria-valuemin="25"
+              aria-valuemax="75"
               class="absolute top-0 bottom-0 w-1 -ml-0.5 z-20 bg-[#26282e] hover:bg-[#4a668a] transition-colors cursor-col-resize"
               [style.left.%]="tabs.splitRatio() * 100"
             ></div>
@@ -198,6 +222,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               type="button"
               (click)="tabs.closeSplit()"
               title="Close split pane (⌘\)"
+              aria-label="Close split pane"
               class="absolute top-1.5 right-2 z-20 rounded bg-[#1b1c20]/90 border border-[#2d3039] hover:bg-[#272a33] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
             >
               <app-icon name="close" [size]="11" />
@@ -207,6 +232,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
         <!-- Desktop Right Inspector Pane (smooth width/opacity collapse) -->
         <aside
+          id="ks-right-pane"
+          aria-label="Inspector"
+          [attr.inert]="rightOpen() ? null : ''"
           class="hidden md:block shrink-0 h-full overflow-hidden transition-[width,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
           [class.w-[300px]]="rightOpen()"
           [class.opacity-100]="rightOpen()"
@@ -222,12 +250,12 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
         <!-- Mobile Bottom-Sheet Inspector (< 768px) -->
         @if (mobileTelemetryOpen()) {
-          <div class="md:hidden fixed inset-0 z-40 flex flex-col justify-end">
+          <div class="md:hidden fixed inset-0 z-40 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Inspector">
             <div class="ks-backdrop flex-1" (click)="mobileTelemetryOpen.set(false)"></div>
             <div class="ks-drawer-bottom h-[68vh] border-t border-[#26282e] bg-[#16171a] shadow-2xl rounded-t-xl flex flex-col overflow-hidden z-10">
               <div class="flex items-center justify-around border-b border-[#26282e] py-1.5 text-[11px]">
                 @for (p of inspectorPanels; track p.id) {
-                  <button type="button" (click)="inspectorPanel.set(p.id)" [class.text-[#ececed]]="inspectorPanel() === p.id" class="px-3 py-1 text-[#8e9098]">{{ p.label }}</button>
+                  <button type="button" (click)="inspectorPanel.set(p.id)" [attr.aria-pressed]="inspectorPanel() === p.id" [class.text-[#ececed]]="inspectorPanel() === p.id" class="px-3 py-1 text-[#8e9098]">{{ p.label }}</button>
                 }
               </div>
               <div class="flex-1 min-h-0">
@@ -288,6 +316,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   @ViewChild('mainPane') mainPane?: ElementRef<HTMLElement>;
 
   readonly orchestratorTabId = ORCHESTRATOR_TAB_ID;
+  protected readonly Math = Math;
 
   readonly auth = inject(AuthService);
   readonly fleet = inject(FleetStore);
@@ -430,6 +459,18 @@ export class AppShellComponent implements OnInit, OnDestroy {
     if (this.tabs.toggleSplit()) return;
     // No second terminal tab yet: spawn a shell in the active context, side-by-side.
     await this.launcher.openSplitShell(this.activeSpace()?.path);
+  }
+
+  /** Keyboard resizing for the split separator (arrows: 5%, Home/End: extremes). */
+  onSplitKeydown(ev: KeyboardEvent): void {
+    const step = ev.key === 'ArrowLeft' ? -0.05 : ev.key === 'ArrowRight' ? 0.05 : 0;
+    if (step) {
+      ev.preventDefault();
+      this.tabs.setSplitRatio(this.tabs.splitRatio() + step);
+    } else if (ev.key === 'Home' || ev.key === 'End') {
+      ev.preventDefault();
+      this.tabs.setSplitRatio(ev.key === 'Home' ? 0 : 1);
+    }
   }
 
   startSplitDrag(ev: PointerEvent): void {

@@ -90,8 +90,8 @@ import { IconComponent } from '../shared/icon.component';
           <form (ngSubmit)="launchScratch()" class="space-y-3 text-[12px]">
             <div class="grid grid-cols-2 gap-2.5">
               <div>
-                <label class="block text-[11px] text-[#787a82] mb-1">Machine</label>
-                <select
+                <label for="floating-scratch-machine" class="block text-[11px] text-[#787a82] mb-1">Machine</label>
+                <select id="floating-scratch-machine"
                   name="scratchWorker"
                   [ngModel]="selectedWorkerId()"
                   (ngModelChange)="selectedWorkerId.set($event)"
@@ -105,8 +105,8 @@ import { IconComponent } from '../shared/icon.component';
               </div>
 
               <div>
-                <label class="block text-[11px] text-[#787a82] mb-1">Session Type</label>
-                <select
+                <label for="floating-scratch-session-type" class="block text-[11px] text-[#787a82] mb-1">Session Type</label>
+                <select id="floating-scratch-session-type"
                   name="scratchAgent"
                   [ngModel]="selectedAgent()"
                   (ngModelChange)="selectedAgent.set($event)"
@@ -122,8 +122,8 @@ import { IconComponent } from '../shared/icon.component';
             </div>
 
             <div>
-              <label class="block text-[11px] text-[#787a82] mb-1">Directory</label>
-              <input
+              <label for="floating-scratch-directory" class="block text-[11px] text-[#787a82] mb-1">Directory</label>
+              <input id="floating-scratch-directory"
                 type="text"
                 name="scratchDir"
                 [ngModel]="workdir()"
