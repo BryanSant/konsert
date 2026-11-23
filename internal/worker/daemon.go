@@ -238,29 +238,34 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
-	// Heartbeat goroutine (send initial heartbeat immediately for live CPU/RAM/ports, then on interval)
+	// Adaptive delta-throttled heartbeat goroutine (faster when active, gentle when idle).
 	go func() {
-		sendHB := func() {
+		base := d.HeartbeatInterval
+		if base <= 0 {
+			base = 10 * time.Second
+		}
+		throttle := NewTelemetryThrottle(base)
+		sendIfNeeded := func(force bool) {
 			metrics := CollectMetrics(connCtx)
-			d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
-				ActiveTaskIDs: d.runner.ActiveTaskIDs(),
-				LoadAvg:       metrics.LoadAvg,
-				Metrics:       metrics,
-			})
+			activeIDs := d.runner.ActiveTaskIDs()
+			if force || throttle.ShouldSend(time.Now().UTC(), activeIDs, metrics) {
+				d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
+					ActiveTaskIDs: activeIDs,
+					LoadAvg:       metrics.LoadAvg,
+					Metrics:       metrics,
+				})
+			}
 		}
-		sendHB()
-		interval := d.HeartbeatInterval
-		if interval <= 0 {
-			interval = 10 * time.Second
-		}
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		sendIfNeeded(true)
 		for {
+			waitDur := throttle.NextInterval(len(d.runner.ActiveTaskIDs()))
+			timer := time.NewTimer(waitDur)
 			select {
 			case <-connCtx.Done():
+				timer.Stop()
 				return
-			case <-ticker.C:
-				sendHB()
+			case <-timer.C:
+				sendIfNeeded(false)
 			}
 		}
 	}()

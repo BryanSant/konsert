@@ -142,7 +142,7 @@ func (s *Server) registerRoutes() {
 
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
-		mcpHandler := NewMCPHTTPHandler(s.service, s.version)
+		mcpHandler := NewMCPHTTPHandler(s.service, s.version, s.orch)
 		s.mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !s.auth.CheckMCPAuth(r) {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -432,6 +432,33 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	fleetTok := s.cfg.FleetToken
 	s.cfgMu.RUnlock()
+
+	streamSSE := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	if streamSSE {
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.WriteHeader(http.StatusOK)
+			res := sshutil.BootstrapRemoteWorker(r.Context(), sshutil.BootstrapOptions{
+				Target:        body.Target,
+				ControllerURL: ctrlURL,
+				FleetToken:    fleetTok,
+				Sandbox:       body.Sandbox,
+				EnableMock:    body.EnableMock,
+				OnStage: func(stage, label, detail string) {
+					b, _ := json.Marshal(map[string]any{"type": "stage", "stage": stage, "label": label, "detail": detail})
+					_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
+					flusher.Flush()
+				},
+			})
+			b, _ := json.Marshal(map[string]any{"type": "done", "result": res})
+			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
+			flusher.Flush()
+			return
+		}
+	}
 
 	res := sshutil.BootstrapRemoteWorker(r.Context(), sshutil.BootstrapOptions{
 		Target:        body.Target,

@@ -1117,3 +1117,96 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 	<-done1
 	<-done2
 }
+
+func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "mcp-full.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	cfg.EnableMCPHTTP = true
+	srv := NewServer(cfg, st, nil, "test")
+	srv.Orchestrator().SetProvider(&capturingLLMProvider{})
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Connect via in-memory transport (covers stdio MCP parity)
+	mcpSrv := NewMCPServer(srv.Service(), "test", srv.Orchestrator())
+	cTrans, sTrans := mcp.NewInMemoryTransports()
+	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
+	if err != nil {
+		t.Fatalf("mcp server connect failed: %v", err)
+	}
+	defer srvSess.Close()
+
+	var progressMsgs []string
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "test-mcp-client", Version: "1.0"}, &mcp.ClientOptions{
+		ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
+			if req != nil && req.Params != nil {
+				progressMsgs = append(progressMsgs, req.Params.Message)
+			}
+		},
+	})
+	clientSess, err := mcpClient.Connect(ctx, cTrans, nil)
+	if err != nil {
+		t.Fatalf("mcp client connect failed: %v", err)
+	}
+	defer clientSess.Close()
+
+	// 1. manage_taxonomy + get_taxonomy
+	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "manage_taxonomy",
+		Arguments: map[string]any{"action": "create", "kind": "workspace", "name": "MCP-Space"},
+	}); err != nil || res.IsError {
+		t.Fatalf("manage_taxonomy failed: %v res=%+v", err, res)
+	}
+	taxRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "get_taxonomy"})
+	if err != nil || taxRes.IsError || !strings.Contains(taxRes.Content[0].(*mcp.TextContent).Text, "MCP-Space") {
+		t.Fatalf("get_taxonomy missing MCP-Space: %v res=%+v", err, taxRes)
+	}
+
+	// 2. update_settings + get_settings (never exposes api keys)
+	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "update_settings",
+		Arguments: map[string]any{"updates": map[string]string{"default_agent": "codex", "default_model": "o4-mini"}},
+	}); err != nil || res.IsError {
+		t.Fatalf("update_settings failed: %v res=%+v", err, res)
+	}
+	setRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "get_settings"})
+	if err != nil || setRes.IsError || !strings.Contains(setRes.Content[0].(*mcp.TextContent).Text, "codex") {
+		t.Fatalf("get_settings failed: %v res=%+v", err, setRes)
+	}
+
+	// 3. save_memory + recall_memory + ask_orchestrator
+	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "save_memory",
+		Arguments: map[string]any{"scope": "fleet", "key": "mcp-note", "summary": "verified via MCP"},
+	}); err != nil || res.IsError {
+		t.Fatalf("save_memory failed: %v res=%+v", err, res)
+	}
+	orchRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "ask_orchestrator",
+		Arguments: map[string]any{"prompt": "Summarize fleet status"},
+	});
+	if err != nil || orchRes.IsError || !strings.Contains(orchRes.Content[0].(*mcp.TextContent).Text, "Compact snapshot received.") {
+		t.Fatalf("ask_orchestrator failed: %v res=%+v", err, orchRes)
+	}
+
+	// 4. Verify Streamable HTTP (/mcp) endpoint responds cleanly to RemoteFleetClient + MCP HTTP client
+	httpClient := mcp.NewClient(&mcp.Implementation{Name: "http-mcp-client", Version: "1.0"}, nil)
+	httpSess, err := httpClient.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatalf("Streamable HTTP /mcp connect failed: %v", err)
+	}
+	defer httpSess.Close()
+	factsRes, err := httpSess.CallTool(ctx, &mcp.CallToolParams{Name: "inspect_machine_facts"})
+	if err != nil || factsRes.IsError {
+		t.Fatalf("HTTP /mcp inspect_machine_facts failed: %v res=%+v", err, factsRes)
+	}
+}

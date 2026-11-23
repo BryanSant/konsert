@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -40,7 +41,7 @@ func collectPlatformMetrics(parentCtx context.Context) *protocol.WorkerMetrics {
 	}
 
 	if raw, err := os.ReadFile("/proc/meminfo"); err == nil {
-		var totalKB, availKB uint64
+		var totalKB, availKB, swapTotalKB, swapFreeKB uint64
 		sc := bufio.NewScanner(bytes.NewReader(raw))
 		for sc.Scan() {
 			fields := strings.Fields(sc.Text())
@@ -53,12 +54,27 @@ func collectPlatformMetrics(parentCtx context.Context) *protocol.WorkerMetrics {
 				totalKB = v
 			case "MemAvailable:":
 				availKB = v
+			case "SwapTotal:":
+				swapTotalKB = v
+			case "SwapFree:":
+				swapFreeKB = v
 			}
 		}
 		m.MemTotalMB = totalKB / 1024
 		if totalKB >= availKB {
 			m.MemUsedMB = (totalKB - availKB) / 1024
 		}
+		m.SwapTotalMB = swapTotalKB / 1024
+		if swapTotalKB >= swapFreeKB {
+			m.SwapUsedMB = (swapTotalKB - swapFreeKB) / 1024
+		}
+	}
+
+	var st syscall.Statfs_t
+	if err := syscall.Statfs("/", &st); err == nil {
+		bsize := uint64(st.Bsize)
+		m.DiskTotalGB = (st.Blocks * bsize) / (1024 * 1024 * 1024)
+		m.DiskFreeGB = (st.Bavail * bsize) / (1024 * 1024 * 1024)
 	}
 
 	// Best-effort listening TCP ports via ss

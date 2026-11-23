@@ -553,6 +553,28 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		if err != nil {
 			return
 		}
+		// Record worker-scraped subscription quota events (e.g. Codex 5h rolling %) directly into subscription_quotas.
+		if p.Kind == "quota" && p.Meta != nil {
+			prov, _ := p.Meta["provider"].(string)
+			label, _ := p.Meta["label"].(string)
+			win, _ := p.Meta["window_label"].(string)
+			pct, _ := p.Meta["used_percent"].(float64)
+			if prov != "" {
+				_ = h.store.UpsertSubscriptionQuota(ctx, store.SubscriptionQuota{
+					Provider:    prov,
+					Label:       label,
+					WindowLabel: win,
+					UsedPercent: pct,
+					Source:      "telemetry",
+					WorkerID:    wc.id,
+					UpdatedAt:   time.Now().UTC(),
+				})
+				if sum, uErr := h.store.GetUsageSummary(ctx); uErr == nil {
+					h.broadcastJSON(protocol.MsgUsageUpdate, sum)
+				}
+			}
+			return
+		}
 		// Record worker-scraped agent token usage (e.g. Claude JSONL cost-state) directly into usage_events.
 		if p.Kind == "usage" && p.Meta != nil {
 			prov, _ := p.Meta["provider"].(string)

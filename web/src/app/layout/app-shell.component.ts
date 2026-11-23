@@ -625,7 +625,7 @@ interface PaletteItem {
                         } @else if (bootstrappingTarget() === host.alias) {
                           <span class="inline-flex items-center gap-1.5 rounded-md border border-[#32353f] bg-[#24262d] px-2.5 py-1 text-[11px] text-[#c8cad0]">
                             <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
-                            <span>Adding...</span>
+                            <span>{{ sshStageLabel() || 'Connecting...' }}</span>
                           </span>
                         } @else {
                           <button
@@ -668,6 +668,13 @@ interface PaletteItem {
               </form>
             </div>
 
+            @if (bootstrappingTarget() && sshStageDetail()) {
+              <div class="rounded-lg border border-[#2d3039] bg-[#141518] px-3 py-2 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
+                <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin shrink-0"></span>
+                <span class="font-medium text-[#e4e4e7]">{{ sshStageLabel() }}:</span>
+                <span class="truncate">{{ sshStageDetail() }}</span>
+              </div>
+            }
             @if (sshStatusMsg()) {
               <div class="rounded-lg border border-[#69b879]/30 bg-[#69b879]/10 px-3 py-2 text-[11.5px] text-[#98dba5]">
                 {{ sshStatusMsg() }}
@@ -915,6 +922,8 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly sshHostsLoading = signal(false);
   readonly customSshTarget = signal('');
   readonly bootstrappingTarget = signal('');
+  readonly sshStageLabel = signal('');
+  readonly sshStageDetail = signal('');
   readonly sshStatusMsg = signal('');
   readonly sshErrorMsg = signal('');
   readonly showManualConnect = signal(false);
@@ -1362,22 +1371,71 @@ export class AppShellComponent implements OnInit, OnDestroy {
     const clean = target.trim();
     if (!clean) return;
     this.bootstrappingTarget.set(clean);
+    this.sshStageLabel.set('Connecting');
+    this.sshStageDetail.set(`Reaching ${clean} over SSH...`);
     this.sshStatusMsg.set('');
     this.sshErrorMsg.set('');
     try {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const controllerUrl = `${proto}//${window.location.host}/ws/worker`;
-      const res = await this.api.bootstrapSSH({
-        target: clean,
-        controller_url: controllerUrl,
-        sandbox: this.addMachineSandbox(),
-        enable_mock: this.addMachineMock(),
+      const resp = await fetch('/api/ssh/bootstrap?stream=1', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({
+          target: clean,
+          controller_url: controllerUrl,
+          sandbox: this.addMachineSandbox(),
+          enable_mock: this.addMachineMock(),
+        }),
       });
-      if (!res.ok) {
-        this.sshErrorMsg.set(res.error || `Failed to add ${clean}`);
+
+      let finalResult: { ok: boolean; message?: string; error?: string; stage?: string } | null = null;
+      const contentType = resp.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream') && resp.body) {
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop() || '';
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith('data:')) continue;
+            try {
+              const ev = JSON.parse(line.slice(5).trim()) as {
+                type: string;
+                label?: string;
+                detail?: string;
+                result?: { ok: boolean; message?: string; error?: string; stage?: string };
+              };
+              if (ev.type === 'stage') {
+                this.sshStageLabel.set(ev.label || 'Working');
+                this.sshStageDetail.set(ev.detail || '');
+              } else if (ev.type === 'done' && ev.result) {
+                finalResult = ev.result;
+              }
+            } catch {
+              // ignore malformed SSE chunk
+            }
+          }
+        }
+      } else {
+        finalResult = (await resp.json()) as { ok: boolean; message?: string; error?: string; stage?: string };
+      }
+
+      if (!finalResult || !finalResult.ok) {
+        const prefix = finalResult?.stage ? `[${finalResult.stage}] ` : '';
+        this.sshErrorMsg.set(`${prefix}${finalResult?.error || `Failed to add ${clean}`}`);
         return;
       }
-      this.sshStatusMsg.set(res.message || `konsertd started on ${clean}. Waiting for host to appear in Spaces...`);
+      this.sshStatusMsg.set(finalResult.message || `konsertd ready on ${clean}.`);
       this.sshHosts.update((list) =>
         list.map((h) => (h.alias === clean || h.display === clean ? { ...h, added: true } : h))
       );
@@ -1386,6 +1444,8 @@ export class AppShellComponent implements OnInit, OnDestroy {
       this.sshErrorMsg.set(err instanceof Error ? err.message : `SSH bootstrap failed for ${clean}`);
     } finally {
       this.bootstrappingTarget.set('');
+      this.sshStageLabel.set('');
+      this.sshStageDetail.set('');
     }
   }
 

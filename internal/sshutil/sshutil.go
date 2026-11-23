@@ -126,98 +126,166 @@ type BootstrapOptions struct {
 	FleetToken    string
 	Sandbox       bool
 	EnableMock    bool
+	OnStage       func(stage, label, detail string)
+}
+
+// BootstrapStage records one discrete step in the zero-touch SSH onboarding pipeline.
+type BootstrapStage struct {
+	Stage  string `json:"stage"`  // "connecting" | "installing_daemon" | "configuring_service" | "installing_hooks" | "inspecting_facts" | "ready"
+	Label  string `json:"label"`
+	Status string `json:"status"` // "ok" | "skipped" | "error"
+	Detail string `json:"detail,omitempty"`
 }
 
 // BootstrapResult reports the outcome of an SSH worker bootstrap attempt.
 type BootstrapResult struct {
-	OK        bool   `json:"ok"`
-	Target    string `json:"target"`
-	RemoteOS  string `json:"remote_os,omitempty"`
-	RemoteArch string `json:"remote_arch,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
+	OK             bool             `json:"ok"`
+	Target         string           `json:"target"`
+	RemoteOS       string           `json:"remote_os,omitempty"`
+	RemoteArch     string           `json:"remote_arch,omitempty"`
+	Stage          string           `json:"stage,omitempty"`
+	Stages         []BootstrapStage `json:"stages,omitempty"`
+	HooksInstalled bool             `json:"hooks_installed,omitempty"`
+	ServiceMode    string           `json:"service_mode,omitempty"` // "systemd" | "launchd" | "nohup"
+	Message        string           `json:"message,omitempty"`
+	Error          string           `json:"error,omitempty"`
 }
 
-// BootstrapRemoteWorker connects over SSH, ensures konsertd exists on the remote host
-// (copying a matching local binary if available), and starts it detached in the background.
+// BootstrapRemoteWorker connects over SSH, ensures konsertd exists on the remote host,
+// writes ~/.konsert/worker.yaml & persistent user service (systemd/launchd/nohup),
+// installs agent hooks (`konsertd install-hooks`), and starts konsertd so initial MachineFacts arrive.
 func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) BootstrapResult {
 	target := strings.TrimSpace(opts.Target)
 	if target == "" {
-		return BootstrapResult{OK: false, Error: "target host is required"}
+		return BootstrapResult{OK: false, Stage: "connecting", Error: "target host is required"}
 	}
-	ctx, cancel := context.WithTimeout(parentCtx, 45*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
 	defer cancel()
 
-	// 1. Detect remote OS & architecture via batch SSH
+	var stages []BootstrapStage
+	notify := func(stage, label, detail string) {
+		if opts.OnStage != nil {
+			opts.OnStage(stage, label, detail)
+		}
+	}
+	fail := func(stage, label, rOS, rArch, msg string) BootstrapResult {
+		stages = append(stages, BootstrapStage{Stage: stage, Label: label, Status: "error", Detail: msg})
+		return BootstrapResult{
+			OK:         false,
+			Target:     target,
+			RemoteOS:   rOS,
+			RemoteArch: rArch,
+			Stage:      stage,
+			Stages:     stages,
+			Error:      msg,
+		}
+	}
+
+	// Stage 1: Connecting & detecting remote OS/arch
+	notify("connecting", "Connecting", "Detecting remote OS and architecture over SSH")
 	unameOut, err := runSSH(ctx, target, "uname -s && uname -m")
 	if err != nil {
-		return BootstrapResult{OK: false, Target: target, Error: fmt.Sprintf("SSH connection failed: %v", err)}
+		return fail("connecting", "Connecting", "", "", fmt.Sprintf("SSH connection failed: %v", err))
 	}
 	lines := strings.Split(strings.TrimSpace(unameOut), "\n")
 	if len(lines) < 2 {
-		return BootstrapResult{OK: false, Target: target, Error: "unable to detect remote OS/arch"}
+		return fail("connecting", "Connecting", "", "", "unable to detect remote OS/arch")
 	}
 	rOS := strings.ToLower(strings.TrimSpace(lines[0]))
-	rArchRaw := strings.ToLower(strings.TrimSpace(lines[1]))
-	rArch := normalizeArch(rArchRaw)
+	rArch := normalizeArch(strings.ToLower(strings.TrimSpace(lines[1])))
+	stages = append(stages, BootstrapStage{Stage: "connecting", Label: "Connecting", Status: "ok", Detail: rOS + "/" + rArch})
 
-	// 2. Check if konsertd is already installed on remote host
+	// Stage 2: Installing daemon
+	notify("installing_daemon", "Installing daemon", "Checking or transferring konsertd binary")
 	_, hasRemote := runSSH(ctx, target, "command -v konsertd || test -x \"$HOME/.local/bin/konsertd\"")
 	if hasRemote != nil {
-		// Look for a matching local binary (either sibling bin/konsertd or dist/konsertd-<os>-<arch>)
 		localBin := findMatchingLocalKonsertd(rOS, rArch)
 		if localBin == "" {
-			return BootstrapResult{
-				OK:         false,
-				Target:     target,
-				RemoteOS:   rOS,
-				RemoteArch: rArch,
-				Error:      fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary found in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.", target, rOS, rArch),
-			}
+			return fail("installing_daemon", "Installing daemon", rOS, rArch,
+				fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary found in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.", target, rOS, rArch))
 		}
 		if _, err := runSSH(ctx, target, "mkdir -p \"$HOME/.local/bin\""); err != nil {
-			return BootstrapResult{OK: false, Target: target, RemoteOS: rOS, RemoteArch: rArch, Error: fmt.Sprintf("mkdir ~/.local/bin failed: %v", err)}
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("mkdir ~/.local/bin failed: %v", err))
 		}
 		if err := runSCP(ctx, localBin, target+":~/.local/bin/konsertd"); err != nil {
-			return BootstrapResult{OK: false, Target: target, RemoteOS: rOS, RemoteArch: rArch, Error: fmt.Sprintf("scp konsertd failed: %v", err)}
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("scp konsertd failed: %v", err))
 		}
 		_, _ = runSSH(ctx, target, "chmod +x \"$HOME/.local/bin/konsertd\"")
+		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "transferred ~/.local/bin/konsertd"})
+	} else {
+		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "already installed"})
 	}
 
-	// 3. Build detached launch command
+	// Stage 3: Configuring ~/.konsert/worker.yaml + persistent service
+	notify("configuring_service", "Configuring service", "Writing worker config and persistence")
 	workerName := target
 	if _, hostPart, ok := strings.Cut(target, "@"); ok && hostPart != "" {
 		workerName = hostPart
 	}
-	var flags []string
-	flags = append(flags, fmt.Sprintf("--controller %s", shellQuote(opts.ControllerURL)))
-	flags = append(flags, fmt.Sprintf("--name %s", shellQuote(workerName)))
-	flags = append(flags, fmt.Sprintf("--host-group %s", shellQuote(workerName)))
-	if opts.FleetToken != "" {
-		flags = append(flags, fmt.Sprintf("--token %s", shellQuote(opts.FleetToken)))
+	configYAML := fmt.Sprintf("controller_url: %q\nfleet_token: %q\nname: %q\nhost_group: %q\nsandbox: %t\nenable_mock_driver: %t\n",
+		opts.ControllerURL, opts.FleetToken, workerName, workerName, opts.Sandbox, opts.EnableMock)
+	writeCfgCmd := fmt.Sprintf(`mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && cat > "$HOME/.konsert/worker.yaml" <<'KONSERT_EOF'
+%sKONSERT_EOF
+chmod 600 "$HOME/.konsert/worker.yaml"`, configYAML)
+	if _, err := runSSH(ctx, target, writeCfgCmd); err != nil {
+		return fail("configuring_service", "Configuring service", rOS, rArch, fmt.Sprintf("write ~/.konsert/worker.yaml failed: %v", err))
 	}
-	if opts.Sandbox {
-		flags = append(flags, "--sandbox")
-	}
-	if opts.EnableMock {
-		flags = append(flags, "--enable-mock-driver")
+	stages = append(stages, BootstrapStage{Stage: "configuring_service", Label: "Configuring service", Status: "ok", Detail: "~/.konsert/worker.yaml"})
+
+	// Stage 4: Installing agent hooks & skills (`konsertd install-hooks`)
+	notify("installing_hooks", "Installing hooks", "Installing Claude/Antigravity/Codex telemetry hooks")
+	hooksInstalled := false
+	if _, hErr := runSSH(ctx, target, `BIN=$(command -v konsertd || echo "$HOME/.local/bin/konsertd"); "$BIN" install-hooks`); hErr == nil {
+		hooksInstalled = true
+		stages = append(stages, BootstrapStage{Stage: "installing_hooks", Label: "Installing hooks", Status: "ok", Detail: "agent hooks active"})
+	} else {
+		stages = append(stages, BootstrapStage{Stage: "installing_hooks", Label: "Installing hooks", Status: "skipped", Detail: hErr.Error()})
 	}
 
-	startScript := fmt.Sprintf(
-		`BIN=$(command -v konsertd || echo "$HOME/.local/bin/konsertd"); nohup "$BIN" run %s </dev/null >/tmp/konsertd.log 2>&1 & echo $!`,
-		strings.Join(flags, " "),
-	)
-	pidOut, err := runSSH(ctx, target, startScript)
+	// Stage 5: Starting persistent daemon & triggering initial fact inspection
+	notify("inspecting_facts", "Inspecting facts", "Starting konsertd and collecting machine facts")
+	serviceMode := "nohup"
+	startScript := `BIN=$(command -v konsertd || echo "$HOME/.local/bin/konsertd")
+CFG="$HOME/.konsert/worker.yaml"
+if command -v systemctl >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; then
+  mkdir -p "$HOME/.config/systemd/user"
+  cat > "$HOME/.config/systemd/user/konsertd.service" <<SVC_EOF
+[Unit]
+Description=Konsert Worker Daemon
+After=network-online.target
+
+[Service]
+ExecStart=$BIN run -c $CFG
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+SVC_EOF
+  systemctl --user daemon-reload && systemctl --user enable --now konsertd.service && echo "systemd" && exit 0
+fi
+nohup "$BIN" run -c "$CFG" </dev/null >/tmp/konsertd.log 2>&1 & echo "nohup:$!"`
+	startOut, err := runSSH(ctx, target, startScript)
 	if err != nil {
-		return BootstrapResult{OK: false, Target: target, RemoteOS: rOS, RemoteArch: rArch, Error: fmt.Sprintf("start konsertd failed: %v", err)}
+		return fail("inspecting_facts", "Inspecting facts", rOS, rArch, fmt.Sprintf("start konsertd failed: %v", err))
 	}
+	trimmedStart := strings.TrimSpace(startOut)
+	if strings.HasPrefix(trimmedStart, "systemd") {
+		serviceMode = "systemd"
+	}
+	stages = append(stages, BootstrapStage{Stage: "inspecting_facts", Label: "Inspecting facts", Status: "ok", Detail: "started via " + serviceMode})
+	notify("ready", "Ready", fmt.Sprintf("konsertd running on %s (%s/%s)", target, rOS, rArch))
 
 	return BootstrapResult{
-		OK:         true,
-		Target:     target,
-		RemoteOS:   rOS,
-		RemoteArch: rArch,
-		Message:    fmt.Sprintf("Started konsertd on %s (%s/%s, pid %s)", target, rOS, rArch, strings.TrimSpace(pidOut)),
+		OK:             true,
+		Target:         target,
+		RemoteOS:       rOS,
+		RemoteArch:     rArch,
+		Stage:          "ready",
+		Stages:         stages,
+		HooksInstalled: hooksInstalled,
+		ServiceMode:    serviceMode,
+		Message:        fmt.Sprintf("Connected %s (%s/%s, %s, hooks=%t)", target, rOS, rArch, serviceMode, hooksInstalled),
 	}
 }
 

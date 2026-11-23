@@ -184,11 +184,22 @@ export interface SSHHost {
   added: boolean;
 }
 
+export interface SSHBootstrapStage {
+  stage: string;
+  label: string;
+  status: 'ok' | 'skipped' | 'error' | string;
+  detail?: string;
+}
+
 export interface SSHBootstrapResult {
   ok: boolean;
   target: string;
   remote_os?: string;
   remote_arch?: string;
+  stage?: string;
+  stages?: SSHBootstrapStage[];
+  hooks_installed?: boolean;
+  service_mode?: string;
   message?: string;
   error?: string;
 }

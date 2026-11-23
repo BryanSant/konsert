@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -74,6 +75,20 @@ func collectPlatformMetrics(parentCtx context.Context) *protocol.WorkerMetrics {
 		}
 		usedBytes := (active + wired + compressed) * pageSize
 		m.MemUsedMB = usedBytes / (1024 * 1024)
+	}
+
+	// Swap & root disk free (zero extra subprocesses for disk via Statfs)
+	if out, err := exec.CommandContext(ctx, "sysctl", "-n", "vm.swapusage").Output(); err == nil {
+		var tmp protocol.MachineFacts
+		parseDarwinSwap(string(out), &tmp)
+		m.SwapTotalMB = tmp.SwapTotalMB
+		m.SwapUsedMB = tmp.SwapUsedMB
+	}
+	var st syscall.Statfs_t
+	if err := syscall.Statfs("/", &st); err == nil {
+		bsize := uint64(st.Bsize)
+		m.DiskTotalGB = (st.Blocks * bsize) / (1024 * 1024 * 1024)
+		m.DiskFreeGB = (st.Bavail * bsize) / (1024 * 1024 * 1024)
 	}
 
 	// Listening TCP ports via lsof (non-privileged user processes)

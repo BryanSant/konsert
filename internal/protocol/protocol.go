@@ -200,6 +200,10 @@ type WorkerMetrics struct {
 	CPUPercent     float64         `json:"cpu_percent"`
 	MemUsedMB      uint64          `json:"mem_used_mb"`
 	MemTotalMB     uint64          `json:"mem_total_mb"`
+	SwapUsedMB     uint64          `json:"swap_used_mb,omitempty"`
+	SwapTotalMB    uint64          `json:"swap_total_mb,omitempty"`
+	DiskFreeGB     uint64          `json:"disk_free_gb,omitempty"`
+	DiskTotalGB    uint64          `json:"disk_total_gb,omitempty"`
 	LoadAvg        float64         `json:"load_avg"`
 	ListeningPorts []ListeningPort `json:"listening_ports,omitempty"`
 }
