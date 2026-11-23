@@ -374,7 +374,7 @@ func (s *claudeSession) ensureProc(ctx context.Context) error {
 
 	proc, err := s.eng.launch(ctx, s.eng.spec(s.acct, cwd, args...))
 	if err != nil {
-		return &claudeStartError{notFound: errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "executable file not found"), err: err}
+		return &claudeStartError{notFound: IsNotInstalled(err) || strings.Contains(err.Error(), "executable file not found"), err: err}
 	}
 	s.mu.Lock()
 	s.proc = proc

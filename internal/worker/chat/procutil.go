@@ -164,6 +164,12 @@ func IsNotInstalled(err error) bool {
 }
 
 func isNotFound(err error) bool {
+	// A missing working directory also surfaces as fs.ErrNotExist (from chdir); that is
+	// not a missing binary.
+	var pe *fs.PathError
+	if errors.As(err, &pe) && pe.Op == "chdir" {
+		return false
+	}
 	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist)
 }
 

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -438,6 +441,14 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 		m.emitError(c, turnID, errEvent(protocol.ErrKindProtocol, "chat is not open on this worker (agent.chat.open was never received)", false))
 		return false
 	}
+	// Resolve the working directory here, for every engine: the hub sends "~" by
+	// default, and a missing directory must not be reported as "agent not installed".
+	cwd, err := ResolveCwd(o.Cwd)
+	if err != nil {
+		m.emitError(c, turnID, errEvent(protocol.ErrKindOther, err.Error(), false))
+		return false
+	}
+	o.Cwd = cwd
 	eng, ok := m.Engine(o.Agent)
 	if !ok {
 		m.emitError(c, turnID, errEvent(protocol.ErrKindNotFound, fmt.Sprintf("no chat engine for agent %q on this worker", o.Agent), false))
@@ -878,4 +889,29 @@ func (m *Manager) Sweep() {
 			})
 		}
 	}
+}
+
+// ResolveCwd expands a leading "~" (and an empty value) to the home directory and checks
+// that the result is an existing directory.
+func ResolveCwd(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || cwd == "~" || strings.HasPrefix(cwd, "~/") || strings.HasPrefix(cwd, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("cannot resolve the home directory for working directory %q", cwd)
+		}
+		if len(cwd) <= 1 {
+			cwd = home
+		} else {
+			cwd = filepath.Join(home, cwd[2:])
+		}
+	}
+	st, err := os.Stat(cwd)
+	if err != nil {
+		return "", fmt.Errorf("working directory %s does not exist on this machine", cwd)
+	}
+	if !st.IsDir() {
+		return "", fmt.Errorf("working directory %s is not a directory", cwd)
+	}
+	return cwd, nil
 }
