@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,10 @@ type workerConn struct {
 	conn   *websocket.Conn
 	sendCh chan wsFrame
 	cancel context.CancelFunc
+
+	// baseURL is the controller URL (scheme://host) this worker connected to; the
+	// per-chat MCP URL handed to its agents is built from it when no public URL is set.
+	baseURL string
 
 	mu          sync.Mutex
 	activeTasks map[string]bool
@@ -63,6 +68,7 @@ type Hub struct {
 	waiters       map[string][]chan store.Task
 	rpcWaiters    map[string]chan protocol.Envelope
 	chatSessions  map[string]*chatSession // per-session turn serialization
+	agentChats    map[string]*agentChatRT // agent chat runtime state (seq, MCP token, ask_user)
 
 	// wake holds desired and reported host wake lock (Keep Awake) state.
 	wake hostWakeLocks
@@ -98,6 +104,20 @@ type Hub struct {
 	// ChatTurnTimeout bounds one orchestrator chat turn, including the time it
 	// waits behind an earlier turn of the same session (default 15m).
 	ChatTurnTimeout time.Duration
+
+	// PublicURL is the configured externally reachable controller URL; when set it
+	// is the base of the per-chat MCP URL handed to agents.
+	PublicURL string
+	// AskUserTimeout bounds how long the ask_user MCP tool waits (default 30m).
+	AskUserTimeout time.Duration
+	// hostname returns this machine's hostname (the default orchestrator prefers
+	// a worker on the hub's own machine); replaceable in tests.
+	hostname func() string
+	// chatFleetBackend, when set, serves the fleet tools on per-chat MCP endpoints
+	// of chats with fleet_tools.
+	chatFleetBackend FleetBackend
+	// version is reported by per-chat MCP servers.
+	version string
 }
 
 // NewHub constructs a Hub backed by store.Store.
@@ -119,6 +139,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		waiters:            make(map[string][]chan store.Task),
 		rpcWaiters:         make(map[string]chan protocol.Envelope),
 		chatSessions:       make(map[string]*chatSession),
+		agentChats:         make(map[string]*agentChatRT),
+		hostname:           func() string { h, _ := os.Hostname(); return h },
 		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
 		LostTaskGrace:      45 * time.Second,

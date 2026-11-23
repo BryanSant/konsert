@@ -44,7 +44,7 @@ func newTestHubAt(t *testing.T, dbPath string) *testHub {
 		if err != nil {
 			return
 		}
-		h.ServeWorkerConn(r.Context(), conn)
+		h.ServeWorkerConn(withWorkerBaseURL(r.Context(), requestBaseURL(r)), conn)
 	})
 	mux.HandleFunc("/ws/client", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)

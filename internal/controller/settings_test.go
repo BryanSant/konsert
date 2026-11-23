@@ -233,8 +233,8 @@ func TestConfigProvidersMatchOrchestrator(t *testing.T) {
 	}
 }
 
-func TestEffectiveModelDefaults(t *testing.T) {
-	if got := effectiveModel(config.OrchestratorConfig{Provider: "anthropic"}); got != orchestrator.DefaultAnthropicModel {
+func TestEffectiveModelHasNoBuiltInDefault(t *testing.T) {
+	if got := effectiveModel(config.OrchestratorConfig{Provider: "anthropic"}); got != "" {
 		t.Fatalf("got %q", got)
 	}
 	if got := effectiveModel(config.OrchestratorConfig{Provider: "openai", Model: "x"}); got != "x" {

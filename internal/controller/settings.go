@@ -226,6 +226,8 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"terminal_font_size":      r.TerminalFontSize,
 		"notify_sound":            r.NotifySound,
 		"notify_desktop":          r.NotifyDesktop,
+		"orchestrator_backend":    r.OrchestratorBackend,
+		"api_key_required":        r.APIKeyRequired,
 	}
 }
 
@@ -277,11 +279,9 @@ func writeSettingsError(w http.ResponseWriter, err error) {
 	}
 }
 
-// effectiveModel is the configured model, or the orchestrator default for the
-// provider when none is set.
+// effectiveModel is the API-key backend's configured model. There is no built-in
+// default: agent chats take models from capabilities, and the optional API-key
+// backend needs an explicit llm_model.
 func effectiveModel(c config.OrchestratorConfig) string {
-	if m := strings.TrimSpace(c.Model); m != "" {
-		return m
-	}
-	return orchestrator.DefaultModel(c.Provider)
+	return strings.TrimSpace(c.Model)
 }

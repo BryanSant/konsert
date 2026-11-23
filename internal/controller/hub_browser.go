@@ -103,23 +103,10 @@ func (h *Hub) handleBrowserMessage(ctx context.Context, c *browserClient, env pr
 		h.sendToTaskWorkerJSON(p.TaskID, protocol.MsgPtyResize, p)
 
 	case protocol.MsgChatSend:
-		p, err := protocol.DecodePayload[protocol.ChatSendPayload](env)
-		if err != nil || p.SessionID == "" || p.Content == "" {
-			return
-		}
-		h.mu.RLock()
-		orch := h.orch
-		h.mu.RUnlock()
-		if orch == nil {
-			h.sendBrowserJSON(c, protocol.MsgChatError, protocol.ChatErrorPayload{
-				SessionID: p.SessionID,
-				Error:     "orchestrator service not initialized",
-			})
-			return
-		}
-		// The sender always receives the events of the turn it started.
-		h.subscribeChat(c, p.SessionID)
-		h.startChatTurn(c, orch, p)
+		h.handleChatSend(ctx, c, env)
+
+	case msgChatRespond, msgChatControl, msgChatClose:
+		h.handleAgentChatBrowserMessage(ctx, c, env)
 
 	case msgChatSubscribe, msgChatUnsubscribe:
 		p, err := protocol.DecodePayload[chatSubscribePayload](env)
@@ -386,6 +373,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Event = item
 	case "audit":
 		p.Audit = item
+	case "agent_accounts":
+		p.Accounts = item
 	case "space":
 		p.Space = item
 	case "workspace":

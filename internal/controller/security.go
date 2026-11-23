@@ -142,6 +142,13 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Per-chat MCP endpoints authenticate only with the chat's bearer token,
+		// never an ambient browser credential, so cross-site checks do not apply
+		// (agent CLIs on workers send no Origin, but a proxy or client might).
+		if strings.HasPrefix(r.URL.Path, "/mcp/chat/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		allowed, explicit := checkOrigin(r, s.originPatterns)
 		if !allowed {

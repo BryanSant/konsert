@@ -47,6 +47,8 @@ type Server struct {
 	inflight       inflightTracker
 	// secrets encrypts the LLM API key before it is stored in the database.
 	secrets *secrets.Box
+	// orchChatMu serializes creation of the default orchestrator chat.
+	orchChatMu sync.Mutex
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -96,6 +98,9 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		loginLimiter:   auth.NewLoginLimiter(),
 		secrets:        box,
 	}
+	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
+	hub.version = version
+	hub.chatFleetBackend = serverControlPlane{FleetService: svc, srv: s, admin: false}
 	s.registerRoutes()
 	s.handler = s.guard(s.mux)
 	return s
@@ -172,11 +177,25 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("PATCH /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleRenameChatSession))
 	s.mux.Handle("DELETE /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleDeleteChatSession))
 	s.mux.Handle("GET /api/chat/sessions/{id}/messages", s.requireBrowserAuth(s.handleListChatMessages))
+	// Agent chat (subscription-backed; see hub_agentchat.go).
+	s.mux.Handle("GET /api/chats", s.requireBrowserAuth(s.handleListChatSessions))
+	s.mux.Handle("POST /api/chats", s.requireBrowserAuth(s.handleCreateChatSession))
+	s.mux.Handle("POST /api/chats/orchestrator", s.requireBrowserAuth(s.handleEnsureOrchestratorChat))
+	s.mux.Handle("GET /api/chats/{id}", s.requireBrowserAuth(s.handleGetChat))
+	s.mux.Handle("PATCH /api/chats/{id}", s.requireBrowserAuth(s.handleRenameChatSession))
+	s.mux.Handle("DELETE /api/chats/{id}", s.requireBrowserAuth(s.handleDeleteChatSession))
+	s.mux.Handle("GET /api/chats/{id}/events", s.requireBrowserAuth(s.handleChatEvents))
+	s.mux.Handle("GET /api/agents/accounts", s.requireBrowserAuth(s.handleListAgentAccounts))
+	s.mux.Handle("POST /api/agents/accounts/refresh", s.requireBrowserAuth(s.handleRefreshAgentAccounts))
 	s.mux.Handle("POST /api/attachments", s.requireBrowserAuth(s.handleUploadAttachment))
 
 	// WebSocket endpoints
 	s.mux.HandleFunc("GET /ws/worker", s.handleWorkerWS)
 	s.mux.HandleFunc("GET /ws/client", s.handleClientWS)
+
+	// Per-chat MCP endpoint (ask_user, plus fleet tools for the orchestrator chat),
+	// authenticated by the chat's own bearer token. Always on: agent chats need it.
+	s.mux.HandleFunc("/mcp/chat/{id}", s.handleChatMCP)
 
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
@@ -614,6 +633,12 @@ type settingsResponse struct {
 	TerminalFontSize      int    `json:"terminal_font_size"`
 	NotifySound           bool   `json:"notify_sound"`
 	NotifyDesktop         bool   `json:"notify_desktop"`
+	// OrchestratorBackend is "agent": the orchestrator is an agent chat on a
+	// logged-in agent CLI. The API-key fields above configure only the optional
+	// "api" backend, so APIKeyRequired is always false.
+	OrchestratorBackend string `json:"orchestrator_backend"`
+	APIKeyRequired      bool   `json:"api_key_required"`
+	OrchestratorChatID  string `json:"orchestrator_chat_id,omitempty"`
 }
 
 func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
@@ -647,6 +672,8 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		TerminalFontSize:      fontSize,
 		NotifySound:           notifySound,
 		NotifyDesktop:         notifyDesktop,
+		OrchestratorBackend:   store.ChatBackendAgent,
+		OrchestratorChatID:    saved[orchestratorChatSetting],
 	}
 }
 
@@ -937,41 +964,6 @@ func (s *Server) handleListChatSessions(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
-func (s *Server) handleCreateChatSession(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Title    string `json:"title"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if strings.TrimSpace(body.Title) == "" {
-		body.Title = "Orchestrator Session"
-	}
-	s.cfgMu.RLock()
-	defProvider, defModel := s.cfg.Orchestrator.Provider, effectiveModel(s.cfg.Orchestrator)
-	s.cfgMu.RUnlock()
-	if body.Provider == "" {
-		body.Provider = defProvider
-	}
-	if body.Model == "" {
-		body.Model = defModel
-	}
-	now := time.Now().UTC()
-	cs := store.ChatSession{
-		ID:        uuid.NewString(),
-		Title:     body.Title,
-		Provider:  body.Provider,
-		Model:     body.Model,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.store.CreateChatSession(r.Context(), cs); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusCreated, cs)
-}
-
 func (s *Server) handleListChatMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	msgs, err := s.store.ListChatMessages(r.Context(), id)
@@ -983,48 +975,6 @@ func (s *Server) handleListChatMessages(w http.ResponseWriter, r *http.Request) 
 		msgs = []store.ChatMessage{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
-}
-
-func (s *Server) handleRenameChatSession(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var body struct {
-		Title string `json:"title"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	title := strings.TrimSpace(body.Title)
-	if title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
-		return
-	}
-	if err := s.store.RenameChatSession(r.Context(), id, title); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat session not found"})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	cs, err := s.store.GetChatSession(r.Context(), id)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"id": id, "title": title})
-		return
-	}
-	writeJSON(w, http.StatusOK, cs)
-}
-
-func (s *Server) handleDeleteChatSession(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.store.DeleteChatSession(r.Context(), id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat session not found"})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
 func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
@@ -1170,7 +1120,7 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("accept worker ws failed", "err", err)
 		return
 	}
-	s.hub.ServeWorkerConn(r.Context(), conn)
+	s.hub.ServeWorkerConn(withWorkerBaseURL(r.Context(), requestBaseURL(r)), conn)
 }
 
 func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {

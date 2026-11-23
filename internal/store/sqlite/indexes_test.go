@@ -25,7 +25,7 @@ func TestHotListQueriesUseIndexes(t *testing.T) {
 		{"ListTasks unfiltered", `SELECT ` + taskCols + ` FROM tasks ORDER BY created_at DESC LIMIT ?`, []any{50}},
 		{"ListTasks by worker", `SELECT ` + taskCols + ` FROM tasks WHERE worker_id = ? ORDER BY created_at DESC LIMIT ?`, []any{"w", 50}},
 		{"ListTasks by status", `SELECT ` + taskCols + ` FROM tasks WHERE status = ? ORDER BY created_at DESC LIMIT ?`, []any{"queued", 50}},
-		{"ListChatSessions", `SELECT id, title, provider, model, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT ?`, []any{50}},
+		{"ListChatSessions", `SELECT ` + chatSessionCols + ` FROM chat_sessions ORDER BY updated_at DESC LIMIT ?`, []any{50}},
 	}
 	for _, c := range cases {
 		rows, err := st.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+c.query, c.args...)

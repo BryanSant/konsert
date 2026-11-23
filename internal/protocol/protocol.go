@@ -291,6 +291,12 @@ type TaskStartPayload struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Cols           uint16 `json:"cols,omitempty"`
 	Rows           uint16 `json:"rows,omitempty"`
+	// AccountID selects a worker-local agent account (protocol.AgentAccount.ID; "" = the
+	// agent's default). ApprovalMode is an AgentApprovalMode.ID and Effort an
+	// AgentEffort.ID of the agent (additive; empty = the agent's defaults).
+	AccountID    string `json:"account_id,omitempty"`
+	ApprovalMode string `json:"approval_mode,omitempty"`
+	Effort       string `json:"effort,omitempty"`
 }
 
 type TaskCancelPayload struct {
@@ -381,7 +387,9 @@ type FleetUpdatePayload struct {
 	Repo      any    `json:"repo,omitempty"`
 	Worktree  any    `json:"worktree,omitempty"`
 	// Audit carries a new fleet audit log entry when Kind is "audit" (additive).
-	Audit     any    `json:"audit,omitempty"`
+	Audit any `json:"audit,omitempty"`
+	// Accounts carries a worker's agent accounts when Kind is "agent_accounts" (additive).
+	Accounts  any    `json:"accounts,omitempty"`
 	DeletedID string `json:"deleted_id,omitempty"`
 }
 

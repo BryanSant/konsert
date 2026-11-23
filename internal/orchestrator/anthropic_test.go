@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -135,7 +136,7 @@ func TestAnthropicServiceStreamsAndReplaysThinking(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc, _, ex := newTestService(t, config.OrchestratorConfig{Provider: "anthropic", BaseURL: srv.URL, APIKey: "ant-key-123456"})
+	svc, _, ex := newTestService(t, config.OrchestratorConfig{Provider: "anthropic", Model: "claude-test", BaseURL: srv.URL, APIKey: "ant-key-123456"})
 	svc.SetMaxTokens(1234)
 	var deltas []string
 	if err := svc.HandleUserMessage(context.Background(), "s1", "status?", StreamCallbacks{
@@ -153,7 +154,7 @@ func TestAnthropicServiceStreamsAndReplaysThinking(t *testing.T) {
 		t.Fatalf("expected 2 requests, got %d", len(bodies))
 	}
 	first := bodies[0]
-	if first["stream"] != true || first["model"] != DefaultAnthropicModel || first["max_tokens"] != float64(1234) {
+	if first["stream"] != true || first["model"] != "claude-test" || first["max_tokens"] != float64(1234) {
 		t.Fatalf("request shape: stream=%v model=%v max_tokens=%v", first["stream"], first["model"], first["max_tokens"])
 	}
 	msgs := bodies[1]["messages"].([]any)
@@ -184,8 +185,14 @@ func TestAnthropicMessagesGroupsToolResults(t *testing.T) {
 	}
 }
 
-func TestDefaultModels(t *testing.T) {
-	if DefaultModel("anthropic") != "claude-sonnet-5-5" || DefaultModel("") != DefaultOpenAIModel || DefaultModel(" Gemini ") != DefaultGeminiModel || DefaultModel("antropic") != "" {
-		t.Fatal("unexpected defaults")
+func TestNoBuiltInModelDefaults(t *testing.T) {
+	if _, err := NewOpenAIProvider("k", "").Complete(context.Background(), "", "", nil, nil, nil); !errors.Is(err, ErrNoModel) {
+		t.Fatalf("openai with no model: %v", err)
+	}
+	if _, err := NewAnthropicProvider("k", "").Complete(context.Background(), "", "", nil, nil, nil); !errors.Is(err, ErrNoModel) {
+		t.Fatalf("anthropic with no model: %v", err)
+	}
+	if _, err := NewGeminiProvider("k", "").Complete(context.Background(), "", "", nil, nil, nil); !errors.Is(err, ErrNoModel) {
+		t.Fatalf("gemini with no model: %v", err)
 	}
 }
