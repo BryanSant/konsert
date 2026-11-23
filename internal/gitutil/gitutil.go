@@ -119,16 +119,58 @@ func CurrentSHA(ctx context.Context, dir string) (string, error) {
 	return out, nil
 }
 
+// ErrInvalidWorktreeName is returned when a task ID cannot be used as a worktree directory.
+var ErrInvalidWorktreeName = errors.New("invalid worktree name")
+
+// WorktreePath returns <repoRoot>/.konsert-worktrees/<taskID>, refusing any taskID that is
+// not a single plain path component or whose result would escape .konsert-worktrees.
+func WorktreePath(repoRoot, taskID string) (string, error) {
+	if taskID == "" || taskID == "." || taskID == ".." || strings.ContainsAny(taskID, `/\:`) || filepath.Base(taskID) != taskID {
+		return "", fmt.Errorf("%w: %q", ErrInvalidWorktreeName, taskID)
+	}
+	wtParent := filepath.Join(repoRoot, ".konsert-worktrees")
+	p := filepath.Join(wtParent, taskID)
+	if rel, err := filepath.Rel(wtParent, p); err != nil || rel != taskID {
+		return "", fmt.Errorf("%w: %q escapes %s", ErrInvalidWorktreeName, taskID, wtParent)
+	}
+	return p, nil
+}
+
+// WorktreeInfo describes a worktree created by CreateWorktreeInfo.
+type WorktreeInfo struct {
+	Path          string
+	BaseSHA       string
+	RepoRoot      string
+	Branch        string
+	CreatedBranch bool // the branch did not exist before and was created for this worktree
+}
+
 // CreateWorktree creates an isolated git worktree at <repoRoot>/.konsert-worktrees/<taskID>
 // checked out to branch (creating or resetting the branch from HEAD if needed).
 func CreateWorktree(ctx context.Context, repoRoot, taskID, branch string) (worktreePath string, baseSHA string, err error) {
-	baseSHA, _ = CurrentSHA(ctx, repoRoot)
-
-	wtParent := filepath.Join(repoRoot, ".konsert-worktrees")
-	if err := os.MkdirAll(wtParent, 0o755); err != nil {
-		return "", "", fmt.Errorf("create worktree parent: %w", err)
+	info, err := CreateWorktreeInfo(ctx, repoRoot, taskID, branch)
+	if err != nil {
+		return "", "", err
 	}
-	worktreePath = filepath.Join(wtParent, taskID)
+	return info.Path, info.BaseSHA, nil
+}
+
+// CreateWorktreeInfo is CreateWorktree but also reports whether the branch was created, so
+// a caller can undo the worktree (RemoveTaskWorktree) if the task then fails to launch.
+func CreateWorktreeInfo(ctx context.Context, repoRoot, taskID, branch string) (WorktreeInfo, error) {
+	worktreePath, err := WorktreePath(repoRoot, taskID)
+	if err != nil {
+		return WorktreeInfo{}, err
+	}
+	if _, statErr := os.Lstat(worktreePath); statErr == nil {
+		return WorktreeInfo{}, fmt.Errorf("worktree path already exists: %s", worktreePath)
+	}
+	baseSHA, _ := CurrentSHA(ctx, repoRoot)
+	info := WorktreeInfo{Path: worktreePath, BaseSHA: baseSHA, RepoRoot: repoRoot, Branch: branch}
+
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
+		return WorktreeInfo{}, fmt.Errorf("create worktree parent: %w", err)
+	}
 
 	// Check if branch already exists locally.
 	_, branchExistsErr := runGit(ctx, repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
@@ -137,16 +179,32 @@ func CreateWorktree(ctx context.Context, repoRoot, taskID, branch string) (workt
 		if _, err := runGit(ctx, repoRoot, "worktree", "add", worktreePath, branch); err != nil {
 			// Fallback: branch might already be checked out in the main worktree; create detached or task branch.
 			if _, err2 := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, branch); err2 != nil {
-				return "", "", fmt.Errorf("create worktree for existing branch %s: %w", branch, err)
+				return WorktreeInfo{}, fmt.Errorf("create worktree for existing branch %s: %w", branch, err)
 			}
 		}
 	} else {
 		if _, err := runGit(ctx, repoRoot, "worktree", "add", "-b", branch, worktreePath); err != nil {
-			return "", "", fmt.Errorf("create worktree with new branch %s: %w", branch, err)
+			return WorktreeInfo{}, fmt.Errorf("create worktree with new branch %s: %w", branch, err)
 		}
+		info.CreatedBranch = true
 	}
 
-	return worktreePath, baseSHA, nil
+	return info, nil
+}
+
+// RemoveTaskWorktree undoes CreateWorktreeInfo: it force-removes the worktree and, if the
+// branch was created for it, deletes the branch as well.
+func RemoveTaskWorktree(ctx context.Context, info WorktreeInfo) error {
+	if info.Path == "" || info.RepoRoot == "" {
+		return nil
+	}
+	err := RemoveWorktree(ctx, info.RepoRoot, info.Path)
+	if info.CreatedBranch && info.Branch != "" {
+		if _, bErr := runGit(ctx, info.RepoRoot, "branch", "-D", "--", info.Branch); bErr != nil && err == nil {
+			err = bErr
+		}
+	}
+	return err
 }
 
 // RemoveWorktree removes a previously created git worktree.

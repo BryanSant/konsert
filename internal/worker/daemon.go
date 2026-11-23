@@ -86,6 +86,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		OnPtyFrame: func(frameType byte, taskID string, data []byte) {
 			frame, err := protocol.EncodeFrame(frameType, taskID, data)
 			if err != nil {
+				logger.Warn("dropping PTY frame: encode failed", "task_id", taskID, "frame_type", frameType, "err", err)
 				return
 			}
 			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame})
@@ -367,8 +368,14 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.logger.Warn("decode task.start failed", "err", err)
 			return
 		}
-		if err := d.runner.StartTask(daemonCtx, p); err != nil {
-			d.logger.Error("start task failed", "task_id", p.TaskID, "err", err)
+		// Validation and reservation happen here, in message order; git worktree creation and
+		// the PTY spawn run in a goroutine so the read loop keeps serving stdin, cancel,
+		// resize and WebSocket pings during a slow checkout.
+		taskID := p.TaskID
+		if err := d.runner.StartTaskAsync(daemonCtx, p, func(err error) {
+			d.logger.Error("start task failed", "task_id", taskID, "err", err)
+		}); err != nil {
+			d.logger.Error("start task rejected", "task_id", taskID, "err", err)
 		}
 
 	case protocol.MsgTaskCancel:

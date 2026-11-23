@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -50,8 +51,9 @@ type Runner struct {
 	// allowSandboxShell opts a sandboxed worker in to the unrestricted shell driver.
 	allowSandboxShell atomic.Bool
 
-	mu    sync.RWMutex
-	tasks map[string]*runningTask
+	mu       sync.RWMutex
+	tasks    map[string]*runningTask
+	starting map[string]*pendingStart
 }
 
 // NewRunner constructs a task runner.
@@ -69,6 +71,7 @@ func NewRunner(registry *drivers.Registry, sandbox bool, allowedRoots []string, 
 		callbacks:    cb,
 		logger:       logger,
 		tasks:        make(map[string]*runningTask),
+		starting:     make(map[string]*pendingStart),
 	}
 }
 
@@ -116,8 +119,84 @@ func (r *Runner) ActiveTaskIDs() []string {
 	return ids
 }
 
+// ErrDuplicateTask is returned when a task.start arrives for an ID that is already starting
+// or running on this worker. The existing task is left untouched.
+var ErrDuplicateTask = errors.New("task is already starting or running on this worker")
+
+// GitSetupTimeout bounds repository inspection and worktree creation for one task.start.
+var GitSetupTimeout = 2 * time.Minute
+
+// createWorktreeFn is gitutil.CreateWorktreeInfo; tests replace it with a slow stub.
+var createWorktreeFn = gitutil.CreateWorktreeInfo
+
+// pendingStart tracks a task between task.start and its PTY being registered, so that a
+// duplicate start is refused and a cancel that arrives during setup is honoured.
+type pendingStart struct {
+	ctx       context.Context // bounded by GitSetupTimeout
+	cancel    context.CancelFunc
+	canceled  bool // guarded by Runner.mu
+	subscribe bool // a pty.subscribe arrived during setup; guarded by Runner.mu
+}
+
+// beginStart validates the task ID and claims it for a new start. It is cheap and must run
+// in message order (on the read loop) so a following cancel or subscribe finds the task.
+func (r *Runner) beginStart(parentCtx context.Context, req protocol.TaskStartPayload) (*pendingStart, error) {
+	if err := protocol.ValidateTaskID(req.TaskID); err != nil {
+		r.failTask(req.TaskID, "", fmt.Sprintf("invalid task id: %v", err))
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, running := r.tasks[req.TaskID]
+	_, starting := r.starting[req.TaskID]
+	if running || starting {
+		// Never emit a status here: it would be attributed to the task that is already running.
+		return nil, fmt.Errorf("task %s: %w", req.TaskID, ErrDuplicateTask)
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, GitSetupTimeout)
+	ps := &pendingStart{ctx: ctx, cancel: cancel}
+	r.starting[req.TaskID] = ps
+	return ps, nil
+}
+
 // StartTask validates inputs, sets up optional git worktree, spawns the agent PTY, and runs until completion.
+// It blocks for the duration of git setup; network read loops should use StartTaskAsync.
 func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayload) error {
+	ps, err := r.beginStart(parentCtx, req)
+	if err != nil {
+		return err
+	}
+	return r.finishStart(parentCtx, req, ps)
+}
+
+// StartTaskAsync validates and reserves the task synchronously, then performs the slow part
+// (git worktree creation, PTY spawn) in a goroutine. Setup failures are reported through
+// task.status as usual and additionally passed to onErr.
+func (r *Runner) StartTaskAsync(parentCtx context.Context, req protocol.TaskStartPayload, onErr func(error)) error {
+	ps, err := r.beginStart(parentCtx, req)
+	if err != nil {
+		return err
+	}
+	go func() {
+		if err := r.finishStart(parentCtx, req, ps); err != nil && onErr != nil {
+			onErr(err)
+		}
+	}()
+	return nil
+}
+
+func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPayload, ps *pendingStart) error {
+	setupCtx := ps.ctx
+	defer ps.cancel()
+	registered := false
+	defer func() {
+		r.mu.Lock()
+		if r.starting[req.TaskID] == ps {
+			delete(r.starting, req.TaskID)
+		}
+		r.mu.Unlock()
+	}()
+
 	// Enforce permission downgrade: sandboxed worker refuses full_access escalation.
 	permMode := req.PermissionMode
 	if permMode == "" {
@@ -149,19 +228,50 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 		return err
 	}
 
-	var baseSHA string
-	if repoRoot, isGit := gitutil.IsGitRepo(parentCtx, effectiveDir); isGit {
+	var (
+		baseSHA string
+		wt      gitutil.WorktreeInfo
+	)
+	if repoRoot, isGit := gitutil.IsGitRepo(setupCtx, effectiveDir); isGit {
 		if req.Branch != "" && req.UseWorktree {
-			wtPath, sha, wtErr := gitutil.CreateWorktree(parentCtx, repoRoot, req.TaskID, req.Branch)
+			info, wtErr := createWorktreeFn(setupCtx, repoRoot, req.TaskID, req.Branch)
 			if wtErr != nil {
 				r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("git worktree setup failed: %v", wtErr))
 				return wtErr
 			}
-			effectiveDir = wtPath
-			baseSHA = sha
+			wt = info
+			effectiveDir = info.Path
+			baseSHA = info.BaseSHA
 		} else {
-			baseSHA, _ = gitutil.CurrentSHA(parentCtx, effectiveDir)
+			baseSHA, _ = gitutil.CurrentSHA(setupCtx, effectiveDir)
 		}
+	}
+	// undoWorktree removes a worktree created above when the task never gets to run.
+	undoWorktree := func() {
+		if wt.Path == "" || registered {
+			return
+		}
+		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer ccancel()
+		if err := gitutil.RemoveTaskWorktree(cctx, wt); err != nil {
+			r.logger.Warn("failed to remove worktree after launch failure", "task_id", req.TaskID, "path", wt.Path, "err", err)
+		}
+	}
+
+	r.mu.Lock()
+	canceled := ps.canceled
+	r.mu.Unlock()
+	if canceled || setupCtx.Err() != nil {
+		undoWorktree()
+		status := protocol.TaskStatusCanceled
+		reason := "task canceled during setup"
+		if !canceled {
+			status = protocol.TaskStatusFailed
+			reason = fmt.Sprintf("task setup aborted: %v", setupCtx.Err())
+		}
+		code := -1
+		r.emitStatus(protocol.TaskStatusPayload{TaskID: req.TaskID, Status: status, ExitCode: &code, Summary: reason})
+		return fmt.Errorf("task %s: %s", req.TaskID, reason)
 	}
 
 	spec := drv.BuildCommand(drivers.LaunchOptions{
@@ -173,9 +283,15 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 		PermissionMode: permMode,
 	})
 
-	taskCtx, cancel := context.WithCancel(parentCtx)
+	// Exactly one task context: with a deadline when the task has a timeout.
+	var (
+		taskCtx context.Context
+		cancel  context.CancelFunc
+	)
 	if req.TimeoutSeconds > 0 {
 		taskCtx, cancel = context.WithTimeout(parentCtx, time.Duration(req.TimeoutSeconds)*time.Second)
+	} else {
+		taskCtx, cancel = context.WithCancel(parentCtx)
 	}
 
 	proc, err := StartPty(taskCtx, PtyStartOptions{
@@ -188,6 +304,7 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 	})
 	if err != nil {
 		cancel()
+		undoWorktree()
 		r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("failed to launch %s: %v", spec.Binary, err))
 		return err
 	}
@@ -206,6 +323,10 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 
 	r.mu.Lock()
 	r.tasks[req.TaskID] = rt
+	delete(r.starting, req.TaskID)
+	registered = true
+	wantSubscribe := ps.subscribe
+	canceledLate := ps.canceled
 	r.mu.Unlock()
 
 	r.emitStatus(protocol.TaskStatusPayload{
@@ -213,6 +334,13 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 		Status:       protocol.TaskStatusRunning,
 		EffectiveDir: effectiveDir,
 	})
+	if wantSubscribe {
+		r.SubscribePty(req.TaskID)
+	}
+	if canceledLate {
+		// A cancel raced with the final registration step.
+		_ = r.CancelTask(req.TaskID)
+	}
 
 	go r.superviseTask(taskCtx, rt, drv)
 	return nil
@@ -223,7 +351,10 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		rt.cancelFunc()
 		_ = rt.pty.Close()
 		r.mu.Lock()
-		delete(r.tasks, rt.id)
+		// Only remove our own entry: never a newer task that reuses the ID.
+		if r.tasks[rt.id] == rt {
+			delete(r.tasks, rt.id)
+		}
 		r.mu.Unlock()
 	}()
 
@@ -462,9 +593,17 @@ func (l *lineSplitter) flush(emit func(string)) {
 
 // SubscribePty turns on live streaming for taskID and immediately emits a 0x01 snapshot frame.
 func (r *Runner) SubscribePty(taskID string) bool {
-	r.mu.RLock()
+	r.mu.Lock()
 	rt, ok := r.tasks[taskID]
-	r.mu.RUnlock()
+	if !ok {
+		// Remember a subscribe for a task still in setup; it is applied once the PTY exists.
+		if ps, starting := r.starting[taskID]; starting {
+			ps.subscribe = true
+			r.mu.Unlock()
+			return true
+		}
+	}
+	r.mu.Unlock()
 	if !ok {
 		return false
 	}
@@ -479,11 +618,12 @@ func (r *Runner) SubscribePty(taskID string) bool {
 
 // UnsubscribePty stops live PTY byte streaming while keeping the local ring buffer updated.
 func (r *Runner) UnsubscribePty(taskID string) {
-	r.mu.RLock()
-	rt, ok := r.tasks[taskID]
-	r.mu.RUnlock()
-	if ok {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rt, ok := r.tasks[taskID]; ok {
 		rt.streamActive.Store(false)
+	} else if ps, starting := r.starting[taskID]; starting {
+		ps.subscribe = false
 	}
 }
 
@@ -534,11 +674,20 @@ func (r *Runner) ResizePty(taskID string, cols, rows uint16) error {
 	return rt.pty.Resize(cols, rows)
 }
 
-// CancelTask cancels a running task with process-group signal escalation.
+// CancelTask cancels a running task with process-group signal escalation. A task that is
+// still in setup (git worktree, PTY spawn) is aborted before it launches.
 func (r *Runner) CancelTask(taskID string) error {
-	r.mu.RLock()
+	r.mu.Lock()
 	rt, ok := r.tasks[taskID]
-	r.mu.RUnlock()
+	if !ok {
+		if ps, starting := r.starting[taskID]; starting {
+			ps.canceled = true
+			ps.cancel()
+			r.mu.Unlock()
+			return nil
+		}
+	}
+	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("task %s not running", taskID)
 	}
@@ -563,6 +712,12 @@ func (r *Runner) ShutdownAll() {
 		rt.mu.Unlock()
 		rt.cancelFunc()
 	}
+	r.mu.Lock()
+	for _, ps := range r.starting {
+		ps.canceled = true
+		ps.cancel()
+	}
+	r.mu.Unlock()
 }
 
 func (r *Runner) failTask(taskID, effectiveDir, reason string) {
