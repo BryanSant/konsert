@@ -51,6 +51,11 @@ type AgentChatOpen struct {
 	// MCPServers are extra MCP servers exposed to the agent (e.g. Konsert fleet tools and
 	// ask_user, served by the hub over HTTP with a per-chat bearer token).
 	MCPServers []AgentMCPServer `json:"mcp_servers,omitempty"`
+	// ForkFrom marks a fork: when AgentSessionID is empty it starts this chat as a fork of another
+	// session of the same account: a copy of that conversation that runs independently
+	// (claude --resume X --fork-session, codex thread/fork, ACP session/fork). Used for
+	// read-only side conversations about a question; the original stays undisturbed.
+	ForkFrom string `json:"fork_from,omitempty"`
 }
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.
@@ -58,6 +63,9 @@ type AgentMCPServer struct {
 	Name    string            `json:"name"`
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers,omitempty"` // e.g. Authorization; never logged
+	// ToolTimeoutSeconds is how long the agent's MCP client should wait for one tool
+	// call (ask_user blocks until the user answers). 0 = the agent's default.
+	ToolTimeoutSeconds int `json:"tool_timeout_seconds,omitzero"`
 }
 
 // AgentChatPrompt is one user turn.
@@ -90,6 +98,9 @@ type AgentChatControl struct {
 // AgentChatClose ends the engine process for ChatID.
 type AgentChatClose struct {
 	ChatID string `json:"chat_id"`
+	// Discard also deletes what the engine stored for this chat's agent session (a
+	// side-conversation fork that is no longer needed), when the agent supports it.
+	Discard bool `json:"discard,omitzero"`
 }
 
 // Event kinds.
@@ -184,6 +195,8 @@ type AgentElicitation struct {
 	Options  []AgentElicitationOption `json:"options,omitempty"`
 	// AllowText means a free-form answer is accepted (questions).
 	AllowText bool `json:"allow_text,omitzero"`
+	// QuestionID links the hub's question object (q-…), set by the hub.
+	QuestionID string `json:"question_id,omitempty"`
 }
 
 // AgentElicitationOption is one choice; Kind hints the UI: allow_once, allow_always,
@@ -192,6 +205,10 @@ type AgentElicitationOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Kind  string `json:"kind,omitempty"`
+	// Consequence says what happens if the user picks it; Recommended marks the
+	// asker's recommendation (ask_user questions).
+	Consequence string `json:"consequence,omitempty"`
+	Recommended bool   `json:"recommended,omitzero"`
 }
 
 // AgentTokenUsage is token accounting for a turn (when the CLI reports it).
@@ -283,6 +300,9 @@ type AgentAccount struct {
 	CheckedAt time.Time `json:"checked_at"`
 	// ChatSupported is false when this agent has no structured headless protocol.
 	ChatSupported bool `json:"chat_supported"`
+	// Fork is true when the engine can fork a session (AgentChatOpen.ForkFrom): a copy
+	// of the conversation that runs independently of the original.
+	Fork bool `json:"fork,omitzero"`
 }
 
 // AgentAuthStatus is an account's login state.

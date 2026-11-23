@@ -8,7 +8,7 @@
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
 --       r-… repo, s-… space, ws-… workspace, wt-… worktree,
---       h-… hold, rq-… user request.
+--       h-… hold, rq-… user request, q-… question.
 -- Event/log/child tables keep integer or composite keys. External identities live in
 -- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
 -- tasks.external_id (the worker's key for a discovered session).
@@ -178,6 +178,11 @@ CREATE TABLE chat_sessions (
     suspended_prev   TEXT NOT NULL DEFAULT '', -- status to restore on resume
     -- notes_cursor: the last fleet_events.id already delivered to this chat as a note.
     notes_cursor     INTEGER NOT NULL DEFAULT 0,
+    -- Side-conversation answerers (hidden chats): question_id is the question the chat
+    -- answers about; fork_of is the chat whose agent session it forked ('' for the
+    -- orchestrator fallback). Hidden chats never appear in the chat list.
+    question_id      TEXT NOT NULL DEFAULT '',
+    fork_of          TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
 );
@@ -340,6 +345,68 @@ CREATE TABLE user_requests (
     command_id    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_user_requests_status ON user_requests(status, worker_id);
+
+-- Questions: every question an agent asked the user, fleet-wide, until answered.
+CREATE TABLE questions (
+    id              TEXT PRIMARY KEY,
+    sid             TEXT NOT NULL UNIQUE, -- q-…
+    chat_id         TEXT NOT NULL DEFAULT '',
+    task_id         TEXT NOT NULL DEFAULT '',
+    worker_id       TEXT NOT NULL DEFAULT '',
+    agent           TEXT NOT NULL DEFAULT '',
+    account_id      TEXT NOT NULL DEFAULT '',
+    kind            TEXT NOT NULL, -- question | permission
+    source          TEXT NOT NULL, -- ask_user | elicitation
+    elicitation_id  TEXT NOT NULL DEFAULT '',
+    prompt          TEXT NOT NULL,
+    context         TEXT NOT NULL DEFAULT '',
+    why_now         TEXT NOT NULL DEFAULT '',
+    options_json    TEXT NOT NULL DEFAULT '',
+    allow_text      INTEGER NOT NULL DEFAULT 0,
+    recommendation  TEXT NOT NULL DEFAULT '', -- the recommended option id
+    rationale       TEXT NOT NULL DEFAULT '',
+    category        TEXT NOT NULL DEFAULT '',
+    blocks_json     TEXT NOT NULL DEFAULT '',
+    group_key       TEXT NOT NULL DEFAULT '',
+    refs_json       TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL, -- open | answered | delegated | expired | cancelled
+    blocked_since   TEXT NOT NULL,
+    snoozed_until   TEXT,
+    abandoned       INTEGER NOT NULL DEFAULT 0,
+    ask_count       INTEGER NOT NULL DEFAULT 1,
+    rejections      INTEGER NOT NULL DEFAULT 0,
+    answer_json     TEXT NOT NULL DEFAULT '',
+    delegation_json TEXT NOT NULL DEFAULT '',
+    thread_json     TEXT NOT NULL DEFAULT '',
+    -- delivered: 1 once the answer reached the agent (or nothing is left to deliver).
+    delivered       INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    closed_at       TEXT
+);
+CREATE INDEX idx_questions_status ON questions(status, blocked_since);
+CREATE INDEX idx_questions_chat ON questions(chat_id, status);
+
+-- Side-conversation messages of a question.
+CREATE TABLE question_messages (
+    question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    seq         INTEGER NOT NULL,
+    role        TEXT NOT NULL, -- user | answerer | system
+    text        TEXT NOT NULL,
+    turn_id     TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (question_id, seq)
+);
+
+-- Under-specified ask_user calls sent back to the agent (question quality metrics).
+CREATE TABLE question_rejects (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    TEXT NOT NULL DEFAULT '',
+    agent      TEXT NOT NULL DEFAULT '',
+    missing    TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_question_rejects_time ON question_rejects(created_at);
 
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.

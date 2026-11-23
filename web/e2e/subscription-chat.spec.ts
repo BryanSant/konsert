@@ -234,7 +234,9 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     ).toBeVisible();
     await expect(card.getByRole('button', { name: 'Blue' })).toBeVisible();
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'needs_you');
-    await card.getByTestId('elicitation-text').fill('Purple');
+    // Free text sits behind "Other…" on the question card (the same card as the queue).
+    await card.getByTestId('question-other').click();
+    await card.getByTestId('question-other-input').fill('Purple');
     await card.getByRole('button', { name: 'Send' }).click();
 
     await expect(

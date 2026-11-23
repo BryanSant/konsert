@@ -201,6 +201,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/requests/{id}/resolve", s.requireBrowserAuth(s.byRef(ids.Request, s.handleResolveRequest)))
 	s.mux.Handle("GET /api/events", s.requireBrowserAuth(s.handleListFleetEvents))
 	s.mux.Handle("GET /api/events/recent", s.requireBrowserAuth(s.handleRecentEvents))
+	// Questions (PRD §5.8b): the fleet-wide queue, side conversations, delegation.
+	s.registerQuestionRoutes()
 
 	// Orchestrator Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))

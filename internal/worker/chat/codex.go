@@ -296,7 +296,7 @@ func codexLimits(s *codexRateSnapshot) []protocol.AgentRateLimit {
 func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAccount {
 	out := protocol.AgentAccount{
 		ID: acct.ID, Agent: "codex", Label: codexLabel(acct), IsDefault: acct.IsDefault,
-		Approvals: codexApprovalModes(), DefaultApproval: "on-request", ChatSupported: true,
+		Approvals: codexApprovalModes(), DefaultApproval: "on-request", ChatSupported: true, Fork: true,
 		CheckedAt: e.now().UTC(),
 	}
 	if v, code, err := e.run(ctx, e.spec(acct, e.probeDir, "--version")); err != nil {
@@ -571,9 +571,17 @@ func (s *codexSession) ensureProc(ctx context.Context) error {
 		params["config"] = map[string]any{"mcp_servers": codexMCPServers(s.opts.MCPServers)}
 	}
 	method := "thread/start"
-	if s.threadID != "" {
+	switch {
+	case s.threadID != "":
 		method = "thread/resume"
 		params["threadId"] = s.threadID
+		params["excludeTurns"] = true
+	case s.opts.ForkFrom != "":
+		// A side-conversation fork: a copy of the asking thread that runs on its own,
+		// kept out of codex's saved sessions (ephemeral).
+		method = "thread/fork"
+		params["threadId"] = s.opts.ForkFrom
+		params["ephemeral"] = true
 		params["excludeTurns"] = true
 	}
 	s.mu.Unlock()
@@ -619,6 +627,10 @@ func codexMCPServers(servers []protocol.AgentMCPServer) map[string]any {
 		cfg := map[string]any{"url": srv.URL}
 		if len(srv.Headers) > 0 {
 			cfg["http_headers"] = srv.Headers
+		}
+		if srv.ToolTimeoutSeconds > 0 {
+			// codex's MCP client gives up on a tool call after 60 s by default.
+			cfg["tool_timeout_sec"] = srv.ToolTimeoutSeconds
 		}
 		m[srv.Name] = cfg
 	}
@@ -916,7 +928,7 @@ func (s *codexSession) watchdogLoop() {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
+		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 && !konsertToolRunning(s.turn.items) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		tid := ""
 		if fire {
 			s.watchdogFired = true

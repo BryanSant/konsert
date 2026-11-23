@@ -1,4 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { isPending } from '../../../core/models/question.models';
+import { QuestionsStore } from '../../../core/state/questions.store';
+import { QuestionCardComponent } from '../../questions/question-card.component';
 import { AgentElicitationOption, AgentRelogin } from '../../../core/models/agent-chat.models';
 import { ElicitationItem } from '../../../core/state/chat-transcript';
 import { IconComponent } from '../../../shared/icon.component';
@@ -18,10 +21,18 @@ export interface ElicitationAnswer {
   selector: 'ks-elicitation-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ToolCallCardComponent, ReloginHelpComponent, MarkdownViewComponent],
+  imports: [IconComponent, ToolCallCardComponent, ReloginHelpComponent, MarkdownViewComponent, QuestionCardComponent],
   template: `
     @let el = item().elicitation;
-    @if (item().state === 'resolved' || item().state === 'expired') {
+    @if (linked(); as q) {
+      <!-- A Konsert question: the same card as the Questions panel (stays until answered). -->
+      <div [attr.data-elicitation-kind]="el.kind" [attr.data-elicitation-state]="item().state" class="space-y-2">
+        @if (el.tool_call) {
+          <ks-tool-call-card [call]="el.tool_call" />
+        }
+        <ks-question-card [question]="q" [compact]="true" />
+      </div>
+    } @else if (item().state === 'resolved' || item().state === 'expired') {
       <div class="flex items-center gap-2 px-1 text-[11.5px] text-[var(--ks-text-muted)]" [attr.data-elicitation-state]="item().state">
         <app-icon [name]="icon()" [size]="12" />
         <span class="truncate">{{ el.title }}</span>
@@ -112,6 +123,13 @@ export class ElicitationCardComponent {
   readonly answer = output<ElicitationAnswer>();
 
   readonly text = signal('');
+  private readonly questions = inject(QuestionsStore);
+  /** The hub question this card shows, while it is pending (or just answered here). */
+  readonly linked = computed(() => {
+    const q = this.questions.question(this.item().elicitation.question_id);
+    if (!q) return null;
+    return isPending(q) || this.item().state === 'pending' || this.item().state === 'answering' ? q : null;
+  });
   private static n = 0;
   private readonly uid = ++ElicitationCardComponent.n;
   readonly titleId = `ks-elicit-title-${this.uid}`;

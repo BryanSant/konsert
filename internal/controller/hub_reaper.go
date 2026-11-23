@@ -23,6 +23,9 @@ func (h *Hub) RunReaper(ctx context.Context) {
 	defer stop()
 	defer context.AfterFunc(h.ctx, stop)()
 
+	// Decided delegations wait out their grace period across restarts.
+	h.resumeDelegations(ctx)
+
 	interval := h.ReapInterval
 	if interval <= 0 {
 		interval = 10 * time.Second

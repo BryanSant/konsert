@@ -84,6 +84,7 @@ func (e *acpEngine) baseAccount(acct Account) protocol.AgentAccount {
 		DefaultApproval: e.ad.DefaultApproval,
 		UsageNote:       e.ad.UsageNote,
 		ChatSupported:   true,
+		Fork:            e.ad.ForkMethod != "",
 		CheckedAt:       time.Now(),
 	}
 }
@@ -115,6 +116,7 @@ func (e *acpEngine) probe(ctx context.Context, acct Account) protocol.AgentAccou
 	res, init, err := e.probeACP(ctx, acct)
 	if init != nil {
 		out.Version = init.version()
+		out.Fork = out.Fork || init.AgentCapabilities.SessionCapabilities.Fork.set
 	}
 	if verCh != nil {
 		if v := <-verCh; out.Version == "" && len(v) < 80 {

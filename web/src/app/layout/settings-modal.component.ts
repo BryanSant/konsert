@@ -8,11 +8,12 @@ import { FleetStore } from '../core/state/fleet.store';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
+import { QuestionInsightsComponent } from '../features/questions/question-insights.component';
 
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -198,6 +199,8 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
           </div>
         </div>
         </details>
+
+        <ks-question-insights />
 
         @if (error()) {
           <div class="rounded-md bg-[#e05d5d]/10 px-3 py-2.5 text-[#f09595]">

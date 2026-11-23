@@ -69,14 +69,72 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
    requests. Normalized to `EventElicitation{Kind: permission, Options: allow_once /
    allow_always / reject_once ...}`; the user's `agent.chat.respond` is translated back to the
    agent's reply format. Which tool calls ask depends on the approval mode.
-2. **Questions**: the hub exposes an `ask_user(question, options[], allow_text)` MCP tool on a
-   per-chat Streamable HTTP endpoint handed to the agent via `AgentChatOpen.MCPServers`
-   (claude `--mcp-config`, ACP `session/new mcpServers`, codex `-c mcp_servers`). The tool call
-   blocks until the user answers in the chat; the agent's system prompt tells it to use
-   `ask_user` when it needs a decision. A turn that simply ends with a question is `done`
-   (the user replies normally) — the UI highlights it as "replied with a question".
+2. **Questions**: the hub exposes an `ask_user` MCP tool on a per-chat Streamable HTTP
+   endpoint handed to the agent via `AgentChatOpen.MCPServers` (claude `--mcp-config`, ACP
+   `session/new mcpServers`, codex `-c mcp_servers`). The tool call blocks until the user
+   answers; the agent's system prompt tells it to use `ask_user` and how to ask well. A turn
+   that simply ends with a question is `done` (the user replies normally) — the UI highlights
+   it as "replied with a question". Questions are hub objects in a fleet-wide queue; see
+   "Questions and side conversations" below.
 3. **Auth**: `EventElicitation{Kind: auth}` carries `AgentRelogin` (command + profile env +
    URL); the UI offers "Open terminal on <host> and run it" (a shell task with the account env).
+
+## Questions and side conversations (PRD §5.8b)
+
+* **Validation.** `ask_user` takes `question`, `context` (what it is about, with ticket/PR
+  titles), `why_now` (what is blocked, what happens next), `options[]` of `{label,
+  consequence, recommended}`, `recommendation` + `rationale`, `allow_text`, `category`,
+  `blocks[]`. Missing context, why_now, a consequence, or the rationale for a recommendation
+  returns a tool error listing exactly what to add (recorded in `question_rejects` for the
+  quality metrics). The agents' own question and permission prompts are mirrored as
+  questions too (no validation possible) and shown through the same card.
+* **Persistence.** `questions` rows (`q-…` sids) stay open until answered; an identical re-ask
+  from the same chat maps to the same card (blocked time keeps running, `ask_count` grows).
+  When the agent's tool call ends without an answer (its MCP client timed out, the hub
+  restarted, the engine was restarted) the question stays open and the answer is delivered
+  as a `[Konsert]` note: as a new turn when the chat is idle, otherwise with its next prompt.
+* **MCP tool-call timeouts** (the hub passes `AgentMCPServer.ToolTimeoutSeconds` = ask_user
+  wait + 10 min; the hub's own wait is 30 min by default):
+
+  | Agent | Default tool-call limit | How Konsert raises it |
+  |---|---|---|
+  | claude 2.1.x | 60 s for HTTP servers: the fetch first-byte budget is `max(server timeout or MCP_TOOL_TIMEOUT, 60 s)` — this is what ended ask_user after ~60 s | `MCP_TOOL_TIMEOUT` (ms) in the child env and per-server `"timeout"` (ms) in `--mcp-config`. Verified live: a question stayed open 3 min 40 s and was answered in-turn. `-p` sessions don't auto-background MCP calls. |
+  | codex | `mcp_servers.<name>.tool_timeout_sec`, 60 s default | `tool_timeout_sec` in the `config` of `thread/start`/`thread/resume`/`thread/fork` |
+  | grok | per-server `tool_timeout_sec` in `~/.grok/config.toml` (no session-level knob confirmed) | none; the note fallback covers it |
+  | copilot | per-server `timeout` (ms) in its own MCP config; no deadline on tool calls by default (inferred) | none needed |
+  | agy | 180 s (`timeoutSeconds` in its `mcp_config.json` only) | the hub returns "still open" after 170 s |
+  | cursor-agent | 60 s fixed (MCP SDK default; no override for HTTP servers) | the hub returns "still open" after 55 s |
+
+  While a Konsert tool (`ask_user`, `request_user_action`) runs, the engines' no-progress
+  watchdog stays quiet.
+* **Side conversation ("Ask about this").** A hidden agent chat (`chat_sessions.question_id`)
+  answers the user's clarifying questions; it runs through the normal chat machinery and is
+  never listed. When the asking account reports `AgentAccount.Fork`, it is a read-only fork
+  of the asking session on the same machine and account (`AgentChatOpen.ForkFrom`, read-only
+  approval mode, no Konsert tools), so the original stays blocked and undisturbed:
+
+  | Agent | Fork |
+  |---|---|
+  | claude | `--resume <orig> --fork-session --session-id <new>` with stream-json input, `--permission-mode plan` (verified on 2.1.330, including while the original waits in ask_user). The fork's transcript is deleted on discard. |
+  | codex | app-server `thread/fork {threadId, ephemeral: true}` (response `thread.id`), read-only sandbox |
+  | grok | `_x.ai/session/fork {sourceSessionId, sourceCwd, newCwd}` → `newSessionId`, then `session/resume` (verified live) |
+  | ACP agents advertising `sessionCapabilities.fork` | `session/fork` |
+  | agy, copilot, cursor | none over ACP → fallback |
+  | mock | in-process fork that inherits the original's prompts |
+
+  Otherwise (or when the fork fails before answering) the orchestrator's agent answers with a
+  context pack: the question, the asking chat's goal, recent transcript excerpt (from the
+  hub's own chat events), files it touched and the resolved references. The answerer may end
+  with `DRAFT ANSWER: …` ("Use this answer"). On answering, it writes the one-sentence summary
+  delivered with the answer ("The user asked …; after learning …, chose … because …"); the
+  hidden chat is then discarded.
+* **Delegation.** "Let the orchestrator decide" hands the question to the orchestrator chat,
+  which must call `answer_question` (choice + rationale). The decision is held for a grace
+  period (default 30 s) so the user can override it; a later override reaches the agent as a
+  correction note. Per-category auto-delegation rules are off by default.
+* **References.** ka ids (`ka show <id> --json --offline` on the hub host), PR numbers (`gh pr
+  view` when the chat's repo has a GitHub remote), file paths (what the session did with them)
+  and Konsert sids become cards, resolved after the question is shown and cached 2 min.
 
 ## Failure classification
 

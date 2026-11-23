@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/BryanSant/konsert/internal/protocol"
 )
 
@@ -21,7 +23,12 @@ import (
 //	permission  tool call + permission elicitation; waits for agent.chat.respond
 //	ask         question elicitation (options + free text); waits for agent.chat.respond
 //	slow        streams a delta per step for SlowDuration; cancellable
+//	vague question  calls Konsert's ask_user under-specified (rejected), then properly
+//	question    calls Konsert's ask_user (MCP) with a well-formed question and reports the answer
 //	(anything)  thought, message deltas, a tool call, message, usage, turn_end
+//
+// It also forks sessions (AgentChatOpen.ForkFrom), answers Konsert's side-conversation,
+// summary and delegation prompts (see mock_questions.go).
 type MockEngine struct {
 	// StepDelay separates scripted events (default 20 ms).
 	StepDelay time.Duration
@@ -35,6 +42,8 @@ type MockEngine struct {
 	// exhausted marks accounts whose "limit" turn ran: Probe then reports the seven_day
 	// window exhausted until the time stored here.
 	exhausted map[string]time.Time
+	// memory: agent session id -> the user prompts it received (forks inherit them).
+	memory map[string][]string
 }
 
 func (e *MockEngine) markExhausted(accountID string, until time.Time) {
@@ -113,7 +122,7 @@ func (e *MockEngine) Probe(_ context.Context, acct Account) protocol.AgentAccoun
 			{Window: "five_hour", UsedPercent: 12, ResetsAt: &five, State: "ok"},
 			{Window: "seven_day", UsedPercent: 40, ResetsAt: &week, State: "ok"},
 		},
-		CheckedAt: now, ChatSupported: true,
+		CheckedAt: now, ChatSupported: true, Fork: true,
 	}
 	if acct.Env["KONSERT_MOCK_ACCOUNT"] == "mock2" || acct.ID == "mock2" {
 		out.Plan = "pro"
@@ -144,6 +153,16 @@ func (e *MockEngine) Open(ctx context.Context, acct Account, opts protocol.Agent
 	n := e.counter
 	e.mu.Unlock()
 	sid := opts.AgentSessionID
+	forkOf := ""
+	if sid == "" && opts.ForkFrom != "" {
+		sid, forkOf = "mock-fork-"+opts.ChatID+"-"+itoa(n), opts.ForkFrom
+		e.mu.Lock()
+		if e.memory == nil {
+			e.memory = map[string][]string{}
+		}
+		e.memory[sid] = append([]string(nil), e.memory[forkOf]...)
+		e.mu.Unlock()
+	}
 	if sid == "" {
 		sid = "mock-session-" + opts.ChatID + "-" + itoa(n)
 	}
@@ -156,7 +175,7 @@ func (e *MockEngine) Open(ctx context.Context, acct Account, opts protocol.Agent
 		mode = "default"
 	}
 	s := &mockSession{
-		eng: e, acct: acct, emit: emit, sid: sid,
+		eng: e, acct: acct, emit: emit, sid: sid, opts: opts, forkOf: forkOf,
 		model: model, effort: opts.Effort, mode: mode, resumed: opts.AgentSessionID != "",
 		done: make(chan struct{}), answers: map[string]chan protocol.AgentChatRespond{},
 	}
@@ -170,6 +189,12 @@ type mockSession struct {
 	emit    Emit
 	sid     string
 	resumed bool
+	opts    protocol.AgentChatOpen
+	forkOf  string // the session this one was forked from
+
+	mcpSess         *mcp.ClientSession // to the chat's konsert MCP server (lazy)
+	toolN           int
+	lastRecommended string
 
 	mu      sync.Mutex
 	model   string
@@ -321,7 +346,12 @@ func (s *mockSession) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	mc := s.mcpSess
+	s.mcpSess = nil
 	s.mu.Unlock()
+	if mc != nil {
+		_ = mc.Close()
+	}
 	s.wg.Wait()
 	s.doneOnce.Do(func() { close(s.done) })
 	return nil
@@ -364,7 +394,18 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			text = rest
 		}
 	}
+	if text != "" {
+		s.eng.mu.Lock()
+		if s.eng.memory == nil {
+			s.eng.memory = map[string][]string{}
+		}
+		s.eng.memory[s.sid] = append(s.eng.memory[s.sid], text)
+		s.eng.mu.Unlock()
+	}
 	text = strings.ToLower(text)
+	if s.runQuestionTurn(ctx, p, text) {
+		return
+	}
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {

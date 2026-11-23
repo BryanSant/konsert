@@ -393,10 +393,18 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 		text string
 		err  error
 	}
+	// An under-specified question is sent back with what to add.
+	bad, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "ask_user", Arguments: map[string]any{
+		"question": "Which DB?", "options": []string{"postgres", "sqlite"},
+	}})
+	if err != nil || !bad.IsError || !strings.Contains(toolText(bad), "context") || !strings.Contains(toolText(bad), "consequence") {
+		t.Fatalf("under-specified ask_user: %v %+v", err, toolText(bad))
+	}
 	done := make(chan result, 1)
 	go func() {
 		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "ask_user", Arguments: map[string]any{
-			"question": "Which DB?", "options": []string{"postgres", "sqlite"},
+			"question": "Which DB?", "context": "Picking the store for the new cache service.", "why_now": "The schema work waits on it.",
+			"options": []map[string]any{{"label": "postgres", "consequence": "Shared server"}, {"label": "sqlite", "consequence": "Embedded file"}},
 		}})
 		if err != nil {
 			done <- result{err: err}
@@ -419,7 +427,7 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 	b.send(msgChatRespond, chatRespondRequest{SessionID: chat.ID, ElicitationID: q.Elicitation.ID, OptionID: q.Elicitation.Options[1].ID})
 	select {
 	case r := <-done:
-		if r.err != nil || r.text != "sqlite" {
+		if r.err != nil || r.text != `The user chose: "sqlite".` {
 			t.Fatalf("ask_user result: %+v", r)
 		}
 	case <-time.After(5 * time.Second):
@@ -436,11 +444,15 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 		t.Fatalf("respond audit: %+v", evs)
 	}
 
-	// Timeout: "no answer".
+	// Timeout: the question stays open; the agent is told the answer comes as a note.
 	cs.h.AskUserTimeout = 150 * time.Millisecond
-	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "ask_user", Arguments: map[string]any{"question": "Still there?"}})
-	if err != nil || !strings.HasPrefix(toolText(res), "no answer") {
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "ask_user", Arguments: map[string]any{
+		"question": "Still there?", "context": "Checking in.", "why_now": "Nothing else to do."}})
+	if err != nil || !strings.Contains(toolText(res), "still open") {
 		t.Fatalf("timeout result: %v %v", toolText(res), err)
+	}
+	if qs := cs.h.pendingQuestions(context.Background(), chat.ID); len(qs) != 1 || !qs[0].Abandoned {
+		t.Fatalf("abandoned question: %+v", qs)
 	}
 
 	// A cross-site Origin does not block the bearer-authenticated endpoint.
