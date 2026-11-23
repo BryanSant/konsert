@@ -43,7 +43,7 @@ import { IconComponent } from '../../shared/icon.component';
             <div class="flex items-center gap-2 min-w-0 text-[12px]">
               <app-icon [name]="task()?.agent || 'shell'" [size]="13" />
               <span class="font-medium text-[#e4e4e7] shrink-0">{{ displayAgent() }}</span>
-              <span class="font-mono-ide text-[11px] text-[#787a82] truncate">
+              <span class="font-mono-ide text-[11px] text-[#8a8c94] truncate">
                 {{ task()?.effective_dir || task()?.workdir }}
               </span>
               @if (task()?.branch) {

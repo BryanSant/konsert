@@ -21,7 +21,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
           <h3 class="text-[14px] font-semibold text-[#ececed]" id="new-space-title">New Space</h3>
           <p class="text-[11px] text-[#8e9098]">Save a folder or worktree on a machine with multi-tab sessions.</p>
         </div>
-        <button type="button" (click)="close.emit()" aria-label="Close dialog" class="ks-kbd cursor-pointer">Esc</button>
+        <button type="button" (click)="close.emit()" aria-label="Esc: close dialog" class="ks-kbd cursor-pointer">Esc</button>
       </div>
 
       <form (ngSubmit)="submit()" class="space-y-3 text-[12px]">

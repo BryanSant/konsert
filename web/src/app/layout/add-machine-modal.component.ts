@@ -62,8 +62,8 @@ function isAbort(err: unknown): boolean {
         <button
           type="button"
           (click)="close.emit()"
-          aria-label="Close dialog"
-          class="text-[11px] text-[#6d7078] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
+          aria-label="Esc: close dialog"
+          class="text-[11px] text-[#86888f] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
         >
           Esc
         </button>
@@ -71,12 +71,12 @@ function isAbort(err: unknown): boolean {
 
       <!-- From your ssh config -->
       <div class="space-y-2">
-        <div class="text-[11px] text-[#787a82]">From your ssh config</div>
+        <div class="text-[11px] text-[#8a8c94]">From your ssh config</div>
 
         @if (sshHostsLoading()) {
-          <div class="py-6 text-center text-[12px] text-[#6d7078]">Reading ~/.ssh/config...</div>
+          <div class="py-6 text-center text-[12px] text-[#86888f]">Reading ~/.ssh/config...</div>
         } @else if (sshHosts().length === 0) {
-          <div class="rounded-lg border border-[#26282f] bg-[#151619] px-3 py-3 text-[12px] text-[#6d7078]">
+          <div class="rounded-lg border border-[#26282f] bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">
             No hosts found in <code class="font-mono-ide text-[#9a9ca4]">~/.ssh/config</code>. Enter an SSH target below or use the manual command.
           </div>
         } @else {
@@ -84,9 +84,9 @@ function isAbort(err: unknown): boolean {
             @for (host of sshHosts(); track host.alias) {
               <div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[#22242a]/80 transition">
                 <div class="flex items-center gap-2.5 min-w-0">
-                  <app-icon name="server" [size]="14" class="text-[#787a82]" />
+                  <app-icon name="server" [size]="14" class="text-[#8a8c94]" />
                   <span class="text-[12.5px] font-medium text-[#e4e4e7] shrink-0">{{ host.alias }}</span>
-                  <span class="text-[12px] text-[#6d7078] truncate">{{ host.display }}</span>
+                  <span class="text-[12px] text-[#86888f] truncate">{{ host.display }}</span>
                 </div>
 
                 <div class="shrink-0">
@@ -124,7 +124,7 @@ function isAbort(err: unknown): boolean {
 
       <!-- Or type how ssh reaches it -->
       <div class="pt-1 space-y-1.5">
-        <div class="text-[11px] text-[#787a82]">Or type how ssh reaches it</div>
+        <div class="text-[11px] text-[#8a8c94]">Or type how ssh reaches it</div>
         <form (ngSubmit)="bootstrapCustomSSH()" class="flex items-center gap-2">
           <input
             type="text"
@@ -217,7 +217,7 @@ function isAbort(err: unknown): boolean {
         <button
           type="button"
           (click)="showManualConnect.set(!showManualConnect())"
-          class="inline-flex items-center gap-1.5 text-[11px] text-[#787a82] hover:text-[#c8cad0] transition cursor-pointer"
+          class="inline-flex items-center gap-1.5 text-[11px] text-[#8a8c94] hover:text-[#c8cad0] transition cursor-pointer"
         >
           <app-icon [name]="showManualConnect() ? 'chevron-down' : 'chevron-right'" [size]="12" />
           <span>Manual konsertd command (containers, Windows, or outbound-only hosts)</span>
@@ -237,7 +237,7 @@ function isAbort(err: unknown): boolean {
             </div>
 
             <div class="rounded-lg border border-[#2b2d35] bg-[#111214] p-3 space-y-2">
-              <div class="flex items-center justify-between text-[11px] text-[#787a82]">
+              <div class="flex items-center justify-between text-[11px] text-[#8a8c94]">
                 <span>Connect command</span>
                 <button
                   type="button"

@@ -49,8 +49,8 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
         <button
           type="button"
           (click)="close.emit()"
-          aria-label="Close dialog"
-          class="text-[11px] text-[#6d7078] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
+          aria-label="Esc: close dialog"
+          class="text-[11px] text-[#86888f] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
         >
           Esc
         </button>
@@ -59,7 +59,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
       <!-- Core Identity & Runtime Grid -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
         <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
-          <div class="text-[#6d7078] text-[10px]">Permission</div>
+          <div class="text-[#86888f] text-[10px]">Permission</div>
           <div
             class="font-mono-ide mt-0.5 font-medium"
             [class.text-[#d9a043]]="worker().permission_mode === 'full_access'"
@@ -69,17 +69,17 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
           </div>
         </div>
         <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
-          <div class="text-[#6d7078] text-[10px]">Active / Slots</div>
+          <div class="text-[#86888f] text-[10px]">Active / Slots</div>
           <div class="font-mono-ide mt-0.5 text-[#e4e4e7]">
             {{ activeSessionsCount() }} / {{ worker().max_concurrent }}
           </div>
         </div>
         <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
-          <div class="text-[#6d7078] text-[10px]">Last Seen</div>
+          <div class="text-[#86888f] text-[10px]">Last Seen</div>
           <div class="font-mono-ide mt-0.5 text-[#d4d4d8] truncate">{{ lastSeenLabel() }}</div>
         </div>
         <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
-          <div class="text-[#6d7078] text-[10px]">Saved Spaces</div>
+          <div class="text-[#86888f] text-[10px]">Saved Spaces</div>
           <div class="font-mono-ide mt-0.5 text-[#e4e4e7]">{{ savedSpacesCount() }}</div>
         </div>
       </div>
@@ -87,7 +87,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
       <!-- Worker ID row -->
       <div class="flex items-center justify-between gap-2 rounded-lg border border-[#262830] bg-[#141518] px-3 py-2 text-[11px]">
         <div class="min-w-0">
-          <span class="text-[#6d7078] mr-2">Worker ID</span>
+          <span class="text-[#86888f] mr-2">Worker ID</span>
           <span class="font-mono-ide text-[#c8cad0] break-all">{{ worker().id }}</span>
         </div>
         <button
@@ -103,22 +103,22 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
       <!-- Live Telemetry Metrics -->
       @if (worker().metrics; as m) {
         <div class="rounded-lg border border-[#262830] bg-[#141518] p-3 space-y-2 text-[11.5px]">
-          <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#787a82]">Live Telemetry</div>
+          <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Live Telemetry</div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono-ide text-[11px]">
             <div>
-              <span class="text-[#6d7078] block text-[10px]">CPU</span>
+              <span class="text-[#86888f] block text-[10px]">CPU</span>
               <span class="text-[#ececed]">{{ m.cpu_percent.toFixed(0) }}%</span>
             </div>
             <div>
-              <span class="text-[#6d7078] block text-[10px]">Memory</span>
+              <span class="text-[#86888f] block text-[10px]">Memory</span>
               <span class="text-[#ececed]">{{ formatMB(m.mem_used_mb) }} / {{ formatMB(m.mem_total_mb) }}</span>
             </div>
             <div>
-              <span class="text-[#6d7078] block text-[10px]">Load Avg</span>
+              <span class="text-[#86888f] block text-[10px]">Load Avg</span>
               <span class="text-[#ececed]">{{ m.load_avg.toFixed(2) }}</span>
             </div>
             <div>
-              <span class="text-[#6d7078] block text-[10px]">Open Ports</span>
+              <span class="text-[#86888f] block text-[10px]">Open Ports</span>
               <span class="text-[#ececed]">{{ m.listening_ports?.length || 0 }}</span>
             </div>
           </div>
@@ -129,31 +129,31 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
       @if (worker().facts; as f) {
         <div class="rounded-lg border border-[#262830] bg-[#141518] p-3 space-y-2 text-[11.5px]">
           <div class="flex items-center justify-between">
-            <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#787a82]">Machine Facts</span>
-            <span class="font-mono-ide text-[10px] text-[#6d7078]">{{ f.virtualization || worker().isolation }}</span>
+            <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Machine Facts</span>
+            <span class="font-mono-ide text-[10px] text-[#86888f]">{{ f.virtualization || worker().isolation }}</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
             @if (f.os_name || f.os_version) {
               <div class="truncate">
-                <span class="text-[#6d7078]">OS: </span>
+                <span class="text-[#86888f]">OS: </span>
                 <span class="text-[#d4d4d8]">{{ f.os_name }} {{ f.os_version }}</span>
               </div>
             }
             @if (f.cpu_model || f.cpu_cores) {
               <div class="truncate">
-                <span class="text-[#6d7078]">CPU: </span>
+                <span class="text-[#86888f]">CPU: </span>
                 <span class="text-[#d4d4d8]">{{ f.cpu_cores }}c {{ f.cpu_model }}</span>
               </div>
             }
             @if (f.disk_total_gb) {
               <div>
-                <span class="text-[#6d7078]">Disk: </span>
+                <span class="text-[#86888f]">Disk: </span>
                 <span class="font-mono-ide text-[#d4d4d8]">{{ f.disk_free_gb }} GB free / {{ f.disk_total_gb }} GB ({{ f.storage_type || 'disk' }})</span>
               </div>
             }
             @if (f.ram_total_mb) {
               <div>
-                <span class="text-[#6d7078]">RAM / Swap: </span>
+                <span class="text-[#86888f]">RAM / Swap: </span>
                 <span class="font-mono-ide text-[#d4d4d8]">{{ formatMB(f.ram_total_mb) }} / {{ formatMB(f.swap_total_mb) }}</span>
               </div>
             }
@@ -162,7 +162,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
             <div class="flex flex-wrap gap-1 pt-1">
               @for (entry of toolEntries(); track entry.name) {
                 <span class="rounded bg-[#1e2027] border border-[#2a2d36] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab]">
-                  {{ entry.name }}@if (entry.version) { <span class="text-[#6d7078]"> {{ entry.version }}</span> }
+                  {{ entry.name }}@if (entry.version) { <span class="text-[#86888f]"> {{ entry.version }}</span> }
                 </span>
               }
             </div>
@@ -172,7 +172,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- Installed Agents -->
       <div class="space-y-1.5">
-        <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#787a82]">Installed Agents</div>
+        <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Installed Agents</div>
         <div class="flex flex-wrap gap-1.5">
           @for (a of worker().agents; track a) {
             <span class="inline-flex items-center gap-1.5 rounded-md border border-[#2b2e37] bg-[#141518] px-2 py-1 text-[11px] font-mono-ide text-[#d4d4d8]">

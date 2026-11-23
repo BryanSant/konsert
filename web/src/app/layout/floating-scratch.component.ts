@@ -50,7 +50,7 @@ import { IconComponent } from '../shared/icon.component';
           <app-icon name="scratch" [size]="13" class="text-[#8e9098]" />
           <span class="font-medium text-[#ececed]">Scratch Workspace</span>
           @if (activeScratchTask(); as st) {
-            <span class="font-mono-ide text-[10px] text-[#787a82]">
+            <span class="font-mono-ide text-[10px] text-[#8a8c94]">
               {{ fleet.workersById()[st.worker_id]?.name || st.worker_id }} · {{ st.agent }}
             </span>
           }
@@ -90,7 +90,7 @@ import { IconComponent } from '../shared/icon.component';
           <form (ngSubmit)="launchScratch()" class="space-y-3 text-[12px]">
             <div class="grid grid-cols-2 gap-2.5">
               <div>
-                <label for="floating-scratch-machine" class="block text-[11px] text-[#787a82] mb-1">Machine</label>
+                <label for="floating-scratch-machine" class="block text-[11px] text-[#8a8c94] mb-1">Machine</label>
                 <select id="floating-scratch-machine"
                   name="scratchWorker"
                   [ngModel]="selectedWorkerId()"
@@ -105,7 +105,7 @@ import { IconComponent } from '../shared/icon.component';
               </div>
 
               <div>
-                <label for="floating-scratch-session-type" class="block text-[11px] text-[#787a82] mb-1">Session Type</label>
+                <label for="floating-scratch-session-type" class="block text-[11px] text-[#8a8c94] mb-1">Session Type</label>
                 <select id="floating-scratch-session-type"
                   name="scratchAgent"
                   [ngModel]="selectedAgent()"
@@ -122,7 +122,7 @@ import { IconComponent } from '../shared/icon.component';
             </div>
 
             <div>
-              <label for="floating-scratch-directory" class="block text-[11px] text-[#787a82] mb-1">Directory</label>
+              <label for="floating-scratch-directory" class="block text-[11px] text-[#8a8c94] mb-1">Directory</label>
               <input id="floating-scratch-directory"
                 type="text"
                 name="scratchDir"
@@ -155,7 +155,7 @@ import { IconComponent } from '../shared/icon.component';
               [embedded]="true"
             />
           } @placeholder {
-            <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#686a72]" role="status">Loading terminal...</div>
+            <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#86888f]" role="status">Loading terminal...</div>
           }
         </div>
       }

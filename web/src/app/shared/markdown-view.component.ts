@@ -52,7 +52,7 @@ export interface MarkdownBlock {
           }
           @case ('code') {
             <div class="rounded-lg border border-[#282a32] bg-[#101114] overflow-hidden">
-              <div class="flex items-center justify-between px-3 py-1.5 border-b border-[#22242b] bg-[#15161a] text-[10.5px] text-[#787a82]">
+              <div class="flex items-center justify-between px-3 py-1.5 border-b border-[#22242b] bg-[#15161a] text-[10.5px] text-[#8a8c94]">
                 <span class="font-mono-ide">{{ block.lang || 'code' }}</span>
                 <button
                   type="button"

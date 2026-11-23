@@ -50,7 +50,7 @@ function formatSourceHint(src: string): string {
             class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
             [class.bg-[#262830]]="sessionKind() === 'chat'"
             [class.text-[#ececed]]="sessionKind() === 'chat'"
-            [class.text-[#787a82]]="sessionKind() !== 'chat'"
+            [class.text-[#8a8c94]]="sessionKind() !== 'chat'"
           >
             Chat Session
           </button>
@@ -61,13 +61,13 @@ function formatSourceHint(src: string): string {
             class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
             [class.bg-[#262830]]="sessionKind() === 'terminal'"
             [class.text-[#ececed]]="sessionKind() === 'terminal'"
-            [class.text-[#787a82]]="sessionKind() !== 'terminal'"
+            [class.text-[#8a8c94]]="sessionKind() !== 'terminal'"
           >
             Terminal
           </button>
         </div>
 
-        <button type="button" (click)="close.emit()" aria-label="Close dialog" class="text-[#787a82] hover:text-[#ececed] transition cursor-pointer">
+        <button type="button" (click)="close.emit()" aria-label="Close dialog" class="text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer">
           <app-icon name="close" [size]="15" />
         </button>
       </div>
@@ -79,7 +79,7 @@ function formatSourceHint(src: string): string {
               <div class="flex items-center justify-between mb-1">
                 <label for="session-dispatch-modal-machine" class="text-[11px] text-[#8e9098]">Machine</label>
                 @if (machineSourceHint()) {
-                  <span class="text-[10px] text-[#686a72]">{{ machineSourceHint() }}</span>
+                  <span class="text-[10px] text-[#86888f]">{{ machineSourceHint() }}</span>
                 }
               </div>
               <select id="session-dispatch-modal-machine"
@@ -101,7 +101,7 @@ function formatSourceHint(src: string): string {
               <div class="flex items-center justify-between mb-1">
                 <label for="session-dispatch-modal-agent" class="text-[11px] text-[#8e9098]">Agent</label>
                 @if (agentSourceHint()) {
-                  <span class="text-[10px] text-[#686a72]">{{ agentSourceHint() }}</span>
+                  <span class="text-[10px] text-[#86888f]">{{ agentSourceHint() }}</span>
                 }
               </div>
               <select id="session-dispatch-modal-agent"
@@ -120,7 +120,7 @@ function formatSourceHint(src: string): string {
               <div class="flex items-center justify-between mb-1">
                 <label for="session-dispatch-modal-model" class="text-[11px] text-[#8e9098]">Model</label>
                 @if (modelSourceHint()) {
-                  <span class="text-[10px] text-[#686a72]">{{ modelSourceHint() }}</span>
+                  <span class="text-[10px] text-[#86888f]">{{ modelSourceHint() }}</span>
                 }
               </div>
               <input id="session-dispatch-modal-model"

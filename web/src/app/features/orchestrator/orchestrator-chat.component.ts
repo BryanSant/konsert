@@ -206,14 +206,14 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <span>New Terminal</span>
               </button>
             </div>
-            <div class="w-full max-w-sm space-y-1.5 text-[12px] text-[#6d7078]">
+            <div class="w-full max-w-sm space-y-1.5 text-[12px] text-[#86888f]">
               <button
                 type="button"
                 (click)="usePrompt('Check fleet_status and summarize online hosts, available agents, and capacity.')"
                 class="w-full flex items-center justify-between rounded-lg px-3 py-1.5 hover:bg-[#1a1b1f] hover:text-[#b4b6be] transition cursor-pointer"
               >
                 <span>Inspect fleet capacity</span>
-                <span class="font-mono-ide text-[10px] text-[#5e6068]">fleet_status</span>
+                <span class="font-mono-ide text-[10px] text-[#86888f]">fleet_status</span>
               </button>
               <button
                 type="button"
@@ -221,7 +221,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 class="w-full flex items-center justify-between rounded-lg px-3 py-1.5 hover:bg-[#1a1b1f] hover:text-[#b4b6be] transition cursor-pointer"
               >
                 <span>Review recent fleet jobs</span>
-                <span class="font-mono-ide text-[10px] text-[#5e6068]">list_tasks</span>
+                <span class="font-mono-ide text-[10px] text-[#86888f]">list_tasks</span>
               </button>
             </div>
           </div>
@@ -325,7 +325,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 </div>
               </div>
             } @else if (orch.sending()) {
-              <div class="text-[12px] text-[#787a82] animate-pulse px-1">Orchestrator thinking...</div>
+              <div class="text-[12px] text-[#8a8c94] animate-pulse px-1">Orchestrator thinking...</div>
             }
 
             @if (orch.error()) {
@@ -368,12 +368,12 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                   >
                     <app-icon name="paperclip" [size]="10" class="text-[#8e9098]" />
                     <span class="max-w-[160px] truncate">{{ att.filename }}</span>
-                    <span class="text-[10px] font-mono-ide text-[#6d7078]">{{ formatBytes(att.size) }}</span>
+                    <span class="text-[10px] font-mono-ide text-[#86888f]">{{ formatBytes(att.size) }}</span>
                     <button
                       type="button"
                       (click)="removeAttachment(att.remotePath)"
                       [attr.aria-label]="'Remove attachment ' + att.remotePath"
-                      class="text-[#6d7078] hover:text-[#f09595] cursor-pointer"
+                      class="text-[#86888f] hover:text-[#f09595] cursor-pointer"
                     >
                       <app-icon name="close" [size]="10" />
                     </button>
@@ -503,7 +503,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
           </form>
 
           <!-- Subtle Orca-style Context Breadcrumb Line -->
-          <div class="flex items-center justify-between px-2 pt-1.5 text-[11px] text-[#6d7078]">
+          <div class="flex items-center justify-between px-2 pt-1.5 text-[11px] text-[#86888f]">
             <div class="flex items-center gap-3">
               <span class="inline-flex items-center gap-1">
                 <app-icon name="server" [size]="11" />

@@ -56,7 +56,7 @@ let nextPickerId = 0;
           (mousedown)="$event.preventDefault()"
         >
           @if (loadingSuggestions() && suggestions().length === 0) {
-            <div class="px-3 py-2 text-[11px] text-[#787a82]">Searching remote host...</div>
+            <div class="px-3 py-2 text-[11px] text-[#8a8c94]">Searching remote host...</div>
           } @else {
             <div class="max-h-48 overflow-y-auto py-1" role="listbox" [id]="listboxId" aria-label="Matching folders">
               @for (entry of suggestions(); track entry.path; let i = $index) {
@@ -74,7 +74,7 @@ let nextPickerId = 0;
                   [class.text-[#c8cad0]]="activeIdx() !== i"
                 >
                   <div class="flex items-center gap-2 min-w-0">
-                    <app-icon [name]="entry.is_git_repo ? 'git-branch' : 'folder'" [size]="12" [class.text-[#69b879]]="entry.is_git_repo" [class.text-[#787a82]]="!entry.is_git_repo" />
+                    <app-icon [name]="entry.is_git_repo ? 'git-branch' : 'folder'" [size]="12" [class.text-[#69b879]]="entry.is_git_repo" [class.text-[#8a8c94]]="!entry.is_git_repo" />
                     <span class="font-mono-ide truncate">{{ entry.path }}</span>
                   </div>
                   @if (entry.is_git_repo) {
@@ -118,7 +118,7 @@ let nextPickerId = 0;
                 type="button"
                 (click)="browseOpen.set(false)"
                 aria-label="Close folder browser"
-                class="rounded p-0.5 text-[#6d7078] hover:text-[#ececed] cursor-pointer"
+                class="rounded p-0.5 text-[#86888f] hover:text-[#ececed] cursor-pointer"
               >
                 <app-icon name="close" [size]="11" />
               </button>
@@ -128,9 +128,9 @@ let nextPickerId = 0;
           @if (browseError()) {
             <div class="px-3 py-2.5 text-[11px] text-[#f09595]">{{ browseError() }}</div>
           } @else if (loadingBrowse()) {
-            <div class="px-3 py-3 text-[11px] text-[#787a82]">Listing remote directories...</div>
+            <div class="px-3 py-3 text-[11px] text-[#8a8c94]">Listing remote directories...</div>
           } @else if (browseEntries().length === 0) {
-            <div class="px-3 py-3 text-[11px] text-[#686a72]">No subdirectories here.</div>
+            <div class="px-3 py-3 text-[11px] text-[#86888f]">No subdirectories here.</div>
           } @else {
             <div class="max-h-44 overflow-y-auto py-1">
               @for (entry of browseEntries(); track entry.path) {
@@ -144,7 +144,7 @@ let nextPickerId = 0;
                       [name]="entry.is_git_repo ? 'git-branch' : 'folder'"
                       [size]="12"
                       [class.text-[#69b879]]="entry.is_git_repo"
-                      [class.text-[#787a82]]="!entry.is_git_repo"
+                      [class.text-[#8a8c94]]="!entry.is_git_repo"
                     />
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8] group-hover:text-[#f4f4f5] truncate">{{ entry.name }}</span>
                     @if (entry.is_git_repo) {

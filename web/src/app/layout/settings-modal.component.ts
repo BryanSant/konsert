@@ -24,7 +24,7 @@ const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5
             Changes persist in SQLite and hot-reload the Orchestrator immediately.
           </p>
         </div>
-        <button type="button" (click)="close.emit()" aria-label="Close dialog" class="ks-kbd cursor-pointer hover:text-[#ececed]">Esc</button>
+        <button type="button" (click)="close.emit()" aria-label="Esc: close dialog" class="ks-kbd cursor-pointer hover:text-[#ececed]">Esc</button>
       </div>
 
       <form (ngSubmit)="save()" class="space-y-4 text-[12px]">

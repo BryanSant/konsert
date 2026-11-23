@@ -60,7 +60,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
       <!-- Inner Rounded Search Input -->
       <div class="p-2.5 border-b border-[#25272e]">
         <div class="flex items-center gap-2.5 rounded-lg border border-[#2c2e37] bg-[#141518] px-3 py-2 focus-within:border-[#454958] transition">
-          <app-icon name="search" [size]="15" class="text-[#787a82]" />
+          <app-icon name="search" [size]="15" class="text-[#8a8c94]" />
           <input
             type="text"
             role="combobox"
@@ -85,12 +85,12 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
       <!-- Grouped Results -->
       <div class="max-h-[360px] overflow-y-auto px-2 py-2 space-y-3 text-[12px]" id="ks-palette-listbox" [attr.role]="items().length ? 'listbox' : null" [attr.aria-label]="items().length ? 'Results' : null">
         @if (items().length === 0) {
-          <div class="py-8 text-center text-[#686a72]" role="status">No matching sessions, machines, or actions.</div>
+          <div class="py-8 text-center text-[#86888f]" role="status">No matching sessions, machines, or actions.</div>
         }
 
         @for (group of groups(); track group.section) {
           <div class="space-y-0.5" role="group" [attr.aria-labelledby]="'ks-palette-group-' + group.section">
-            <div class="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#686a72]" [id]="'ks-palette-group-' + group.section">
+            <div class="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#86888f]" [id]="'ks-palette-group-' + group.section">
               {{ group.title }}
             </div>
             @for (item of group.items; track item.id) {
@@ -120,7 +120,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
                     @if (item.section === 'machines') {
                       <span class="rounded border border-[#32343d] bg-[#202127] px-1.5 py-0.5 text-[10px] text-[#8e9098]">{{ item.sublabel }}</span>
                     } @else {
-                      <span class="text-[11px] text-[#787a82]" [class.shrink-0]="item.section === 'sessions'" [class.truncate]="item.section !== 'sessions'">{{ item.sublabel }}</span>
+                      <span class="text-[11px] text-[#a1a3ab]" [class.shrink-0]="item.section === 'sessions'" [class.truncate]="item.section !== 'sessions'">{{ item.sublabel }}</span>
                     }
                   }
                 </div>
@@ -138,7 +138,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
       </div>
 
       <!-- Orca-Style Keyboard Hint Footer -->
-      <div class="flex items-center justify-end gap-3 px-3 py-2 border-t border-[#24262d] bg-[#15161a]/90 text-[11px] text-[#6d7078]">
+      <div class="flex items-center justify-end gap-3 px-3 py-2 border-t border-[#24262d] bg-[#15161a]/90 text-[11px] text-[#86888f]">
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">Enter</span> Open</span>
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">Esc</span> Close</span>
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">↑↓</span> Move</span>

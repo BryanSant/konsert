@@ -67,7 +67,7 @@ import { IconComponent } from '../shared/icon.component';
                 aria-hidden="true"
                 title="Close tab (Delete)"
                 (click)="$event.stopPropagation(); tabs.closeTab(tab.id)"
-                class="rounded hover:bg-white/10 p-0.5 text-[#686a72] hover:text-[#ececed] transition cursor-pointer"
+                class="rounded hover:bg-white/10 p-0.5 text-[#86888f] hover:text-[#ececed] transition cursor-pointer"
               >
                 <app-icon name="close" [size]="11" />
               </button>
@@ -81,7 +81,7 @@ import { IconComponent } from '../shared/icon.component';
         (click)="newTab.emit()"
         [title]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
         [attr.aria-label]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
-        class="rounded-md p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
+        class="rounded-md p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
       >
         <app-icon name="plus" [size]="14" />
       </button>
@@ -96,7 +96,7 @@ import { IconComponent } from '../shared/icon.component';
           class="hidden md:inline-flex rounded-md p-1 active:scale-95 transition cursor-pointer shrink-0"
           [class.bg-[#24262d]]="!!tabs.splitTabId()"
           [class.text-[#ececed]]="!!tabs.splitTabId()"
-          [class.text-[#787a82]]="!tabs.splitTabId()"
+          [class.text-[#8a8c94]]="!tabs.splitTabId()"
           [class.hover:text-[#ececed]]="!tabs.splitTabId()"
           [class.hover:bg-[#23252b]]="!tabs.splitTabId()"
         >

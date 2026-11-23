@@ -69,7 +69,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             type="button"
             (click)="commandPaletteOpen.set(true)"
             title="Search / Commands (⌘K)"
-            class="hidden md:inline-flex rounded p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
+            class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="search" [size]="14" />
           </button>
@@ -79,7 +79,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             title="Toggle left sidebar"
             [attr.aria-expanded]="leftOpen()"
             aria-controls="ks-left-pane"
-            class="hidden md:inline-flex rounded p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
+            class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
           >
             <app-icon name="sidebar-left" [size]="14" />
           </button>
@@ -100,7 +100,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               class="hidden md:inline-flex rounded p-1.5 active:scale-95 transition cursor-pointer hover:text-[#ececed]"
               [class.bg-[#24262d]]="rightOpen() && inspectorPanel() === p.id"
               [class.text-[#ececed]]="rightOpen() && inspectorPanel() === p.id"
-              [class.text-[#787a82]]="!rightOpen() || inspectorPanel() !== p.id"
+              [class.text-[#8a8c94]]="!rightOpen() || inspectorPanel() !== p.id"
             >
               <app-icon [name]="p.icon" [size]="14" />
             </button>
@@ -112,7 +112,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             title="Toggle right inspector"
             [attr.aria-expanded]="rightOpen()"
             aria-controls="ks-right-pane"
-            class="hidden md:inline-flex rounded p-1.5 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer ml-1"
+            class="hidden md:inline-flex rounded p-1.5 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer ml-1"
           >
             <app-icon name="sidebar-right" [size]="14" />
           </button>
@@ -201,7 +201,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
                 @defer (on immediate) {
                   <app-xterm-pane [taskId]="tab.taskId" [visible]="isPrimary || isSecondary" />
                 } @placeholder {
-                  <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#686a72]" role="status">Loading terminal...</div>
+                  <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#86888f]" role="status">Loading terminal...</div>
                 }
               }
             </div>
