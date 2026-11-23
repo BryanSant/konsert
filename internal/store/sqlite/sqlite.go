@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,27 +20,45 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
+// connPragmas are applied by the driver to every new connection in the pool (via
+// the DSN), not once on whichever connection happens to run an Exec. busy_timeout
+// and foreign_keys are connection-scoped, so setting them with a single Exec left
+// any replacement connection (e.g. after a bad-conn error) without them.
+var connPragmas = []string{
+	"busy_timeout(5000)",
+	"foreign_keys(1)",
+	"journal_mode(WAL)",
+	"synchronous(NORMAL)",
+}
+
+// buildDSN appends the per-connection pragmas to a database path for modernc.org/sqlite.
+func buildDSN(path string) string {
+	q := url.Values{}
+	for _, p := range connPragmas {
+		q.Add("_pragma", p)
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + q.Encode()
+}
+
 // Open opens (or creates) a SQLite database at path, applies WAL pragmas, and runs migrations.
 func Open(ctx context.Context, path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", buildDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 	// Single-writer connection prevents SQLITE_BUSY under concurrent goroutines.
+	// A separate read-only pool was considered and deferred: it would touch every
+	// query site (including task CRUD other work is extending) for limited gain
+	// at the hub's current load.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA synchronous=NORMAL;",
-		"PRAGMA busy_timeout=5000;",
-		"PRAGMA foreign_keys=ON;",
-	}
-	for _, p := range pragmas {
-		if _, err := db.ExecContext(ctx, p); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("exec %s: %w", p, err)
-		}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 
 	if err := runMigrations(ctx, db); err != nil {
