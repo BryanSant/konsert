@@ -25,6 +25,29 @@ export interface WorkerMetrics {
   listening_ports?: ListeningPort[];
 }
 
+export interface MachineFacts {
+  os_name?: string;
+  os_version?: string;
+  kernel_version?: string;
+  cpu_model?: string;
+  cpu_cores: number;
+  ram_total_mb: number;
+  swap_total_mb: number;
+  swap_used_mb: number;
+  storage_type?: string;
+  disk_total_gb: number;
+  disk_free_gb: number;
+  tmp_is_tmpfs: boolean;
+  is_wsl: boolean;
+  is_container: boolean;
+  is_mac_container: boolean;
+  is_vm: boolean;
+  virtualization?: string;
+  tools?: Record<string, string>;
+  auth_ready?: Record<string, boolean>;
+  collected_at?: string;
+}
+
 export interface Worker {
   id: string;
   name: string;
@@ -40,6 +63,7 @@ export interface Worker {
   active_tasks?: number;
   last_seen_at: string;
   metrics?: WorkerMetrics;
+  facts?: MachineFacts;
 }
 
 export interface GitSummary {

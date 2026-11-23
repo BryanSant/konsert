@@ -317,29 +317,22 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
         </div>
       }
 
-      <!-- PANEL 3: CHECKS & RUNTIME POSTURE -->
+      <!-- PANEL 3: CHECKS, RUNTIME POSTURE & CACHED MACHINE FACTS -->
       @if (panel() === 'checks') {
         <div class="ks-panel-enter flex-1 overflow-y-auto p-3 space-y-3">
-          @if (!activeTask()) {
-            <div class="text-[12px] text-[#686a72]">
-              Select a workspace session tab to inspect execution status, permission posture, and host details.
-            </div>
-          } @else {
-            @let t = activeTask()!;
+          @if (activeTask(); as t) {
             @let w = activeWorker();
             <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[12px]">
               <div class="flex items-center justify-between px-3 py-2">
                 <span class="text-[#787a82]">Status</span>
                 <span class="font-mono-ide text-[11px] text-[#ececed]">{{ t.status }}</span>
               </div>
-              <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-[#787a82]">Origin</span>
-                <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ t.origin || 'orchestrator' }}</span>
-              </div>
-              <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-[#787a82]">Mode</span>
-                <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ t.mode }}</span>
-              </div>
+              @if (t.model) {
+                <div class="flex items-center justify-between px-3 py-2">
+                  <span class="text-[#787a82]">Model</span>
+                  <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ t.model }}</span>
+                </div>
+              }
               <div class="flex items-center justify-between px-3 py-2">
                 <span class="text-[#787a82]">Permissions</span>
                 <span
@@ -363,10 +356,6 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                   <span class="text-[#787a82]">Host</span>
                   <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ w.name }} ({{ w.os }}/{{ w.arch }})</span>
                 </div>
-                <div class="flex items-center justify-between px-3 py-2">
-                  <span class="text-[#787a82]">Isolation</span>
-                  <span class="font-mono-ide text-[11px] uppercase text-[#a1a3ab]">{{ w.isolation }}</span>
-                </div>
               }
             </div>
 
@@ -380,6 +369,81 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                 }
               </div>
             }
+          }
+
+          <!-- Cached Machine Facts & Capabilities -->
+          @if (inspectedWorker(); as iw) {
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-[11px] text-[#787a82]">
+                <span>Machine Facts · {{ iw.name }}</span>
+                <span class="font-mono-ide text-[10px]">{{ iw.facts?.virtualization || iw.isolation }}</span>
+              </div>
+
+              @if (iw.facts; as f) {
+                <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[11.5px]">
+                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span class="text-[#787a82]">OS</span>
+                    <span class="font-mono-ide text-[11px] text-[#e4e4e7] truncate">{{ f.os_name }} {{ f.os_version }}</span>
+                  </div>
+                  @if (f.cpu_model || f.cpu_cores) {
+                    <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                      <span class="text-[#787a82]">CPU</span>
+                      <span class="font-mono-ide text-[11px] text-[#d4d4d8] truncate">{{ f.cpu_cores }}c · {{ f.cpu_model || iw.arch }}</span>
+                    </div>
+                  }
+                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span class="text-[#787a82]">Memory / Swap</span>
+                    <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
+                      {{ formatGB(f.ram_total_mb) }} RAM · {{ formatGB(f.swap_total_mb) }} swap
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span class="text-[#787a82]">Storage</span>
+                    <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
+                      {{ f.disk_free_gb }}/{{ f.disk_total_gb }} GB free ({{ f.storage_type || 'disk' }})
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span class="text-[#787a82]">Runtime</span>
+                    <span class="font-mono-ide text-[10.5px] text-[#a1a3ab]">
+                      {{ f.virtualization || 'bare_metal' }}@if (f.tmp_is_tmpfs) { · /tmp tmpfs }
+                    </span>
+                  </div>
+                </div>
+
+                @if (authReadyEntries(f.auth_ready).length > 0) {
+                  <div class="space-y-1">
+                    <div class="text-[10.5px] text-[#787a82]">Auth Ready</div>
+                    <div class="flex flex-wrap gap-1">
+                      @for (name of authReadyEntries(f.auth_ready); track name) {
+                        <span class="rounded border border-[#69b879]/30 bg-[#69b879]/10 px-1.5 py-0.5 font-mono-ide text-[10px] text-[#8cd49b]">
+                          {{ name }}
+                        </span>
+                      }
+                    </div>
+                  </div>
+                }
+
+                @if (toolEntries(f.tools).length > 0) {
+                  <div class="space-y-1">
+                    <div class="text-[10.5px] text-[#787a82]">Detected Tools</div>
+                    <div class="flex flex-wrap gap-1">
+                      @for (entry of toolEntries(f.tools); track entry.name) {
+                        <span class="rounded border border-[#2b2d36] bg-[#1e2026] px-1.5 py-0.5 font-mono-ide text-[10px] text-[#c8cad0]">
+                          {{ entry.name }} <span class="text-[#787a82]">{{ entry.version }}</span>
+                        </span>
+                      }
+                    </div>
+                  </div>
+                }
+              } @else {
+                <div class="text-[11px] text-[#5e6068]">Waiting for machine facts from {{ iw.name }}...</div>
+              }
+            </div>
+          } @else {
+            <div class="text-[12px] text-[#686a72]">
+              Connect a machine or open a session tab to inspect cached hardware, runtime, and tool facts.
+            </div>
           }
         </div>
       }
@@ -424,6 +488,14 @@ export class TelemetryDrawerComponent implements OnDestroy {
   readonly activeWorker = computed(() => {
     const t = this.activeTask();
     return t?.worker_id ? this.fleet.workersById()[t.worker_id] : undefined;
+  });
+
+  readonly inspectedWorker = computed(() => {
+    const aw = this.activeWorker();
+    if (aw) return aw;
+    const sp = this.activeSpace();
+    if (sp) return this.fleet.workersById()[sp.worker_id];
+    return this.fleet.workers().find((w) => w.status === 'online') ?? this.fleet.workers()[0];
   });
 
   readonly events = computed(() => {
@@ -596,6 +668,26 @@ export class TelemetryDrawerComponent implements OnDestroy {
 
   basename(p: string): string {
     return basenamePath(p);
+  }
+
+  formatGB(mb: number | undefined): string {
+    if (!mb) return '0 GB';
+    return `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GB`;
+  }
+
+  toolEntries(tools?: Record<string, string>): Array<{ name: string; version: string }> {
+    if (!tools) return [];
+    return Object.entries(tools)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, version]) => ({ name, version }));
+  }
+
+  authReadyEntries(auth?: Record<string, boolean>): string[] {
+    if (!auth) return [];
+    return Object.entries(auth)
+      .filter(([, ok]) => ok)
+      .map(([name]) => name)
+      .sort();
   }
 
   formatTime(iso: string): string {

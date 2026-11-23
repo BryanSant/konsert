@@ -235,4 +235,37 @@ func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
 	if err != nil || gotRehomed.WorkspaceID != store.DefaultWorkspaceID || gotRehomed.ProjectID != store.DefaultProjectID || gotRehomed.RepoID != "" {
 		t.Fatalf("expected task re-homed to Default after workspace delete, got %+v err=%v", gotRehomed, err)
 	}
+
+	// 3. Cached machine facts & Orchestrator persistent memory
+	if err := st.UpdateWorkerFacts(ctx, "w-linux", `{"os_name":"Fedora Linux","cpu_cores":16,"tools":{"postgres":"18.1"}}`, now); err != nil {
+		t.Fatalf("UpdateWorkerFacts failed: %v", err)
+	}
+	gotW, err := st.GetWorker(ctx, "w-linux")
+	if err != nil || !containsStr(gotW.FactsJSON, `"postgres":"18.1"`) || gotW.FactsUpdatedAt == nil {
+		t.Fatalf("expected persisted facts on worker, got %+v err=%v", gotW, err)
+	}
+
+	if err := st.UpsertMemory(ctx, store.MemoryEntry{Scope: "fleet", Key: "deploy-host", Summary: "Use foo1 for GCP deploys"}); err != nil {
+		t.Fatalf("UpsertMemory failed: %v", err)
+	}
+	mems, err := st.ListMemory(ctx, "fleet", 10)
+	if err != nil || len(mems) != 1 || mems[0].Summary != "Use foo1 for GCP deploys" {
+		t.Fatalf("ListMemory mismatch: %+v err=%v", mems, err)
+	}
+	if err := st.DeleteMemory(ctx, "fleet", "deploy-host"); err != nil {
+		t.Fatalf("DeleteMemory failed: %v", err)
+	}
+}
+
+func containsStr(s, sub string) bool {
+	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

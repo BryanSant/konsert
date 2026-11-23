@@ -38,8 +38,9 @@ type Daemon struct {
 	sendMu sync.RWMutex
 	sendCh chan outboundMsg
 
-	// Test hook: optional custom heartbeat interval (defaults to 10s).
+	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
+	FactsInterval     time.Duration
 }
 
 // NewDaemon constructs a worker daemon from WorkerConfig.
@@ -72,6 +73,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		registry:          registry,
 		logger:            logger,
 		HeartbeatInterval: 10 * time.Second,
+		FactsInterval:     5 * time.Minute,
 	}
 
 	d.runner = NewRunner(registry, cfg.Sandbox, cfg.AllowedRoots, RunnerCallbacks{
@@ -178,11 +180,12 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		d.sendMu.Unlock()
 	}()
 
-	// Send worker.hello immediately with current capabilities and any active in-flight tasks.
+	// Send worker.hello immediately with current capabilities, machine facts, and any active in-flight tasks.
 	permMode := protocol.PermissionFullAccess
 	if d.cfg.Sandbox {
 		permMode = protocol.PermissionSandboxed
 	}
+	initialFacts := CollectMachineFacts(connCtx)
 	hello := protocol.WorkerHelloPayload{
 		Worker: protocol.WorkerInfo{
 			ID:             d.cfg.WorkerID,
@@ -195,6 +198,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			Agents:         d.registry.DetectInstalled(d.cfg.EnableMockDriver),
 			Tags:           d.cfg.Tags,
 			MaxConcurrent:  d.cfg.MaxConcurrent,
+			Facts:          &initialFacts,
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
 	}
@@ -257,6 +261,25 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				sendHB()
+			}
+		}
+	}()
+
+	// Periodic Machine Facts refresher (keeps cached OS/disk/tools facts current without bloating heartbeats).
+	go func() {
+		fInt := d.FactsInterval
+		if fInt <= 0 {
+			fInt = 5 * time.Minute
+		}
+		ticker := time.NewTicker(fInt)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-connCtx.Done():
+				return
+			case <-ticker.C:
+				facts := CollectMachineFacts(connCtx)
+				d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
 			}
 		}
 	}()
@@ -412,7 +435,94 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		go func(reqID string, req protocol.FSListRequest) {
 			d.sendJSONWithID(protocol.MsgFSListResult, reqID, d.handleFSList(req))
 		}(env.ID, p)
+
+	case protocol.MsgWorktreeScan:
+		p, err := protocol.DecodePayload[protocol.WorktreeScanRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.WorktreeScanRequest) {
+			d.sendJSONWithID(protocol.MsgWorktreeScanResult, reqID, d.handleWorktreeScan(req))
+		}(env.ID, p)
 	}
+}
+
+func (d *Daemon) handleWorktreeScan(req protocol.WorktreeScanRequest) protocol.WorktreeScanResult {
+	root := strings.TrimSpace(req.RootPath)
+	if root == "" {
+		if len(d.cfg.AllowedRoots) > 0 {
+			root = d.cfg.AllowedRoots[0]
+		} else {
+			root = "~"
+		}
+	}
+	validRoot, err := gitutil.ValidateWorkdir(root, d.cfg.AllowedRoots)
+	if err != nil {
+		return protocol.WorktreeScanResult{RootPath: root, Matches: []protocol.WorktreeScanMatch{}, Error: err.Error()}
+	}
+	query := strings.ToLower(strings.TrimSpace(req.Query))
+	res := protocol.WorktreeScanResult{
+		RootPath: validRoot,
+		Matches:  []protocol.WorktreeScanMatch{},
+	}
+
+	// Bounded depth-3 walk (skips heavy vendor dirs) to find .konsert-worktrees/* or query-matching temp worktrees.
+	maxDepth := 3
+	baseDepth := strings.Count(filepath.Clean(validRoot), string(filepath.Separator))
+	_ = filepath.WalkDir(validRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return nil
+		}
+		name := entry.Name()
+		if path != validRoot {
+			if name == "node_modules" || name == ".git" || name == "vendor" || name == "target" || name == ".cache" {
+				return filepath.SkipDir
+			}
+		}
+		depth := strings.Count(filepath.Clean(path), string(filepath.Separator)) - baseDepth
+		if name == ".konsert-worktrees" {
+			children, _ := os.ReadDir(path)
+			repoRoot := filepath.Dir(path)
+			for _, ch := range children {
+				if !ch.IsDir() {
+					continue
+				}
+				wtPath := filepath.Join(path, ch.Name())
+				if query != "" && !strings.Contains(strings.ToLower(wtPath), query) {
+					continue
+				}
+				res.Matches = append(res.Matches, protocol.WorktreeScanMatch{
+					Path:      wtPath,
+					RepoRoot:  repoRoot,
+					Branch:    ch.Name(),
+					Kind:      "konsert_worktree",
+					Removable: true,
+				})
+			}
+			return filepath.SkipDir
+		}
+		if query != "" && path != validRoot && strings.Contains(strings.ToLower(name), query) {
+			// Match temp worktree or folder matching query (e.g. "epic-123")
+			if _, gitFileErr := os.Stat(filepath.Join(path, ".git")); gitFileErr == nil {
+				res.Matches = append(res.Matches, protocol.WorktreeScanMatch{
+					Path:      path,
+					Kind:      "git_worktree",
+					Removable: false,
+				})
+				return filepath.SkipDir
+			}
+		}
+		if depth >= maxDepth {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+
+	sort.Slice(res.Matches, func(i, j int) bool { return res.Matches[i].Path < res.Matches[j].Path })
+	if len(res.Matches) > 50 {
+		res.Matches = res.Matches[:50]
+	}
+	return res
 }
 
 func (d *Daemon) handleFSList(req protocol.FSListRequest) protocol.FSListResult {

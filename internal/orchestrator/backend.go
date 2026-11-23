@@ -13,11 +13,18 @@ import (
 	"github.com/BryanSant/konsert/internal/store"
 )
 
-const defaultSystemPrompt = `You are Konsert Orchestrator, an autonomous distributed fleet coordinator.
-You manage coding agents running across distributed worker nodes (hosts, VMs, and containers).
-Use your fleet tools to inspect workers (fleet_status), dispatch parallel tasks (dispatch_task), check progress (list_tasks), retrieve concise structured results (get_task_result), steer running agents (steer_task), or cancel tasks (cancel_task).
-Never ask for or expect raw terminal logs; rely on concise structured task summaries, exit codes, milestones, and git diff summaries.
+const defaultSystemPrompt = `You are Konsert Orchestrator, coordinating an entire fleet of SSH-connected machines as one logical system.
+Token Efficiency Rules:
+- ALWAYS prefer deterministic daemon RPC tools (inspect_machine_facts, inspect_git_status, list_remote_dir, scan_temp_worktrees, cleanup_worktree, fleet_status, list_tasks) over spawning coding agents for inspection, file discovery, git status, or cleanup scans.
+- Delegate to coding agents (dispatch_task) ONLY for non-deterministic engineering work (writing/refactoring code, debugging, running complex multi-step plans).
+- Use cached Machine Facts to place work on the right machine (OS, hardware/load, virtualization, installed tools like postgres 18 or gcloud auth readiness).
+- Persist important cross-thread fleet context or task handoff notes with save_memory, and rely on compact structured summaries rather than raw terminal output.
 Be concise, structured, and action-oriented.`
+
+// ContextProvider optionally supplies a compact live fleet + taxonomy + memory digest for every LLM turn.
+type ContextProvider interface {
+	BuildCompactContext(ctx context.Context, sessionID string) string
+}
 
 // ToolDef describes an orchestrator tool in JSON Schema format.
 type ToolDef struct {
@@ -167,7 +174,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		}
 	}
 
-	history, err := s.loadHistory(ctx, sessionID)
+	history, checkpoint, err := s.loadBoundedHistory(ctx, sessionID, 24)
 	if err != nil {
 		if cb.OnError != nil {
 			cb.OnError(sessionID, err.Error())
@@ -176,6 +183,14 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	}
 
 	system := defaultSystemPrompt
+	if cp, ok := s.executor.(ContextProvider); ok {
+		if compact := strings.TrimSpace(cp.BuildCompactContext(ctx, sessionID)); compact != "" {
+			system += "\n\n## Live Fleet & Memory Snapshot\n" + compact
+		}
+	}
+	if checkpoint != "" {
+		system += "\n\n## Thread Checkpoint (Earlier Compacted Turns)\n" + checkpoint
+	}
 	if cfg.SystemExtra != "" {
 		system += "\n\n" + cfg.SystemExtra
 	}
@@ -296,11 +311,42 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	return nil
 }
 
-func (s *Service) loadHistory(ctx context.Context, sessionID string) ([]Message, error) {
+// loadBoundedHistory keeps the prompt compact when threads grow long by summarizing overflow turns
+// into persistent SQLite orchestrator_memory ("session:<id>", "thread_checkpoint") so context wipes never lose state.
+func (s *Service) loadBoundedHistory(ctx context.Context, sessionID string, maxRecent int) ([]Message, string, error) {
 	rows, err := s.store.ListChatMessages(ctx, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	var checkpoint string
+	if maxRecent > 0 && len(rows) > maxRecent {
+		overflow := rows[:len(rows)-maxRecent]
+		rows = rows[len(rows)-maxRecent:]
+		// Never start recent slice on a stray tool result without its parent assistant tool_call.
+		for len(rows) > 0 && rows[0].Role == "tool" {
+			overflow = append(overflow, rows[0])
+			rows = rows[1:]
+		}
+		checkpoint = compactOverflowDigest(overflow)
+		if checkpoint != "" {
+			_ = s.store.UpsertMemory(ctx, store.MemoryEntry{
+				Scope:   "session:" + sessionID,
+				Key:     "thread_checkpoint",
+				Summary: checkpoint,
+			})
+		}
+	} else {
+		// Re-hydrate any previously persisted checkpoint for this session if present.
+		if mems, mErr := s.store.ListMemory(ctx, "session:"+sessionID, 5); mErr == nil {
+			for _, m := range mems {
+				if m.Key == "thread_checkpoint" {
+					checkpoint = m.Summary
+					break
+				}
+			}
+		}
+	}
+
 	msgs := make([]Message, 0, len(rows))
 	for _, r := range rows {
 		m := Message{
@@ -321,5 +367,34 @@ func (s *Service) loadHistory(ctx context.Context, sessionID string) ([]Message,
 		}
 		msgs = append(msgs, m)
 	}
-	return msgs, nil
+	return msgs, checkpoint, nil
+}
+
+func compactOverflowDigest(rows []store.ChatMessage) string {
+	var lines []string
+	for _, r := range rows {
+		text := strings.TrimSpace(r.Content)
+		if text == "" {
+			continue
+		}
+		if r.Role == "tool" {
+			var meta struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			}
+			_ = json.Unmarshal([]byte(r.ToolJSON), &meta)
+			if meta.Name != "" {
+				lines = append(lines, fmt.Sprintf("- tool %s (%s)", meta.Name, meta.Status))
+			}
+			continue
+		}
+		if len(text) > 140 {
+			text = text[:140] + "..."
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", r.Role, strings.ReplaceAll(text, "\n", " ")))
+	}
+	if len(lines) > 16 {
+		lines = lines[len(lines)-16:]
+	}
+	return strings.Join(lines, "\n")
 }

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/orchestrator"
@@ -40,6 +42,18 @@ type WorkerStatusView struct {
 	ActiveTasks    int                     `json:"active_tasks"`
 	LastSeenAt     time.Time               `json:"last_seen_at"`
 	Metrics        *protocol.WorkerMetrics `json:"metrics,omitempty"`
+	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
+}
+
+func decodeWorkerFacts(raw string) *protocol.MachineFacts {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var f protocol.MachineFacts
+	if err := json.Unmarshal([]byte(raw), &f); err != nil {
+		return nil
+	}
+	return &f
 }
 
 type FleetStatusResult struct {
@@ -77,6 +91,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 			ActiveTasks:    ac,
 			LastSeenAt:     w.LastSeenAt,
 			Metrics:        s.hub.WorkerMetrics(w.ID),
+			Facts:          decodeWorkerFacts(w.FactsJSON),
 		})
 	}
 	return FleetStatusResult{
@@ -763,21 +778,243 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 	return ActionResult{OK: true, TaskID: taskID, Status: protocol.TaskStatusCanceled}, nil
 }
 
+// --- orchestrator.ContextProvider & daemon-first RPC helpers ---
+
+// BuildCompactContext produces a token-efficient (<~400 token) live snapshot of fleet facts,
+// taxonomy, active sessions, and persisted SQLite memory for the Orchestrator system prompt.
+func (s *FleetService) BuildCompactContext(ctx context.Context, sessionID string) string {
+	var b strings.Builder
+	fs, err := s.FleetStatus(ctx)
+	if err == nil && len(fs.Workers) > 0 {
+		b.WriteString("Machines:\n")
+		for _, w := range fs.Workers {
+			line := fmt.Sprintf("- %s (id=%s, %s, %s/%s, active=%d/%d, agents=[%s]",
+				w.Name, w.ID, w.Status, w.OS, w.Arch, w.ActiveTasks, w.MaxConcurrent, strings.Join(w.Agents, ","))
+			if w.Facts != nil {
+				line += fmt.Sprintf(", virt=%s, %dc/%dGB RAM, %dGB free",
+					w.Facts.Virtualization, w.Facts.CPUCores, w.Facts.RAMTotalMB/1024, w.Facts.DiskFreeGB)
+				if len(w.Facts.Tools) > 0 {
+					var tools []string
+					for k, v := range w.Facts.Tools {
+						tools = append(tools, k+":"+v)
+					}
+					sort.Strings(tools)
+					if len(tools) > 8 {
+						tools = tools[:8]
+					}
+					line += ", tools=[" + strings.Join(tools, ",") + "]"
+				}
+				if len(w.Facts.AuthReady) > 0 {
+					var ready []string
+					for k, ok := range w.Facts.AuthReady {
+						if ok {
+							ready = append(ready, k)
+						}
+					}
+					sort.Strings(ready)
+					if len(ready) > 0 {
+						line += ", auth_ready=[" + strings.Join(ready, ",") + "]"
+					}
+				}
+			}
+			line += ")\n"
+			b.WriteString(line)
+		}
+	}
+
+	if tax, err := s.store.GetTaxonomy(ctx); err == nil && len(tax.Projects) > 0 {
+		var pNames []string
+		for _, p := range tax.Projects {
+			pNames = append(pNames, p.Name)
+		}
+		b.WriteString(fmt.Sprintf("Taxonomy: %d spaces, %d projects (%s), %d repos, %d worktrees\n",
+			len(tax.Workspaces), len(tax.Projects), strings.Join(pNames, ", "), len(tax.Repos), len(tax.Worktrees)))
+	}
+
+	if fleetMem, err := s.store.ListMemory(ctx, "fleet", 6); err == nil && len(fleetMem) > 0 {
+		b.WriteString("Fleet Memory:\n")
+		for _, m := range fleetMem {
+			b.WriteString(fmt.Sprintf("- %s: %s\n", m.Key, m.Summary))
+		}
+	}
+	if sessionID != "" {
+		if sessMem, err := s.store.ListMemory(ctx, "session:"+sessionID, 6); err == nil && len(sessMem) > 0 {
+			for _, m := range sessMem {
+				if m.Key == "thread_checkpoint" {
+					continue
+				}
+				b.WriteString(fmt.Sprintf("- [session] %s: %s\n", m.Key, m.Summary))
+			}
+		}
+	}
+	return b.String()
+}
+
+// ScanTempWorktrees deterministically scans one or all online machines via konsertd RPC (zero agent LLM calls).
+func (s *FleetService) ScanTempWorktrees(ctx context.Context, workerID, rootPath, query string) (map[string]any, error) {
+	workers, err := s.store.ListWorkers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var targets []store.Worker
+	for _, w := range workers {
+		if w.Status != "online" || !s.hub.IsWorkerConnected(w.ID) {
+			continue
+		}
+		if workerID != "" && w.ID != workerID && !strings.EqualFold(w.Name, workerID) {
+			continue
+		}
+		targets = append(targets, w)
+	}
+	if len(targets) == 0 {
+		return map[string]any{"scanned_workers": 0, "results": []any{}}, nil
+	}
+
+	type workerScan struct {
+		WorkerID   string                       `json:"worker_id"`
+		WorkerName string                       `json:"worker_name"`
+		RootPath   string                       `json:"root_path,omitempty"`
+		Matches    []protocol.WorktreeScanMatch `json:"matches"`
+		NoOp       bool                         `json:"no_op"`
+		Error      string                       `json:"error,omitempty"`
+	}
+	results := make([]workerScan, len(targets))
+	var wg sync.WaitGroup
+	for i, w := range targets {
+		wg.Add(1)
+		go func(idx int, wk store.Worker) {
+			defer wg.Done()
+			rpcCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			defer cancel()
+			env, rErr := s.hub.RequestWorker(rpcCtx, wk.ID, protocol.MsgWorktreeScan, protocol.WorktreeScanRequest{
+				RootPath: rootPath,
+				Query:    query,
+			})
+			if rErr != nil {
+				results[idx] = workerScan{WorkerID: wk.ID, WorkerName: wk.Name, Matches: []protocol.WorktreeScanMatch{}, Error: rErr.Error()}
+				return
+			}
+			res, dErr := protocol.DecodePayload[protocol.WorktreeScanResult](env)
+			if dErr != nil {
+				results[idx] = workerScan{WorkerID: wk.ID, WorkerName: wk.Name, Matches: []protocol.WorktreeScanMatch{}, Error: dErr.Error()}
+				return
+			}
+			results[idx] = workerScan{
+				WorkerID:   wk.ID,
+				WorkerName: wk.Name,
+				RootPath:   res.RootPath,
+				Matches:    res.Matches,
+				NoOp:       len(res.Matches) == 0 && res.Error == "",
+				Error:      res.Error,
+			}
+		}(i, w)
+	}
+	wg.Wait()
+
+	return map[string]any{
+		"scanned_workers": len(targets),
+		"results":         results,
+	}, nil
+}
+
 // --- orchestrator.ToolExecutor implementation ---
 
 func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 	return []orchestrator.ToolDef{
 		{
 			Name:        "fleet_status",
-			Description: "List all registered Konsert worker nodes, their online status, available coding agents, isolation tier, permission mode, and active task counts.",
+			Description: "List all registered Konsert worker nodes, their online status, available coding agents, cached machine facts, isolation tier, permission mode, and active task counts.",
 			Parameters: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
 			},
 		},
 		{
+			Name:        "inspect_machine_facts",
+			Description: "Deterministic zero-token lookup of cached Machine Facts (OS/patch, CPU/RAM/swap/disk, /tmp tmpfs, WSL/container/VM, installed tool versions like postgres 18, and safe auth_ready flags like gcloud).",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"worker_id": map[string]any{"type": "string", "description": "Optional worker ID or name; omit to return facts for all machines"},
+				},
+			},
+		},
+		{
+			Name:        "inspect_git_status",
+			Description: "Deterministic daemon RPC to inspect git branch, dirty files, and diff stats on a remote machine without invoking any coding agent.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"worker_id": map[string]any{"type": "string"},
+					"workdir":   map[string]any{"type": "string"},
+				},
+				"required": []string{"worker_id", "workdir"},
+			},
+		},
+		{
+			Name:        "list_remote_dir",
+			Description: "Deterministic daemon RPC to list folders/git repos on a remote machine without invoking any coding agent.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"worker_id": map[string]any{"type": "string"},
+					"path":      map[string]any{"type": "string"},
+					"prefix":    map[string]any{"type": "string"},
+				},
+				"required": []string{"worker_id", "path"},
+			},
+		},
+		{
+			Name:        "scan_temp_worktrees",
+			Description: "Deterministic daemon RPC across one or all online machines to find .konsert-worktrees or temp worktrees matching a query (short-circuits no-op hosts at zero agent token cost).",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"worker_id": map[string]any{"type": "string", "description": "Optional worker ID or name; omit to scan all online machines"},
+					"root_path": map[string]any{"type": "string", "description": "Optional root path to scan on target machine(s)"},
+					"query":     map[string]any{"type": "string", "description": "Optional substring filter such as an epic or branch name"},
+				},
+			},
+		},
+		{
+			Name:        "cleanup_worktree",
+			Description: "Deterministic daemon RPC to cleanly remove a Konsert-managed git worktree on a remote machine without invoking any coding agent.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"worker_id": map[string]any{"type": "string"},
+					"workdir":   map[string]any{"type": "string"},
+				},
+				"required": []string{"worker_id", "workdir"},
+			},
+		},
+		{
+			Name:        "save_memory",
+			Description: "Persist a concise fleet, project, or session note in SQLite so the Orchestrator remembers decisions and active bindings across context resets.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"scope":   map[string]any{"type": "string", "description": "Memory scope (default 'fleet', or 'project:<id>')"},
+					"key":     map[string]any{"type": "string", "description": "Short unique memory key"},
+					"summary": map[string]any{"type": "string", "description": "Concise summary to persist"},
+				},
+				"required": []string{"key", "summary"},
+			},
+		},
+		{
+			Name:        "recall_memory",
+			Description: "Query persisted Orchestrator fleet/project/session memory entries from SQLite.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"scope": map[string]any{"type": "string", "description": "Optional scope filter (e.g. 'fleet')"},
+					"limit": map[string]any{"type": "integer"},
+				},
+			},
+		},
+		{
 			Name:        "dispatch_task",
-			Description: "Dispatch a coding agent task to a matching worker node in the fleet.",
+			Description: "Delegate non-deterministic coding/engineering work to a coding agent on a matching worker node in the fleet.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -858,6 +1095,126 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args json.R
 	switch name {
 	case "fleet_status":
 		return s.FleetStatus(ctx)
+
+	case "inspect_machine_facts":
+		var req struct {
+			WorkerID string `json:"worker_id"`
+		}
+		_ = json.Unmarshal(args, &req)
+		fs, err := s.FleetStatus(ctx)
+		if err != nil {
+			return nil, err
+		}
+		type factRow struct {
+			WorkerID   string                 `json:"worker_id"`
+			WorkerName string                 `json:"worker_name"`
+			Status     string                 `json:"status"`
+			Facts      *protocol.MachineFacts `json:"facts,omitempty"`
+		}
+		var out []factRow
+		for _, w := range fs.Workers {
+			if req.WorkerID != "" && w.ID != req.WorkerID && !strings.EqualFold(w.Name, req.WorkerID) {
+				continue
+			}
+			out = append(out, factRow{WorkerID: w.ID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
+		}
+		return map[string]any{"machines": out}, nil
+
+	case "inspect_git_status":
+		var req struct {
+			WorkerID string `json:"worker_id"`
+			Workdir  string `json:"workdir"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("invalid inspect_git_status args: %w", err)
+		}
+		rpcCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgGitInspect, protocol.GitInspectRequest{Workdir: req.Workdir})
+		if err != nil {
+			return nil, err
+		}
+		return protocol.DecodePayload[protocol.GitInspectResult](env)
+
+	case "list_remote_dir":
+		var req struct {
+			WorkerID string `json:"worker_id"`
+			Path     string `json:"path"`
+			Prefix   string `json:"prefix"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("invalid list_remote_dir args: %w", err)
+		}
+		rpcCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgFSList, protocol.FSListRequest{
+			Path:     req.Path,
+			Prefix:   req.Prefix,
+			DirsOnly: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return protocol.DecodePayload[protocol.FSListResult](env)
+
+	case "scan_temp_worktrees":
+		var req struct {
+			WorkerID string `json:"worker_id"`
+			RootPath string `json:"root_path"`
+			Query    string `json:"query"`
+		}
+		_ = json.Unmarshal(args, &req)
+		return s.ScanTempWorktrees(ctx, req.WorkerID, req.RootPath, req.Query)
+
+	case "cleanup_worktree":
+		var req struct {
+			WorkerID string `json:"worker_id"`
+			Workdir  string `json:"workdir"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("invalid cleanup_worktree args: %w", err)
+		}
+		rpcCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		defer cancel()
+		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgGitWorktreeCleanup, protocol.GitWorktreeCleanupRequest{Workdir: req.Workdir})
+		if err != nil {
+			return nil, err
+		}
+		return protocol.DecodePayload[protocol.GitWorktreeCleanupResult](env)
+
+	case "save_memory":
+		var req struct {
+			Scope   string `json:"scope"`
+			Key     string `json:"key"`
+			Summary string `json:"summary"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil || strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Summary) == "" {
+			return nil, fmt.Errorf("key and summary are required")
+		}
+		if strings.TrimSpace(req.Scope) == "" {
+			req.Scope = "fleet"
+		}
+		entry := store.MemoryEntry{
+			Scope:   strings.TrimSpace(req.Scope),
+			Key:     strings.TrimSpace(req.Key),
+			Summary: strings.TrimSpace(req.Summary),
+		}
+		if err := s.store.UpsertMemory(ctx, entry); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "scope": entry.Scope, "key": entry.Key}, nil
+
+	case "recall_memory":
+		var req struct {
+			Scope string `json:"scope"`
+			Limit int    `json:"limit"`
+		}
+		_ = json.Unmarshal(args, &req)
+		items, err := s.store.ListMemory(ctx, req.Scope, req.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"entries": items}, nil
 
 	case "dispatch_task":
 		var req DispatchRequest

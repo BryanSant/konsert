@@ -439,7 +439,12 @@ export class FleetStore {
       const idx = list.findIndex((w) => w.id === worker.id);
       if (idx === -1) return [...list, worker];
       const next = [...list];
-      next[idx] = { ...next[idx], ...worker, metrics: worker.metrics ?? next[idx].metrics };
+      next[idx] = {
+        ...next[idx],
+        ...worker,
+        metrics: worker.metrics ?? next[idx].metrics,
+        facts: worker.facts ?? next[idx].facts,
+      };
       return next;
     });
   }

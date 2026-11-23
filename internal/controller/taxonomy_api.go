@@ -343,3 +343,87 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 	s.hub.broadcastFleetUpdate("worktree_deleted", id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
+
+// --- Cached Machine Facts & Orchestrator Memory API ---
+
+func (s *Server) handleGetWorkerFacts(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wk, err := s.store.GetWorker(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"worker_id":  wk.ID,
+		"name":       wk.Name,
+		"facts":      decodeWorkerFacts(wk.FactsJSON),
+		"updated_at": wk.FactsUpdatedAt,
+	})
+}
+
+func (s *Server) handleListMemory(w http.ResponseWriter, r *http.Request) {
+	scope := r.URL.Query().Get("scope")
+	entries, err := s.store.ListMemory(r.Context(), scope, 50)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+}
+
+func (s *Server) handleUpsertMemory(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Scope   string `json:"scope"`
+		Key     string `json:"key"`
+		Summary string `json:"summary"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	body.Key = strings.TrimSpace(body.Key)
+	body.Summary = strings.TrimSpace(body.Summary)
+	if body.Key == "" || body.Summary == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key and summary are required"})
+		return
+	}
+	if strings.TrimSpace(body.Scope) == "" {
+		body.Scope = "fleet"
+	}
+	entry := store.MemoryEntry{
+		Scope:     strings.TrimSpace(body.Scope),
+		Key:       body.Key,
+		Summary:   body.Summary,
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := s.store.UpsertMemory(r.Context(), entry); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, entry)
+}
+
+func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	if scope == "" {
+		scope = "fleet"
+	}
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key is required"})
+		return
+	}
+	if err := s.store.DeleteMemory(r.Context(), scope, key); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "memory entry not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

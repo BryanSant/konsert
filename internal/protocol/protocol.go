@@ -10,6 +10,7 @@ import (
 const (
 	MsgWorkerHello     = "worker.hello"
 	MsgWorkerHeartbeat = "worker.heartbeat"
+	MsgWorkerFacts     = "worker.facts"
 
 	MsgTaskStart  = "task.start"
 	MsgTaskCancel = "task.cancel"
@@ -37,8 +38,10 @@ const (
 	MsgGitWorktreeCleanup       = "git.worktree.cleanup"
 	MsgGitWorktreeCleanupResult = "git.worktree.cleanup.result"
 
-	MsgFSList       = "fs.list"
-	MsgFSListResult = "fs.list.result"
+	MsgFSList             = "fs.list"
+	MsgFSListResult       = "fs.list.result"
+	MsgWorktreeScan       = "git.worktree.scan"
+	MsgWorktreeScanResult = "git.worktree.scan.result"
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
@@ -128,6 +131,34 @@ func DecodePayload[T any](env Envelope) (T, error) {
 	return out, nil
 }
 
+// MachineFacts captures cached OS, hardware, virtualization, filesystem, and safe tool/auth readiness facts.
+type MachineFacts struct {
+	OSName         string            `json:"os_name,omitempty"`
+	OSVersion      string            `json:"os_version,omitempty"`
+	KernelVersion  string            `json:"kernel_version,omitempty"`
+	CPUModel       string            `json:"cpu_model,omitempty"`
+	CPUCores       int               `json:"cpu_cores"`
+	RAMTotalMB     uint64            `json:"ram_total_mb"`
+	SwapTotalMB    uint64            `json:"swap_total_mb"`
+	SwapUsedMB     uint64            `json:"swap_used_mb"`
+	StorageType    string            `json:"storage_type,omitempty"` // "nvme" | "ssd" | "hdd" | "virtual" | "unknown"
+	DiskTotalGB    uint64            `json:"disk_total_gb"`
+	DiskFreeGB     uint64            `json:"disk_free_gb"`
+	TmpIsTmpfs     bool              `json:"tmp_is_tmpfs"`
+	IsWSL          bool              `json:"is_wsl"`
+	IsContainer    bool              `json:"is_container"`
+	IsMacContainer bool              `json:"is_mac_container"`
+	IsVM           bool              `json:"is_vm"`
+	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm" | "unknown"
+	Tools          map[string]string `json:"tools,omitempty"`
+	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
+	CollectedAt    time.Time         `json:"collected_at"`
+}
+
+type WorkerFactsPayload struct {
+	Facts MachineFacts `json:"facts"`
+}
+
 // WorkerInfo describes a worker node during registration.
 type WorkerInfo struct {
 	ID             string            `json:"id"`
@@ -140,6 +171,7 @@ type WorkerInfo struct {
 	Agents         []string          `json:"agents"`
 	Tags           map[string]string `json:"tags"`
 	MaxConcurrent  int               `json:"max_concurrent"`
+	Facts          *MachineFacts     `json:"facts,omitempty"`
 }
 
 // ActiveTaskInfo is sent in worker.hello so the controller can re-adopt in-flight tasks on restart.
@@ -360,6 +392,25 @@ type FSListResult struct {
 	ParentDir  string    `json:"parent_dir,omitempty"`
 	Entries    []FSEntry `json:"entries"`
 	Error      string    `json:"error,omitempty"`
+}
+
+type WorktreeScanRequest struct {
+	RootPath string `json:"root_path,omitempty"`
+	Query    string `json:"query,omitempty"` // optional substring filter (e.g. "epic-123" or "123")
+}
+
+type WorktreeScanMatch struct {
+	Path      string `json:"path"`
+	RepoRoot  string `json:"repo_root,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	Kind      string `json:"kind"` // "konsert_worktree" | "git_worktree" | "temp_dir"
+	Removable bool   `json:"removable"`
+}
+
+type WorktreeScanResult struct {
+	RootPath string              `json:"root_path"`
+	Matches  []WorktreeScanMatch `json:"matches"`
+	Error    string              `json:"error,omitempty"`
 }
 
 // IsTerminalTaskStatus reports whether a task status is final.

@@ -101,9 +101,14 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 		return err
 	}
 
+	var factsUpdated any
+	if w.FactsUpdatedAt != nil {
+		factsUpdated = formatTime(*w.FactsUpdatedAt)
+	}
+
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO workers (id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workers (id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			host_group = excluded.host_group,
@@ -115,23 +120,44 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 			tags_json = excluded.tags_json,
 			max_concurrent = excluded.max_concurrent,
 			status = excluded.status,
-			last_seen_at = excluded.last_seen_at
+			last_seen_at = excluded.last_seen_at,
+			facts_json = CASE WHEN excluded.facts_json != '' THEN excluded.facts_json ELSE workers.facts_json END,
+			facts_updated_at = COALESCE(excluded.facts_updated_at, workers.facts_updated_at)
 	`, w.ID, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode),
-		string(agentsJSON), string(tagsJSON), w.MaxConcurrent, w.Status, formatTime(w.LastSeenAt))
+		string(agentsJSON), string(tagsJSON), w.MaxConcurrent, w.Status, formatTime(w.LastSeenAt), w.FactsJSON, factsUpdated)
 	return err
+}
+
+func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error {
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE workers SET facts_json = ?, facts_updated_at = ? WHERE id = ?
+	`, factsJSON, formatTime(updatedAt), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
 }
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
-		w          store.Worker
-		perm       string
-		agentsJSON string
-		tagsJSON   string
-		lastSeen   string
+		w            store.Worker
+		perm         string
+		agentsJSON   string
+		tagsJSON     string
+		lastSeen     string
+		factsJSON    string
+		factsUpdated sql.NullString
 	)
 	if err := scanner.Scan(
 		&w.ID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
-		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen,
+		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound
@@ -140,6 +166,11 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	}
 	w.PermissionMode = store.PermissionMode(perm)
 	w.LastSeenAt = parseTime(lastSeen)
+	w.FactsJSON = factsJSON
+	if factsUpdated.Valid && factsUpdated.String != "" {
+		ft := parseTime(factsUpdated.String)
+		w.FactsUpdatedAt = &ft
+	}
 	_ = json.Unmarshal([]byte(agentsJSON), &w.Agents)
 	_ = json.Unmarshal([]byte(tagsJSON), &w.Tags)
 	if w.Agents == nil {
@@ -153,7 +184,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 
 func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at
+		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at
 		FROM workers WHERE id = ?
 	`, id)
 	return scanWorker(row)
@@ -161,7 +192,7 @@ func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, e
 
 func (s *SQLiteStore) ListWorkers(ctx context.Context) ([]store.Worker, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at
+		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at
 		FROM workers ORDER BY host_group ASC, name ASC
 	`)
 	if err != nil {
@@ -738,4 +769,79 @@ func (s *SQLiteStore) SetSettings(ctx context.Context, kv map[string]string) err
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *SQLiteStore) UpsertMemory(ctx context.Context, m store.MemoryEntry) error {
+	if m.Scope == "" {
+		m.Scope = "fleet"
+	}
+	if m.ID == "" {
+		m.ID = m.Scope + "::" + m.Key
+	}
+	if m.MetaJSON == "" {
+		m.MetaJSON = "{}"
+	}
+	if m.UpdatedAt.IsZero() {
+		m.UpdatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO orchestrator_memory (id, scope, mem_key, summary, meta_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(scope, mem_key) DO UPDATE SET
+			summary = excluded.summary,
+			meta_json = excluded.meta_json,
+			updated_at = excluded.updated_at
+	`, m.ID, m.Scope, m.Key, m.Summary, m.MetaJSON, formatTime(m.UpdatedAt))
+	return err
+}
+
+func (s *SQLiteStore) ListMemory(ctx context.Context, scope string, limit int) ([]store.MemoryEntry, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if scope != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, scope, mem_key, summary, meta_json, updated_at
+			FROM orchestrator_memory WHERE scope = ?
+			ORDER BY updated_at DESC LIMIT ?
+		`, scope, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, scope, mem_key, summary, meta_json, updated_at
+			FROM orchestrator_memory
+			ORDER BY updated_at DESC LIMIT ?
+		`, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.MemoryEntry{}
+	for rows.Next() {
+		var e store.MemoryEntry
+		var ts string
+		if err := rows.Scan(&e.ID, &e.Scope, &e.Key, &e.Summary, &e.MetaJSON, &ts); err != nil {
+			return nil, err
+		}
+		e.UpdatedAt = parseTime(ts)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteMemory(ctx context.Context, scope, key string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM orchestrator_memory WHERE scope = ? AND mem_key = ?`, scope, key)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
 }

@@ -36,6 +36,18 @@ type Worker struct {
 	MaxConcurrent  int               `json:"max_concurrent"`
 	Status         string            `json:"status"` // "online", "offline"
 	LastSeenAt     time.Time         `json:"last_seen_at"`
+	FactsJSON      string            `json:"facts_json,omitempty"`
+	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitempty"`
+}
+
+// MemoryEntry persists compact Orchestrator fleet/thread/project state in SQLite across context resets.
+type MemoryEntry struct {
+	ID        string    `json:"id"`
+	Scope     string    `json:"scope"` // "fleet" | "session:<id>" | "project:<id>"
+	Key       string    `json:"key"`
+	Summary   string    `json:"summary"`
+	MetaJSON  string    `json:"meta_json,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Space struct {
@@ -173,6 +185,7 @@ type UsageSummary struct {
 
 type Store interface {
 	UpsertWorker(ctx context.Context, w Worker) error
+	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
 	GetWorker(ctx context.Context, id string) (Worker, error)
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error
@@ -226,6 +239,10 @@ type Store interface {
 
 	GetAllSettings(ctx context.Context) (map[string]string, error)
 	SetSettings(ctx context.Context, kv map[string]string) error
+
+	UpsertMemory(ctx context.Context, m MemoryEntry) error
+	ListMemory(ctx context.Context, scope string, limit int) ([]MemoryEntry, error)
+	DeleteMemory(ctx context.Context, scope, key string) error
 
 	Close() error
 }

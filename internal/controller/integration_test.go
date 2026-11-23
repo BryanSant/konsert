@@ -17,6 +17,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
 	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
@@ -887,6 +888,120 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		t.Fatalf("expected 400 deleting default workspace, got %v err=%v", delDefResp, err)
 	}
 	_ = delDefResp.Body.Close()
+
+	cancel()
+	<-done
+}
+
+type capturingLLMProvider struct {
+	lastSystem string
+	lastCount  int
+}
+
+func (p *capturingLLMProvider) Name() string { return "capture-llm" }
+
+func (p *capturingLLMProvider) Complete(_ context.Context, _, system string, msgs []orchestrator.Message, _ []orchestrator.ToolDef, onDelta func(string)) (orchestrator.Message, error) {
+	p.lastSystem = system
+	p.lastCount = len(msgs)
+	text := "Compact snapshot received."
+	if onDelta != nil {
+		onDelta(text)
+	}
+	return orchestrator.Message{Role: "assistant", Content: text}, nil
+}
+
+func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "facts-mem.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Start worker daemon that ships real MachineFacts on worker.hello
+	rootDir := t.TempDir()
+	wtDir := filepath.Join(rootDir, "app1", ".konsert-worktrees", "epic-123-cleanup")
+	if err := os.MkdirAll(wtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-facts-1"
+	wCfg.Name = "foo1"
+	wCfg.EnableMockDriver = true
+	wCfg.AllowedRoots = []string{rootDir}
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-facts-1")
+
+	// 1. Verify cached MachineFacts via GET /api/workers/{id}/facts
+	fResp, err := http.Get(ts.URL + "/api/workers/w-facts-1/facts")
+	if err != nil || fResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/workers/w-facts-1/facts failed: resp=%v err=%v", fResp, err)
+	}
+	var fOut struct {
+		WorkerID string                 `json:"worker_id"`
+		Facts    *protocol.MachineFacts `json:"facts"`
+	}
+	if err := json.NewDecoder(fResp.Body).Decode(&fOut); err != nil {
+		t.Fatal(err)
+	}
+	_ = fResp.Body.Close()
+	if fOut.Facts == nil || fOut.Facts.CPUCores <= 0 || fOut.Facts.OSName == "" || fOut.Facts.Virtualization == "" {
+		t.Fatalf("expected populated cached machine facts, got %+v", fOut.Facts)
+	}
+
+	// 2. Deterministic daemon-first tool: scan_temp_worktrees finds epic-123 worktree with 0 agent LLM calls
+	scanRes, err := srv.Service().ExecuteTool(ctx, "scan_temp_worktrees", json.RawMessage(`{"query":"epic-123"}`))
+	if err != nil {
+		t.Fatalf("scan_temp_worktrees failed: %v", err)
+	}
+	scanBytes, _ := json.Marshal(scanRes)
+	if !strings.Contains(string(scanBytes), "epic-123-cleanup") {
+		t.Fatalf("expected deterministic scan to find epic-123-cleanup, got %s", string(scanBytes))
+	}
+
+	// 3. Deterministic save_memory + Orchestrator context-window compaction checkpointing
+	if _, err := srv.Service().ExecuteTool(ctx, "save_memory", json.RawMessage(`{"scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
+		t.Fatalf("save_memory failed: %v", err)
+	}
+
+	// Seed 30 old chat messages so loadBoundedHistory compacts older turns into SQLite thread_checkpoint
+	_ = st.CreateChatSession(ctx, store.ChatSession{ID: "sess-compact", Title: "Long Thread"})
+	for i := 0; i < 30; i++ {
+		_, _ = st.AppendChatMessage(ctx, store.ChatMessage{
+			SessionID: "sess-compact",
+			Role:      "user",
+			Content:   "Earlier fleet instruction about app1",
+		})
+	}
+
+	capProv := &capturingLLMProvider{}
+	srv.Orchestrator().SetProvider(capProv)
+	if err := srv.Orchestrator().HandleUserMessage(ctx, "sess-compact", "What do we know about foo1?", orchestrator.StreamCallbacks{}); err != nil {
+		t.Fatalf("HandleUserMessage failed: %v", err)
+	}
+	if capProv.lastCount > 25 {
+		t.Fatalf("expected bounded history <= 25 messages, got %d", capProv.lastCount)
+	}
+	if !strings.Contains(capProv.lastSystem, "foo1") || !strings.Contains(capProv.lastSystem, "foo1 has gcloud logged in") || !strings.Contains(capProv.lastSystem, "Thread Checkpoint") {
+		t.Fatalf("expected compact fleet snapshot + memory + thread checkpoint in system prompt, got:\n%s", capProv.lastSystem)
+	}
 
 	cancel()
 	<-done

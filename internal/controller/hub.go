@@ -259,6 +259,15 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 
 	// Register worker in SQLite and Hub.
 	now := time.Now().UTC()
+	factsJSON := ""
+	var factsUpdatedAt *time.Time
+	if hello.Worker.Facts != nil {
+		if b, mErr := json.Marshal(hello.Worker.Facts); mErr == nil {
+			factsJSON = string(b)
+			tNow := now
+			factsUpdatedAt = &tNow
+		}
+	}
 	wModel := store.Worker{
 		ID:             hello.Worker.ID,
 		Name:           hello.Worker.Name,
@@ -272,6 +281,8 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		MaxConcurrent:  hello.Worker.MaxConcurrent,
 		Status:         "online",
 		LastSeenAt:     now,
+		FactsJSON:      factsJSON,
+		FactsUpdatedAt: factsUpdatedAt,
 	}
 	if err := h.store.UpsertWorker(ctx, wModel); err != nil {
 		h.logger.Error("upsert worker failed", "worker_id", wModel.ID, "err", err)
@@ -317,7 +328,22 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		"agents", wModel.Agents,
 		"readopted_tasks", len(hello.ActiveTasks),
 	)
-	h.broadcastFleetUpdate("worker", wModel)
+	h.broadcastFleetUpdate("worker", WorkerStatusView{
+		ID:             wModel.ID,
+		Name:           wModel.Name,
+		HostGroup:      wModel.HostGroup,
+		OS:             wModel.OS,
+		Arch:           wModel.Arch,
+		Isolation:      wModel.Isolation,
+		PermissionMode: string(wModel.PermissionMode),
+		Agents:         wModel.Agents,
+		Tags:           wModel.Tags,
+		MaxConcurrent:  wModel.MaxConcurrent,
+		Status:         wModel.Status,
+		ActiveTasks:    len(hello.ActiveTasks),
+		LastSeenAt:     wModel.LastSeenAt,
+		Facts:          hello.Worker.Facts,
+	})
 
 	// Drain any queued tasks that can now run on this worker.
 	go h.SchedulePending(context.Background())
@@ -424,7 +450,39 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 				ActiveTasks:    len(p.ActiveTaskIDs),
 				LastSeenAt:     w.LastSeenAt,
 				Metrics:        p.Metrics,
+				Facts:          decodeWorkerFacts(w.FactsJSON),
 			})
+		}
+
+	case protocol.MsgWorkerFacts:
+		p, err := protocol.DecodePayload[protocol.WorkerFactsPayload](env)
+		if err != nil {
+			return
+		}
+		if b, mErr := json.Marshal(p.Facts); mErr == nil {
+			now := time.Now().UTC()
+			if err := h.store.UpdateWorkerFacts(ctx, wc.id, string(b), now); err == nil {
+				if w, gErr := h.store.GetWorker(ctx, wc.id); gErr == nil {
+					factsCopy := p.Facts
+					h.broadcastFleetUpdate("worker", WorkerStatusView{
+						ID:             w.ID,
+						Name:           w.Name,
+						HostGroup:      w.HostGroup,
+						OS:             w.OS,
+						Arch:           w.Arch,
+						Isolation:      w.Isolation,
+						PermissionMode: string(w.PermissionMode),
+						Agents:         w.Agents,
+						Tags:           w.Tags,
+						MaxConcurrent:  w.MaxConcurrent,
+						Status:         w.Status,
+						ActiveTasks:    len(wc.activeTasks),
+						LastSeenAt:     w.LastSeenAt,
+						Metrics:        h.WorkerMetrics(wc.id),
+						Facts:          &factsCopy,
+					})
+				}
+			}
 		}
 
 	case protocol.MsgTaskStatus:
