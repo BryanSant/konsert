@@ -134,6 +134,11 @@ func (h *Hub) orchestratorWorkOf(ctx context.Context, chatID string) orchestrato
 // affectsWork reports whether an event touches an orchestrator's work (which starts a
 // turn rather than waiting for its next prompt).
 func (w orchestratorWork) affects(chatID string, e store.FleetEvent) bool {
+	if e.ChatID == chatID && e.TaskID == "" {
+		// The user acted on the orchestrator chat itself (stopped, suspended, vetoed it):
+		// starting a turn would defy them. It hears about it before its next prompt.
+		return false
+	}
 	switch {
 	case e.ChatID == chatID, e.TaskID != "" && w.tasks[e.TaskID], e.WorkerID != "" && w.machines[e.WorkerID]:
 		return true

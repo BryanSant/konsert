@@ -58,7 +58,7 @@ type WorkerStatusView struct {
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
 	// Drained machines finish their current work and accept nothing new.
-	Drained   bool       `json:"drained,omitzero"`
+	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 

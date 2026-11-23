@@ -355,7 +355,16 @@ func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool
 }
 
 func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
-	text := strings.ToLower(p.Text)
+	// Keywords come from the user's own text, not a "[Konsert]" note the hub prepended
+	// (its wording would otherwise trigger "ask", "permission", ...).
+	text := p.Text
+	if strings.HasPrefix(text, "[Konsert]") {
+		text = ""
+		if _, rest, ok := strings.Cut(p.Text, "\n\n"); ok {
+			text = rest
+		}
+	}
+	text = strings.ToLower(text)
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {

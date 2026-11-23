@@ -744,6 +744,12 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 	if extra := w.drain(protocol.MsgAgentChatPrompt, 400*time.Millisecond); len(extra) != 0 {
 		t.Fatalf("orchestrator notified twice: %d", len(extra))
 	}
+	// The user acting on the orchestrator chat itself never starts a turn there.
+	cs.api(t, http.MethodPost, "/api/chats/"+orch.ID+"/suspend", nil)
+	cs.api(t, http.MethodPost, "/api/chats/"+orch.ID+"/resume", nil)
+	if extra := w.drain(protocol.MsgAgentChatPrompt, 400*time.Millisecond); len(extra) != 0 {
+		t.Fatalf("orchestrator got a turn for the user's action on itself: %d", len(extra))
+	}
 
 	// (b) The other chat on box is told before its next prompt (once).
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat.ID, Content: "continue"})

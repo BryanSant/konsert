@@ -56,7 +56,7 @@ type Worker struct {
 	LaunchAt      *time.Time `json:"launch_at,omitzero"`
 
 	// Drained machines finish their current work and receive nothing new (persisted).
-	Drained   bool       `json:"drained,omitzero"`
+	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 
@@ -169,7 +169,7 @@ type Task struct {
 	// Cause attributes the last status transition.
 	Cause *Cause `json:"cause,omitzero"`
 	// SuspendedBy is "user" or "pause" while the task is suspended ("" otherwise).
-	SuspendedBy string `json:"suspended_by,omitempty"`
+	SuspendedBy string `json:"suspended_by"`
 	// ParentChatID is the chat (orchestrator or agent) that dispatched the task.
 	ParentChatID string     `json:"parent_chat_id,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -263,7 +263,7 @@ type ChatSession struct {
 	Cause *Cause `json:"cause,omitzero"`
 	// SuspendedBy is "user" or "pause" while the chat is suspended; SuspendedPrev is the
 	// status restored on resume.
-	SuspendedBy   string `json:"suspended_by,omitempty"`
+	SuspendedBy   string `json:"suspended_by"`
 	SuspendedPrev string `json:"suspended_prev,omitempty"`
 	// NotesCursor is the last fleet event id delivered to this chat as a note.
 	NotesCursor int64 `json:"-"`
