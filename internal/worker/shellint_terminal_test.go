@@ -353,12 +353,16 @@ func TestShellIntegrationPowerShell(t *testing.T) {
 			if !ok || !strings.EqualFold(strings.TrimSuffix(filepath.Base(bin), ".exe"), c.name) {
 				t.Skipf("%s not installed (detected %q)", c.name, bin)
 			}
-			testPowerShellTerminal(t)
+			testPowerShellTerminal(t, c.name == "pwsh")
 		})
 	}
 }
 
-func testPowerShellTerminal(t *testing.T) {
+// unicodeInput reports whether the shell is expected to receive any typed character.
+// Windows PowerShell 5.1 decodes console input through the legacy code page (e.g. 437 on
+// CI runners) and drops characters it can't represent, such as U+2713, before our hooks
+// ever see the line; pwsh 7 reads UTF-16 input. Konsert reports what the shell received.
+func testPowerShellTerminal(t *testing.T, unicodeInput bool) {
 	workdir := t.TempDir()
 	// The terminal's start-up command (not typed, so not reported) keeps the test's
 	// commands out of the user's PSReadLine history file.
@@ -389,8 +393,12 @@ func testPowerShellTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.run("Set-Location sub")
-	start, _ = h.run("Write-Output 'é ✓;\\'")
-	if !sameDir(start.Cwd, filepath.Join(workdir, "sub")) || start.Command != "Write-Output 'é ✓;\\'" {
+	uni := "Write-Output 'é ✓;\\'"
+	if !unicodeInput {
+		uni = "Write-Output 'é;\\'" // é exists in every Western legacy code page
+	}
+	start, _ = h.run(uni)
+	if !sameDir(start.Cwd, filepath.Join(workdir, "sub")) || start.Command != uni {
 		t.Fatalf("cwd/unicode: %+v", start)
 	}
 	s, _ := h.snapshot()

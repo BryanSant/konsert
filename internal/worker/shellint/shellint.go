@@ -32,6 +32,9 @@
 //     DEBUG trap (pre-exec) and PROMPT_COMMAND entries, chaining existing ones.
 //   - PowerShell (pwsh, powershell.exe): -NoExit -Command dot-sources the script after
 //     the profile; it wraps the prompt function and PSReadLine's AddToHistoryHandler.
+//     Windows PowerShell 5.1 decodes typed input through the console's legacy code page,
+//     so characters outside it (e.g. U+2713 on code page 437) never reach the shell; the
+//     reported command matches what the shell received. pwsh 7 has no such limit.
 //   - cmd.exe, sh, dash, fish and others: not integrated (no command events).
 package shellint
 
