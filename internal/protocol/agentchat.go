@@ -51,7 +51,7 @@ type AgentChatOpen struct {
 	// MCPServers are extra MCP servers exposed to the agent (e.g. Konsert fleet tools and
 	// ask_user, served by the hub over HTTP with a per-chat bearer token).
 	MCPServers []AgentMCPServer `json:"mcp_servers,omitempty"`
-	// ForkFrom, when AgentSessionID is empty, starts this chat as a fork of another
+	// ForkFrom marks a fork: when AgentSessionID is empty it starts this chat as a fork of another
 	// session of the same account: a copy of that conversation that runs independently
 	// (claude --resume X --fork-session, codex thread/fork, ACP session/fork). Used for
 	// read-only side conversations about a question; the original stays undisturbed.

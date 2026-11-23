@@ -75,11 +75,12 @@ func TestValidateAskRejectsUnderSpecifiedQuestions(t *testing.T) {
 func TestParseDraft(t *testing.T) {
 	q := store.Question{AllowText: true, Options: []store.QuestionOption{{ID: "option_1", Label: "Yes"}, {ID: "option_2", Label: "No, keep the strict exit criteria"}}}
 	for in, want := range map[string]store.QuestionDraft{
-		"It covers the flow.\nDRAFT ANSWER: Yes":                                        {OptionID: "option_1", Label: "Yes"},
-		"Because.\n**DRAFT ANSWER:** \"No, keep the strict exit criteria\"":             {OptionID: "option_2", Label: "No, keep the strict exit criteria"},
-		"x\nDRAFT ANSWER: option 2":                                                     {OptionID: "option_2", Label: "No, keep the strict exit criteria"},
-		"x\nDRAFT ANSWER: Yes — but do the phone run next week":                         {OptionID: "option_1", Label: "Yes", Text: "but do the phone run next week"},
-		"x\nDRAFT ANSWER: Schedule the phone run for Friday, then close":                {Text: "Schedule the phone run for Friday, then close"},
+		"It covers the flow.\nDRAFT ANSWER: Yes":                            {OptionID: "option_1", Label: "Yes"},
+		"Because.\n**DRAFT ANSWER:** \"No, keep the strict exit criteria\"": {OptionID: "option_2", Label: "No, keep the strict exit criteria"},
+		"x\nDRAFT ANSWER: option 2":                                         {OptionID: "option_2", Label: "No, keep the strict exit criteria"},
+		"x\nDRAFT ANSWER: Yes (recommended)":                                {OptionID: "option_1", Label: "Yes"},
+		"x\nDRAFT ANSWER: Yes — but do the phone run next week":             {OptionID: "option_1", Label: "Yes", Text: "but do the phone run next week"},
+		"x\nDRAFT ANSWER: Schedule the phone run for Friday, then close":    {Text: "Schedule the phone run for Friday, then close"},
 	} {
 		display, d := parseDraft(in, q)
 		if d == nil || *d != want || strings.Contains(display, "DRAFT ANSWER") {

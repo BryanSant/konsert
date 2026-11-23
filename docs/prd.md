@@ -145,13 +145,13 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 
 Users mostly answer questions agents are unsure about, not do complex steering. In a busy fleet those questions must be easy to find, understandable, and answerable from a desktop or a phone.
 
-- **[partial]** Today: per-chat elicitations (permission, question, auth) and `ask_user`, shown inline in each chat and dismissed on answer.
-- **[gap]** Good questions at the source: `ask_user` requires context, why it's needed now, each option's consequence, and a rationale for any recommendation; under-specified questions are rejected back to the agent with what to add. Managed sessions get guidance on asking (one decision, say what you'd do and why, prefer yes/no with a recommendation).
-- **[gap]** References in questions (tickets, PRs, files, Konsert sids) are resolved into cards.
-- **[gap]** Questions are persistent hub objects in one fleet-wide queue, sorted by blocking impact and grouped by ticket/task; a question stays open until answered (reloads, side conversations and timeouts don't dismiss it).
-- **[gap]** *Ask about this*: a side conversation attached to the question, with the original options pinned. It runs on a read-only fork of the asking agent (same conversation context; `claude --fork-session`, `codex fork`) so the original stays blocked and undisturbed, or on the orchestrator with a context pack when the agent can't fork. It can draft an answer. The answer reaches the agent with a short summary of the clarification.
-- **[gap]** *Let the orchestrator decide* for low-stakes questions, with a reversible receipt of what it chose and why; optional per-category rules.
-- **[gap]** The whole flow (queue, question, side conversation, answer) works on a phone.
+- **[have]** Per-chat elicitations (permission, question, auth) and `ask_user`; questions are also shown inline in the asking chat through the queue's card.
+- **[have]** Good questions at the source: `ask_user` requires context, why it's needed now, each option's consequence, and a rationale for any recommendation; under-specified questions are rejected back to the agent with what to add. Managed sessions get guidance on asking (one decision, say what you'd do and why, prefer yes/no with a recommendation).
+- **[have]** References in questions (tickets, PRs, files, Konsert sids) are resolved into cards.
+- **[have]** Questions are persistent hub objects in one fleet-wide queue, sorted by blocking impact and grouped by ticket/task; a question stays open until answered (reloads, side conversations and timeouts don't dismiss it).
+- **[have]** *Ask about this*: a side conversation attached to the question, with the original options pinned. It runs on a read-only fork of the asking agent (same conversation context; `claude --fork-session`, `codex fork`) so the original stays blocked and undisturbed, or on the orchestrator with a context pack when the agent can't fork. It can draft an answer. The answer reaches the agent with a short summary of the clarification.
+- **[have]** *Let the orchestrator decide* for low-stakes questions, with a reversible receipt of what it chose and why; optional per-category rules.
+- **[have]** The whole flow (queue, question, side conversation, answer) works on a phone.
 
 ### 5.9 Fleet transfer channel
 

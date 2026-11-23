@@ -831,7 +831,9 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession, wc *worke
 		// on the fleet), its own read-only instructions, and — for a fork — the asking
 		// session to copy until it has a session of its own.
 		open.SystemPrompt = sideConversationSystemPrompt
-		if cs.AgentSessionID == "" && cs.ForkOf != "" {
+		if cs.ForkOf != "" {
+			// Always sent (engines resume AgentSessionID once the fork has its own): the
+			// worker also uses it to know the chat is a fork it may discard.
 			if parent, err := h.store.GetChatSession(ctx, cs.ForkOf); err == nil {
 				open.ForkFrom = parent.AgentSessionID
 			}

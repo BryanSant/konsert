@@ -459,7 +459,13 @@ func parseDraft(text string, q store.Question) (string, *store.QuestionDraft) {
 		if strings.EqualFold(o.Label, raw) || low == n || low == "option "+n || strings.HasPrefix(low, strings.ToLower(o.Label)+" ") || strings.HasPrefix(low, strings.ToLower(o.Label)+" —") {
 			d.OptionID, d.Label = o.ID, o.Label
 			if rest := strings.TrimSpace(raw[min(len(raw), len(o.Label)):]); rest != "" && strings.HasPrefix(low, strings.ToLower(o.Label)) {
-				d.Text = strings.TrimLeft(rest, " -—:,")
+				rest = strings.TrimSpace(strings.TrimLeft(rest, " -—:,"))
+				for _, sfx := range recommendedSuffixes {
+					if strings.EqualFold(rest, sfx) || strings.EqualFold(rest, strings.Trim(sfx, "()[]- ")) {
+						rest = ""
+					}
+				}
+				d.Text = rest
 			}
 			return display, d
 		}
