@@ -31,7 +31,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
   standalone: true,
   imports: [TooltipDirective, IconComponent, FooterUsageComponent],
   template: `
-    <footer (keydown.escape)="openPopover.set(null)" class="relative h-7 flex items-center justify-between px-3 border-t border-[#26282e] bg-[#16171a] text-[11px] text-[#8e9098] select-none shrink-0 z-30">
+    <footer (keydown.escape)="openPopover.set(null)" class="relative h-8 flex items-center justify-between px-3.5 bg-[var(--ks-bg-chrome)] text-[11.5px] text-[#8e9098] select-none shrink-0 z-30">
       <!-- Backdrop to close open popover -->
       @if (openPopover()) {
         <div class="fixed inset-0 z-20" (click)="openPopover.set(null)"></div>
@@ -53,9 +53,9 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       </div>
 
       <!-- Right: Keep Awake, Resources, Ports, Hosts, Commands (Orca + Herdr) -->
-      <div class="relative z-30 flex items-center gap-1 shrink-0">
+      <div class="relative z-30 flex items-center gap-1.5 shrink-0">
         <!-- Keep Awake: browser screen wake lock + host wake locks (caffeinate / systemd-inhibit) -->
-        <span class="inline-flex items-center rounded" [class.bg-[#24262e]]="openPopover() === 'wake'">
+        <span class="inline-flex items-center rounded-md" [class.bg-[#24262e]]="openPopover() === 'wake'">
           <button
             type="button"
             data-testid="keep-awake-toggle"
@@ -63,11 +63,11 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
             [attr.aria-pressed]="anyAwake()"
             [attr.aria-label]="wakeAriaLabel()"
             [ksTooltip]="wakeAriaLabel()"
-            class="inline-flex items-center gap-1 rounded-l px-1.5 py-0.5 hover:bg-[#22242a] transition cursor-pointer"
+            class="inline-flex items-center gap-1 rounded-l-md px-2 py-1 hover:bg-white/[0.06] transition cursor-pointer"
             [class.text-[#e6b763]]="anyAwake()"
             [class.text-[#8e9098]]="!anyAwake()"
           >
-            <app-icon name="coffee" [size]="12" />
+            <app-icon name="coffee" [size]="13" />
             <span class="hidden sm:inline" data-testid="keep-awake-label">{{ wakeLabel() }}</span>
             <span
               class="h-1.5 w-1.5 rounded-full"
@@ -84,7 +84,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
             ksTooltip="Keep Awake details per host"
             aria-haspopup="dialog"
             [attr.aria-expanded]="openPopover() === 'wake'"
-            class="inline-flex items-center rounded-r px-0.5 py-0.5 text-[#8e9098] hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
+            class="inline-flex items-center justify-center rounded-r-md w-[24px] h-[24px] text-[#8e9098] hover:bg-white/[0.06] hover:text-[#ececed] transition cursor-pointer"
           >
             <svg aria-hidden="true" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M2 6.5 5 3.5l3 3" />
@@ -98,11 +98,11 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           (click)="togglePopover('resources')"
           data-testid="footer-resources"
           ksTooltip="Fleet Resource Manager & PTYs"
-          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-white/[0.06] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'resources'"
           [class.text-[#ececed]]="openPopover() === 'resources'"
         >
-          <app-icon name="activity" [size]="12" />
+          <app-icon name="activity" [size]="13" />
           <span class="font-mono-ide">{{ fleet.resourceTotals().activePtys }}</span>
         </button>
 
@@ -112,11 +112,11 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           (click)="togglePopover('ports')"
           data-testid="footer-ports"
           ksTooltip="Listening ports across fleet"
-          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-white/[0.06] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'ports'"
           [class.text-[#ececed]]="openPopover() === 'ports'"
         >
-          <app-icon name="ports" [size]="12" />
+          <app-icon name="ports" [size]="13" />
           <span class="font-mono-ide">{{ fleet.listeningPorts().length }}</span>
         </button>
 
@@ -126,11 +126,11 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           (click)="togglePopover('hosts')"
           data-testid="footer-hosts"
           ksTooltip="Connected fleet hosts"
-          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-white/[0.06] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'hosts'"
           [class.text-[#ececed]]="openPopover() === 'hosts'"
         >
-          <app-icon name="server" [size]="12" />
+          <app-icon name="server" [size]="13" />
           <span>{{ fleet.onlineWorkersCount() }} hosts</span>
         </button>
 
@@ -139,7 +139,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           type="button"
           (click)="openCommands.emit()"
           ksTooltip="Command Palette (⌘K)"
-          class="hidden md:inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] text-[#8a8c94] transition cursor-pointer ml-1"
+          class="hidden md:inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-white/[0.06] hover:text-[#ececed] text-[#8a8c94] transition cursor-pointer ml-1"
         >
           <span class="font-mono-ide text-[10px]">⌘K</span>
           <span>commands</span>
@@ -152,9 +152,9 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           role="dialog"
           aria-label="Keep Awake"
           data-testid="keep-awake-popover"
-          class="ks-popover absolute bottom-8 right-40 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden"
+          class="ks-popover absolute bottom-9 right-40 z-30 w-80 max-w-[92vw] rounded-xl overflow-hidden"
         >
-          <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
             <span class="text-[12px] font-semibold text-[#ececed]">Keep Awake</span>
             <button
               type="button"
@@ -188,7 +188,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               <span class="font-mono-ide text-[10px] text-[#86888f]">{{ hostsAwake() }}/{{ hostWakeRows().length }} awake</span>
             </div>
             @if (hostWakeRows().length === 0) {
-              <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#86888f]">No online hosts.</div>
+              <div class="rounded-lg bg-[#121316] px-3 py-2.5 text-[#86888f]">No online hosts.</div>
             }
             @for (row of hostWakeRows(); track row.worker.id) {
               <label
@@ -211,7 +211,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                     class="block text-[10px] truncate"
                     [class.text-[#e05d5d]]="!!row.error"
                     [class.text-[#86888f]]="!row.error"
-                    [title]="row.error || row.label"
+                    [ksTooltip]="row.error || row.label"
                   >
                     {{ row.error || row.label }}
                   </span>
@@ -228,7 +228,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               </label>
             }
             @if (wakeError()) {
-              <div role="alert" class="rounded-lg bg-[#2a1717] border border-[#4a2323] px-2.5 py-1.5 text-[#f0a0a0]">{{ wakeError() }}</div>
+              <div role="alert" class="rounded-lg bg-[#2a1717] px-3 py-1.5 text-[#f0a0a0]">{{ wakeError() }}</div>
             }
             <p class="px-2 pt-1 text-[10px] leading-snug text-[#6e7078]">
               Hosts stay awake via caffeinate (macOS), systemd-inhibit (Linux) or the Windows execution state, and are
@@ -240,8 +240,8 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
       <!-- POPOVER: RESOURCE MANAGER (Orca Image 1 style) -->
       @if (openPopover() === 'resources') {
-        <div class="ks-popover absolute bottom-8 right-3 z-30 w-96 max-w-[94vw] rounded-xl border border-[#2c2e36] overflow-hidden">
-          <div class="flex items-center justify-between px-3.5 py-2.5 border-b border-[#24262c]">
+        <div class="ks-popover absolute bottom-9 right-3 z-30 w-96 max-w-[94vw] rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
             <div class="flex items-center gap-2 text-[12px] font-semibold text-[#ececed]">
               <app-icon name="activity" [size]="13" />
               <span>Resource Manager</span>
@@ -256,7 +256,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           </div>
 
           <!-- Resources | PTYs Sub-tabs -->
-          <div class="flex items-center gap-3 px-3.5 pt-2 border-b border-[#24262c] text-[12px]">
+          <div class="flex items-center gap-3 px-3.5 pt-2 border-b border-white/[0.06] text-[12px]">
             <button
               type="button"
               (click)="resourceTab.set('resources')"
@@ -331,7 +331,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                 <div class="py-6 text-center text-[12px] text-[#86888f]">No active PTY sessions running</div>
               }
               @for (t of activePtyTasks(); track t.id) {
-                <div class="flex items-center justify-between gap-2 rounded-lg border border-[#24262c] bg-[#1b1c20] px-2.5 py-2">
+                <div class="flex items-center justify-between gap-2 rounded-lg bg-[#1b1c20] px-3 py-2.5">
                   <button
                     type="button"
                     (click)="focusTask(t.id)"
@@ -346,7 +346,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                   <button
                     type="button"
                     (click)="stopTask(t.id)"
-                    class="rounded border border-[#2d3038] hover:border-[#e05d5d]/50 px-2 py-0.5 text-[10px] text-[#a1a3ab] hover:text-[#f09595] cursor-pointer"
+                    class="ks-btn ks-btn-sm ks-btn-danger"
                   >
                     Stop
                   </button>
@@ -359,8 +359,8 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
       <!-- POPOVER: LISTENING PORTS -->
       @if (openPopover() === 'ports') {
-        <div class="ks-popover absolute bottom-8 right-16 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
+        <div class="ks-popover absolute bottom-9 right-16 z-30 w-80 max-w-[92vw] rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
             <span class="text-[12px] font-semibold text-[#ececed]">Listening Fleet Ports</span>
             <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ fleet.listeningPorts().length }} open</span>
           </div>
@@ -383,8 +383,8 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
       <!-- POPOVER: HOSTS -->
       @if (openPopover() === 'hosts') {
-        <div class="ks-popover absolute bottom-8 right-3 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
+        <div class="ks-popover absolute bottom-9 right-3 z-30 w-80 max-w-[92vw] rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
             <span class="text-[12px] font-semibold text-[#ececed]">Fleet Hosts</span>
             <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ fleet.onlineWorkersCount() }}/{{ fleet.workers().length }} online</span>
           </div>
@@ -393,7 +393,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               <button
                 type="button"
                 (click)="inspectHost(w)"
-                class="w-full text-left rounded-lg border border-[#23252c] hover:border-[#353946] bg-[#1a1b1f] hover:bg-[#202229] px-2.5 py-2 space-y-1 transition cursor-pointer"
+                class="w-full text-left rounded-lg bg-[#1a1b1f] hover:bg-[#202229] px-3 py-2.5 space-y-1 transition cursor-pointer"
               >
                 <div class="flex items-center justify-between gap-2">
                   <span class="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#ececed] truncate">

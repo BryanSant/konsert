@@ -315,6 +315,8 @@ dialog.ks-dialog::backdrop {
 .ks-btn:hover:not(:disabled),
 .ks-icon-btn:hover:not(:disabled),
 .ks-chip:hover:not(:disabled),
+.ks-btn[aria-pressed='true'],
+.ks-icon-btn[aria-pressed='true'],
 .ks-btn[aria-expanded='true'],
 .ks-icon-btn[aria-expanded='true'],
 .ks-chip[aria-expanded='true'] {
@@ -406,6 +408,52 @@ dialog.ks-dialog::backdrop {
 .ks-send-btn:focus-visible {
   outline: none;
   box-shadow: var(--ks-focus-ring);
+}
+
+/* ---------- Form fields: filled, borderless, focus ring ---------- */
+.ks-field {
+  display: block;
+  border: 0;
+  border-radius: var(--ks-radius-md);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--ks-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px 11px;
+  transition: background-color var(--ks-dur-fast) var(--ks-ease-out), box-shadow var(--ks-dur-fast) var(--ks-ease-out);
+}
+.ks-field::placeholder {
+  color: #80828a;
+}
+.ks-field:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.065);
+}
+.ks-field:focus,
+.ks-field:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.065);
+  box-shadow: 0 0 0 1.5px #6d8fbf;
+}
+.ks-field:disabled {
+  opacity: 0.5;
+}
+.ks-field-sm {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+select.ks-field {
+  padding-right: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a9ca4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+select.ks-field option {
+  background: #1e1f24;
+  color: var(--ks-text);
 }
 
 /* ---------- Popover / menu ---------- */

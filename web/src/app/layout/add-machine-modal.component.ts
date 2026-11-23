@@ -52,7 +52,7 @@ function isAbort(err: unknown): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent],
   template: `
-    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (close)="close.emit()">
+    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5" (close)="close.emit()">
       <div class="flex items-start justify-between gap-3">
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">Add a machine</h3>
@@ -77,7 +77,7 @@ function isAbort(err: unknown): boolean {
         @if (sshHostsLoading()) {
           <div class="py-6 text-center text-[12px] text-[#86888f]">Reading ~/.ssh/config...</div>
         } @else if (sshHosts().length === 0) {
-          <div class="rounded-lg border border-[#26282f] bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">
+          <div class="rounded-lg bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">
             No hosts found in <code class="font-mono-ide text-[#9a9ca4]">~/.ssh/config</code>. Enter an SSH target below or use the manual command.
           </div>
         } @else {
@@ -95,14 +95,14 @@ function isAbort(err: unknown): boolean {
                     <button
                       type="button"
                       (click)="inspectSSHHostMachine(host)"
-                      class="inline-flex items-center gap-1.5 rounded-md border border-transparent hover:border-[#32353f] hover:bg-[#24262d] px-2 py-1 text-[11px] text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      class="ks-btn ks-btn-sm"
                       ksTooltip="View machine details or remove"
                     >
                       <app-icon name="check-circle" [size]="13" />
                       <span>Added · Details</span>
                     </button>
                   } @else if (bootstrappingTarget() === host.alias) {
-                    <span class="inline-flex items-center gap-1.5 rounded-md border border-[#32353f] bg-[#24262d] px-2.5 py-1 text-[11px] text-[#c8cad0]">
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-[#24262d] px-3 py-1 text-[11px] text-[#c8cad0]">
                       <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
                       <span>{{ sshStageLabel() || 'Connecting...' }}</span>
                     </span>
@@ -111,7 +111,7 @@ function isAbort(err: unknown): boolean {
                       type="button"
                       [disabled]="!!bootstrappingTarget()"
                       (click)="bootstrapSSHHost(host.alias)"
-                      class="rounded-md border border-[#32353f] bg-[#24262d] hover:bg-[#2d3039] disabled:opacity-45 px-3 py-1 text-[11px] font-medium text-[#e4e4e7] transition cursor-pointer"
+                      class="ks-btn ks-btn-sm ks-btn-soft"
                     >
                       Add
                     </button>
@@ -135,12 +135,12 @@ function isAbort(err: unknown): boolean {
             placeholder="user@host"
             autocomplete="off"
             spellcheck="false"
-            class="flex-1 rounded-lg border border-[#383c48] focus:border-[#4a668a] bg-[#141518] px-3 py-2 text-[12.5px] text-[#ececed] placeholder-[#5e6068] focus:outline-none transition"
+            class="ks-field flex-1 text-[12.5px]"
           />
           <button
             type="submit"
             [disabled]="!customSshTarget().trim() || !!bootstrappingTarget()"
-            class="rounded-lg border border-[#32353f] bg-[#2a2c34] hover:bg-[#343741] disabled:opacity-45 px-4 py-2 text-[12px] font-medium text-[#e4e4e7] transition cursor-pointer shrink-0"
+            class="ks-btn ks-btn-soft shrink-0"
           >
             {{ bootstrappingTarget() && bootstrappingTarget() === customSshTarget().trim() ? 'Adding...' : 'Add' }}
           </button>
@@ -148,14 +148,14 @@ function isAbort(err: unknown): boolean {
       </div>
 
       @if (bootstrappingTarget() && sshStageDetail()) {
-        <div class="rounded-lg border border-[#2d3039] bg-[#141518] px-3 py-2 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
           <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin shrink-0"></span>
           <span class="font-medium text-[#e4e4e7]">{{ sshStageLabel() }}:</span>
           <span class="truncate">{{ sshStageDetail() }}</span>
         </div>
       }
       @if (sshStatusMsg()) {
-        <div class="rounded-lg border border-[#69b879]/30 bg-[#69b879]/10 px-3 py-2 text-[11.5px] text-[#98dba5]">
+        <div class="rounded-lg bg-[#69b879]/10 px-3 py-2.5 text-[11.5px] text-[#98dba5]">
           {{ sshStatusMsg() }}
         </div>
       }
@@ -164,7 +164,7 @@ function isAbort(err: unknown): boolean {
           role="alertdialog"
           aria-labelledby="ks-hostkey-title"
           aria-describedby="ks-hostkey-desc"
-          class="rounded-lg border border-[#d9a043]/40 bg-[#d9a043]/10 px-3 py-3 space-y-2.5 text-[11.5px] text-[#e8c88a]"
+          class="rounded-lg bg-[#d9a043]/10 px-3 py-3 space-y-2.5 text-[11.5px] text-[#e8c88a]"
         >
           <div id="ks-hostkey-title" class="text-[12.5px] font-semibold text-[#f4d9a4]">
             Verify the host key for {{ prompt.target }}
@@ -177,7 +177,7 @@ function isAbort(err: unknown): boolean {
           </p>
           <ul class="space-y-1.5">
             @for (key of prompt.keys; track key.fingerprint) {
-              <li class="flex items-center justify-between gap-2 rounded-md border border-[#3a3428] bg-[#15140f] px-2.5 py-1.5">
+              <li class="flex items-center justify-between gap-2 rounded-md bg-[#15140f] px-3 py-1.5">
                 <div class="min-w-0">
                   <div class="text-[10.5px] text-[#a79a7e]">{{ key.type }}</div>
                   <code class="font-mono-ide text-[11px] text-[#f4f4f5] break-all">{{ key.fingerprint }}</code>
@@ -186,7 +186,7 @@ function isAbort(err: unknown): boolean {
                   type="button"
                   (click)="confirmHostKey(key)"
                   [attr.aria-label]="'Fingerprint matches; trust ' + key.type + ' key and continue'"
-                  class="shrink-0 rounded-md border border-[#d9a043]/50 bg-[#2a2416] hover:bg-[#3a3120] px-2.5 py-1 text-[11px] font-medium text-[#f4d9a4] transition cursor-pointer"
+                  class="ks-btn ks-btn-sm ks-btn-soft shrink-0"
                 >
                   It matches, trust it
                 </button>
@@ -202,19 +202,19 @@ function isAbort(err: unknown): boolean {
       }
       @if (sshErrorMsg()) {
         @if (hostKeyChanged()) {
-          <div role="alert" class="rounded-lg border-2 border-[#e05d5d] bg-[#e05d5d]/15 px-3 py-2.5 text-[12px] text-[#ffb4b4] break-words space-y-1">
+          <div role="alert" class="rounded-lg bg-[#e05d5d]/15 px-3 py-2.5 text-[12px] text-[#ffb4b4] break-words space-y-1">
             <div class="text-[13px] font-semibold text-[#ffd0d0]">Host key changed: possible man-in-the-middle</div>
             <div>{{ sshErrorMsg() }}</div>
           </div>
         } @else {
-          <div role="alert" class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[11.5px] text-[#f09595] break-words">
+          <div role="alert" class="rounded-lg bg-[#e05d5d]/10 px-3 py-2.5 text-[11.5px] text-[#f09595] break-words">
             {{ sshErrorMsg() }}
           </div>
         }
       }
 
       <!-- Collapsible manual konsertd command for containers / Windows / no-SSH hosts -->
-      <div class="pt-1 border-t border-[#26282f]">
+      <div class="pt-1 border-t border-white/[0.06]">
         <button
           type="button"
           (click)="showManualConnect.set(!showManualConnect())"
@@ -237,7 +237,7 @@ function isAbort(err: unknown): boolean {
               </label>
             </div>
 
-            <div class="rounded-lg border border-[#2b2d35] bg-[#111214] p-3 space-y-2">
+            <div class="rounded-lg bg-[#111214] p-3 space-y-2">
               <div class="flex items-center justify-between text-[11px] text-[#8a8c94]">
                 <span>Connect command</span>
                 <button

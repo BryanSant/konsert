@@ -75,6 +75,7 @@ export interface SessionDispatchRequest {
       @if (sessionKind() === 'chat') {
         @if (accounts().length > 0) {
           <ks-chat-composer
+            class="block"
             data-testid="dispatch-composer"
             [accounts]="accounts()"
             [selection]="selection()"

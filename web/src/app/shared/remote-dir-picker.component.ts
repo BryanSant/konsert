@@ -41,7 +41,7 @@ let nextPickerId = 0;
           type="button"
           (click)="toggleBrowse()"
           ksTooltip="Browse remote machine folders"
-          class="inline-flex items-center gap-1.5 rounded-md border border-[#2c2e36] bg-[#1c1e24] hover:bg-[#242730] px-2.5 py-2 text-[11px] font-medium text-[#c8cad0] hover:text-[#ececed] transition cursor-pointer shrink-0"
+          class="ks-btn shrink-0"
           [class.border-[#4a668a]]="browseOpen()"
           [class.text-[#ececed]]="browseOpen()"
         >
@@ -53,7 +53,7 @@ let nextPickerId = 0;
       <!-- Type-ahead Suggestions Dropdown -->
       @if (suggestionsOpen() && !browseOpen() && (suggestions().length > 0 || loadingSuggestions())) {
         <div
-          class="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg border border-[#30323c] bg-[#18191d] shadow-lg overflow-hidden"
+          class="absolute left-0 right-0 top-full mt-1 z-30 rounded-lg bg-[#18191d] shadow-lg overflow-hidden"
           (mousedown)="$event.preventDefault()"
         >
           @if (loadingSuggestions() && suggestions().length === 0) {
@@ -90,20 +90,20 @@ let nextPickerId = 0;
 
       <!-- Inline Remote Host Folder Browser -->
       @if (browseOpen()) {
-        <div class="mt-2 rounded-lg border border-[#2d3039] bg-[#131418] overflow-hidden">
-          <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-[#24262e] bg-[#17181d]">
+        <div class="mt-2 rounded-lg bg-[#131418] overflow-hidden">
+          <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-white/[0.06] bg-[#17181d]">
             <div class="flex items-center gap-1.5 min-w-0">
               @if (browseParent()) {
                 <button
                   type="button"
                   (click)="navigateBrowse(browseParent())"
                   ksTooltip="Parent directory" aria-label="Parent directory"
-                  class="rounded border border-[#2c2e36] bg-[#1e2027] hover:bg-[#272a33] px-1.5 py-0.5 font-mono-ide text-[10px] text-[#b4b6be] hover:text-[#ececed] transition cursor-pointer shrink-0"
+                  class="ks-btn ks-btn-sm ks-btn-soft font-mono-ide shrink-0"
                 >
                   ..
                 </button>
               }
-              <span class="font-mono-ide text-[11px] text-[#b4b6be] truncate" [title]="browseCurrentDir()">
+              <span class="font-mono-ide text-[11px] text-[#b4b6be] truncate" [ksTooltip]="browseCurrentDir()">
                 {{ browseCurrentDir() || value() || '~' }}
               </span>
             </div>
@@ -119,9 +119,9 @@ let nextPickerId = 0;
                 type="button"
                 (click)="browseOpen.set(false)"
                 aria-label="Close folder browser"
-                class="rounded p-0.5 text-[#86888f] hover:text-[#ececed] cursor-pointer"
+                class="ks-icon-btn ks-icon-btn-sm"
               >
-                <app-icon name="close" [size]="11" />
+                <app-icon name="close" [size]="13" />
               </button>
             </div>
           </div>
@@ -155,7 +155,7 @@ let nextPickerId = 0;
                   <button
                     type="button"
                     (click)="selectAndClose(entry.path)"
-                    class="opacity-0 group-hover:opacity-100 rounded border border-[#30333d] bg-[#22242c] hover:bg-[#2d303b] px-1.5 py-0.5 text-[10px] text-[#d4d4d8] transition cursor-pointer shrink-0"
+                    class="ks-btn ks-btn-sm ks-btn-soft opacity-0 group-hover:opacity-100 shrink-0"
                   >
                     Select
                   </button>

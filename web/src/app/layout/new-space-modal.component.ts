@@ -15,7 +15,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, RemoteDirPickerComponent, ModalDialogComponent],
   template: `
-    <app-modal-dialog labelledBy="new-space-title" panelClass="w-full max-w-lg rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (close)="close.emit()">
+    <app-modal-dialog labelledBy="new-space-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5" (close)="close.emit()">
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-[14px] font-semibold text-[#ececed]" id="new-space-title">New Space</h3>
@@ -31,7 +31,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
             name="spWorker"
             [ngModel]="workerId()"
             (ngModelChange)="workerId.set($event)"
-            class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+            class="ks-field w-full"
           >
             @for (w of fleet.workers(); track w.id) {
               <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
@@ -59,7 +59,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               [ngModel]="name()"
               (ngModelChange)="name.set($event)"
               placeholder="auto from folder"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+              class="ks-field w-full"
             />
           </div>
           <div>
@@ -68,7 +68,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               name="spAgent"
               [ngModel]="initialAgent()"
               (ngModelChange)="initialAgent.set($event)"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+              class="ks-field w-full"
             >
               <option value="shell">shell (zsh / bash)</option>
               <option value="claude">claude</option>
@@ -82,19 +82,19 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
         </div>
 
         @if (error()) {
-          <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[#f09595]">
+          <div class="rounded-md bg-[#e05d5d]/10 px-3 py-2.5 text-[#f09595]">
             {{ error() }}
           </div>
         }
 
         <div class="flex justify-end gap-2 pt-1">
-          <button type="button" (click)="close.emit()" class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#a1a3ab] cursor-pointer">
+          <button type="button" (click)="close.emit()" class="ks-btn ks-btn-sm">
             Cancel
           </button>
           <button
             type="submit"
             [disabled]="creating() || !workerId() || !path().trim()"
-            class="rounded-md bg-[#ececed] hover:bg-white disabled:opacity-40 px-4 py-1.5 font-medium text-[#111214] cursor-pointer"
+            class="ks-btn ks-btn-primary"
           >
             {{ creating() ? 'Creating...' : 'Create Space' }}
           </button>

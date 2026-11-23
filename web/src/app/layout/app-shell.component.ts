@@ -46,11 +46,11 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
   ],
   template: `
     <div class="flex flex-col h-screen w-screen overflow-hidden bg-[#111214] text-[#ececed]">
-      <!-- Top Unified IDE Chrome Bar (36px) -->
-      <header class="h-9 flex items-center justify-between border-b border-[#26282e] bg-[#16171a] shrink-0 select-none">
+      <!-- Top Unified IDE Chrome Bar (44px) -->
+      <header class="h-11 flex items-center justify-between bg-[var(--ks-bg-chrome)] shrink-0 select-none">
         <!-- Left Brand & Sidebar Toggle -->
         <div
-          class="flex items-center gap-2 pl-2.5 pr-3 h-full border-r border-[#26282e] shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
+          class="flex items-center gap-1.5 pl-3.5 pr-2.5 h-full shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
           [class.md:w-[250px]]="leftOpen()"
         >
           <button
@@ -58,7 +58,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             (click)="mobileFleetOpen.set(!mobileFleetOpen())"
             aria-label="Toggle fleet sidebar"
             [attr.aria-expanded]="mobileFleetOpen()"
-            class="md:hidden rounded p-1 text-[#8e9098] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
+            class="ks-icon-btn md:hidden"
           >
             <app-icon name="sidebar-left" [size]="15" />
           </button>
@@ -72,9 +72,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             type="button"
             (click)="commandPaletteOpen.set(true)"
             ksTooltip="Search / Commands (⌘K)" aria-label="Search / Commands (⌘K)"
-            class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
+            class="ks-icon-btn hidden md:inline-flex"
           >
-            <app-icon name="search" [size]="14" />
+            <app-icon name="search" [size]="15" />
           </button>
           <button
             type="button"
@@ -82,9 +82,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             ksTooltip="Toggle left sidebar" aria-label="Toggle left sidebar"
             [attr.aria-expanded]="leftOpen()"
             aria-controls="ks-left-pane"
-            class="hidden md:inline-flex rounded p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer"
+            class="ks-icon-btn hidden md:inline-flex"
           >
-            <app-icon name="sidebar-left" [size]="14" />
+            <app-icon name="sidebar-left" [size]="15" />
           </button>
         </div>
 
@@ -92,7 +92,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         <app-tab-strip (newTab)="openNewTabInActiveContext()" (toggleSplit)="toggleSplitPane()" />
 
         <!-- Right Orca-style Inspector Tab Icons & Collapse Toggle -->
-        <div class="flex items-center gap-1 pr-2.5 pl-2 h-full border-l border-[#26282e] shrink-0">
+        <div class="flex items-center gap-0.5 pr-2.5 pl-2 h-full shrink-0">
           @for (p of inspectorPanels; track p.id) {
             <button
               type="button"
@@ -100,12 +100,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               [ksTooltip]="p.title"
               [attr.aria-label]="p.title"
               [attr.aria-pressed]="rightOpen() && inspectorPanel() === p.id"
-              class="hidden md:inline-flex rounded p-1.5 active:scale-95 transition cursor-pointer hover:text-[#ececed]"
-              [class.bg-[#24262d]]="rightOpen() && inspectorPanel() === p.id"
-              [class.text-[#ececed]]="rightOpen() && inspectorPanel() === p.id"
-              [class.text-[#8a8c94]]="!rightOpen() || inspectorPanel() !== p.id"
+              class="ks-icon-btn hidden md:inline-flex"
             >
-              <app-icon [name]="p.icon" [size]="14" />
+              <app-icon [name]="p.icon" [size]="15" />
             </button>
           }
 
@@ -115,9 +112,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             ksTooltip="Toggle right inspector" aria-label="Toggle right inspector"
             [attr.aria-expanded]="rightOpen()"
             aria-controls="ks-right-pane"
-            class="hidden md:inline-flex rounded p-1.5 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer ml-1"
+            class="ks-icon-btn hidden md:inline-flex ml-1.5"
           >
-            <app-icon name="sidebar-right" [size]="14" />
+            <app-icon name="sidebar-right" [size]="15" />
           </button>
 
           <!-- Mobile Telemetry Toggle -->
@@ -126,7 +123,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
             (click)="mobileTelemetryOpen.set(!mobileTelemetryOpen())"
             aria-label="Toggle inspector"
             [attr.aria-expanded]="mobileTelemetryOpen()"
-            class="md:hidden rounded p-1 text-[#8e9098] hover:text-[#ececed] active:scale-95 transition cursor-pointer"
+            class="ks-icon-btn md:hidden"
           >
             <app-icon name="sidebar-right" [size]="15" />
           </button>
@@ -144,7 +141,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           [class.w-[250px]]="leftOpen()"
           [class.opacity-100]="leftOpen()"
           [class.border-r]="leftOpen()"
-          [class.border-[#26282e]]="leftOpen()"
+          [class.border-white/[0.05]]="leftOpen()"
           [class.w-0]="!leftOpen()"
           [class.opacity-0]="!leftOpen()"
         >
@@ -163,7 +160,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         <!-- Mobile Slide-Over Fleet Drawer (< 768px) -->
         @if (mobileFleetOpen()) {
           <div class="md:hidden fixed inset-0 z-40 flex" role="dialog" aria-modal="true" aria-label="Fleet">
-            <div class="ks-drawer-left w-[82vw] max-w-[290px] h-full border-r border-[#26282e] shadow-2xl z-10">
+            <div class="ks-drawer-left w-[82vw] max-w-[290px] h-full shadow-2xl z-10">
               <app-fleet-sidebar
                 (taskSelected)="mobileFleetOpen.set(false)"
                 (openNewSpace)="mobileFleetOpen.set(false); openNewSpaceModal($event)"
@@ -228,9 +225,9 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               (click)="tabs.closeSplit()"
               ksTooltip="Close split pane (⌘\)"
               aria-label="Close split pane"
-              class="absolute top-1.5 right-2 z-20 rounded bg-[#1b1c20]/90 border border-[#2d3039] hover:bg-[#272a33] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+              class="ks-icon-btn ks-icon-btn-sm absolute top-2 right-2 z-20 bg-[#1b1c20]/90 shadow-[var(--ks-shadow-raised)]"
             >
-              <app-icon name="close" [size]="11" />
+              <app-icon name="close" [size]="13" />
             </button>
           }
         </main>
@@ -244,7 +241,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           [class.w-[300px]]="rightOpen()"
           [class.opacity-100]="rightOpen()"
           [class.border-l]="rightOpen()"
-          [class.border-[#26282e]]="rightOpen()"
+          [class.border-white/[0.05]]="rightOpen()"
           [class.w-0]="!rightOpen()"
           [class.opacity-0]="!rightOpen()"
         >
@@ -257,10 +254,10 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         @if (mobileTelemetryOpen()) {
           <div class="md:hidden fixed inset-0 z-40 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label="Inspector">
             <div class="ks-backdrop flex-1" (click)="mobileTelemetryOpen.set(false)"></div>
-            <div class="ks-drawer-bottom h-[68vh] border-t border-[#26282e] bg-[#16171a] shadow-2xl rounded-t-xl flex flex-col overflow-hidden z-10">
-              <div class="flex items-center justify-around border-b border-[#26282e] py-1.5 text-[11px]">
+            <div class="ks-drawer-bottom h-[68vh] bg-[#16171a] shadow-2xl rounded-t-xl flex flex-col overflow-hidden z-10">
+              <div class="flex items-center justify-around py-2 text-[12px]">
                 @for (p of inspectorPanels; track p.id) {
-                  <button type="button" (click)="inspectorPanel.set(p.id)" [attr.aria-pressed]="inspectorPanel() === p.id" [class.text-[#ececed]]="inspectorPanel() === p.id" class="px-3 py-1 text-[#8e9098]">{{ p.label }}</button>
+                  <button type="button" (click)="inspectorPanel.set(p.id)" [attr.aria-pressed]="inspectorPanel() === p.id" [class.text-[#ececed]]="inspectorPanel() === p.id" class="ks-btn ks-btn-sm">{{ p.label }}</button>
                 }
               </div>
               <div class="flex-1 min-h-0">

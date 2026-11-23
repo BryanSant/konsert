@@ -18,19 +18,19 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8]">
       <!-- Panel Header -->
-      <div class="flex items-center justify-between px-3 py-2.5 border-b border-[#26282e] shrink-0">
+      <div class="flex items-center justify-between px-4 pt-3.5 pb-2.5 shrink-0">
         @switch (panel()) {
           @case ('agent') {
             <div>
-              <div class="text-[12px] font-semibold text-[#ececed]">Agent Activity</div>
-              <div class="text-[10px] text-[#8a8c94]">
+              <div class="text-[13px] font-semibold text-[#ececed]">Agent Activity</div>
+              <div class="text-[11px] text-[var(--ks-text-muted)]">
                 {{ activeTask() ? 'Live telemetry & session history' : 'Fleet session history' }}
               </div>
             </div>
           }
           @case ('git') {
             <div class="flex items-center gap-2">
-              <span class="text-[12px] font-semibold text-[#ececed]">Changes</span>
+              <span class="text-[13px] font-semibold text-[#ececed]">Changes</span>
               <span class="rounded bg-[#22242a] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#8e9098]">
                 {{ liveFileCount() }} files
               </span>
@@ -44,7 +44,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 type="button"
                 (click)="refreshLiveGit()"
                 ksTooltip="Refresh Git status" aria-label="Refresh Git status"
-                class="rounded px-1.5 py-0.5 text-[10px] font-sans text-[#8e9098] hover:text-[#ececed] hover:bg-[#24262c] transition cursor-pointer"
+                class="ks-btn ks-btn-sm font-sans"
               >
                 {{ gitLoading() ? '...' : '↻' }}
               </button>
@@ -52,14 +52,14 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
           }
           @case ('checks') {
             <div>
-              <div class="text-[12px] font-semibold text-[#ececed]">Checks & Runtime</div>
-              <div class="text-[10px] text-[#8a8c94]">Execution posture & exit signals</div>
+              <div class="text-[13px] font-semibold text-[#ececed]">Checks & Runtime</div>
+              <div class="text-[11px] text-[var(--ks-text-muted)]">Execution posture & exit signals</div>
             </div>
           }
           @case ('audit') {
             <div>
-              <h2 class="text-[12px] font-semibold text-[#ececed]">Audit Log</h2>
-              <div class="text-[10px] text-[#8a8c94]">Operator control actions across the fleet</div>
+              <h2 class="text-[13px] font-semibold text-[#ececed]">Audit Log</h2>
+              <div class="text-[11px] text-[var(--ks-text-muted)]">Operator control actions across the fleet</div>
             </div>
           }
         }
@@ -76,10 +76,10 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
 
       <!-- PANEL 1: AGENT TELEMETRY + ORCA-STYLE SESSION HISTORY -->
       @if (panel() === 'agent') {
-        <div class="ks-panel-enter flex-1 overflow-y-auto p-3 space-y-3.5">
+        <div class="ks-panel-enter flex-1 overflow-y-auto px-4 pb-4 pt-1.5 space-y-4">
           @if (activeTask(); as t) {
             @if (t.summary) {
-              <div class="rounded-lg border border-[#282a30] bg-[#1b1c20] p-2.5 space-y-1">
+              <div class="rounded-lg bg-[var(--ks-surface-2)] p-3.5 space-y-1">
                 <div class="text-[10px] font-semibold uppercase tracking-wider text-[#8e9098]">Summary</div>
                 <p class="text-[12px] text-[#e4e4e7] whitespace-pre-wrap leading-relaxed">{{ t.summary }}</p>
               </div>
@@ -93,12 +93,12 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                   [ngModel]="steerText()"
                   (ngModelChange)="steerText.set($event)"
                   placeholder="Steer agent..."
-                  class="flex-1 rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-1.5 text-[12px] text-[#ececed] placeholder-[#5e6068] focus:border-[#4a668a] focus:outline-none"
+                  class="ks-field flex-1 text-[12px]"
                 />
                 <button
                   type="submit"
                   [disabled]="!steerText().trim()"
-                  class="rounded-md border border-[#2c2e36] bg-[#22242a] hover:bg-[#2a2c34] px-2.5 py-1.5 text-[11px] font-medium text-[#ececed] cursor-pointer disabled:opacity-40"
+                  class="ks-btn ks-btn-sm ks-btn-soft"
                 >
                   Send
                 </button>
@@ -113,7 +113,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 <div class="text-[11px] text-[#86888f]">Waiting for structured agent milestones...</div>
               }
               @for (ev of events(); track ev.id) {
-                <div class="rounded-md border border-[#24262c] bg-[#191a1e] px-2.5 py-1.5">
+                <div class="rounded-md bg-[var(--ks-surface-2)] px-3.5 py-2">
                   <div class="flex items-center justify-between gap-2 mb-0.5">
                     <span
                       class="text-[10px] font-mono-ide uppercase font-medium"
@@ -133,7 +133,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
             </div>
           }
 
-          <div class="space-y-2" [class.pt-2]="!!activeTask()" [class.border-t]="!!activeTask()" [class.border-[#26282e]]="!!activeTask()">
+          <div class="space-y-2" [class.pt-2]="!!activeTask()" [class.border-t]="!!activeTask()" [class.border-white/[0.05]]="!!activeTask()">
             <div class="relative">
               <app-icon name="search" [size]="12" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#86888f]" />
               <input
@@ -141,7 +141,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 [ngModel]="sessionFilter()"
                 (ngModelChange)="sessionFilter.set($event)"
                 placeholder="Search sessions..."
-                class="w-full rounded-md border border-[#2a2c33] bg-[#111214] pl-7 pr-2.5 py-1.5 text-[12px] text-[#e4e4e7] placeholder-[#5e6068] focus:border-[#4a668a] focus:outline-none"
+                class="ks-field w-full pl-7 pr-2.5 text-[12px]"
               />
             </div>
 
@@ -155,7 +155,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 <button
                   type="button"
                   (click)="openSession(item.id)"
-                  class="w-full text-left rounded-lg border border-[#24262c] bg-[#191a1e] hover:border-[#343741] hover:bg-[#1e2026] p-2.5 transition cursor-pointer space-y-1"
+                  class="w-full text-left rounded-lg bg-[var(--ks-surface-2)] hover:bg-[var(--ks-surface-3)] p-3.5 transition cursor-pointer space-y-1"
                 >
                   <div class="text-[12px] font-medium text-[#ececed] truncate">
                     {{ item.prompt || basename(item.workdir) || item.agent }}
@@ -189,16 +189,16 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               Select a machine Space or workspace session tab to inspect live Git changes, diffs, and commit directly.
             </div>
           } @else {
-            <div class="flex-1 overflow-y-auto p-3 space-y-3">
+            <div class="flex-1 overflow-y-auto px-4 pb-4 pt-1.5 space-y-4">
               @if (gitError()) {
-                <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-2.5 py-2 text-[11px] text-[#f09595]">
+                <div class="rounded-md bg-[#e05d5d]/10 px-3 py-2.5 text-[11px] text-[#f09595]">
                   {{ gitError() }}
                 </div>
               }
 
               @if (liveGit(); as lg) {
                 <!-- Branch & Worktree info -->
-                <div class="rounded-lg border border-[#26282e] bg-[#191a1e] p-2.5 space-y-1.5 text-[12px]">
+                <div class="rounded-lg bg-[var(--ks-surface-2)] p-3 space-y-1.5 text-[12px]">
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-[#8a8c94]">Branch</span>
                     <span class="inline-flex items-center gap-1 font-mono-ide text-[11px] text-[#e4e4e7]">
@@ -207,17 +207,17 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                     </span>
                   </div>
                   @if (lg.effective_dir) {
-                    <div class="pt-1 border-t border-[#24262c] font-mono-ide text-[10px] text-[#8a8c94] break-all">
+                    <div class="pt-1 border-t border-white/[0.06] font-mono-ide text-[10px] text-[#8a8c94] break-all">
                       {{ lg.effective_dir }}
                     </div>
                   }
                   @if (lg.is_worktree) {
-                    <div class="pt-1.5 border-t border-[#24262c] flex items-center justify-between">
+                    <div class="pt-1.5 border-t border-white/[0.06] flex items-center justify-between">
                       <span class="text-[10px] text-[#8e9098]">Isolated worktree</span>
                       <button
                         type="button"
                         (click)="cleanupWorktree(lg.effective_dir || '')"
-                        class="rounded border border-[#2e3038] hover:border-[#e05d5d]/50 px-2 py-0.5 text-[10px] text-[#a1a3ab] hover:text-[#f09595] transition cursor-pointer"
+                        class="ks-btn ks-btn-sm ks-btn-danger"
                       >
                         Clean up worktree
                       </button>
@@ -234,11 +234,11 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                   } @else {
                     <div class="space-y-1.5">
                       @for (f of lg.files; track f.path) {
-                        <div class="rounded-lg border border-[#26282e] bg-[#191a1e] overflow-hidden">
+                        <div class="rounded-lg bg-[var(--ks-surface-2)] overflow-hidden">
                           <button
                             type="button"
                             (click)="toggleFileDiff(f.path)"
-                            class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left hover:bg-[#202228] transition cursor-pointer"
+                            class="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-white/[0.04] transition cursor-pointer"
                           >
                             <div class="flex items-center gap-2 min-w-0">
                               <span
@@ -262,7 +262,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                           </button>
 
                           @if (isDiffExpanded(f.path) && f.diff) {
-                            <div class="border-t border-[#24262c] bg-[#111214] p-2 overflow-x-auto max-h-60 font-mono-ide text-[10px] leading-relaxed">
+                            <div class="border-t border-white/[0.06] bg-[#111214] p-2 overflow-x-auto max-h-60 font-mono-ide text-[10px] leading-relaxed">
                               @for (line of diffLines(f.diff); track $index) {
                                 <div
                                   class="whitespace-pre"
@@ -285,7 +285,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                   @if (lg.commits?.length) {
                     <div class="space-y-1 pt-1">
                       <div class="text-[11px] font-medium text-[#8a8c94]">Recent Commits</div>
-                      <div class="rounded-lg border border-[#26282e] bg-[#191a1e] p-2 space-y-1 font-mono-ide text-[10px] text-[#a1a3ab]">
+                      <div class="rounded-lg bg-[var(--ks-surface-2)] p-3 space-y-1 font-mono-ide text-[10px] text-[#a1a3ab]">
                         @for (c of lg.commits; track c) {
                           <div class="truncate">{{ c }}</div>
                         }
@@ -296,14 +296,14 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               } @else if (gitSummary(); as gs) {
                 <!-- Fallback static summary for completed tasks when worker is offline -->
                 @if (gs.diff_stat) {
-                  <pre class="rounded-lg border border-[#26282e] bg-[#111214] p-2.5 font-mono-ide text-[10px] text-[#b4b6be] overflow-x-auto">{{ gs.diff_stat }}</pre>
+                  <pre class="rounded-lg bg-[#111214] p-3 font-mono-ide text-[10px] text-[#b4b6be] overflow-x-auto">{{ gs.diff_stat }}</pre>
                 }
               }
             </div>
 
             <!-- Herdr-style Bottom-Pinned Commit Bar -->
             @if (liveGit()?.is_git_repo) {
-              <div class="border-t border-[#26282e] p-2.5 bg-[#151619] space-y-1.5 shrink-0">
+              <div class="p-3 bg-[var(--ks-surface-1)] space-y-2 shrink-0">
                 @if (commitNotice()) {
                   <div class="text-[11px] text-[#69b879] font-mono-ide truncate">{{ commitNotice() }}</div>
                 }
@@ -314,12 +314,12 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                     [ngModel]="commitMessage()"
                     (ngModelChange)="commitMessage.set($event)"
                     placeholder="Commit message"
-                    class="flex-1 rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-1.5 text-[12px] text-[#ececed] placeholder-[#5e6068] focus:border-[#4a668a] focus:outline-none"
+                    class="ks-field flex-1 text-[12px]"
                   />
                   <button
                     type="submit"
                     [disabled]="committing() || !commitMessage().trim() || (liveGit()?.files?.length ?? 0) === 0"
-                    class="rounded-md border border-[#2c2e36] bg-[#24262d] hover:bg-[#2f323b] disabled:opacity-40 px-3 py-1.5 text-[12px] font-medium text-[#ececed] transition cursor-pointer shrink-0"
+                    class="ks-btn ks-btn-sm ks-btn-soft shrink-0"
                   >
                     {{ committing() ? '...' : 'Commit' }}
                   </button>
@@ -332,21 +332,21 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
 
       <!-- PANEL 3: CHECKS, RUNTIME POSTURE & CACHED MACHINE FACTS -->
       @if (panel() === 'checks') {
-        <div class="ks-panel-enter flex-1 overflow-y-auto p-3 space-y-3">
+        <div class="ks-panel-enter flex-1 overflow-y-auto px-4 pb-4 pt-1.5 space-y-4">
           @if (activeTask(); as t) {
             @let w = activeWorker();
-            <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[12px]">
-              <div class="flex items-center justify-between px-3 py-2">
+            <div class="rounded-lg bg-[var(--ks-surface-2)] divide-y divide-white/[0.04] text-[12px]">
+              <div class="flex items-center justify-between px-3.5 py-2.5">
                 <span class="text-[#8a8c94]">Status</span>
                 <span class="font-mono-ide text-[11px] text-[#ececed]">{{ t.status }}</span>
               </div>
               @if (t.model) {
-                <div class="flex items-center justify-between px-3 py-2">
+                <div class="flex items-center justify-between px-3.5 py-2.5">
                   <span class="text-[#8a8c94]">Model</span>
                   <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ t.model }}</span>
                 </div>
               }
-              <div class="flex items-center justify-between px-3 py-2">
+              <div class="flex items-center justify-between px-3.5 py-2.5">
                 <span class="text-[#8a8c94]">Permissions</span>
                 <span
                   class="font-mono-ide text-[11px]"
@@ -357,7 +357,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 </span>
               </div>
               @if (t.exit_code !== null && t.exit_code !== undefined) {
-                <div class="flex items-center justify-between px-3 py-2">
+                <div class="flex items-center justify-between px-3.5 py-2.5">
                   <span class="text-[#8a8c94]">Exit Code</span>
                   <span class="font-mono-ide text-[11px]" [class.text-[#69b879]]="t.exit_code === 0" [class.text-[#e05d5d]]="t.exit_code !== 0">
                     {{ t.exit_code }}
@@ -365,7 +365,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 </div>
               }
               @if (w) {
-                <div class="flex items-center justify-between px-3 py-2">
+                <div class="flex items-center justify-between px-3.5 py-2.5">
                   <span class="text-[#8a8c94]">Host</span>
                   <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ w.name }} ({{ w.os }}/{{ w.arch }})</span>
                 </div>
@@ -376,7 +376,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               <div class="space-y-1.5">
                 <div class="text-[11px] font-medium text-[#e05d5d]">Errors ({{ errorEvents().length }})</div>
                 @for (ev of errorEvents(); track ev.id) {
-                  <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-2.5 py-1.5 font-mono-ide text-[11px] text-[#f09595]">
+                  <div class="rounded-md bg-[#e05d5d]/10 px-3 py-1.5 font-mono-ide text-[11px] text-[#f09595]">
                     {{ ev.message }}
                   </div>
                 }
@@ -393,30 +393,30 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               </div>
 
               @if (iw.facts; as f) {
-                <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[11.5px]">
-                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                <div class="rounded-lg bg-[var(--ks-surface-2)] divide-y divide-white/[0.04] text-[11.5px]">
+                  <div class="flex items-center justify-between gap-2 px-3.5 py-2">
                     <span class="text-[#8a8c94]">OS</span>
                     <span class="font-mono-ide text-[11px] text-[#e4e4e7] truncate">{{ f.os_name }} {{ f.os_version }}</span>
                   </div>
                   @if (f.cpu_model || f.cpu_cores) {
-                    <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <div class="flex items-center justify-between gap-2 px-3.5 py-2">
                       <span class="text-[#8a8c94]">CPU</span>
                       <span class="font-mono-ide text-[11px] text-[#d4d4d8] truncate">{{ f.cpu_cores }}c · {{ f.cpu_model || iw.arch }}</span>
                     </div>
                   }
-                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <div class="flex items-center justify-between gap-2 px-3.5 py-2">
                     <span class="text-[#8a8c94]">Memory / Swap</span>
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
                       {{ formatGB(f.ram_total_mb) }} RAM · {{ formatGB(f.swap_total_mb) }} swap
                     </span>
                   </div>
-                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <div class="flex items-center justify-between gap-2 px-3.5 py-2">
                     <span class="text-[#8a8c94]">Storage</span>
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
                       {{ f.disk_free_gb }}/{{ f.disk_total_gb }} GB free ({{ f.storage_type || 'disk' }})
                     </span>
                   </div>
-                  <div class="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <div class="flex items-center justify-between gap-2 px-3.5 py-2">
                     <span class="text-[#8a8c94]">Runtime</span>
                     <span class="font-mono-ide text-[10.5px] text-[#a1a3ab]">
                       {{ f.virtualization || 'bare_metal' }}@if (f.tmp_is_tmpfs) { · /tmp tmpfs }
@@ -427,9 +427,9 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 @if (authReadyEntries(f.auth_ready).length > 0) {
                   <div class="space-y-1">
                     <div class="text-[10.5px] text-[#8a8c94]">Auth Ready</div>
-                    <div class="flex flex-wrap gap-1">
+                    <div class="flex flex-wrap gap-1.5">
                       @for (name of authReadyEntries(f.auth_ready); track name) {
-                        <span class="rounded border border-[#69b879]/30 bg-[#69b879]/10 px-1.5 py-0.5 font-mono-ide text-[10px] text-[#8cd49b]">
+                        <span class="rounded-[var(--ks-radius-sm)] bg-[#69b879]/10 px-2 py-0.5 font-mono-ide text-[10px] text-[#8cd49b]">
                           {{ name }}
                         </span>
                       }
@@ -440,9 +440,9 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
                 @if (toolEntries(f.tools).length > 0) {
                   <div class="space-y-1">
                     <div class="text-[10.5px] text-[#8a8c94]">Detected Tools</div>
-                    <div class="flex flex-wrap gap-1">
+                    <div class="flex flex-wrap gap-1.5">
                       @for (entry of toolEntries(f.tools); track entry.name) {
-                        <span class="rounded border border-[#2b2d36] bg-[#1e2026] px-1.5 py-0.5 font-mono-ide text-[10px] text-[#c8cad0]">
+                        <span class="rounded-[var(--ks-radius-sm)] bg-[var(--ks-raised)] px-2 py-0.5 font-mono-ide text-[10px] text-[#c8cad0]">
                           {{ entry.name }} <span class="text-[#8a8c94]">{{ entry.version }}</span>
                         </span>
                       }
