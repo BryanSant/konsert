@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,27 +20,45 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
+// connPragmas are applied by the driver to every new connection in the pool (via
+// the DSN), not once on whichever connection happens to run an Exec. busy_timeout
+// and foreign_keys are connection-scoped, so setting them with a single Exec left
+// any replacement connection (e.g. after a bad-conn error) without them.
+var connPragmas = []string{
+	"busy_timeout(5000)",
+	"foreign_keys(1)",
+	"journal_mode(WAL)",
+	"synchronous(NORMAL)",
+}
+
+// buildDSN appends the per-connection pragmas to a database path for modernc.org/sqlite.
+func buildDSN(path string) string {
+	q := url.Values{}
+	for _, p := range connPragmas {
+		q.Add("_pragma", p)
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + q.Encode()
+}
+
 // Open opens (or creates) a SQLite database at path, applies WAL pragmas, and runs migrations.
 func Open(ctx context.Context, path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", buildDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 	// Single-writer connection prevents SQLITE_BUSY under concurrent goroutines.
+	// A separate read-only pool was considered and deferred: it would touch every
+	// query site (including task CRUD other work is extending) for limited gain
+	// at the hub's current load.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA synchronous=NORMAL;",
-		"PRAGMA busy_timeout=5000;",
-		"PRAGMA foreign_keys=ON;",
-	}
-	for _, p := range pragmas {
-		if _, err := db.ExecContext(ctx, p); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("exec %s: %w", p, err)
-		}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 
 	if err := runMigrations(ctx, db); err != nil {
@@ -65,10 +84,17 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// timeLayout is a fixed-width UTC timestamp layout. Unlike time.RFC3339Nano it
+// never strips trailing fractional zeros, so stored values sort correctly as
+// text (RFC3339Nano would order "...05.5Z" before "...05Z" because '.' < 'Z').
+// Every write goes through formatTime; migration 008 rewrites legacy rows.
+const timeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 func formatTime(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format(timeLayout)
 }
 
+// parseTime accepts both the fixed-width layout and legacy RFC3339(Nano) values.
 func parseTime(v string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, v)
 	if err != nil {
@@ -226,6 +252,18 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	// Clear task references to the spaces, repos and worktrees about to be deleted
+	// (repos cascade to worktrees), mirroring DeleteRepo, so no task dangles.
+	for _, q := range []string{
+		`UPDATE tasks SET space_id = '' WHERE space_id IN (SELECT id FROM spaces WHERE worker_id = ?)`,
+		`UPDATE tasks SET repo_id = '', worktree_id = '' WHERE repo_id IN (SELECT id FROM repos WHERE worker_id = ?)`,
+		`UPDATE tasks SET worktree_id = '' WHERE worktree_id IN (SELECT wt.id FROM worktrees wt JOIN repos r ON r.id = wt.repo_id WHERE r.worker_id = ?)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -263,8 +301,19 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 		arch      string
 		isolation string
 	}
+	// Rows that recorded a stable konsertd machine UUID are grouped by it, so two
+	// hosts sharing a hostname are never merged; legacy rows fall back to the tuple.
+	machineIDs, err := s.ListWorkerMachineIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	groups := make(map[machineKey][]store.Worker)
 	for _, w := range workers {
+		if mid := machineIDs[w.ID]; mid != "" {
+			k := machineKey{name: "machine-id:" + mid}
+			groups[k] = append(groups[k], w)
+			continue
+		}
 		k := machineKey{
 			name:      strings.ToLower(strings.TrimSpace(w.Name)),
 			hostGroup: strings.ToLower(strings.TrimSpace(w.HostGroup)),
@@ -324,8 +373,24 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 		}
 	}
 	if len(removedIDs) > 0 {
-		// Remove any exact duplicate saved spaces on the same worker/path created across duplicate worker rows.
-		_, _ = tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`)
+		// Remove any exact duplicate saved spaces on the same worker/path created across
+		// duplicate worker rows, first repointing tasks at the surviving space.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE tasks SET space_id = (
+				SELECT k.id FROM spaces d JOIN spaces k
+				  ON k.worker_id = d.worker_id AND k.path = d.path
+				 AND k.rowid = (SELECT MIN(rowid) FROM spaces m WHERE m.worker_id = d.worker_id AND m.path = d.path)
+				WHERE d.id = tasks.space_id
+			)
+			WHERE space_id IN (SELECT id FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path))
+		`); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -333,34 +398,29 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 	return removedIDs, nil
 }
 
+// MarkStaleWorkersOffline flips every online worker whose last heartbeat is older
+// than cutoff to offline and returns exactly the IDs it changed. It is a single
+// atomic UPDATE ... RETURNING, so a heartbeat that lands concurrently can never
+// cause a live worker's ID to be reported as reaped.
 func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error) {
-	cutoffStr := formatTime(cutoff)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id FROM workers WHERE status = 'online' AND last_seen_at < ?
-	`, cutoffStr)
+		UPDATE workers SET status = 'offline'
+		WHERE status = 'online' AND last_seen_at < ?
+		RETURNING id
+	`, formatTime(cutoff))
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var stale []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
 			return nil, err
 		}
 		stale = append(stale, id)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if len(stale) == 0 {
-		return nil, nil
-	}
-
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE workers SET status = 'offline' WHERE status = 'online' AND last_seen_at < ?
-	`, cutoffStr)
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return stale, nil
@@ -429,7 +489,15 @@ func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.
 }
 
 func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET space_id = '' WHERE space_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -437,7 +505,7 @@ func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
 	if n == 0 {
 		return store.ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
@@ -850,15 +918,29 @@ func (s *SQLiteStore) AppendChatMessage(ctx context.Context, m store.ChatMessage
 		m.CreatedAt = time.Now().UTC()
 	}
 	ts := formatTime(m.CreatedAt)
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO chat_messages (session_id, role, content, tool_json, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, m.SessionID, m.Role, m.Content, m.ToolJSON, ts)
 	if err != nil {
 		return 0, err
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, ts, m.SessionID)
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, ts, m.SessionID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (s *SQLiteStore) ListChatMessages(ctx context.Context, sessionID string) ([]store.ChatMessage, error) {

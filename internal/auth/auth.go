@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -86,9 +87,13 @@ func extractBearer(r *http.Request) string {
 }
 
 // CheckFleetAuth verifies the outbound worker WebSocket Authorization header.
+// It fails closed: an unset fleet token denies every worker unless --no-auth is set.
 func (m *Manager) CheckFleetAuth(r *http.Request) bool {
-	if m.noAuth || m.fleetToken == "" {
+	if m.noAuth {
 		return true
+	}
+	if m.fleetToken == "" {
+		return false
 	}
 	tok := extractBearer(r)
 	if tok == "" {
@@ -98,46 +103,86 @@ func (m *Manager) CheckFleetAuth(r *http.Request) bool {
 }
 
 // CheckMCPAuth verifies bearer token authentication on Streamable HTTP/SSE MCP endpoints.
+// It fails closed: unset MCP and admin tokens deny every client unless --no-auth is set.
 func (m *Manager) CheckMCPAuth(r *http.Request) bool {
-	if m.noAuth || m.mcpToken == "" {
-		return true
+	ok, _ := m.MCPScope(r)
+	return ok
+}
+
+// MCPScope authenticates an MCP HTTP request and reports whether the caller also holds
+// the admin scope (the admin token itself, or --no-auth). A caller holding only a
+// distinct MCP token is authenticated but not admin.
+func (m *Manager) MCPScope(r *http.Request) (ok, admin bool) {
+	if m.noAuth {
+		return true, true
 	}
 	tok := extractBearer(r)
 	if tok == "" {
-		return false
+		return false, false
 	}
-	return constantTimeEquals(tok, m.mcpToken)
+	if m.adminToken != "" && constantTimeEquals(tok, m.adminToken) {
+		return true, true
+	}
+	if m.mcpToken != "" && constantTimeEquals(tok, m.mcpToken) {
+		return true, false
+	}
+	return false, false
 }
 
-// CheckAdminToken verifies a login passphrase/admin token.
+// CheckAdminToken verifies a login passphrase/admin token. An unset admin token denies
+// every candidate unless --no-auth is set.
 func (m *Manager) CheckAdminToken(candidate string) bool {
-	if m.noAuth || m.adminToken == "" {
+	if m.noAuth {
 		return true
+	}
+	if m.adminToken == "" || candidate == "" {
+		return false
 	}
 	return constantTimeEquals(candidate, m.adminToken)
 }
 
-// AuthRequired reports whether browser authentication is currently enforced.
+// AuthRequired reports whether browser authentication is currently enforced. Only an
+// explicit --no-auth disables it; an unset admin token never does.
 func (m *Manager) AuthRequired() bool {
-	return !m.noAuth && m.adminToken != ""
+	return !m.noAuth
+}
+
+// NoAuth reports whether authentication was explicitly disabled with --no-auth.
+func (m *Manager) NoAuth() bool { return m.noAuth }
+
+// HasBearer reports whether the request carries an Authorization: Bearer credential.
+// Such requests are not driven by ambient browser credentials (cookies).
+func HasBearer(r *http.Request) bool { return extractBearer(r) != "" }
+
+// IsLoopbackRemote reports whether the request's direct TCP peer is a loopback address.
+func IsLoopbackRemote(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 // AuthenticateBrowser verifies browser PWA / REST API / CLI requests via:
-// 1. --no-auth (or unset admin token)
-// 2. Trusted Tailscale identity header (when --trust-tailscale-headers is enabled)
-// 3. Bearer admin token (for CLI / API automation)
-// 4. Signed HttpOnly session cookie
+//  1. --no-auth
+//  2. Trusted Tailscale identity header (only with --trust-tailscale-headers and only
+//     from a loopback peer, i.e. a request proxied by Tailscale Serve on this host)
+//  3. Bearer admin token (for CLI / API automation)
+//  4. Signed HttpOnly session cookie
 func (m *Manager) AuthenticateBrowser(r *http.Request) (string, bool) {
-	if !m.AuthRequired() {
+	if m.noAuth {
 		return "local", true
 	}
-	if m.trustTailscaleHeaders {
+	if m.trustTailscaleHeaders && IsLoopbackRemote(r) {
 		if tsUser := strings.TrimSpace(r.Header.Get("Tailscale-User-Login")); tsUser != "" {
 			return tsUser, true
 		}
 	}
-	if tok := extractBearer(r); tok != "" && constantTimeEquals(tok, m.adminToken) {
-		return "token", true
+	if m.adminToken != "" {
+		if tok := extractBearer(r); tok != "" && constantTimeEquals(tok, m.adminToken) {
+			return "token", true
+		}
 	}
 	cookie, err := r.Cookie(SessionCookieName)
 	if err != nil || cookie.Value == "" {

@@ -1,0 +1,115 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/store"
+)
+
+// SetTaskStartSpec persists the selector and full task.start payload for a task.
+func (s *SQLiteStore) SetTaskStartSpec(ctx context.Context, taskID string, spec store.TaskStartSpec) error {
+	pinned := 0
+	if spec.WorkerPinned {
+		pinned = 1
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE tasks SET selector_json = ?, start_payload_json = ?, worker_pinned = ? WHERE id = ?
+	`, spec.SelectorJSON, spec.PayloadJSON, pinned, taskID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+// GetTaskStartSpec returns the persisted selector and start payload for a task.
+// Tasks created before migration 009 return an empty spec.
+func (s *SQLiteStore) GetTaskStartSpec(ctx context.Context, taskID string) (store.TaskStartSpec, error) {
+	var (
+		spec   store.TaskStartSpec
+		pinned int
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT selector_json, start_payload_json, worker_pinned FROM tasks WHERE id = ?
+	`, taskID).Scan(&spec.SelectorJSON, &spec.PayloadJSON, &pinned)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.TaskStartSpec{}, store.ErrNotFound
+	}
+	if err != nil {
+		return store.TaskStartSpec{}, err
+	}
+	spec.WorkerPinned = pinned != 0
+	return spec, nil
+}
+
+// ClaimQueuedTask atomically moves a queued task to assigned on workerID.
+// It reports false when another scheduler run already claimed the task.
+func (s *SQLiteStore) ClaimQueuedTask(ctx context.Context, taskID, workerID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE tasks SET status = ?, worker_id = ? WHERE id = ? AND status = ?
+	`, protocol.TaskStatusAssigned, workerID, taskID, protocol.TaskStatusQueued)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// RequeueTask returns a non-terminal task to queued. The worker assignment is
+// cleared unless keepWorker is set (the worker was explicitly pinned).
+// It reports false when the task is missing or already terminal.
+func (s *SQLiteStore) RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool) (bool, error) {
+	keep := 0
+	if keepWorker {
+		keep = 1
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = ?,
+		    worker_id = CASE WHEN ? = 1 THEN worker_id ELSE NULL END,
+		    summary = CASE WHEN ? != '' THEN ? ELSE summary END
+		WHERE id = ? AND status NOT IN (?, ?, ?)
+	`, protocol.TaskStatusQueued, keep, summary, summary, taskID,
+		protocol.TaskStatusCompleted, protocol.TaskStatusFailed, protocol.TaskStatusCanceled)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// SetWorkerMachineID records the stable konsertd machine UUID for a worker row.
+func (s *SQLiteStore) SetWorkerMachineID(ctx context.Context, workerID, machineID string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE workers SET machine_id = ? WHERE id = ?`, machineID, workerID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+// ListWorkerMachineIDs returns workerID -> machine UUID for every worker row
+// (an empty string for legacy workers that never reported one).
+func (s *SQLiteStore) ListWorkerMachineIDs(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, machine_id FROM workers`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var id, mid string
+		if err := rows.Scan(&id, &mid); err != nil {
+			return nil, err
+		}
+		out[id] = mid
+	}
+	return out, rows.Err()
+}

@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -59,8 +58,7 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	name := strings.TrimSpace(body.Name)
@@ -116,8 +114,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID string `json:"workspace_id"`
 		Name        string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	name := strings.TrimSpace(body.Name)
@@ -190,8 +187,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		RemoteURL string `json:"remote_url"`
 		Branch    string `json:"branch"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	body.WorkerID = strings.TrimSpace(body.WorkerID)
@@ -293,8 +289,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		Path      string `json:"path"`
 		IsPrimary bool   `json:"is_primary"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	body.RepoID = strings.TrimSpace(body.RepoID)
@@ -382,8 +377,7 @@ func (s *Server) handleUpsertMemory(w http.ResponseWriter, r *http.Request) {
 		Key     string `json:"key"`
 		Summary string `json:"summary"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	body.Key = strings.TrimSpace(body.Key)
@@ -431,8 +425,7 @@ func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFleetFanOut(w http.ResponseWriter, r *http.Request) {
 	var req FanOutRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	res, err := s.service.FanOutFleet(r.Context(), req)
@@ -447,8 +440,7 @@ func (s *Server) handleUpsertQuotas(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Quotas []store.SubscriptionQuota `json:"quotas"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	for _, q := range body.Quotas {

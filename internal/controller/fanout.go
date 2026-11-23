@@ -16,12 +16,12 @@ import (
 type FanOutRequest struct {
 	Kind           string         `json:"kind"` // "worktree_cleanup" | "agent_sweep"
 	WorkerSelector WorkerSelector `json:"worker_selector,omitempty"`
-	Query          string         `json:"query,omitempty"`          // substring match (e.g. "epic-123")
-	RootPath       string         `json:"root_path,omitempty"`      // optional root to inspect per host
-	Apply          bool           `json:"apply,omitempty"`          // for worktree_cleanup: actually delete removable matches
-	Agent          string         `json:"agent,omitempty"`          // for agent_sweep
-	Prompt         string         `json:"prompt,omitempty"`         // for agent_sweep
-	Precheck       bool           `json:"precheck,omitempty"`       // if true for agent_sweep, skip machines with 0 deterministic matches
+	Query          string         `json:"query,omitempty"`     // substring match (e.g. "epic-123")
+	RootPath       string         `json:"root_path,omitempty"` // optional root to inspect per host
+	Apply          bool           `json:"apply,omitempty"`     // for worktree_cleanup: actually delete removable matches
+	Agent          string         `json:"agent,omitempty"`     // for agent_sweep
+	Prompt         string         `json:"prompt,omitempty"`    // for agent_sweep
+	Precheck       bool           `json:"precheck,omitempty"`  // if true for agent_sweep, skip machines with 0 deterministic matches
 	PermissionMode string         `json:"permission_mode,omitempty"`
 }
 

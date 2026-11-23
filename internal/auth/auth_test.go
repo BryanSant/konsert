@@ -71,6 +71,7 @@ func TestBrowserCookieAndTailscaleAuth(t *testing.T) {
 
 	// Tailscale identity header
 	req4 := httptest.NewRequest(http.MethodGet, "/api/fleet", nil)
+	req4.RemoteAddr = "127.0.0.1:41000" // Tailscale Serve proxies from loopback
 	req4.Header.Set("Tailscale-User-Login", "alice@example.com")
 	user, ok = m.AuthenticateBrowser(req4)
 	if !ok || user != "alice@example.com" {

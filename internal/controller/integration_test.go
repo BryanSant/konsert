@@ -97,6 +97,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	// Browser login flow sets cookie.
 	loginReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/auth/login", strings.NewReader(`{"token":"admin-tok-456"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
 	loginResp, err := http.DefaultClient.Do(loginReq)
 	if err != nil || loginResp.StatusCode != http.StatusOK || len(loginResp.Cookies()) == 0 {
 		t.Fatalf("expected 200 + session cookie on login, got status=%d err=%v", loginResp.StatusCode, err)
@@ -791,7 +792,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || wsResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/workspaces failed: %v", err)
 	}
-	var wsObj struct{ ID string `json:"id"` }
+	var wsObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(wsResp.Body).Decode(&wsObj)
 	_ = wsResp.Body.Close()
 
@@ -799,7 +802,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || projResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/projects failed: %v", err)
 	}
-	var projObj struct{ ID string `json:"id"` }
+	var projObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(projResp.Body).Decode(&projObj)
 	_ = projResp.Body.Close()
 
@@ -815,7 +820,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || repoResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/repos failed: %v", err)
 	}
-	var repoObj struct{ ID string `json:"id"` }
+	var repoObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
 	_ = repoResp.Body.Close()
 
@@ -1193,7 +1200,7 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	orchRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "ask_orchestrator",
 		Arguments: map[string]any{"prompt": "Summarize fleet status"},
-	});
+	})
 	if err != nil || orchRes.IsError || !strings.Contains(orchRes.Content[0].(*mcp.TextContent).Text, "Compact snapshot received.") {
 		t.Fatalf("ask_orchestrator failed: %v res=%+v", err, orchRes)
 	}
@@ -1352,14 +1359,13 @@ func TestWorkerDedupAndCleanRemoval(t *testing.T) {
 		_ = d2.Run(ctx)
 	}()
 
-	// Wait for d1 to be cleanly superseded and exit!
+	// d1 is still alive, so the duplicate d2 is turned away with a reconnectable
+	// close code (KON-FWDRN) and d1 must keep running rather than being kicked off.
 	select {
 	case <-d1Done:
-	case <-time.After(5 * time.Second):
-		d1Cancel()
-		t.Fatal("expected superseded first konsertd to exit cleanly")
+		t.Fatal("a live konsertd must not be shut down by a duplicate connection")
+	case <-time.After(1500 * time.Millisecond):
 	}
-	d1Cancel()
 
 	// Verify only 1 canonical worker exists in fleet (no redundant duplicate!)
 	fs, err := srv.Service().FleetStatus(ctx)
@@ -1368,6 +1374,26 @@ func TestWorkerDedupAndCleanRemoval(t *testing.T) {
 	}
 	if len(fs.Workers) != 1 || fs.Workers[0].ID != "w-devbox-1" || fs.Workers[0].Status != "online" {
 		t.Fatalf("expected 1 reconciled online worker w-devbox-1, got %+v", fs.Workers)
+	}
+
+	// Once d1 stops, d2's retry takes over the canonical w-devbox-1 identity.
+	srv.Hub().mu.RLock()
+	d1Conn := srv.Hub().workers["w-devbox-1"]
+	srv.Hub().mu.RUnlock()
+	d1Cancel()
+	<-d1Done
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		srv.Hub().mu.RLock()
+		cur := srv.Hub().workers["w-devbox-1"]
+		srv.Hub().mu.RUnlock()
+		if cur != nil && cur != d1Conn {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected d2 to reconnect as w-devbox-1 after d1 stopped")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// 3. DELETE /api/workers/w-devbox-1 while d2 is actively running -> d2 must exit cleanly and NOT reconnect!

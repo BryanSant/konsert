@@ -28,7 +28,7 @@ Or run in development without authentication on localhost:
 
 ```bash
 # Terminal 1: Start central controller
-go run ./cmd/konsert serve --no-auth --listen :8420
+go run ./cmd/konsert serve --no-auth
 
 # Terminal 2: Start worker daemon with built-in mock driver
 go run ./cmd/konsertd run --enable-mock-driver --controller ws://127.0.0.1:8420/ws/worker

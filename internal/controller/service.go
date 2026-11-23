@@ -45,6 +45,28 @@ type WorkerStatusView struct {
 	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
 }
 
+// toWorkerView builds the API/WebSocket view of a worker row with its live
+// active-task count and latest metrics. Facts are decoded from the cached JSON.
+func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
+	return WorkerStatusView{
+		ID:             w.ID,
+		Name:           w.Name,
+		HostGroup:      w.HostGroup,
+		OS:             w.OS,
+		Arch:           w.Arch,
+		Isolation:      w.Isolation,
+		PermissionMode: string(w.PermissionMode),
+		Agents:         w.Agents,
+		Tags:           w.Tags,
+		MaxConcurrent:  w.MaxConcurrent,
+		Status:         w.Status,
+		ActiveTasks:    active,
+		LastSeenAt:     w.LastSeenAt,
+		Metrics:        metrics,
+		Facts:          decodeWorkerFacts(w.FactsJSON),
+	}
+}
+
 func decodeWorkerFacts(raw string) *protocol.MachineFacts {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -76,23 +98,9 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		if st == "online" && !s.hub.IsWorkerConnected(w.ID) {
 			st = "offline"
 		}
-		views = append(views, WorkerStatusView{
-			ID:             w.ID,
-			Name:           w.Name,
-			HostGroup:      w.HostGroup,
-			OS:             w.OS,
-			Arch:           w.Arch,
-			Isolation:      w.Isolation,
-			PermissionMode: string(w.PermissionMode),
-			Agents:         w.Agents,
-			Tags:           w.Tags,
-			MaxConcurrent:  w.MaxConcurrent,
-			Status:         st,
-			ActiveTasks:    ac,
-			LastSeenAt:     w.LastSeenAt,
-			Metrics:        s.hub.WorkerMetrics(w.ID),
-			Facts:          decodeWorkerFacts(w.FactsJSON),
-		})
+		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
+		view.Status = st
+		views = append(views, view)
 	}
 	return FleetStatusResult{
 		Workers:          views,
@@ -529,15 +537,29 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		TimeoutSeconds: timeoutSecs,
 	}
 
+	// Persist the selector and full start payload so a queued (or later requeued)
+	// task keeps its constraints and launch options across controller restarts.
+	pinned := strings.TrimSpace(req.WorkerSelector.WorkerID) != ""
+	spec := store.TaskStartSpec{WorkerPinned: pinned}
+	if b, mErr := json.Marshal(req.WorkerSelector); mErr == nil {
+		spec.SelectorJSON = string(b)
+	}
+	if b, mErr := json.Marshal(startPayload); mErr == nil {
+		spec.PayloadJSON = string(b)
+	}
+	if err := s.store.SetTaskStartSpec(ctx, taskID, spec); err != nil {
+		return DispatchResult{}, fmt.Errorf("persist task start spec: %w", err)
+	}
+
 	if ok {
 		if err := s.hub.DispatchToWorker(selected.ID, startPayload); err != nil {
-			_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusQueued, "", "", nil)
+			_, _ = s.store.RequeueTask(ctx, taskID, "", pinned)
 			task.Status = protocol.TaskStatusQueued
-			hQueue := s.hub
-			hQueue.QueuePendingStart(startPayload, req.WorkerSelector)
+			if !pinned {
+				task.WorkerID = ""
+			}
+			s.hub.kickScheduler()
 		}
-	} else {
-		s.hub.QueuePendingStart(startPayload, req.WorkerSelector)
 	}
 
 	s.hub.broadcastFleetUpdate("task", task)
