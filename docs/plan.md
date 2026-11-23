@@ -499,6 +499,18 @@ Goal: every agent session on a machine shows up, whoever started it.
 - PWA: read-only session view; an "All activity" list per machine.
 - Exit: start a session by hand in each of the six CLIs on macOS, Linux and Windows; each appears within 5 s with correct status transitions and tool calls. Daemon CPU stays under 1% idle.
 
+### Phase 5a: Human control and attribution
+
+Built right after observed sessions and before placement: it shapes every interaction, and holds are rules placement must respect.
+- Cause model on task/session status changes and audit rows (actor, confidence, correlation to request/command).
+- Controls: suspend/resume (Unix SIGSTOP/SIGCONT of the process group; Windows thread suspension of the job's processes), machine drain/suspend/stop, fleet pause, veto with reason (stored as orchestrator memory at the work key/project scope).
+- `holds` table (scope, cause, created_by, released_at) enforced by the scheduler, retry logic and orchestrator tools; `user_requests` (open requests from agents) linked to matching user actions.
+- Shell integration for Konsert terminals (OSC 133 prompt/command/exit marks; zsh, bash, PowerShell) → `worker.operator_command` events; command text kept on the daemon with a short TTL, redacted summary to the hub.
+- Event delivery: fleet events to the orchestrator chat; notes before a worker session's next prompt; `recent_events` MCP tool; standing operator-protocol instruction in managed sessions.
+- PWA: intervention controls, Pause everything, holds and requests visible, "your actions" timeline.
+- Later (needs Phase 6): process-death ↔ command correlation, SSH-outside-Konsert attribution, per-process kill.
+- Exit: user stops nginx in a Konsert terminal on host-1 → hold on host-1/nginx, orchestrator and the affected session are told and ask before restarting; when an agent asked the user to restart nginx, the same action resolves its request and the agent continues.
+
 ### Phase 6: Processes and load (Visibility II)
 
 - Daemon process sampler (per OS: `/proc` on Linux, `libproc`/`ps` on macOS, Toolhelp/`NtQuerySystemInformation` on Windows): per-process CPU and RSS every 5 s while work runs, 30 s idle.
