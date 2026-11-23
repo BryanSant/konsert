@@ -34,14 +34,15 @@ var (
 	chatStatusChecker  chat.StatusChecker
 )
 
-// BuiltinChatEngines returns the chat engines konsertd registers at startup. The mock
-// engine is included with --enable-mock-driver.
-//
-// Coordinator: the real engines (claude, codex, and the ACP engine for grok, agy,
-// copilot and cursor) are appended here, or registered later with
-// Daemon.RegisterChatEngine / Daemon.ChatManager().RegisterFor.
+// BuiltinChatEngines returns the chat engines konsertd registers at startup: claude
+// (stream-json), codex (app-server) and, with --enable-mock-driver, the mock engine.
+// The ACP engine (grok, agy, copilot, cursor) is added by registerACPEngines.
 var BuiltinChatEngines = func(cfg config.WorkerConfig, logger *slog.Logger) map[string]chat.Engine {
-	engines := map[string]chat.Engine{}
+	engines := map[string]chat.Engine{
+		"claude": chat.NewClaudeEngine(),
+		"codex":  chat.NewCodexEngine(),
+	}
+	registerACPEngines(engines)
 	if cfg.EnableMockDriver {
 		engines[chat.MockAgent] = chat.NewMockEngine()
 	}
