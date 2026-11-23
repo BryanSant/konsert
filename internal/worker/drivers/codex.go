@@ -35,13 +35,31 @@ func (d *CodexDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if opts.Mode != "interactive" {
 		args = append(args, "exec")
 	}
-	if IsFullAccess(opts.PermissionMode) {
+	policy, sandbox, bypass, known := codexApproval(opts.ApprovalMode)
+	switch {
+	case known && bypass:
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
-	} else {
+	case known:
+		if !IsFullAccess(opts.PermissionMode) && sandbox != "read-only" {
+			sandbox = "workspace-write"
+		}
+		// `codex exec` has no -a flag; the policy is set through config there.
+		if opts.Mode == "interactive" {
+			args = append(args, "--ask-for-approval", policy)
+		} else {
+			args = append(args, "-c", `approval_policy="`+policy+`"`)
+		}
+		args = append(args, "--sandbox", sandbox)
+	case IsFullAccess(opts.PermissionMode):
+		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+	default:
 		args = append(args, "--sandbox", "workspace-write")
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
+	}
+	if e := flagValue(opts.Effort); e != "" {
+		args = append(args, "-c", `model_reasoning_effort="`+e+`"`)
 	}
 	if p := strings.TrimSpace(opts.Prompt); p != "" {
 		// "--" stops option parsing so a prompt beginning with '-' stays a prompt.

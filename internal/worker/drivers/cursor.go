@@ -63,9 +63,24 @@ func (d *CursorDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 	interactive := opts.Mode == "interactive"
 	var args []string
-	if IsFullAccess(opts.PermissionMode) {
+	mode := flagValue(opts.ApprovalMode)
+	switch {
+	case ApprovalModeFullAccess("cursor", mode):
 		args = append(args, "--force", "--trust")
-	} else {
+	case mode == "plan" || mode == "ask" || mode == "default":
+		// Effort is part of cursor's model id (e.g. "-high" variants); no effort flag.
+		if mode != "default" {
+			args = append(args, "--mode="+mode)
+		}
+		if !IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--sandbox", "enabled")
+		}
+		if !interactive || IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--trust")
+		}
+	case IsFullAccess(opts.PermissionMode):
+		args = append(args, "--force", "--trust")
+	default:
 		args = append(args, "--sandbox", "enabled")
 		if !interactive {
 			args = append(args, "--trust")

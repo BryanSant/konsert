@@ -14,6 +14,7 @@ import (
 
 	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 )
 
@@ -55,6 +56,14 @@ type Runner struct {
 	mu       sync.RWMutex
 	tasks    map[string]*runningTask
 	starting map[string]*pendingStart
+	accounts chat.AccountResolver // agent accounts for TaskStartPayload.AccountID
+}
+
+// SetAccounts sets the agent account resolver used for tasks with an AccountID.
+func (r *Runner) SetAccounts(a chat.AccountResolver) {
+	r.mu.Lock()
+	r.accounts = a
+	r.mu.Unlock()
 }
 
 // NewRunner constructs a task runner.
@@ -227,6 +236,11 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		return fmt.Errorf("sandboxed worker refuses full_access task %s", req.TaskID)
 	}
 
+	if r.sandbox && drivers.ApprovalModeFullAccess(req.Agent, req.ApprovalMode) {
+		r.failTask(req.TaskID, "", fmt.Sprintf("worker is in sandboxed mode and refuses the full-access approval mode %q", req.ApprovalMode))
+		return fmt.Errorf("sandboxed worker refuses approval mode %q for task %s", req.ApprovalMode, req.TaskID)
+	}
+
 	if !r.AgentAllowed(req.Agent) {
 		r.failTask(req.TaskID, "", "worker is in sandboxed mode and refuses the unrestricted shell driver (start konsertd with --sandbox-allow-shell to opt in)")
 		return fmt.Errorf("sandboxed worker refuses shell task %s", req.TaskID)
@@ -290,6 +304,27 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		return fmt.Errorf("task %s: %s", req.TaskID, reason)
 	}
 
+	// The selected account's env (config dir, token) is merged into the PTY process env;
+	// drivers also see it, so they read that account's session logs.
+	var acctEnv []string
+	if req.AccountID != "" {
+		r.mu.RLock()
+		accounts := r.accounts
+		r.mu.RUnlock()
+		if accounts == nil {
+			undoWorktree()
+			r.failTask(req.TaskID, effectiveDir, "agent accounts are not available on this worker")
+			return fmt.Errorf("task %s: no account registry", req.TaskID)
+		}
+		acct, aErr := accounts.Resolve(req.Agent, req.AccountID)
+		if aErr != nil {
+			undoWorktree()
+			r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("agent account %q: %v", req.AccountID, aErr))
+			return aErr
+		}
+		acctEnv = chat.EnvList(acct)
+	}
+
 	spec := drv.BuildCommand(drivers.LaunchOptions{
 		TaskID:         req.TaskID,
 		Prompt:         req.Prompt,
@@ -297,6 +332,10 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		Model:          req.Model,
 		Mode:           req.Mode,
 		PermissionMode: permMode,
+		Env:            acctEnv,
+		AccountID:      req.AccountID,
+		ApprovalMode:   req.ApprovalMode,
+		Effort:         req.Effort,
 	})
 
 	// Exactly one task context: with a deadline when the task has a timeout.

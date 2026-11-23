@@ -27,13 +27,29 @@ func (d *AgyDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		bin = "agy"
 	}
 	args := []string{}
-	if IsFullAccess(opts.PermissionMode) {
+	mode := flagValue(opts.ApprovalMode)
+	switch {
+	case mode == "accept-edits" || mode == "auto" || mode == "plan":
+		args = append(args, "--mode="+mode)
+		if !IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--sandbox")
+		}
+	case mode == "default":
+		if !IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--sandbox")
+		}
+	case ApprovalModeFullAccess("agy", mode):
 		args = append(args, "--dangerously-skip-permissions")
-	} else {
+	case IsFullAccess(opts.PermissionMode):
+		args = append(args, "--dangerously-skip-permissions")
+	default:
 		args = append(args, "--sandbox")
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model="+m)
+	}
+	if e := flagValue(opts.Effort); e != "" {
+		args = append(args, "--effort="+e)
 	}
 	if opts.Mode == "interactive" {
 		if p := strings.TrimSpace(opts.Prompt); p != "" {

@@ -291,6 +291,14 @@ type TaskStartPayload struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Cols           uint16 `json:"cols,omitempty"`
 	Rows           uint16 `json:"rows,omitempty"`
+	// AccountID selects a worker-local agent account (AgentAccount.ID); "" = the
+	// daemon's own environment (the agent's default login).
+	AccountID string `json:"account_id,omitempty"`
+	// ApprovalMode is an AgentApprovalMode.ID of the agent; when set it replaces the
+	// PermissionMode-derived approval flags (PermissionMode still controls sandboxing).
+	ApprovalMode string `json:"approval_mode,omitempty"`
+	// Effort is an AgentEffort.ID of the model.
+	Effort string `json:"effort,omitempty"`
 }
 
 type TaskCancelPayload struct {
