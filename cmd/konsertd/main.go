@@ -36,6 +36,7 @@ func main() {
 	rootCmd.AddCommand(newInstallHooksCmd())
 	rootCmd.AddCommand(newHookEventCmd())
 	rootCmd.AddCommand(newDaemonMCPCmd())
+	rootCmd.AddCommand(newMCPBridgeCmd())
 	rootCmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {

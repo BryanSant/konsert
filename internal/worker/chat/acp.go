@@ -106,11 +106,38 @@ func (c *acpConn) kill() {
 	}
 }
 
-// mcpServers converts opts.MCPServers to ACP session/new entries (HTTP transport only,
-// and only when the agent advertises mcpCapabilities.http).
+// bridgeCommand is the executable used to bridge HTTP MCP servers to stdio for agents
+// that don't accept HTTP MCP (konsertd itself: `konsertd mcp-bridge`). Tests override it.
+var bridgeCommand = func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
+// mcpServers converts opts.MCPServers to ACP session/new entries: HTTP when the agent
+// advertises mcpCapabilities.http, otherwise a stdio entry running `konsertd mcp-bridge`
+// with the URL and headers in its environment (agy accepts only stdio MCP over ACP).
 func mcpServers(init *acpInitResult, servers []protocol.AgentMCPServer) []any {
 	out := []any{}
 	if !init.AgentCapabilities.MCPCapabilities.HTTP {
+		exe := bridgeCommand()
+		if exe == "" {
+			return out
+		}
+		for _, s := range servers {
+			hdr, _ := json.Marshal(s.Headers)
+			out = append(out, map[string]any{
+				"name":    s.Name,
+				"command": exe,
+				"args":    []string{"mcp-bridge"},
+				"env": []map[string]string{
+					{"name": "KONSERT_MCP_BRIDGE_URL", "value": s.URL},
+					{"name": "KONSERT_MCP_BRIDGE_HEADERS", "value": string(hdr)},
+				},
+			})
+		}
 		return out
 	}
 	for _, s := range servers {
@@ -261,7 +288,7 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 	mcp := mcpServers(init, s.opts.MCPServers)
 	if len(s.opts.MCPServers) > 0 && len(mcp) == 0 {
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,
-			Text: s.ad.Label + " does not accept HTTP MCP servers over ACP; Konsert tools (ask_user, fleet) are unavailable in this chat."})
+			Text: s.ad.Label + " could not be given Konsert's tools (ask_user, fleet) in this chat."})
 	}
 	resumed := false
 	if resumeID != "" {

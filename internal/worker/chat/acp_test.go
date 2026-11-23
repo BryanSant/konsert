@@ -419,7 +419,9 @@ func TestACPOpenAppliesModelEffortModeAndSystemPrompt(t *testing.T) {
 	for _, want := range []string{
 		`"modelId":"gemini-3.8-flash-low"`, `"modeId":"accept-edits"`,
 		`"_meta":{"antigravity":{"systemPrompt":{"append":"You are the orchestrator."}}}`,
-		`"mcpServers":[]`, // agy does not advertise mcpCapabilities.http
+		// agy does not advertise mcpCapabilities.http: Konsert's tools reach it through a
+		// stdio `konsertd mcp-bridge` with the URL in its environment (not argv).
+		`"args":["mcp-bridge"]`, `"name":"KONSERT_MCP_BRIDGE_URL","value":"http://x/mcp"`,
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log lacks %s:\n%s", want, log)

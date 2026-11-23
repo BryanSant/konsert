@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -85,7 +84,7 @@ func (d *Daemon) initChat() {
 				accountID = agent // default accounts use the agent name as id
 			}
 			if d.caps.ModeRisk(accountID, mode) > protocol.SandboxMaxRisk {
-				return errors.New(protocol.SandboxDisabledReason)
+				return userMessage(protocol.SandboxDisabledReason)
 			}
 			return nil
 		},
@@ -289,3 +288,8 @@ func usageCachePath() string {
 	}
 	return filepath.Join(dir, "usage-cache.json")
 }
+
+// userMessage is an error whose text is a complete sentence shown to the user.
+type userMessage string
+
+func (m userMessage) Error() string { return string(m) }
