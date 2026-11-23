@@ -22,6 +22,10 @@ func TestACPTrustedKonsertToolsAutoApproved(t *testing.T) {
 	if got := s.trustedToolAllowOption(merged, json.RawMessage(`{"toolCallId":"call-1"}`), opts); got != "allow-once" {
 		t.Fatalf("real cursor permission shape: got %q", got)
 	}
+	// Real agy shape (via the stdio mcp-bridge).
+	if got := s.trustedToolAllowOption(&protocol.AgentToolCall{Name: "other", Title: "Run mcp_konsert_ask_user"}, nil, opts); got != "allow-once" {
+		t.Fatalf("agy-style konsert tool: got %q", got)
+	}
 	if got := s.trustedToolAllowOption(&protocol.AgentToolCall{Name: "mcp__konsert__fleet_status"}, nil, opts); got != "allow-once" {
 		t.Fatalf("mcp__konsert__ tool: got %q", got)
 	}

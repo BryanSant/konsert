@@ -965,7 +965,9 @@ func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json
 		}
 		for _, v := range []string{tc.Name, tc.Title, probe.RawInput.ToolName} {
 			v = strings.ToLower(strings.TrimSpace(v))
-			if strings.HasPrefix(v, "mcp__"+name+"__") || strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") || strings.HasPrefix(v, name+"-") {
+			// agy titles MCP calls "Run mcp_konsert_ask_user"; others use mcp__konsert__x.
+			if strings.Contains(v, "mcp__"+name+"__") || strings.Contains(v, "mcp_"+name+"_") ||
+				strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") || strings.HasPrefix(v, name+"-") {
 				trusted = true
 			}
 		}
