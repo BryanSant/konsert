@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { GitInspectResult, GitSummary } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -452,6 +452,8 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
 })
 export class TelemetryDrawerComponent implements OnDestroy {
   readonly panel = input<InspectorPanel>('agent');
+  /** False while the hosting pane is collapsed: suspends git polling. */
+  readonly enabled = input(true);
 
   private readonly tabs = inject(TabsStore);
   private readonly fleet = inject(FleetStore);
@@ -539,52 +541,91 @@ export class TelemetryDrawerComponent implements OnDestroy {
       .slice(0, 20);
   });
 
+  /** Stable keys: task/space objects change on every upsert, their ids do not. */
+  readonly activeTaskId = computed(() => this.activeTask()?.id ?? '');
+  readonly activeSpaceId = computed(() => this.activeSpace()?.id ?? '');
+  /** What the Git panel inspects: the active task, else the active space. */
+  private readonly gitTargetKey = computed(() => {
+    const tid = this.activeTaskId();
+    if (tid) return `task:${tid}`;
+    const sid = this.activeSpaceId();
+    return sid ? `space:${sid}` : '';
+  });
+
+  private gitSeq = 0;
+  private gitAppliedSeq = 0;
+  private gitLoadingSeq = 0;
+  private lastGitTargetKey = '';
+
   constructor() {
     effect(() => {
-      const t = this.activeTask();
-      if (t) {
-        void this.telemetry.hydrateTask(t.id);
+      const id = this.activeTaskId();
+      if (id) {
+        untracked(() => void this.telemetry.hydrateTask(id));
       }
     });
 
-    // Auto-inspect live Git changes when switching to Git panel or changing active task/space.
+    // Auto-inspect live Git changes when the Git panel is shown or the inspected
+    // task/space changes (keyed on ids, so ordinary task upserts don't restart it).
     effect(() => {
-      const p = this.panel();
-      const t = this.activeTask();
-      const sp = this.activeSpace();
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-      if (p === 'git' && (t || sp)) {
-        void this.refreshLiveGit();
-        this.pollTimer = setInterval(() => void this.refreshLiveGit(true), 6000);
-      }
+      const p = this.enabled() ? this.panel() : null;
+      const key = this.gitTargetKey();
+      untracked(() => {
+        if (key !== this.lastGitTargetKey) {
+          this.lastGitTargetKey = key;
+          this.liveGit.set(null);
+          this.gitError.set('');
+          this.expandedDiffs.set({});
+          this.gitLoading.set(false);
+        }
+        this.stopPolling();
+        if (p === 'git' && key) {
+          void this.refreshLiveGit();
+          this.pollTimer = setInterval(() => void this.refreshLiveGit(true), 6000);
+        }
+      });
     });
   }
 
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
   async refreshLiveGit(silent = false): Promise<void> {
-    const t = this.activeTask();
-    const sp = this.activeSpace();
-    if (!t && !sp) return;
-    if (!silent) this.gitLoading.set(true);
-    this.gitError.set('');
+    const key = this.gitTargetKey();
+    const taskId = this.activeTaskId();
+    const spaceId = this.activeSpaceId();
+    if (!key) return;
+    const seq = ++this.gitSeq;
+    if (!silent) {
+      this.gitLoadingSeq = seq;
+      this.gitLoading.set(true);
+      this.gitError.set('');
+    }
+    // Drop responses for a target we've since left, or ones overtaken by a newer response.
+    const isCurrent = () => key === this.gitTargetKey() && seq > this.gitAppliedSeq;
     try {
       const res = await this.api.inspectGit({
-        taskId: t?.id,
-        spaceId: !t ? sp?.id : undefined,
+        taskId: taskId || undefined,
+        spaceId: !taskId ? spaceId : undefined,
       });
+      if (!isCurrent()) return;
+      this.gitAppliedSeq = seq;
       if (res.error) {
         this.gitError.set(res.error);
       } else {
+        this.gitError.set('');
         this.liveGit.set(res);
       }
     } catch (err) {
-      if (!silent) {
+      if (!silent && isCurrent()) {
         this.gitError.set(err instanceof Error ? err.message : 'Unable to inspect git status');
       }
     } finally {
-      if (!silent) this.gitLoading.set(false);
+      if (!silent && this.gitLoadingSeq === seq) this.gitLoading.set(false);
     }
   }
 
@@ -707,6 +748,6 @@ export class TelemetryDrawerComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.stopPolling();
   }
 }

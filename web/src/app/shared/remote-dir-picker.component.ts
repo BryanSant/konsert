@@ -1,4 +1,4 @@
-import { Component, OnDestroy, effect, inject, input, model, signal } from '@angular/core';
+import { Component, OnDestroy, effect, inject, input, model, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FSEntry } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -176,14 +176,25 @@ export class RemoteDirPickerComponent implements OnDestroy {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private blurTimer: ReturnType<typeof setTimeout> | null = null;
   private suggestSeq = 0;
+  private browseSeq = 0;
 
   constructor() {
+    // Re-fetch the browse view only when the target machine changes while the browser
+    // is open. value()/browseOpen() are read untracked: navigation and toggling already
+    // load explicitly, and typing must not trigger a browse fetch per keystroke.
+    let lastWorkerId: string | undefined;
     effect(() => {
-      // Re-fetch browse view if user switches target machine while browser is open
       const wid = this.workerId();
-      if (this.browseOpen()) {
-        void this.loadBrowse(this.value() || '~', wid);
-      }
+      untracked(() => {
+        const changed = lastWorkerId !== undefined && lastWorkerId !== wid;
+        lastWorkerId = wid;
+        if (!changed) return;
+        this.suggestSeq++; // drop suggestions in flight for the previous machine
+        this.loadingSuggestions.set(false);
+        if (this.browseOpen()) {
+          void this.loadBrowse(this.value() || '~', wid);
+        }
+      });
     });
   }
 
@@ -306,6 +317,7 @@ export class RemoteDirPickerComponent implements OnDestroy {
   }
 
   private async loadBrowse(path: string, workerId: string): Promise<void> {
+    const seq = ++this.browseSeq;
     this.loadingBrowse.set(true);
     this.browseError.set('');
     try {
@@ -314,6 +326,7 @@ export class RemoteDirPickerComponent implements OnDestroy {
         path: path || '~',
         dirsOnly: true,
       });
+      if (seq !== this.browseSeq) return; // a newer navigation superseded this one
       if (res.error) {
         this.browseError.set(res.error);
         this.browseEntries.set([]);
@@ -323,10 +336,11 @@ export class RemoteDirPickerComponent implements OnDestroy {
         this.browseEntries.set(res.entries ?? []);
       }
     } catch (err) {
+      if (seq !== this.browseSeq) return;
       this.browseError.set(err instanceof Error ? err.message : 'Unable to browse remote host');
       this.browseEntries.set([]);
     } finally {
-      this.loadingBrowse.set(false);
+      if (seq === this.browseSeq) this.loadingBrowse.set(false);
     }
   }
 

@@ -313,7 +313,7 @@ interface PaletteItem {
           [class.opacity-0]="!rightOpen()"
         >
           <div class="w-[300px] h-full">
-            <app-telemetry-drawer [panel]="inspectorPanel()" />
+            <app-telemetry-drawer [panel]="inspectorPanel()" [enabled]="rightOpen()" />
           </div>
         </aside>
 
