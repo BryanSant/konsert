@@ -209,7 +209,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	prov := s.cfg.Orchestrator.Provider
 	model := s.cfg.Orchestrator.Model
-	fleetTokReq := s.cfg.FleetToken != ""
+	fleetTokReq := !s.cfg.NoAuth
 	s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated":        ok,

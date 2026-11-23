@@ -10,15 +10,40 @@ import (
 
 // ControllerConfig holds configuration for the central konsert hub.
 type ControllerConfig struct {
-	ListenAddr            string             `yaml:"listen_addr"`
-	DBPath                string             `yaml:"db_path"`
-	FleetToken            string             `yaml:"fleet_token"`
-	AdminToken            string             `yaml:"admin_token"`
-	MCPToken              string             `yaml:"mcp_token"`
-	NoAuth                bool               `yaml:"no_auth"`
-	TrustTailscaleHeaders bool               `yaml:"trust_tailscale_headers"`
-	EnableMCPHTTP         bool               `yaml:"enable_mcp_http"`
-	Orchestrator          OrchestratorConfig `yaml:"orchestrator"`
+	// ListenAddr is the HTTP listen address. Empty means DefaultListenAddr(NoAuth):
+	// all interfaces when auth is on, loopback only with --no-auth.
+	ListenAddr string `yaml:"listen_addr"`
+	DBPath     string `yaml:"db_path"`
+	FleetToken string `yaml:"fleet_token"`
+	AdminToken string `yaml:"admin_token"`
+	MCPToken   string `yaml:"mcp_token"`
+	// TokensFile is where auto-generated admin/fleet tokens are persisted (0600) when
+	// none are configured. Empty means "konsert-tokens.yaml" next to DBPath.
+	TokensFile            string `yaml:"tokens_file"`
+	NoAuth                bool   `yaml:"no_auth"`
+	TrustTailscaleHeaders bool   `yaml:"trust_tailscale_headers"`
+	EnableMCPHTTP         bool   `yaml:"enable_mcp_http"`
+	// PublicURL is the externally reachable base URL of this controller (e.g.
+	// https://konsert.example.ts.net). It is used to derive the worker WebSocket URL
+	// handed to SSH-bootstrapped workers and is always an allowed browser origin.
+	PublicURL string `yaml:"public_url"`
+	// AllowedOrigins lists extra browser origins (e.g. "http://localhost:4200" or a
+	// host pattern such as "*.example.ts.net") permitted to call the REST API and open
+	// /ws/client. The request's own Host is always allowed.
+	AllowedOrigins []string           `yaml:"allowed_origins"`
+	Orchestrator   OrchestratorConfig `yaml:"orchestrator"`
+}
+
+// DefaultPort is the controller's default TCP port.
+const DefaultPort = "8420"
+
+// DefaultListenAddr returns the listen address used when none is configured: loopback
+// only when authentication is disabled, all interfaces otherwise.
+func DefaultListenAddr(noAuth bool) string {
+	if noAuth {
+		return "127.0.0.1:" + DefaultPort
+	}
+	return ":" + DefaultPort
 }
 
 // OrchestratorConfig configures the built-in Orchestrator Chat LLM backend.
@@ -48,7 +73,6 @@ type WorkerConfig struct {
 // DefaultControllerConfig returns sensible MVP defaults.
 func DefaultControllerConfig() ControllerConfig {
 	return ControllerConfig{
-		ListenAddr:    ":8420",
 		DBPath:        "konsert.db",
 		EnableMCPHTTP: true,
 		Orchestrator: OrchestratorConfig{
@@ -116,6 +140,15 @@ func applyControllerEnv(cfg *ControllerConfig) {
 	}
 	if v := os.Getenv("KONSERT_MCP_TOKEN"); v != "" {
 		cfg.MCPToken = v
+	}
+	if v := os.Getenv("KONSERT_TOKENS_FILE"); v != "" {
+		cfg.TokensFile = v
+	}
+	if v := os.Getenv("KONSERT_PUBLIC_URL"); v != "" {
+		cfg.PublicURL = v
+	}
+	if v := os.Getenv("KONSERT_ALLOWED_ORIGINS"); v != "" {
+		cfg.AllowedOrigins = SplitList(v)
 	}
 	if v := os.Getenv("KONSERT_LLM_PROVIDER"); v != "" {
 		cfg.Orchestrator.Provider = v
@@ -188,14 +221,7 @@ func applyWorkerEnv(cfg *WorkerConfig) {
 		cfg.Isolation = v
 	}
 	if v := os.Getenv("KONSERT_ALLOWED_ROOTS"); v != "" {
-		parts := strings.Split(v, ",")
-		var roots []string
-		for _, p := range parts {
-			if t := strings.TrimSpace(p); t != "" {
-				roots = append(roots, t)
-			}
-		}
-		cfg.AllowedRoots = roots
+		cfg.AllowedRoots = SplitList(v)
 	}
 	if v := strings.ToLower(os.Getenv("KONSERT_SANDBOX")); v == "1" || v == "true" {
 		cfg.Sandbox = true
@@ -203,4 +229,15 @@ func applyWorkerEnv(cfg *WorkerConfig) {
 	if v := strings.ToLower(os.Getenv("KONSERT_ENABLE_MOCK_DRIVER")); v == "1" || v == "true" {
 		cfg.EnableMockDriver = true
 	}
+}
+
+// SplitList splits a comma-separated list, trimming whitespace and dropping empty items.
+func SplitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
