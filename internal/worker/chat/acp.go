@@ -1222,9 +1222,8 @@ func (s *acpSession) Respond(ctx context.Context, r protocol.AgentChatRespond) e
 	if conn == nil {
 		return errors.New("session not running")
 	}
-	if err := conn.rpc.Reply(pr.rpcID, map[string]any{"outcome": outcome}); err != nil {
-		return err
-	}
+	// Report the resolution before replying: once the agent has the answer it may
+	// end the turn at once, and neither event may follow turn_end.
 	text := chosen
 	if text == "" {
 		text = "cancelled"
@@ -1234,7 +1233,7 @@ func (s *acpSession) Respond(ctx context.Context, r protocol.AgentChatRespond) e
 	if pending == 0 && turnID != "" {
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: turnID, Status: protocol.ChatStatusWorking})
 	}
-	return nil
+	return conn.rpc.Reply(pr.rpcID, map[string]any{"outcome": outcome})
 }
 
 // Control cancels the turn or changes model / effort / approval mode. Changes that the
