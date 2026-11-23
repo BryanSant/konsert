@@ -389,3 +389,18 @@ export const FRAME_PTY_DATA = 0x02;
 export const FRAME_PTY_STDIN = 0x03;
 export const FRAME_TASK_ID_SIZE = 36;
 export const FRAME_HEADER_SIZE = 37;
+
+/**
+ * Orchestrator default model per LLM provider. Mirrors internal/orchestrator/defaults.go
+ * (the hub is the source of truth; these only seed the settings form).
+ */
+export const ORCHESTRATOR_DEFAULT_MODELS = {
+  openai: 'gpt-5.1',
+  anthropic: 'claude-sonnet-5-5',
+  gemini: 'gemini-pro-latest',
+} as const;
+
+export function defaultOrchestratorModel(provider: string): string {
+  const key = (provider || 'openai').trim().toLowerCase() as keyof typeof ORCHESTRATOR_DEFAULT_MODELS;
+  return ORCHESTRATOR_DEFAULT_MODELS[key] ?? '';
+}

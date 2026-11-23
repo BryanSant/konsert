@@ -6,6 +6,10 @@ import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
+import { ORCHESTRATOR_DEFAULT_MODELS, defaultOrchestratorModel } from '../core/models/konsert.models';
+
+/** Defaults shipped by older hubs; treated like "unset" when switching provider. */
+const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5-pro'];
 
 @Component({
   selector: 'app-settings-modal',
@@ -52,7 +56,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
                 name="model"
                 [ngModel]="model()"
                 (ngModelChange)="model.set($event)"
-                placeholder="gpt-4o / claude-sonnet-4-20250514"
+                [placeholder]="defaultModelFor(provider()) || 'model name'"
                 class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
               />
             </div>
@@ -210,7 +214,7 @@ export class SettingsModalComponent implements OnInit {
   private readonly notifications = inject(NotificationService);
 
   readonly provider = signal('openai');
-  readonly model = signal('gpt-4o');
+  readonly model = signal<string>(ORCHESTRATOR_DEFAULT_MODELS.openai);
   readonly baseUrl = signal('');
   readonly apiKey = signal('');
   readonly apiKeySet = signal(false);
@@ -247,11 +251,15 @@ export class SettingsModalComponent implements OnInit {
 
   onProviderChange(next: string): void {
     this.provider.set(next);
-    if (!this.model().trim() || ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5-pro'].includes(this.model())) {
-      if (next === 'anthropic') this.model.set('claude-sonnet-4-20250514');
-      else if (next === 'gemini') this.model.set('gemini-2.5-pro');
-      else this.model.set('gpt-4o');
+    // Swap the model only if it is empty or still some provider's default (current or legacy).
+    const known = [...Object.values(ORCHESTRATOR_DEFAULT_MODELS), ...LEGACY_DEFAULT_MODELS];
+    if (!this.model().trim() || known.includes(this.model())) {
+      this.model.set(defaultOrchestratorModel(next));
     }
+  }
+
+  defaultModelFor(provider: string): string {
+    return defaultOrchestratorModel(provider);
   }
 
   onToggleDesktop(enabled: boolean): void {

@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   AppSettings,
+  ORCHESTRATOR_DEFAULT_MODELS,
   Project,
   Repo,
   SessionDefaults,
@@ -58,7 +59,7 @@ export class FleetStore {
   readonly worktrees = signal<Worktree[]>([]);
   readonly settings = signal<AppSettings>({
     llm_provider: 'openai',
-    llm_model: 'gpt-4o',
+    llm_model: ORCHESTRATOR_DEFAULT_MODELS.openai,
     llm_base_url: '',
     llm_api_key_set: false,
     default_agent: '',
@@ -566,7 +567,7 @@ export function guessModelForAgent(agent: string, fallbackModel = ''): string {
     case 'mock':
       return 'mock-default';
     default:
-      return fallbackModel || 'gpt-4o';
+      return fallbackModel || ORCHESTRATOR_DEFAULT_MODELS.openai;
   }
 }
 

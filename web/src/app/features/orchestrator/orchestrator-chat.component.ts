@@ -1,6 +1,6 @@
 import { Component, ElementRef, OnInit, ViewChild, computed, effect, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ChatMessage, PermissionMode } from '../../core/models/konsert.models';
+import { ChatMessage, ORCHESTRATOR_DEFAULT_MODELS, PermissionMode } from '../../core/models/konsert.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AuthService } from '../../core/services/auth.service';
 import { KonsertSocketService } from '../../core/services/konsert-socket.service';
@@ -555,7 +555,7 @@ export class OrchestratorChatComponent implements OnInit {
     const base = [
       this.auth.model(),
       this.fleet.settings().llm_model,
-      'gpt-4o',
+      ...Object.values(ORCHESTRATOR_DEFAULT_MODELS),
       'o4-mini',
       'claude-sonnet-4-5',
       'claude-opus-4-1',
@@ -574,7 +574,7 @@ export class OrchestratorChatComponent implements OnInit {
         const res = this.fleet.resolveSessionDefaults();
         if (res.machine_id) this.selectedMachineId.set(res.machine_id);
         if (res.agent) this.selectedAgent.set(res.agent);
-        this.selectedModel.set(settings.llm_model || res.model || this.auth.model() || 'gpt-4o');
+        this.selectedModel.set(settings.llm_model || res.model || this.auth.model() || ORCHESTRATOR_DEFAULT_MODELS.openai);
         this.defaultsSeeded = true;
       }
     });
