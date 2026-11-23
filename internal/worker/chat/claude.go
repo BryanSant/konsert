@@ -285,6 +285,13 @@ func (s *claudeSession) argsLocked() ([]string, error) {
 			s.mcpFile = path
 		}
 		args = append(args, "--mcp-config", s.mcpFile)
+		// Konsert's own servers (ask_user, fleet tools) are trusted: never ask the user
+		// for permission to ask the user a question.
+		for _, srv := range s.opts.MCPServers {
+			if name := strings.TrimSpace(srv.Name); name != "" {
+				args = append(args, "--allowedTools", "mcp__"+name)
+			}
+		}
 	}
 	if s.opts.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", s.opts.SystemPrompt)
@@ -545,13 +552,18 @@ func (s *claudeSession) Prompt(ctx context.Context, p protocol.AgentChatPrompt) 
 func (s *claudeSession) Respond(_ context.Context, r protocol.AgentChatRespond) error {
 	s.mu.Lock()
 	p := s.pending[r.ElicitationID]
-	if p != nil {
-		delete(s.pending, r.ElicitationID)
-	}
-	s.mu.Unlock()
 	if p == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no pending elicitation %q", r.ElicitationID)
 	}
+	// An answer that matches none of the offered options is a client bug, not a
+	// rejection: keep the request pending instead of silently denying the tool call.
+	if err := claudeValidateAnswer(p, r); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	delete(s.pending, r.ElicitationID)
+	s.mu.Unlock()
 	resp := claudePermissionAnswer(p, r)
 	if err := s.write(map[string]any{
 		"type": "control_response",
@@ -570,6 +582,28 @@ func (s *claudeSession) Respond(_ context.Context, r protocol.AgentChatRespond) 
 		Elicitation: &protocol.AgentElicitation{ID: p.id, Kind: p.kind},
 	})
 	return nil
+}
+
+// claudeValidateAnswer checks the user's choice against what the elicitation offered.
+func claudeValidateAnswer(p *claudePending, r protocol.AgentChatRespond) error {
+	if p.kind == protocol.ElicitQuestion {
+		if r.OptionID == "" || r.OptionID == "reject" || strings.TrimSpace(r.Text) != "" {
+			return nil
+		}
+		for _, q := range p.questions {
+			for i := range q.Options {
+				if r.OptionID == fmt.Sprintf("opt_%d", i) {
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf("unknown option %q for question %s", r.OptionID, p.id)
+	}
+	switch r.OptionID {
+	case "allow_once", "allow", "allow_always", "reject", "reject_once", "reject_always":
+		return nil
+	}
+	return fmt.Errorf("unknown option %q for permission request %s (want allow_once, allow_always or reject)", r.OptionID, p.id)
 }
 
 // claudePermissionAnswer builds the can_use_tool response for the user's choice.

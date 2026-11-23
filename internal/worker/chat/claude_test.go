@@ -128,6 +128,11 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 	if strings.Contains(strings.Join(args, " "), "chat-token") {
 		t.Fatal("MCP bearer token leaked into argv")
 	}
+	// Konsert's own MCP tools (ask_user, fleet tools) are pre-approved: calling ask_user
+	// must never first raise a permission prompt.
+	if got := argValue(args, "--allowedTools"); got != "mcp__konsert" {
+		t.Errorf("--allowedTools = %q, want mcp__konsert (argv %v)", got, args)
+	}
 	path := argValue(args, "--mcp-config")
 	st, err := os.Stat(path)
 	if err != nil {
@@ -747,5 +752,19 @@ func TestCCRedact(t *testing.T) {
 		if strings.Contains(out, leak) {
 			t.Fatalf("leaked %q: %s", leak, out)
 		}
+	}
+}
+
+func TestClaudeRespondRejectsUnknownOption(t *testing.T) {
+	perm := &claudePending{id: "r1", kind: protocol.ElicitPermission}
+	for _, ok := range []string{"allow_once", "allow_always", "reject"} {
+		if err := claudeValidateAnswer(perm, protocol.AgentChatRespond{OptionID: ok}); err != nil {
+			t.Errorf("%s rejected: %v", ok, err)
+		}
+	}
+	// Seen live: a client answered a permission prompt with a question option id; it was
+	// silently treated as "reject". It must be an error and leave the request pending.
+	if err := claudeValidateAnswer(perm, protocol.AgentChatRespond{OptionID: "option_1"}); err == nil {
+		t.Fatal("unknown permission option accepted")
 	}
 }
