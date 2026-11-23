@@ -53,7 +53,16 @@ type LaunchOptions struct {
 	Model          string
 	Mode           string // "oneshot" | "interactive"
 	PermissionMode string // "full_access" | "sandboxed"
-	Env            []string
+	// Env is appended to the daemon's environment; the runner puts the selected
+	// account's env here (e.g. CLAUDE_CONFIG_DIR), so drivers locate that account's state.
+	Env []string
+	// AccountID is the worker-local agent account the task runs as ("" = default).
+	AccountID string
+	// ApprovalMode is one of the agent's approval mode IDs; it replaces the approval flags
+	// derived from PermissionMode when set (see approval.go).
+	ApprovalMode string
+	// Effort is the model's reasoning effort ID, mapped to the CLI's effort flag.
+	Effort string
 }
 
 // LaunchSpec describes the command to spawn inside the PTY.

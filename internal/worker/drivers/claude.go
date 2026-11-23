@@ -69,11 +69,16 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		bin = "claude"
 	}
 	args := []string{}
-	if IsFullAccess(opts.PermissionMode) {
+	if mode := permissionModeFlag(opts.ApprovalMode); mode != "" {
+		args = append(args, "--permission-mode", mode)
+	} else if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--dangerously-skip-permissions")
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
+	}
+	if e := flagValue(opts.Effort); e != "" {
+		args = append(args, "--effort", e)
 	}
 	args = append(args, "--session-id", d.newSession(opts.TaskID))
 	// "--" terminates option parsing so a prompt that begins with '-' (for example

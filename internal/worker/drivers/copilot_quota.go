@@ -164,6 +164,30 @@ func copilotQuotaEvents(cacheDir string, seen map[string]float64) []TelemetryEve
 	return out
 }
 
+// PlanQuota is one plan usage bucket read from a local, credential-free cache.
+type PlanQuota struct {
+	Label       string
+	Window      string // copilot: "premium" or "chat" (both reset monthly)
+	UsedPercent float64
+	ResetsAt    *time.Time
+}
+
+// CopilotPlanUsage returns copilot's cached plan quotas for an account env (COPILOT_CACHE_HOME
+// etc. in env win over the daemon's own environment). It never spawns copilot.
+func CopilotPlanUsage(env []string) []PlanQuota {
+	var out []PlanQuota
+	for _, q := range readCopilotQuotas(copilotCacheDir(env)) {
+		p := PlanQuota{Label: q.Label, Window: q.WindowLabel, UsedPercent: q.UsedPercent}
+		if q.ResetAt != "" {
+			if t, err := time.Parse(time.RFC3339, q.ResetAt); err == nil {
+				p.ResetsAt = &t
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 func formatPercent(p float64) string {
 	return strings.TrimSuffix(strconv.FormatFloat(p, 'f', 1, 64), ".0") + "%"
 }

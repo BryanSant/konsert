@@ -57,7 +57,15 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		bin = "grok"
 	}
 	args := []string{}
-	if IsFullAccess(opts.PermissionMode) {
+	mode := permissionModeFlag(opts.ApprovalMode)
+	if mode != "" {
+		args = append(args, "--permission-mode", mode)
+		if IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--trust")
+		} else {
+			args = append(args, "--sandbox", "workspace")
+		}
+	} else if IsFullAccess(opts.PermissionMode) {
 		// --trust grants (and saves) folder trust, so the TUI's first-run "Do you trust
 		// the contents of this directory?" dialog never blocks a run, and headless runs
 		// in a repo with project config start instead of refusing. Full access already
@@ -69,6 +77,9 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
+	}
+	if e := flagValue(opts.Effort); e != "" {
+		args = append(args, "--reasoning-effort", e)
 	}
 	args = append(args, "--session-id", d.newTask(opts))
 	// The prompt is either "="-joined to its flag or placed after "--", so a prompt that

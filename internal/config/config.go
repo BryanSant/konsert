@@ -75,6 +75,28 @@ type WorkerConfig struct {
 	Tags             map[string]string `yaml:"tags"`
 	MaxConcurrent    int               `yaml:"max_concurrent"`
 	EnableMockDriver bool              `yaml:"enable_mock_driver"`
+	// Accounts are extra agent accounts (e.g. a second subscription of the same CLI) on
+	// top of each installed CLI's default account. See docs/design/agent-chat.md.
+	Accounts []AgentAccountConfig `yaml:"accounts"`
+}
+
+// AgentAccountConfig is one extra agent account in konsertd's YAML config:
+//
+//	accounts:
+//	  - id: claude2
+//	    agent: claude
+//	    label: Claude 2
+//	    env:
+//	      CLAUDE_CONFIG_DIR: ~/.claude2
+//	    token_file: ~/.claude2-oauth-token  # read into the agent's token env var; must be 0600
+//
+// Env values and the token never leave the worker.
+type AgentAccountConfig struct {
+	ID        string            `yaml:"id"`
+	Agent     string            `yaml:"agent"`
+	Label     string            `yaml:"label"`
+	Env       map[string]string `yaml:"env"`
+	TokenFile string            `yaml:"token_file"`
 }
 
 // DefaultControllerConfig returns sensible MVP defaults.

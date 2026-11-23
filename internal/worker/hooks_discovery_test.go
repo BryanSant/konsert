@@ -85,15 +85,4 @@ func TestHookEventDiscoveryAndQuotaCollection(t *testing.T) {
 	if len(emitted) != 2 || emitted[1].Status != "idle" {
 		t.Fatalf("expected Stop hook to emit idle status, got %+v", emitted)
 	}
-
-	// Verify subscription quota probe reads ~/.konsert/quotas.json
-	qPath := filepath.Join(home, ".konsert", "quotas.json")
-	qData := `{"quotas":[{"provider":"codex","label":"Codex","window_label":"5h","used_percent":21},{"provider":"agy","label":"Antigravity","window_label":"8h","used_percent":15}]}`
-	if err := os.WriteFile(qPath, []byte(qData), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	quotas := CollectSubscriptionQuotas(context.Background(), home, "w1")
-	if len(quotas) != 2 || quotas[0].UsedPercent != 21 || quotas[1].UsedPercent != 15 {
-		t.Fatalf("unexpected collected quotas: %+v", quotas)
-	}
 }

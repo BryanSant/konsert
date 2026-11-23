@@ -71,10 +71,21 @@ func (d *CopilotDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	interactive := opts.Mode == "interactive"
 	env := append([]string(nil), opts.Env...)
 	var args []string
-	if IsFullAccess(opts.PermissionMode) {
+	mode := flagValue(opts.ApprovalMode)
+	switch {
+	case ApprovalModeFullAccess("copilot", mode):
 		args = append(args, "--allow-all")
 		env = append(env, "COPILOT_ALLOW_ALL=true")
-	} else {
+	case mode == "interactive" || mode == "plan" || mode == "autopilot":
+		args = append(args, "--mode="+mode)
+		if !IsFullAccess(opts.PermissionMode) {
+			args = append(args, "--sandbox")
+		}
+		env = append(env, "COPILOT_ALLOW_ALL=false")
+	case IsFullAccess(opts.PermissionMode):
+		args = append(args, "--allow-all")
+		env = append(env, "COPILOT_ALLOW_ALL=true")
+	default:
 		args = append(args, "--sandbox")
 		if !interactive {
 			args = append(args, "--allow-tool=write", "--allow-tool=shell")
@@ -83,6 +94,9 @@ func (d *CopilotDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model="+m)
+	}
+	if e := flagValue(opts.Effort); e != "" {
+		args = append(args, "--reasoning-effort="+e)
 	}
 	args = append(args, "--session-id="+d.newTask(opts))
 	if interactive {

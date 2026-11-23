@@ -19,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
 )
@@ -59,6 +60,19 @@ type Daemon struct {
 
 	// wake holds the host Keep Awake inhibitor requested by the hub (host.wakelock).
 	wake *WakeLockManager
+
+	// Agent chat (see daemon_chat.go). They outlive connections.
+	accounts   *chat.AccountRegistry
+	chat       *chat.Manager
+	caps       *chat.Capabilities
+	capRefresh chan struct{} // re-probe and send capabilities
+	capPush    chan struct{} // send cached capabilities (chat usage changed)
+	// chatPending buffers chat events while disconnected (guarded by sendMu).
+	chatPending    []outboundMsg
+	chatDropWarned bool
+
+	// CapabilitiesInterval overrides DefaultCapabilitiesInterval (tests).
+	CapabilitiesInterval time.Duration
 
 	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
@@ -135,6 +149,8 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		d.sendJSON(protocol.MsgHostWakeLockState, st)
 	})
 
+	d.initChat()
+
 	return d
 }
 
@@ -143,8 +159,10 @@ func (d *Daemon) WakeLock() *WakeLockManager {
 	return d.wake
 }
 
-// shutdown stops every task and drops the host wake lock; Run calls it on every exit path.
+// shutdown stops every task and chat engine and drops the host wake lock; Run calls it on
+// every exit path.
 func (d *Daemon) shutdown() {
+	d.shutdownChat()
 	d.runner.ShutdownAll()
 	d.wake.Shutdown()
 }
@@ -309,9 +327,8 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	defer connCancel()
 
 	queues := newConnQueues()
-	d.sendMu.Lock()
-	d.queues = queues
-	d.sendMu.Unlock()
+	// Chat events buffered while disconnected are queued now and written after hello.
+	d.attachQueues(queues)
 
 	defer func() {
 		d.sendMu.Lock()
@@ -423,12 +440,11 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
-	// Periodic Machine Facts + Subscription Quota refresher (keeps cached facts & quotas fresh without bloating heartbeats).
+	// Agent capabilities (and the legacy worker.quotas derived from them).
+	go d.capabilitiesLoop(connCtx)
+
+	// Periodic Machine Facts refresher (keeps cached facts fresh without bloating heartbeats).
 	go func() {
-		// Push initial subscription quotas right away if present.
-		if qs := CollectSubscriptionQuotas(connCtx, "", d.cfg.WorkerID); len(qs) > 0 {
-			d.sendJSON(protocol.MsgWorkerQuotas, protocol.WorkerQuotasPayload{Quotas: qs})
-		}
 		fInt := d.FactsInterval
 		if fInt <= 0 {
 			fInt = 5 * time.Minute
@@ -442,9 +458,6 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			case <-ticker.C:
 				facts := d.refreshFacts(connCtx)
 				d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
-				if qs := CollectSubscriptionQuotas(connCtx, "", d.cfg.WorkerID); len(qs) > 0 {
-					d.sendJSON(protocol.MsgWorkerQuotas, protocol.WorkerQuotasPayload{Quotas: qs})
-				}
 			}
 		}
 	}()
@@ -485,6 +498,9 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 }
 
 func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.Envelope) {
+	if d.handleChatMessage(env) {
+		return
+	}
 	switch env.Type {
 	case protocol.MsgTaskStart:
 		p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
