@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ func main() {
 	rootCmd.AddCommand(newInstallHooksCmd())
 	rootCmd.AddCommand(newHookEventCmd())
 	rootCmd.AddCommand(newDaemonMCPCmd())
+	rootCmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -56,6 +58,7 @@ func newRunCmd() *cobra.Command {
 		tags             []string
 		maxConcurrent    int
 		enableMockDriver bool
+		logFile          string
 	)
 
 	cmd := &cobra.Command{
@@ -107,7 +110,16 @@ func newRunCmd() *cobra.Command {
 				return fmt.Errorf("invalid worker config: %w", err)
 			}
 
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			var logOut io.Writer = os.Stderr
+			if logFile != "" {
+				f, err := openLogFile(logFile)
+				if err != nil {
+					return fmt.Errorf("open --log-file: %w", err)
+				}
+				defer func() { _ = f.Close() }()
+				logOut = f
+			}
+			logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: slog.LevelInfo}))
 			if cfg.FleetToken == "" {
 				logger.Warn("no fleet token configured (--token / KONSERT_FLEET_TOKEN); only a hub started with --no-auth will accept this worker")
 			}
@@ -121,10 +133,7 @@ func newRunCmd() *cobra.Command {
 			daemon.SetAllowSandboxShell(sandboxShell)
 			daemon.SetVersion(version)
 
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
-			err = daemon.Run(ctx)
+			err = runDaemon(daemon.Run)
 			if err != nil && err != context.Canceled {
 				return err
 			}
@@ -145,6 +154,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Worker tags in key=value format (repeatable)")
 	cmd.Flags().IntVar(&maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
 	cmd.Flags().BoolVar(&enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
+	cmd.Flags().StringVar(&logFile, "log-file", "", "Append logs to this file instead of stderr (used by the Windows logon task and service)")
 
 	return cmd
 }
