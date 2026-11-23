@@ -102,6 +102,42 @@ import { TooltipDirective } from '../shared/tooltip.directive';
         </button>
       </div>
 
+      <!-- How the hub starts konsertd here, and the last attempt -->
+      @if (worker().launch; as launch) {
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px] space-y-1.5" data-testid="worker-launch">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <span class="text-[#86888f] mr-2">Started by the hub</span>
+              <span class="font-mono-ide text-[#c8cad0] break-all">{{ launchLabel() }}</span>
+            </div>
+            @if (worker().status !== 'online') {
+              @if (worker().launch_state === 'starting') {
+                <span class="inline-flex items-center gap-1.5 text-[10.5px] text-[#c8cad0] shrink-0" data-testid="worker-launch-starting">
+                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[var(--ks-blue)] border-t-transparent ks-ring-spin"></span>
+                  Starting konsertd...
+                </span>
+              } @else {
+                <button
+                  type="button"
+                  (click)="retryStart()"
+                  class="ks-btn ks-btn-sm shrink-0"
+                  [ksTooltip]="launch === 'ssh' ? 'Install and start konsertd over ssh again' : 'Start konsertd on this machine again'"
+                  data-testid="worker-launch-retry"
+                >
+                  <app-icon name="refresh" [size]="11" />
+                  <span>{{ worker().launch_state === 'failed' ? 'Retry' : 'Start' }}</span>
+                </button>
+              }
+            }
+          </div>
+          @if (worker().status !== 'online' && worker().launch_state === 'failed' && worker().launch_error) {
+            <div role="alert" class="rounded-md bg-[var(--ks-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-launch-error">
+              {{ worker().launch_error }}
+            </div>
+          }
+        </div>
+      }
+
       <!-- konsertd version row -->
       <div
         class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]"
@@ -345,6 +381,15 @@ export class MachineDetailModalComponent {
     if (mins < 60) return `${mins}m ago`;
     return `${Math.floor(mins / 60)}h ago`;
   });
+
+  readonly launchLabel = computed(() => {
+    const w = this.worker();
+    return w.launch === 'ssh' ? `over ssh (${w.ssh_target || w.name})` : 'on the hub\'s machine';
+  });
+
+  retryStart(): void {
+    void this.fleet.retryStart(this.worker().id);
+  }
 
   formatMB(mb: number): string {
     if (!mb) return '0 MB';

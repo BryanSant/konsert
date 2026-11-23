@@ -1,6 +1,35 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AddMachineModalComponent } from './add-machine-modal.component';
+import { LocalHostInfo, SetupStatus, Worker } from '../core/models/konsert.models';
+import { FleetStore } from '../core/state/fleet.store';
+import { AddMachineModalComponent, localHostSummary } from './add-machine-modal.component';
+
+function setupWith(local: Partial<LocalHostInfo>): SetupStatus {
+  return {
+    needs_setup: true,
+    local: { hostname: 'studio', konsertd_found: true, worker_id: 'w-local', connected: false, added: false, ...local },
+  };
+}
+
+function localWorker(status: string, extra: Partial<Worker> = {}): Worker {
+  return {
+    id: 'w-local',
+    sid: 'm-local',
+    name: 'studio',
+    host_group: 'studio',
+    os: 'darwin',
+    arch: 'arm64',
+    isolation: 'host',
+    permission_mode: 'full_access',
+    agents: [],
+    tags: {},
+    max_concurrent: 2,
+    status,
+    last_seen_at: new Date().toISOString(),
+    launch: 'local',
+    ...extra,
+  };
+}
 
 function sseResponse(
   frames: unknown[],
@@ -22,6 +51,11 @@ function sseResponse(
   return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
 }
 
+function callTo(fetchMock: ReturnType<typeof vi.fn>, url: string, nth = 0): [string, RequestInit] {
+  const calls = fetchMock.mock.calls.filter((c) => c[0] === url);
+  return calls[nth] as [string, RequestInit];
+}
+
 describe('AddMachineModalComponent SSH bootstrap', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -29,6 +63,9 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     fetchMock = vi.fn(async (url: string) => {
       if (url === '/api/ssh/hosts') {
         return new Response(JSON.stringify({ hosts: [] }), { status: 200 });
+      }
+      if (url === '/api/setup') {
+        return new Response(JSON.stringify(setupWith({})), { status: 200 });
       }
       throw new Error(`unexpected ${url}`);
     });
@@ -65,7 +102,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     };
 
     await cmp.bootstrapSSHHost('box');
-    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const [url, init] = callTo(fetchMock, '/api/ssh/bootstrap?stream=1');
     const headers = new Headers(init.headers);
     expect(url).toBe('/api/ssh/bootstrap?stream=1');
     expect(headers.get('Content-Type')).toBe('application/json');
@@ -115,7 +152,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
       sseResponse([{ type: 'done', result: { ok: true, target: 'box', message: 'ready' } }]),
     );
     await cmp.confirmHostKey({ type: 'ssh-ed25519', fingerprint: 'SHA256:abc' });
-    const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const [, init] = callTo(fetchMock, '/api/ssh/bootstrap?stream=1', 1);
     const body = JSON.parse(init.body as string);
     expect(body).toMatchObject({ target: 'box', accept_host_key: 'SHA256:abc' });
     expect(body.controller_url).toMatch(/^wss?:\/\/.+\/ws\/worker$/);
@@ -162,5 +199,128 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     await p;
     expect(signal?.aborted).toBe(true);
     expect(cmp.sshErrorMsg()).toBe('');
+  });
+});
+
+describe('AddMachineModalComponent this machine', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let setup: SetupStatus;
+  let fleetWorkers: Worker[];
+
+  beforeEach(() => {
+    setup = setupWith({});
+    fleetWorkers = [];
+    fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      switch (url) {
+        case '/api/ssh/hosts':
+          return new Response(JSON.stringify({ hosts: [] }), { status: 200 });
+        case '/api/setup':
+          return new Response(JSON.stringify(setup), { status: 200 });
+        case '/api/fleet':
+          return new Response(JSON.stringify({ workers: fleetWorkers, tasks: [] }), { status: 200 });
+        case '/api/workers/local':
+          expect(init?.method).toBe('POST');
+          return new Response(
+            JSON.stringify(
+              setup.local.connected
+                ? { worker_id: setup.local.worker_id, state: 'connected' }
+                : { worker_id: 'w-local', worker_sid: 'm-local', state: 'starting' },
+            ),
+            { status: setup.local.connected ? 200 : 202 },
+          );
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    TestBed.configureTestingModule({});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    TestBed.resetTestingModule();
+  });
+
+  async function create(firstRun = true) {
+    const fixture = TestBed.createComponent(AddMachineModalComponent);
+    fixture.componentRef.setInput('firstRun', firstRun);
+    fixture.detectChanges();
+    const cmp = fixture.componentInstance;
+    await vi.waitFor(() => {
+      expect(cmp.local()).not.toBeNull();
+      expect(cmp.setup.loading()).toBe(false);
+      expect(cmp.sshHostsLoading()).toBe(false);
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  function text(fixture: { nativeElement: unknown }): string {
+    return (fixture.nativeElement as HTMLElement).textContent ?? '';
+  }
+
+  it('summarizes each local state', () => {
+    expect(localHostSummary(setupWith({ connected: true }).local)).toBe('konsertd is running — will attach');
+    expect(localHostSummary(setupWith({}).local)).toMatch(/^Will start konsertd/);
+    expect(localHostSummary(setupWith({ konsertd_found: false, fix: 'Put konsertd on PATH.' }).local)).toBe(
+      'konsertd not found: Put konsertd on PATH.',
+    );
+    expect(localHostSummary(setupWith({ launch_state: 'failed', launch_error: 'boom' }).local)).toBe(
+      'Could not start konsertd: boom',
+    );
+  });
+
+  it('puts this machine first in the first-run dialog', async () => {
+    const fixture = await create();
+    const t = text(fixture);
+    expect(t).toContain('Add your first machine');
+    expect(t).toContain('This machine (studio)');
+    expect(t.indexOf('This machine (studio)')).toBeLessThan(t.indexOf('From your ssh config'));
+    expect(t).toContain('Will start konsertd');
+  });
+
+  it('attaches a running konsertd without starting another', async () => {
+    setup = setupWith({ connected: true, worker_id: 'w-custom' });
+    const fixture = await create();
+    expect(text(fixture)).toContain('konsertd is running — will attach');
+    const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="add-local"]');
+    expect(btn?.textContent?.trim()).toBe('Attach');
+    fleetWorkers = [localWorker('online', { id: 'w-custom' })];
+    await fixture.componentInstance.addLocal();
+    fixture.detectChanges();
+    expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/workers/local')).toHaveLength(1);
+    expect(fixture.componentInstance.localPhase()).toBe('online');
+    expect(text(fixture)).toContain('Attached the konsertd running on studio');
+  });
+
+  it('starts konsertd and follows the machine until it is online', async () => {
+    const fixture = await create();
+    fleetWorkers = [localWorker('offline', { launch_state: 'starting' })];
+    await fixture.componentInstance.addLocal();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.localPhase()).toBe('starting');
+    expect(text(fixture)).toContain('Starting konsertd...');
+
+    // The hub reports the daemon connected (over the socket in the app).
+    TestBed.inject(FleetStore).upsertWorker(localWorker('online'));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.localPhase()).toBe('online');
+    expect(text(fixture)).toContain('Online');
+  });
+
+  it('shows a failed start with a retry', async () => {
+    const fixture = await create();
+    fleetWorkers = [localWorker('offline', { launch_state: 'failed', launch_error: 'launchctl failed' })];
+    await fixture.componentInstance.addLocal();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.localPhase()).toBe('failed');
+    const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="add-local"]');
+    expect(btn?.textContent?.trim()).toBe('Retry');
+  });
+
+  it('explains how to fix a missing konsertd and offers no add button', async () => {
+    setup = setupWith({ konsertd_found: false, worker_id: undefined, fix: 'Put konsertd next to the konsert binary.' });
+    const fixture = await create();
+    expect(text(fixture)).toContain('konsertd not found: Put konsertd next to the konsert binary.');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="add-local"]')).toBeNull();
   });
 });

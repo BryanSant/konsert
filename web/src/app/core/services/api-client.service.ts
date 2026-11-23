@@ -14,6 +14,8 @@ import {
   Project,
   Repo,
   SSHBootstrapResult,
+  SetupStatus,
+  AddLocalWorkerResult,
   SSHHost,
   SessionDefaults,
   Space,
@@ -390,6 +392,26 @@ export class ApiClientService {
     if (params.prefix) sp.set('prefix', params.prefix);
     if (params.dirsOnly === false) sp.set('dirs_only', 'false');
     return this.request(`/api/fs/list?${sp.toString()}`);
+  }
+
+  /** First-run state and the hub's own machine (konsertd found / running). */
+  getSetup(): Promise<SetupStatus> {
+    return this.request('/api/setup');
+  }
+
+  /** Records that first-run setup is done, so Add Machine stops opening on load. */
+  dismissSetup(): Promise<{ ok: boolean }> {
+    return this.request('/api/setup/dismiss', { method: 'POST' });
+  }
+
+  /** Adds the hub's machine: attaches a running konsertd or starts one. */
+  addLocalWorker(): Promise<AddLocalWorkerResult> {
+    return this.request('/api/workers/local', { method: 'POST' });
+  }
+
+  /** Retries starting a hub-managed machine's konsertd. */
+  startWorker(workerId: string): Promise<{ worker_id: string; state: string }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/start`, { method: 'POST' });
   }
 
   listSSHHosts(): Promise<{ hosts: SSHHost[] }> {
