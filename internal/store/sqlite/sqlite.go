@@ -252,6 +252,18 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	// Clear task references to the spaces, repos and worktrees about to be deleted
+	// (repos cascade to worktrees), mirroring DeleteRepo, so no task dangles.
+	for _, q := range []string{
+		`UPDATE tasks SET space_id = '' WHERE space_id IN (SELECT id FROM spaces WHERE worker_id = ?)`,
+		`UPDATE tasks SET repo_id = '', worktree_id = '' WHERE repo_id IN (SELECT id FROM repos WHERE worker_id = ?)`,
+		`UPDATE tasks SET worktree_id = '' WHERE worktree_id IN (SELECT wt.id FROM worktrees wt JOIN repos r ON r.id = wt.repo_id WHERE r.worker_id = ?)`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, id); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -350,8 +362,24 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 		}
 	}
 	if len(removedIDs) > 0 {
-		// Remove any exact duplicate saved spaces on the same worker/path created across duplicate worker rows.
-		_, _ = tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`)
+		// Remove any exact duplicate saved spaces on the same worker/path created across
+		// duplicate worker rows, first repointing tasks at the surviving space.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE tasks SET space_id = (
+				SELECT k.id FROM spaces d JOIN spaces k
+				  ON k.worker_id = d.worker_id AND k.path = d.path
+				 AND k.rowid = (SELECT MIN(rowid) FROM spaces m WHERE m.worker_id = d.worker_id AND m.path = d.path)
+				WHERE d.id = tasks.space_id
+			)
+			WHERE space_id IN (SELECT id FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path))
+		`); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -450,7 +478,15 @@ func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.
 }
 
 func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET space_id = '' WHERE space_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -458,7 +494,7 @@ func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
 	if n == 0 {
 		return store.ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
@@ -871,15 +907,29 @@ func (s *SQLiteStore) AppendChatMessage(ctx context.Context, m store.ChatMessage
 		m.CreatedAt = time.Now().UTC()
 	}
 	ts := formatTime(m.CreatedAt)
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO chat_messages (session_id, role, content, tool_json, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, m.SessionID, m.Role, m.Content, m.ToolJSON, ts)
 	if err != nil {
 		return 0, err
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, ts, m.SessionID)
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, ts, m.SessionID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (s *SQLiteStore) ListChatMessages(ctx context.Context, sessionID string) ([]store.ChatMessage, error) {
