@@ -21,10 +21,14 @@ import {
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { TelemetryStore } from '../state/telemetry.store';
+import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
 
 export type ConnectionState = 'connected' | 'connecting' | 'disconnected';
 type PtyListener = (ev: PtyFrameEvent) => void;
+
+/** After this many consecutive failed handshakes, re-check the session via /api/auth/me. */
+export const HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK = 3;
 
 @Injectable({ providedIn: 'root' })
 export class KonsertSocketService {
@@ -32,6 +36,7 @@ export class KonsertSocketService {
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly notifications = inject(NotificationService);
+  private readonly auth = inject(AuthService);
 
   readonly state = signal<ConnectionState>('disconnected');
 
@@ -41,6 +46,8 @@ export class KonsertSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** True once any socket in this connect() lifetime has opened (distinguishes reconnects). */
   private hasConnected = false;
+  /** Consecutive sockets that closed without ever opening (e.g. 401 on upgrade). */
+  private failedHandshakes = 0;
 
   private readonly ptyListeners = new Map<string, Set<PtyListener>>();
   private readonly encoder = new TextEncoder();
@@ -52,6 +59,7 @@ export class KonsertSocketService {
     }
     this.shouldReconnect = true;
     this.hasConnected = false;
+    this.failedHandshakes = 0;
     this.openSocket();
   }
 
@@ -77,8 +85,11 @@ export class KonsertSocketService {
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    let opened = false;
 
     ws.onopen = () => {
+      opened = true;
+      this.failedHandshakes = 0;
       const isReconnect = this.hasConnected;
       this.hasConnected = true;
       this.reconnectAttempt = 0;
@@ -106,6 +117,16 @@ export class KonsertSocketService {
       this.ws = null;
       this.state.set('disconnected');
       this.orchestratorStore.onConnectionLost();
+      if (!opened) {
+        this.failedHandshakes++;
+        // The browser hides the upgrade's HTTP status, so a 401 looks like any other
+        // failure. Periodically ask the REST API whether the session is still valid.
+        if (this.failedHandshakes % HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK === 0) {
+          void this.auth.verifySession().then((valid) => {
+            if (!valid) this.disconnect();
+          });
+        }
+      }
       if (this.shouldReconnect) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 15000);
         this.reconnectAttempt++;

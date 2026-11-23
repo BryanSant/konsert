@@ -32,6 +32,7 @@ describe('OrchestratorStore sending state machine', () => {
           provide: ApiClientService,
           useValue: {
             listChatMessages,
+            setUnauthorizedHandler: vi.fn(),
             getFleet: vi.fn(async () => ({ workers: [], tasks: [] })),
             getTaskEvents: vi.fn(async () => ({ events: [] })),
           },
