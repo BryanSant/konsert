@@ -26,7 +26,7 @@ async function loginThroughUI(page: Page, env: E2EEnv): Promise<void> {
   // Sign in with real admin token
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page.getByText('KONSERT')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'KONSERT' })).toBeVisible();
 }
 
 test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {

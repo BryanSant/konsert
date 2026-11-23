@@ -67,6 +67,7 @@ func TestClaudePollJSONLFileKeepsPartialLines(t *testing.T) {
 func TestClaudeWatchTelemetryIsolatedPerSession(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir reads USERPROFILE on Windows
 	workdir := t.TempDir()
 	d := &ClaudeDriver{}
 	d.BuildCommand(LaunchOptions{TaskID: "mine", Prompt: "x"})
