@@ -354,6 +354,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,
 			Version:        d.version,
+			Hostname:       osHostname(),
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
 	}

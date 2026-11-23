@@ -736,6 +736,18 @@ func workerBaseURLFrom(ctx context.Context) string {
 	return s
 }
 
+type workerRemoteAddrKey struct{}
+
+// withWorkerRemoteAddr records the worker connection's peer address (host:port).
+func withWorkerRemoteAddr(ctx context.Context, addr string) context.Context {
+	return context.WithValue(ctx, workerRemoteAddrKey{}, addr)
+}
+
+func workerRemoteAddrFrom(ctx context.Context) string {
+	s, _ := ctx.Value(workerRemoteAddrKey{}).(string)
+	return s
+}
+
 // chatMCPURL is the worker-reachable per-chat MCP endpoint: the configured public
 // URL, else the scheme and host the worker itself connected to.
 func (h *Hub) chatMCPURL(wc *workerConn, chatID string) string {

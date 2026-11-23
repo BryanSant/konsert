@@ -29,6 +29,11 @@ type workerConn struct {
 	// per-chat MCP URL handed to its agents is built from it when no public URL is set.
 	baseURL string
 
+	// loopback is set when the daemon connected from a loopback address; with name,
+	// hostGroup and hostname from its hello, it identifies a daemon on the hub's host.
+	loopback                  bool
+	name, hostGroup, hostname string
+
 	mu          sync.Mutex
 	activeTasks map[string]bool
 }

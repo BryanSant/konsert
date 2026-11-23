@@ -49,6 +49,10 @@ type Server struct {
 	secrets *secrets.Box
 	// orchChatMu serializes creation of the default orchestrator chat.
 	orchChatMu sync.Mutex
+	// boundAddr is the address the HTTP server listens on (SetListenAddr; guarded by cfgMu).
+	boundAddr string
+	// launch starts konsertd on the hub's machine and on SSH hosts (launch.go).
+	launch *launcher
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -97,6 +101,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		originPatterns: buildOriginPatterns(cfg),
 		loginLimiter:   auth.NewLoginLimiter(),
 		secrets:        box,
+		launch:         newLauncher(),
 	}
 	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
 	hub.version = version
@@ -130,6 +135,10 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDeleteWorker)))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
+	s.mux.Handle("POST /api/workers/local", s.requireBrowserAuth(s.handleAddLocalWorker))
+	s.mux.Handle("POST /api/workers/{id}/start", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStartWorker)))
+	s.mux.Handle("GET /api/setup", s.requireBrowserAuth(s.handleGetSetup))
+	s.mux.Handle("POST /api/setup/dismiss", s.requireBrowserAuth(s.handleDismissSetup))
 	s.registerWakeLockRoutes()
 	s.mux.Handle("GET /api/orchestrator/memory", s.requireBrowserAuth(s.handleListMemory))
 	s.mux.Handle("POST /api/orchestrator/memory", s.requireBrowserAuth(s.handleUpsertMemory))
@@ -492,7 +501,8 @@ func (s *Server) handleSSHHosts(w http.ResponseWriter, r *http.Request) {
 	for _, h := range hosts {
 		added := false
 		for _, wk := range workers {
-			if strings.EqualFold(wk.Name, h.Alias) ||
+			if strings.EqualFold(wk.SSHTarget, h.Alias) ||
+				strings.EqualFold(wk.Name, h.Alias) ||
 				strings.EqualFold(wk.HostGroup, h.Alias) ||
 				(h.HostName != "" && strings.EqualFold(wk.Name, h.HostName)) {
 				added = true
@@ -552,7 +562,8 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 				flusher.Flush()
 			}
-			res := sshutil.BootstrapRemoteWorker(r.Context(), opts)
+			res := s.launch.bootstrap(r.Context(), opts)
+			s.afterSSHBootstrap(r.Context(), res, ctrlURL)
 			b, _ := json.Marshal(map[string]any{"type": "done", "result": res}, protocol.JSONOptions)
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 			flusher.Flush()
@@ -560,7 +571,8 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	res := sshutil.BootstrapRemoteWorker(r.Context(), opts)
+	res := s.launch.bootstrap(r.Context(), opts)
+	s.afterSSHBootstrap(r.Context(), res, ctrlURL)
 	switch {
 	case res.OK:
 		writeJSON(w, http.StatusOK, res)
@@ -1133,7 +1145,7 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("accept worker ws failed", "err", err)
 		return
 	}
-	s.hub.ServeWorkerConn(withWorkerBaseURL(r.Context(), requestBaseURL(r)), conn)
+	s.hub.ServeWorkerConn(withWorkerRemoteAddr(withWorkerBaseURL(r.Context(), requestBaseURL(r)), r.RemoteAddr), conn)
 }
 
 func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {

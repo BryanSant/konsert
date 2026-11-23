@@ -103,6 +103,12 @@ func WorkerIDFor(cfg config.WorkerConfig) string {
 	return ResolveStableWorkerID("", name, hostGroup, cfg.Isolation)
 }
 
+// osHostname is this machine's hostname ("" if unknown).
+func osHostname() string {
+	h, _ := os.Hostname()
+	return h
+}
+
 func workerIDFilename(name, isolation string) string {
 	host, _ := os.Hostname()
 	cleanName := strings.TrimSpace(name)

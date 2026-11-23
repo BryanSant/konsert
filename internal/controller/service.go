@@ -48,6 +48,13 @@ type WorkerStatusView struct {
 	Facts          *protocol.MachineFacts  `json:"facts,omitzero"`
 	// Version is the worker's konsertd build version ("" when unknown).
 	Version string `json:"version,omitempty"`
+	// Launch is how the hub (re)starts this machine's konsertd ("", "local", "ssh");
+	// LaunchState/LaunchError report the last start attempt ("starting", "failed").
+	Launch      string     `json:"launch,omitempty"`
+	SSHTarget   string     `json:"ssh_target,omitempty"`
+	LaunchState string     `json:"launch_state,omitempty"`
+	LaunchError string     `json:"launch_error,omitempty"`
+	LaunchAt    *time.Time `json:"launch_at,omitzero"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
 }
@@ -73,6 +80,11 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		Metrics:        metrics,
 		Facts:          decodeWorkerFacts(w.FactsJSON),
 		Version:        w.Version,
+		Launch:         w.Launch,
+		SSHTarget:      w.SSHTarget,
+		LaunchState:    w.LaunchState,
+		LaunchError:    w.LaunchError,
+		LaunchAt:       w.LaunchAt,
 	}
 }
 
