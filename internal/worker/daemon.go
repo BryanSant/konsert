@@ -97,9 +97,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	if cfg.HostGroup == "" {
 		cfg.HostGroup = cfg.Name
 	}
-	if cfg.WorkerID == "" {
-		cfg.WorkerID = ResolveStableWorkerID("", cfg.Name, cfg.HostGroup, cfg.Isolation)
-	}
+	cfg.WorkerID = WorkerIDFor(cfg)
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 2
 	}

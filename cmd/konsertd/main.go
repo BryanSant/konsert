@@ -20,6 +20,7 @@ import (
 	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var version = "dev"
@@ -31,7 +32,7 @@ func main() {
 		Version: version,
 	}
 
-	rootCmd.AddCommand(newRunCmd())
+	rootCmd.AddCommand(newRunCmd(), newIDCmd())
 	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newInstallHooksCmd())
 	rootCmd.AddCommand(newHookEventCmd())
@@ -44,76 +45,104 @@ func main() {
 	}
 }
 
-func newRunCmd() *cobra.Command {
-	var (
-		configPath       string
-		controllerURL    string
-		fleetToken       string
-		workerID         string
-		name             string
-		hostGroup        string
-		isolation        string
-		sandbox          bool
-		sandboxShell     bool
-		allowedRoots     []string
-		tags             []string
-		maxConcurrent    int
-		enableMockDriver bool
-		logFile          string
-	)
+// runOptions are the `run` flags. `install` and `id` accept the same set, so the config
+// they resolve is exactly the one `run` would use.
+type runOptions struct {
+	configPath       string
+	controllerURL    string
+	fleetToken       string
+	workerID         string
+	name             string
+	hostGroup        string
+	isolation        string
+	sandbox          bool
+	sandboxShell     bool
+	allowedRoots     []string
+	tags             []string
+	maxConcurrent    int
+	enableMockDriver bool
+	logFile          string
+}
 
+func (o *runOptions) bind(fs *pflag.FlagSet) {
+	fs.StringVarP(&o.configPath, "config", "c", "", "Path to worker YAML config file")
+	fs.StringVar(&o.controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
+	fs.StringVar(&o.fleetToken, "token", "", "Pre-shared fleet token for /ws/worker (env KONSERT_FLEET_TOKEN); required unless the hub runs --no-auth")
+	fs.StringVar(&o.workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
+	fs.StringVar(&o.name, "name", "", "Worker display name (defaults to hostname)")
+	fs.StringVar(&o.hostGroup, "host-group", "", "Physical host group name (defaults to name)")
+	fs.StringVar(&o.isolation, "isolation", "", "Isolation tier: host, container, or vm")
+	fs.BoolVar(&o.sandbox, "sandbox", false, "Opt-in sandboxed mode (disables YOLO/skip-permissions flags)")
+	fs.BoolVar(&o.sandboxShell, "sandbox-allow-shell", false, "With --sandbox, still accept the unrestricted shell driver (env KONSERTD_SANDBOX_ALLOW_SHELL=1)")
+	fs.StringSliceVar(&o.allowedRoots, "allowed-roots", nil, "Opt-in comma-separated list of allowed workdir roots")
+	fs.StringSliceVar(&o.tags, "tag", nil, "Worker tags in key=value format (repeatable)")
+	fs.IntVar(&o.maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
+	fs.BoolVar(&o.enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
+	fs.StringVar(&o.logFile, "log-file", "", "Append logs to this file instead of stderr (used by the Windows logon task and service)")
+}
+
+// resolve loads the config file and overlays every explicitly set flag, then validates.
+func (o *runOptions) resolve(fs *pflag.FlagSet) (config.WorkerConfig, error) {
+	cfg, err := config.LoadWorkerConfig(o.configPath)
+	if err != nil {
+		return cfg, err
+	}
+	if fs.Changed("controller") {
+		cfg.ControllerURL = o.controllerURL
+	}
+	if fs.Changed("token") {
+		cfg.FleetToken = o.fleetToken
+	}
+	if fs.Changed("id") {
+		cfg.WorkerID = o.workerID
+	}
+	if fs.Changed("name") {
+		cfg.Name = o.name
+	}
+	if fs.Changed("host-group") {
+		cfg.HostGroup = o.hostGroup
+	}
+	if fs.Changed("isolation") {
+		cfg.Isolation = o.isolation
+	}
+	if fs.Changed("sandbox") {
+		cfg.Sandbox = o.sandbox
+	}
+	if fs.Changed("allowed-roots") {
+		cfg.AllowedRoots = o.allowedRoots
+	}
+	if fs.Changed("max-concurrent") {
+		cfg.MaxConcurrent = o.maxConcurrent
+	}
+	if fs.Changed("enable-mock-driver") {
+		cfg.EnableMockDriver = o.enableMockDriver
+	}
+	for _, kv := range o.tags {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok && strings.TrimSpace(k) != "" {
+			cfg.Tags[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("invalid worker config: %w", err)
+	}
+	return cfg, nil
+}
+
+func newRunCmd() *cobra.Command {
+	var o runOptions
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Start the konsertd worker daemon and connect outbound to konsert",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.LoadWorkerConfig(configPath)
+			cfg, err := o.resolve(cmd.Flags())
 			if err != nil {
 				return err
 			}
-			if cmd.Flags().Changed("controller") {
-				cfg.ControllerURL = controllerURL
-			}
-			if cmd.Flags().Changed("token") {
-				cfg.FleetToken = fleetToken
-			}
-			if cmd.Flags().Changed("id") {
-				cfg.WorkerID = workerID
-			}
-			if cmd.Flags().Changed("name") {
-				cfg.Name = name
-			}
-			if cmd.Flags().Changed("host-group") {
-				cfg.HostGroup = hostGroup
-			}
-			if cmd.Flags().Changed("isolation") {
-				cfg.Isolation = isolation
-			}
-			if cmd.Flags().Changed("sandbox") {
-				cfg.Sandbox = sandbox
-			}
-			if cmd.Flags().Changed("allowed-roots") {
-				cfg.AllowedRoots = allowedRoots
-			}
-			if cmd.Flags().Changed("max-concurrent") {
-				cfg.MaxConcurrent = maxConcurrent
-			}
-			if cmd.Flags().Changed("enable-mock-driver") {
-				cfg.EnableMockDriver = enableMockDriver
-			}
-			for _, kv := range tags {
-				k, v, ok := strings.Cut(kv, "=")
-				if ok && strings.TrimSpace(k) != "" {
-					cfg.Tags[strings.TrimSpace(k)] = strings.TrimSpace(v)
-				}
-			}
-
-			if err := cfg.Validate(); err != nil {
-				return fmt.Errorf("invalid worker config: %w", err)
-			}
 
 			var logOut io.Writer = os.Stderr
-			if logFile != "" {
-				f, err := openLogFile(logFile)
+			if o.logFile != "" {
+				f, err := openLogFile(o.logFile)
 				if err != nil {
 					return fmt.Errorf("open --log-file: %w", err)
 				}
@@ -125,6 +154,7 @@ func newRunCmd() *cobra.Command {
 				logger.Warn("no fleet token configured (--token / KONSERT_FLEET_TOKEN); only a hub started with --no-auth will accept this worker")
 			}
 			daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
+			sandboxShell := o.sandboxShell
 			if !cmd.Flags().Changed("sandbox-allow-shell") {
 				sandboxShell = envBool("KONSERTD_SANDBOX_ALLOW_SHELL")
 			}
@@ -141,22 +171,33 @@ func newRunCmd() *cobra.Command {
 			return nil
 		},
 	}
+	o.bind(cmd.Flags())
+	return cmd
+}
 
-	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
-	cmd.Flags().StringVar(&controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
-	cmd.Flags().StringVar(&fleetToken, "token", "", "Pre-shared fleet token for /ws/worker (env KONSERT_FLEET_TOKEN); required unless the hub runs --no-auth")
-	cmd.Flags().StringVar(&workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
-	cmd.Flags().StringVar(&name, "name", "", "Worker display name (defaults to hostname)")
-	cmd.Flags().StringVar(&hostGroup, "host-group", "", "Physical host group name (defaults to name)")
-	cmd.Flags().StringVar(&isolation, "isolation", "", "Isolation tier: host, container, or vm")
-	cmd.Flags().BoolVar(&sandbox, "sandbox", false, "Opt-in sandboxed mode (disables YOLO/skip-permissions flags)")
-	cmd.Flags().BoolVar(&sandboxShell, "sandbox-allow-shell", false, "With --sandbox, still accept the unrestricted shell driver (env KONSERTD_SANDBOX_ALLOW_SHELL=1)")
-	cmd.Flags().StringSliceVar(&allowedRoots, "allowed-roots", nil, "Opt-in comma-separated list of allowed workdir roots")
-	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Worker tags in key=value format (repeatable)")
-	cmd.Flags().IntVar(&maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
-	cmd.Flags().BoolVar(&enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
-	cmd.Flags().StringVar(&logFile, "log-file", "", "Append logs to this file instead of stderr (used by the Windows logon task and service)")
-
+// newIDCmd prints the worker identity (the hub's workers.id) that `konsertd run` with the
+// same flags/config would register with, creating the persisted identity if absent.
+func newIDCmd() *cobra.Command {
+	var o runOptions
+	cmd := &cobra.Command{
+		Use:   "id [run flags]",
+		Short: "Print the worker id `konsertd run` with the same flags would use (creating it if needed)",
+		Long: `Print the persistent worker identity (a UUIDv7, the hub's workers.id) that
+` + "`konsertd run`" + ` with the same --config/--name/--isolation would connect with. The identity
+file is created if it does not exist yet, so the daemon started afterwards uses the same
+id. The hub runs this (locally or over SSH) to know a host before its daemon connects.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := o.resolve(cmd.Flags())
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), worker.WorkerIDFor(cfg))
+			return nil
+		},
+	}
+	o.bind(cmd.Flags())
+	_ = cmd.Flags().MarkHidden("log-file")
 	return cmd
 }
 
