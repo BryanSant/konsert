@@ -19,6 +19,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("KONSERT_STATE_DIR", dir)
+	// Daemons started by integration tests must not run the host's real agent CLIs or
+	// import its wrapper scripts (e.g. ~/.local/bin/claude2): only mock/configured accounts.
+	os.Setenv("KONSERT_DISABLE_AGENT_DISCOVERY", "1")
 	// Servers built from the default config (relative "konsert.db") would otherwise
 	// create konsert-secret.key in the package directory.
 	key := make([]byte, 32)

@@ -20,6 +20,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("KONSERT_STATE_DIR", dir)
+	os.Setenv("KONSERT_DISABLE_AGENT_DISCOVERY", "1")
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
 	os.Setenv(secrets.KeyEnv, base64.StdEncoding.EncodeToString(key))
