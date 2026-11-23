@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -14,6 +15,9 @@ import (
 func prepareServeConfig(cfg *config.ControllerConfig, out io.Writer, logger *slog.Logger) error {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = config.DefaultListenAddr(cfg.NoAuth)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid controller config: %w", err)
 	}
 	if err := ensureAuthTokens(cfg, out); err != nil {
 		return err
