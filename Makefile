@@ -49,7 +49,7 @@ test-e2e: all
 	cd web && npm run test:e2e
 
 dev-controller:
-	go run ./cmd/konsert serve --no-auth --listen :8420
+	go run ./cmd/konsert serve --no-auth
 
 dev-worker:
 	go run ./cmd/konsertd run --enable-mock-driver --controller ws://127.0.0.1:8420/ws/worker

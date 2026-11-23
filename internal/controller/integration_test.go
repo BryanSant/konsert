@@ -97,6 +97,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	// Browser login flow sets cookie.
 	loginReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/auth/login", strings.NewReader(`{"token":"admin-tok-456"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
 	loginResp, err := http.DefaultClient.Do(loginReq)
 	if err != nil || loginResp.StatusCode != http.StatusOK || len(loginResp.Cookies()) == 0 {
 		t.Fatalf("expected 200 + session cookie on login, got status=%d err=%v", loginResp.StatusCode, err)
@@ -791,7 +792,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || wsResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/workspaces failed: %v", err)
 	}
-	var wsObj struct{ ID string `json:"id"` }
+	var wsObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(wsResp.Body).Decode(&wsObj)
 	_ = wsResp.Body.Close()
 
@@ -799,7 +802,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || projResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/projects failed: %v", err)
 	}
-	var projObj struct{ ID string `json:"id"` }
+	var projObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(projResp.Body).Decode(&projObj)
 	_ = projResp.Body.Close()
 
@@ -815,7 +820,9 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	if err != nil || repoResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/repos failed: %v", err)
 	}
-	var repoObj struct{ ID string `json:"id"` }
+	var repoObj struct {
+		ID string `json:"id"`
+	}
 	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
 	_ = repoResp.Body.Close()
 
@@ -1193,7 +1200,7 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	orchRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "ask_orchestrator",
 		Arguments: map[string]any{"prompt": "Summarize fleet status"},
-	});
+	})
 	if err != nil || orchRes.IsError || !strings.Contains(orchRes.Content[0].(*mcp.TextContent).Text, "Compact snapshot received.") {
 		t.Fatalf("ask_orchestrator failed: %v res=%+v", err, orchRes)
 	}

@@ -162,11 +162,12 @@ func (s *FleetService) GetSettingsMap(ctx context.Context) (map[string]any, erro
 	return out, nil
 }
 
+// UpdateSettingsMap persists UI/dispatch preferences only. LLM settings (provider,
+// model, base URL, key) are deliberately not writable here: they must go through
+// Server.applySettings (REST or the controller's /mcp endpoint), which validates them,
+// enforces the admin scope, updates the live config, and hot-reloads the orchestrator.
 func (s *FleetService) UpdateSettingsMap(ctx context.Context, updates map[string]string) (map[string]any, error) {
 	allowed := map[string]bool{
-		"llm_provider":            true,
-		"llm_model":               true,
-		"llm_base_url":            true,
 		"default_agent":           true,
 		"default_model":           true,
 		"default_permission_mode": true,
@@ -178,6 +179,8 @@ func (s *FleetService) UpdateSettingsMap(ctx context.Context, updates map[string
 	for k, v := range updates {
 		if allowed[k] {
 			filtered[k] = strings.TrimSpace(v)
+		} else if strings.HasPrefix(k, "llm_") {
+			return nil, fmt.Errorf("setting %q cannot be changed through this backend; use the controller settings API", k)
 		}
 	}
 	if err := s.store.SetSettings(ctx, filtered); err != nil {
