@@ -75,6 +75,9 @@ type Hub struct {
 
 	// Scheduler single-flight: schedMu serializes SchedulePending runs and
 	// schedRunning/schedDirty coalesce kicks into at most one queued rerun.
+	// identityMu serializes worker identity resolution and registration on hello.
+	identityMu sync.Mutex
+
 	schedMu      sync.Mutex
 	schedRunning atomic.Bool
 	schedDirty   atomic.Bool
@@ -353,26 +356,18 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		return
 	}
 
-	// Reconcile machine identity: if an already-joined worker matches (name, host_group, os, arch, isolation)
-	// with a different ephemeral ID, reuse the canonical existing ID instead of adding a redundant duplicate machine.
-	canonicalID := hello.Worker.ID
-	if existingWorkers, listErr := h.store.ListWorkers(ctx); listErr == nil {
-		for _, ew := range existingWorkers {
-			if ew.ID == hello.Worker.ID {
-				canonicalID = ew.ID
-				break
-			}
-			if strings.EqualFold(ew.Name, hello.Worker.Name) &&
-				strings.EqualFold(ew.HostGroup, hello.Worker.HostGroup) &&
-				strings.EqualFold(ew.OS, hello.Worker.OS) &&
-				strings.EqualFold(ew.Arch, hello.Worker.Arch) &&
-				strings.EqualFold(ew.Isolation, hello.Worker.Isolation) {
-				canonicalID = ew.ID
-				break
-			}
-		}
+	// Resolve the canonical worker row (machine UUID first, legacy tuple second) and
+	// decide whether this connection may take over an existing one. identityMu keeps
+	// two simultaneous hellos from adopting the same legacy row.
+	h.identityMu.Lock()
+	hello.Worker.ID = h.resolveWorkerID(ctx, hello.Worker)
+	if !h.supersedeExistingConn(ctx, hello.Worker.ID) {
+		h.identityMu.Unlock()
+		h.logger.Warn("rejecting duplicate konsertd connection; the existing one is still alive",
+			"worker_id", hello.Worker.ID, "machine_id", hello.Worker.MachineID, "name", hello.Worker.Name)
+		_ = conn.Close(websocket.StatusTryAgainLater, "another konsertd with this identity is connected")
+		return
 	}
-	hello.Worker.ID = canonicalID
 
 	wc := &workerConn{
 		id:          hello.Worker.ID,
@@ -412,47 +407,69 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	if err := h.store.UpsertWorker(ctx, wModel); err != nil {
 		h.logger.Error("upsert worker failed", "worker_id", wModel.ID, "err", err)
 	}
-	if removedDups, dErr := h.store.DeduplicateWorkers(ctx); dErr == nil {
+	if mid := strings.TrimSpace(hello.Worker.MachineID); mid != "" {
+		if err := h.store.SetWorkerMachineID(ctx, wModel.ID, mid); err != nil {
+			h.logger.Error("recording worker machine id failed", "worker_id", wModel.ID, "err", err)
+		}
+	}
+	removedDups, dErr := h.store.DeduplicateWorkers(ctx)
+
+	h.mu.Lock()
+	prevConn := h.workers[wModel.ID]
+	h.workers[wModel.ID] = wc
+	h.mu.Unlock()
+	h.identityMu.Unlock()
+
+	if dErr == nil {
 		for _, dupID := range removedDups {
 			h.broadcastFleetUpdate("worker_deleted", dupID)
 		}
 	}
-
-	h.mu.Lock()
-	var prevConn *workerConn
-	if prev, ok := h.workers[wModel.ID]; ok {
-		prevConn = prev
-	}
-	h.workers[wModel.ID] = wc
-	for _, at := range hello.ActiveTasks {
-		h.taskWorker[at.TaskID] = wModel.ID
-	}
-	h.mu.Unlock()
-	if prevConn != nil {
-		_ = prevConn.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "superseded by newer konsertd connection")
-		prevConn.cancel()
+	if prevConn != nil && prevConn != wc {
+		// The previous connection failed its liveness ping, so it is a dead or
+		// half-open socket. Close it with a normal, reconnectable code: 4001
+		// (WSCloseWorkerRemoved) would make konsertd exit for good. The close
+		// handshake can block for seconds on a dead peer, so run it off this path.
+		go func(old *workerConn) {
+			if old.conn != nil {
+				_ = old.conn.Close(websocket.StatusNormalClosure, "superseded by newer konsertd connection")
+			}
+			old.cancel()
+		}(prevConn)
 	}
 
-	// Re-adopt any in-flight tasks reported by worker.hello (controller restart resilience).
+	// Re-adopt in-flight tasks reported by worker.hello (controller restart resilience),
+	// but never take over a task the store assigns to a different worker.
+	readopted := 0
 	for _, at := range hello.ActiveTasks {
+		t, err := h.store.GetTask(ctx, at.TaskID)
+		if err == nil && t.WorkerID != "" && t.WorkerID != wModel.ID {
+			h.logger.Warn("ignoring hello.active_tasks entry owned by another worker",
+				"task_id", at.TaskID, "worker_id", wModel.ID, "owner", t.WorkerID)
+			continue
+		}
+		// The worker is running it either way, so it counts against capacity.
 		wc.mu.Lock()
 		wc.activeTasks[at.TaskID] = true
 		wc.mu.Unlock()
+		if err != nil {
+			continue
+		}
+		readopted++
 
 		h.mu.Lock()
+		h.taskWorker[at.TaskID] = wModel.ID
 		hasSubs := len(h.ptySubs[at.TaskID]) > 0
 		h.mu.Unlock()
 
-		if _, err := h.store.GetTask(ctx, at.TaskID); err == nil {
-			_ = h.store.UpdateTaskAssignment(ctx, at.TaskID, wModel.ID, at.EffectiveDir)
-			st := at.Status
-			if st == "" {
-				st = protocol.TaskStatusRunning
-			}
-			_ = h.store.UpdateTaskStatus(ctx, at.TaskID, st, "", "", nil)
-			if updated, err := h.store.GetTask(ctx, at.TaskID); err == nil {
-				h.broadcastFleetUpdate("task", updated)
-			}
+		_ = h.store.UpdateTaskAssignment(ctx, at.TaskID, wModel.ID, at.EffectiveDir)
+		st := at.Status
+		if st == "" {
+			st = protocol.TaskStatusRunning
+		}
+		_ = h.store.UpdateTaskStatus(ctx, at.TaskID, st, "", "", nil)
+		if updated, err := h.store.GetTask(ctx, at.TaskID); err == nil {
+			h.broadcastFleetUpdate("task", updated)
 		}
 		if hasSubs {
 			h.sendWorkerJSON(wc, protocol.MsgPtySubscribe, protocol.PtySubscribePayload{TaskID: at.TaskID})
@@ -473,7 +490,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		"worker_id", wModel.ID,
 		"name", wModel.Name,
 		"agents", wModel.Agents,
-		"readopted_tasks", len(hello.ActiveTasks),
+		"readopted_tasks", readopted,
 	)
 	h.broadcastFleetUpdate("worker", WorkerStatusView{
 		ID:             wModel.ID,
@@ -487,7 +504,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		Tags:           wModel.Tags,
 		MaxConcurrent:  wModel.MaxConcurrent,
 		Status:         wModel.Status,
-		ActiveTasks:    len(hello.ActiveTasks),
+		ActiveTasks:    wc.activeCount(),
 		LastSeenAt:     wModel.LastSeenAt,
 		Facts:          hello.Worker.Facts,
 	})
@@ -539,6 +556,90 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	}
 	h.mu.Unlock()
 	h.logger.Info("worker disconnected", "worker_id", wModel.ID)
+}
+
+// supersedePingTimeout bounds the liveness ping sent to an existing connection
+// when a new hello arrives for the same worker.
+const supersedePingTimeout = 3 * time.Second
+
+// resolveWorkerID returns the canonical worker ID for a hello. Workers that send
+// a stable MachineID are matched on it first; only rows that never recorded a
+// machine ID can be adopted through the hello ID or the legacy
+// (name, host_group, os, arch, isolation) tuple. That keeps two hosts sharing a
+// hostname (cloned VMs) apart. Workers that send no MachineID keep the legacy
+// behaviour. The caller holds h.identityMu.
+func (h *Hub) resolveWorkerID(ctx context.Context, info protocol.WorkerInfo) string {
+	workers, err := h.store.ListWorkers(ctx)
+	if err != nil {
+		return info.ID
+	}
+	mids, err := h.store.ListWorkerMachineIDs(ctx)
+	if err != nil {
+		mids = map[string]string{}
+	}
+	exists := make(map[string]bool, len(workers))
+	for _, ew := range workers {
+		exists[ew.ID] = true
+	}
+	tupleMatch := func(ew store.Worker) bool {
+		return strings.EqualFold(ew.Name, info.Name) &&
+			strings.EqualFold(ew.HostGroup, info.HostGroup) &&
+			strings.EqualFold(ew.OS, info.OS) &&
+			strings.EqualFold(ew.Arch, info.Arch) &&
+			strings.EqualFold(ew.Isolation, info.Isolation)
+	}
+	adoptLegacyTuple := func() (string, bool) {
+		for _, ew := range workers {
+			if mids[ew.ID] == "" && tupleMatch(ew) {
+				return ew.ID, true
+			}
+		}
+		return "", false
+	}
+
+	if mid := strings.TrimSpace(info.MachineID); mid != "" {
+		for _, ew := range workers {
+			if mids[ew.ID] == mid {
+				return ew.ID
+			}
+		}
+		if exists[info.ID] && mids[info.ID] == "" {
+			return info.ID
+		}
+		if id, ok := adoptLegacyTuple(); ok {
+			return id
+		}
+		if !exists[info.ID] {
+			return info.ID
+		}
+		// The hello ID already belongs to a different machine (e.g. a cloned VM
+		// that derived the same deterministic ID): key this one on its machine UUID.
+		return mid
+	}
+
+	if exists[info.ID] {
+		return info.ID
+	}
+	if id, ok := adoptLegacyTuple(); ok {
+		return id
+	}
+	return info.ID
+}
+
+// supersedeExistingConn reports whether a new connection may register as
+// workerID. If a connection is already registered, it is pinged: a live one
+// keeps its place (the newcomer is a duplicate daemon and should retry later),
+// while a dead or half-open one is replaced.
+func (h *Hub) supersedeExistingConn(ctx context.Context, workerID string) bool {
+	h.mu.RLock()
+	prev := h.workers[workerID]
+	h.mu.RUnlock()
+	if prev == nil || prev.conn == nil {
+		return true
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, supersedePingTimeout)
+	defer cancel()
+	return prev.conn.Ping(pingCtx) != nil
 }
 
 func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env protocol.Envelope) {
@@ -662,8 +763,20 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 
 	case protocol.MsgTaskStatus:
 		p, err := protocol.DecodePayload[protocol.TaskStatusPayload](env)
+		if err != nil || p.TaskID == "" {
+			return
+		}
+		cur, err := h.store.GetTask(ctx, p.TaskID)
 		if err != nil {
 			return
+		}
+		if cur.WorkerID != "" && cur.WorkerID != wc.id {
+			h.logger.Warn("ignoring task.status for a task owned by another worker",
+				"task_id", p.TaskID, "worker_id", wc.id, "owner", cur.WorkerID)
+			return
+		}
+		if cur.WorkerID == "" {
+			_ = h.store.UpdateTaskAssignment(ctx, p.TaskID, wc.id, "")
 		}
 		if p.EffectiveDir != "" {
 			_ = h.store.UpdateTaskAssignment(ctx, p.TaskID, wc.id, p.EffectiveDir)

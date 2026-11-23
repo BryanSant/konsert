@@ -81,6 +81,10 @@ type fakeWorker struct {
 
 	mu       sync.Mutex
 	closeErr error
+
+	// startRead, when non-nil, holds the reader until closed. A worker that is
+	// not reading cannot answer pings, which simulates a half-open connection.
+	startRead chan struct{}
 }
 
 func testWorkerInfo(id, name string) protocol.WorkerInfo {
@@ -99,6 +103,13 @@ func testWorkerInfo(id, name string) protocol.WorkerInfo {
 // dialWorker connects and sends worker.hello without waiting for registration.
 func (th *testHub) dialWorker(t *testing.T, info protocol.WorkerInfo, active []protocol.ActiveTaskInfo) *fakeWorker {
 	t.Helper()
+	return th.dialWorkerOpts(t, info, active, false)
+}
+
+// dialWorkerOpts dials a fake worker; with paused set its reader does not run
+// until resumeReading is called.
+func (th *testHub) dialWorkerOpts(t *testing.T, info protocol.WorkerInfo, active []protocol.ActiveTaskInfo, paused bool) *fakeWorker {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	conn, _, err := websocket.Dial(ctx, th.wsURL("/ws/worker"), nil)
 	if err != nil {
@@ -107,8 +118,18 @@ func (th *testHub) dialWorker(t *testing.T, info protocol.WorkerInfo, active []p
 	}
 	conn.SetReadLimit(20 * 1024 * 1024)
 	fw := &fakeWorker{t: t, conn: conn, ctx: ctx, cancel: cancel, frames: make(chan protocol.Envelope, 1024), done: make(chan struct{})}
+	if paused {
+		fw.startRead = make(chan struct{})
+	}
 	go func() {
 		defer close(fw.done)
+		if fw.startRead != nil {
+			select {
+			case <-fw.startRead:
+			case <-ctx.Done():
+				return
+			}
+		}
 		for {
 			mt, data, err := conn.Read(ctx)
 			if err != nil {
@@ -141,6 +162,12 @@ func (th *testHub) connectWorker(t *testing.T, info protocol.WorkerInfo, active 
 	fw := th.dialWorker(t, info, active)
 	waitFor(t, 5*time.Second, "worker "+wantID+" to connect", func() bool { return th.h.IsWorkerConnected(wantID) })
 	return fw
+}
+
+func (fw *fakeWorker) resumeReading() {
+	if fw.startRead != nil {
+		close(fw.startRead)
+	}
 }
 
 func (fw *fakeWorker) send(msgType string, payload any) {

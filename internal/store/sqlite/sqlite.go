@@ -263,8 +263,19 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 		arch      string
 		isolation string
 	}
+	// Rows that recorded a stable konsertd machine UUID are grouped by it, so two
+	// hosts sharing a hostname are never merged; legacy rows fall back to the tuple.
+	machineIDs, err := s.ListWorkerMachineIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
 	groups := make(map[machineKey][]store.Worker)
 	for _, w := range workers {
+		if mid := machineIDs[w.ID]; mid != "" {
+			k := machineKey{name: "machine-id:" + mid}
+			groups[k] = append(groups[k], w)
+			continue
+		}
 		k := machineKey{
 			name:      strings.ToLower(strings.TrimSpace(w.Name)),
 			hostGroup: strings.ToLower(strings.TrimSpace(w.HostGroup)),
