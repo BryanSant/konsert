@@ -183,12 +183,52 @@ type AuditFilter struct {
 	Limit    int
 }
 
+// Chat backends: an agent CLI on a worker (subscription, the default) or the
+// optional API-key orchestrator.
+const (
+	ChatBackendAgent = "agent"
+	ChatBackendAPI   = "api"
+)
+
 type ChatSession struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Provider  string    `json:"provider"`
 	Model     string    `json:"model"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Agent chat fields (migration 012). Backend is ChatBackendAgent unless set.
+	Backend        string `json:"backend"`
+	WorkerID       string `json:"worker_id,omitempty"`
+	Agent          string `json:"agent,omitempty"`
+	AccountID      string `json:"account_id,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	ApprovalMode   string `json:"approval_mode,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	AgentSessionID string `json:"agent_session_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+	FleetTools     bool   `json:"fleet_tools"`
+	LastErrorJSON  string `json:"last_error_json,omitempty"`
+	// MCPTokenHash is the SHA-256 hex of the chat's MCP bearer token; never serialized.
+	MCPTokenHash string `json:"-"`
+}
+
+// ChatEvent is one stored agent chat event: JSON is the protocol.AgentChatEvent.
+type ChatEvent struct {
+	ChatID    string    `json:"chat_id"`
+	Seq       int64     `json:"seq"`
+	TurnID    string    `json:"turn_id,omitempty"`
+	Kind      string    `json:"kind"`
+	JSON      string    `json:"json"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AgentAccountRecord is one worker's agent account (JSON of protocol.AgentAccount).
+type AgentAccountRecord struct {
+	WorkerID  string    `json:"worker_id"`
+	AccountID string    `json:"account_id"`
+	JSON      string    `json:"json"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -311,6 +351,27 @@ type Store interface {
 	DeleteChatSession(ctx context.Context, id string) error
 	AppendChatMessage(ctx context.Context, m ChatMessage) (int64, error)
 	ListChatMessages(ctx context.Context, sessionID string) ([]ChatMessage, error)
+	// UpdateChatSession writes every mutable column of an existing session
+	// (title, provider, model and the agent chat fields) and bumps updated_at.
+	UpdateChatSession(ctx context.Context, s ChatSession) error
+	// ListChatSessionsByWorker returns the agent chat sessions hosted on workerID.
+	ListChatSessionsByWorker(ctx context.Context, workerID string) ([]ChatSession, error)
+
+	// Agent chat events. AppendChatEvent ignores a duplicate (chat_id, seq) and
+	// reports whether the row was inserted.
+	AppendChatEvent(ctx context.Context, e ChatEvent) (bool, error)
+	ListChatEvents(ctx context.Context, chatID string, afterSeq int64, limit int) ([]ChatEvent, error)
+	MaxChatEventSeq(ctx context.Context, chatID string) (int64, error)
+	// CoalesceChatTurn replaces a finished turn's streamed deltas with complete
+	// events: message deltas are dropped when the turn has a message event (or
+	// folded into one), thought deltas are folded into one thought_delta.
+	CoalesceChatTurn(ctx context.Context, chatID, turnID string) error
+
+	// Agent accounts reported by workers (agent.capabilities).
+	UpsertAgentAccount(ctx context.Context, a AgentAccountRecord) error
+	// ListAgentAccounts lists one worker's accounts, or every worker's when workerID is "".
+	ListAgentAccounts(ctx context.Context, workerID string) ([]AgentAccountRecord, error)
+	DeleteAgentAccounts(ctx context.Context, workerID string) error
 
 	RecordUsage(ctx context.Context, u UsageEvent) error
 	GetUsageSummary(ctx context.Context) (UsageSummary, error)

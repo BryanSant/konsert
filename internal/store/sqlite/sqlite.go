@@ -291,6 +291,10 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_accounts WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM workers WHERE id = ?`, id)
 	if err != nil {
 		_ = tx.Rollback()
@@ -836,6 +840,33 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, taskID string, afterID int
 	return events, rows.Err()
 }
 
+// chatSessionCols is the column list scanned by scanChatSession.
+const chatSessionCols = `id, title, provider, model, created_at, updated_at,
+	backend, worker_id, agent, account_id, effort, approval_mode, cwd,
+	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash`
+
+func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession, error) {
+	var cs store.ChatSession
+	var cAt, uAt string
+	var fleet int
+	if err := scanner.Scan(&cs.ID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
+		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
+		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash); err != nil {
+		return store.ChatSession{}, err
+	}
+	cs.FleetTools = fleet != 0
+	cs.CreatedAt = parseTime(cAt)
+	cs.UpdatedAt = parseTime(uAt)
+	return cs, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSession) error {
 	now := time.Now().UTC()
 	if cs.CreatedAt.IsZero() {
@@ -844,56 +875,78 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 	if cs.UpdatedAt.IsZero() {
 		cs.UpdatedAt = now
 	}
+	if cs.Backend == "" {
+		cs.Backend = store.ChatBackendAgent
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO chat_sessions (id, title, provider, model, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, cs.ID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt))
+		INSERT INTO chat_sessions (`+chatSessionCols+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, cs.ID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
+		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode, cs.Cwd,
+		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash)
 	return err
 }
 
 func (s *SQLiteStore) GetChatSession(ctx context.Context, id string) (store.ChatSession, error) {
-	var cs store.ChatSession
-	var cAt, uAt string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, title, provider, model, created_at, updated_at
-		FROM chat_sessions WHERE id = ?
-	`, id).Scan(&cs.ID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt)
+	cs, err := scanChatSession(s.db.QueryRowContext(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.ChatSession{}, store.ErrNotFound
 	}
-	if err != nil {
-		return store.ChatSession{}, err
-	}
-	cs.CreatedAt = parseTime(cAt)
-	cs.UpdatedAt = parseTime(uAt)
-	return cs, nil
+	return cs, err
 }
 
 func (s *SQLiteStore) ListChatSessions(ctx context.Context, limit int) ([]store.ChatSession, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, provider, model, created_at, updated_at
-		FROM chat_sessions ORDER BY updated_at DESC LIMIT ?
-	`, limit)
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions ORDER BY updated_at DESC LIMIT ?`, limit)
+}
+
+// ListChatSessionsByWorker returns the agent chat sessions hosted on workerID.
+func (s *SQLiteStore) ListChatSessionsByWorker(ctx context.Context, workerID string) ([]store.ChatSession, error) {
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions
+		WHERE worker_id = ? AND backend = 'agent' ORDER BY updated_at DESC`, workerID)
+}
+
+func (s *SQLiteStore) queryChatSessions(ctx context.Context, q string, args ...any) ([]store.ChatSession, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var out []store.ChatSession
 	for rows.Next() {
-		var cs store.ChatSession
-		var cAt, uAt string
-		if err := rows.Scan(&cs.ID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt); err != nil {
+		cs, err := scanChatSession(rows)
+		if err != nil {
 			return nil, err
 		}
-		cs.CreatedAt = parseTime(cAt)
-		cs.UpdatedAt = parseTime(uAt)
 		out = append(out, cs)
 	}
 	return out, rows.Err()
+}
+
+// UpdateChatSession writes every mutable column of an existing session.
+func (s *SQLiteStore) UpdateChatSession(ctx context.Context, cs store.ChatSession) error {
+	if cs.Backend == "" {
+		cs.Backend = store.ChatBackendAgent
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE chat_sessions SET title = ?, provider = ?, model = ?, updated_at = ?,
+			backend = ?, worker_id = ?, agent = ?, account_id = ?, effort = ?, approval_mode = ?,
+			cwd = ?, agent_session_id = ?, status = ?, fleet_tools = ?, last_error_json = ?,
+			mcp_token_hash = ?
+		WHERE id = ?
+	`, cs.Title, cs.Provider, cs.Model, formatTime(time.Now().UTC()),
+		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode,
+		cs.Cwd, cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON,
+		cs.MCPTokenHash, cs.ID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
 }
 
 func (s *SQLiteStore) RenameChatSession(ctx context.Context, id, title string) error {
@@ -916,6 +969,10 @@ func (s *SQLiteStore) DeleteChatSession(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_messages WHERE session_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_events WHERE chat_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
