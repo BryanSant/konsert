@@ -23,6 +23,8 @@ import (
 //	permission  tool call + permission elicitation; waits for agent.chat.respond
 //	ask         question elicitation (options + free text); waits for agent.chat.respond
 //	slow        streams a delta per step for SlowDuration; cancellable
+//	activity    walks the activity states slowly enough to see each one (ActivityHold per
+//	            state): thinking, working (Bash "Run: go test ./..."), speaking, done
 //	vague question  calls Konsert's ask_user under-specified (rejected), then properly
 //	question    calls Konsert's ask_user (MCP) with a well-formed question and reports the answer
 //	(anything)  thought, message deltas, a tool call, message, usage, turn_end
@@ -34,6 +36,9 @@ type MockEngine struct {
 	StepDelay time.Duration
 	// SlowDuration is how long a "slow" turn runs unless cancelled (default 60 s).
 	SlowDuration time.Duration
+	// ActivityHold is how long an "activity" turn stays in each state (default 1.2 s:
+	// longer than the activity publisher's debounce).
+	ActivityHold time.Duration
 	// Now is the clock used for resets_at (default time.Now).
 	Now func() time.Time
 
@@ -488,6 +493,40 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			s.cancelled(turn)
 			return
 		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case strings.Contains(text, "activity"):
+		hold := s.eng.ActivityHold
+		if hold <= 0 {
+			hold = 1200 * time.Millisecond
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: turn, Text: "Planning the change."})
+		if !s.sleep(ctx, hold) {
+			s.cancelled(turn)
+			return
+		}
+		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: go test ./...", Status: "running", Input: `{"command":"go test ./..."}`}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		if !s.sleep(ctx, hold) {
+			s.cancelled(turn)
+			return
+		}
+		done := *tool
+		done.Status, done.Output = "completed", "ok"
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		// Speak for about one hold, a word every 100 ms.
+		var words []string
+		for i := 0; i < int(hold/(100*time.Millisecond))+1; i++ {
+			words = append(words, "word"+itoa(i)+" ")
+		}
+		for _, w := range words {
+			if !s.sleep(ctx, 100*time.Millisecond) {
+				s.cancelled(turn)
+				return
+			}
+			s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: w})
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: turn, MessageID: "m-" + turn, Text: strings.Join(words, "")})
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	case strings.Contains(text, "slow"):

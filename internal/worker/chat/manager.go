@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/activity"
 )
 
 // Sink receives every stamped event (ChatID, Seq and At set). It must not block: konsertd
@@ -69,6 +70,10 @@ type ManagerOptions struct {
 	SeqBase func() int64
 	// Now is the clock (tests).
 	Now func() time.Time
+	// OnActivity, when set, receives the chat's derived activity (thinking, working,
+	// speaking, ...) whenever it changes. It is called with the chat's lock held and must
+	// not block (konsertd hands it to a rate-limiting activity.Publisher).
+	OnActivity func(protocol.SessionActivity)
 }
 
 // Manager owns every chat session on this worker: ChatID → engine session, per-chat Seq,
@@ -121,6 +126,8 @@ type chatState struct {
 	// suspended: the user froze this chat's engine process tree. No watchdog, idle close
 	// or new turns until Resume.
 	suspended bool
+	// act derives the chat's live activity from the events it emits.
+	act *activity.Chat
 }
 
 // Suspender is implemented by sessions that can freeze and thaw their engine (every
@@ -215,7 +222,7 @@ func (m *Manager) chat(id string, create bool) *chatState {
 	}
 	c := m.chats[id]
 	if c == nil && create {
-		c = &chatState{id: id, seq: m.opts.SeqBase(), pending: map[string]bool{}, lastActivity: m.opts.Now()}
+		c = &chatState{id: id, seq: m.opts.SeqBase(), pending: map[string]bool{}, lastActivity: m.opts.Now(), act: activity.NewChat(id)}
 		m.chats[id] = c
 	}
 	return c
@@ -953,6 +960,11 @@ func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
 	ev.ChatID = c.id
 	ev.At = m.opts.Now().UTC()
 	m.opts.Sink(ev)
+	if m.opts.OnActivity != nil && c.act != nil {
+		if now := m.opts.Now(); c.act.Observe(ev, now) {
+			m.opts.OnActivity(c.act.Activity(now))
+		}
+	}
 }
 
 // emitError emits a manager-generated error that ends turnID (if it is the running turn).

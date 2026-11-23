@@ -13,6 +13,7 @@ func CollectMetrics(ctx context.Context) *protocol.WorkerMetrics {
 	if m == nil {
 		return &protocol.WorkerMetrics{}
 	}
+	m.GPUPercent = collectGPUPercent(ctx)
 	// Deduplicate and sort ports
 	if len(m.ListeningPorts) > 1 {
 		seen := make(map[int]protocol.ListeningPort, len(m.ListeningPorts))

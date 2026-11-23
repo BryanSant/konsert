@@ -19,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/activity"
 	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
@@ -58,6 +59,12 @@ type Daemon struct {
 	// wake holds the host Keep Awake inhibitor requested by the hub (host.wakelock).
 	wake *WakeLockManager
 
+	// activity publishes session activity (chats and PTY tasks) at a bounded rate;
+	// taskActivity derives PTY tasks' activity from their telemetry (guarded by taskActMu).
+	activity     *activity.Publisher
+	taskActMu    sync.Mutex
+	taskActivity *activity.Tracker
+
 	// Agent chat (see daemon_chat.go). They outlive connections.
 	accounts   *chat.AccountRegistry
 	chat       *chat.Manager
@@ -78,6 +85,10 @@ type Daemon struct {
 	// (DefaultWakeLockGrace when zero).
 	WakeLockGrace time.Duration
 }
+
+// activityKeep is how long a finished session's last activity is kept for re-sending
+// after a reconnect.
+const activityKeep = time.Hour
 
 // NewDaemon constructs a worker daemon from WorkerConfig.
 func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog.Logger) *Daemon {
@@ -111,8 +122,16 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		FactsInterval:     5 * time.Minute,
 	}
 
+	d.activity = activity.NewPublisher(activity.PublisherOptions{}, func(a protocol.SessionActivity) {
+		d.sendJSON(protocol.MsgSessionActivity, a)
+	})
+	d.taskActivity = activity.NewTracker(d.activity, nil)
+
 	d.runner = NewRunner(registry, cfg.Sandbox, cfg.AllowedRoots, RunnerCallbacks{
 		OnTaskStatus: func(p protocol.TaskStatusPayload) {
+			d.taskActMu.Lock()
+			d.taskActivity.Status(p)
+			d.taskActMu.Unlock()
 			if protocol.IsTerminalTaskStatus(p.Status) {
 				// Final statuses go through the persistent outbox so they survive a
 				// disconnect and are re-sent after the next worker.hello.
@@ -123,6 +142,9 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		},
 		OnTaskEvent: func(p protocol.TaskEventPayload) {
 			d.sendJSON(protocol.MsgTaskEvent, p)
+			d.taskActMu.Lock()
+			d.taskActivity.Event(p)
+			d.taskActMu.Unlock()
 		},
 		OnOperatorCommand: func(p protocol.OperatorCommandPayload) {
 			d.sendJSON(protocol.MsgOperatorCommand, p)
@@ -373,6 +395,11 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	// reconnect (the writer below sends queued control messages after hello).
 	d.wake.Connected()
 	d.sendJSON(protocol.MsgHostWakeLockState, d.wake.State())
+	// The hub keeps session activity in memory only: re-send what it may have missed.
+	d.activity.Prune(activityKeep)
+	for _, a := range d.activity.Snapshot() {
+		d.sendJSON(protocol.MsgSessionActivity, a)
+	}
 	d.logger.Info("connected to controller",
 		"url", d.cfg.ControllerURL,
 		"worker_id", d.cfg.WorkerID,

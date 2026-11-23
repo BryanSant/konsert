@@ -368,7 +368,7 @@ func newHookEventCmd() *cobra.Command {
 			if strings.TrimSpace(event) == "" {
 				event = "working"
 			}
-			return worker.RecordHookEvent("", worker.HookEvent{
+			ev := worker.HookEvent{
 				SessionID: sessionID,
 				Agent:     agent,
 				Event:     event,
@@ -376,7 +376,10 @@ func newHookEventCmd() *cobra.Command {
 				FilePath:  filePath,
 				Model:     model,
 				Message:   message,
-			})
+			}
+			// Claude Code (and compatible agents) pass the session, cwd and tool on stdin.
+			worker.ReadHookStdin(&ev)
+			return worker.RecordHookEvent("", ev)
 		},
 	}
 	cmd.Flags().StringVar(&agent, "agent", "claude", "Agent name (claude, agy, codex, grok, copilot, cursor)")

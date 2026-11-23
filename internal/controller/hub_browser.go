@@ -369,6 +369,9 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Worker = h.withWakeLock(item)
 	case "task":
 		p.Task = item
+		if t, ok := item.(store.Task); ok {
+			h.taskStatusActivity(t)
+		}
 	case "event":
 		p.Event = item
 	case "audit":
@@ -397,6 +400,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Pause = item
 	case "question":
 		p.Question = item
+	case "activity":
+		p.Activity = item
 	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id

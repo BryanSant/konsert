@@ -367,6 +367,8 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 		return jsonToolResult(res)
 	})
 
+	addNarrationTool(srv, backend)
+
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_tasks",
 		Description: "List active and recent fleet tasks/sessions with concise status, elapsed time, and last milestone.",
