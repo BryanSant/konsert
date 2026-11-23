@@ -645,3 +645,16 @@ func TestDispatchAccountChecksAndFields(t *testing.T) {
 		t.Fatalf("task.start payload: %+v", start)
 	}
 }
+
+func TestValidClientTurnID(t *testing.T) {
+	for _, ok := range []string{"0b5c2f1e-1a2b-4c3d-9e8f-001122334455", "turn_12345678"} {
+		if !validClientTurnID(ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"", "short", "has space in it", "a/b/c/d/e/f", strings.Repeat("x", 65)} {
+		if validClientTurnID(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

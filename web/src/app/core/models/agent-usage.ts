@@ -22,8 +22,18 @@ export function windowName(window: string | undefined): string {
       return 'daily';
     case '':
       return '';
-    default:
+    default: {
+      // Per-model windows the CLIs add over time: seven_day_fable -> "weekly Fable",
+      // five_hour_opus -> "5-hour Opus".
+      const w = window!.toLowerCase();
+      for (const [prefix, base] of [['seven_day_', 'weekly'], ['five_hour_', '5-hour']] as const) {
+        if (w.startsWith(prefix)) {
+          const model = w.slice(prefix.length).replace(/_/g, ' ');
+          return `${base} ${model.charAt(0).toUpperCase()}${model.slice(1)}`;
+        }
+      }
       return window!.replace(/_/g, ' ');
+    }
   }
 }
 

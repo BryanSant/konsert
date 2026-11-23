@@ -142,8 +142,14 @@ export function applyEvent(state: TranscriptState, ev: AgentChatEvent): Transcri
 
   switch (ev.kind) {
     case CHAT_PROTOCOL.userMessageKind: {
-      const items = s.items.filter((i) => !(i.type === 'user' && i.pending && i.turnId === turnId));
       const parsed = splitAttachments(ev.text ?? '');
+      // Replace the optimistic copy: matched by turn id, or (if the hub assigned its own
+      // turn id) by being the oldest pending prompt with the same text.
+      let items = s.items.filter((i) => !(i.type === 'user' && i.pending && i.turnId === turnId));
+      if (items.length === s.items.length) {
+        const idx = items.findIndex((i) => i.type === 'user' && i.pending && i.text === parsed.text);
+        if (idx >= 0) items = items.filter((_, n) => n !== idx);
+      }
       items.push({ type: 'user', key: `u:${turnId || ev.seq}`, turnId, text: parsed.text, files: parsed.files, at });
       return { ...s, items, currentTurnId: turnId, status: 'working', subtitle: '' };
     }

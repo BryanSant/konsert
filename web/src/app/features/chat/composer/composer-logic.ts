@@ -96,7 +96,18 @@ export function pickDefaultAccount(
     const a = ofAgent.find((x) => x.is_default && healthy(x)) ?? ofAgent.find(healthy) ?? ofAgent[0];
     if (a) return a;
   }
-  return usable.find((a) => a.is_default && healthy(a)) ?? usable.find(healthy) ?? usable[0] ?? null;
+  // No saved preference: prefer the most capable chat agents first (not alphabetical,
+  // which picked Antigravity over Claude), then any healthy account.
+  const ranked = [...usable].sort((a, b) => agentRank(a.agent) - agentRank(b.agent));
+  return ranked.find((a) => a.is_default && healthy(a)) ?? ranked.find(healthy) ?? ranked[0] ?? null;
+}
+
+/** Default-choice order of agents when the user hasn't picked one yet. */
+export const PREFERRED_AGENTS = ['claude', 'codex', 'grok', 'cursor', 'copilot', 'agy'];
+
+function agentRank(agent: string | undefined): number {
+  const i = PREFERRED_AGENTS.indexOf((agent ?? '').toLowerCase());
+  return i < 0 ? PREFERRED_AGENTS.length : i;
 }
 
 export type ApprovalTone = 'default' | 'amber';

@@ -15,6 +15,8 @@ describe('agent usage helpers', () => {
   it('names windows', () => {
     expect(windowName('five_hour')).toBe('5-hour');
     expect(windowName('seven_day')).toBe('weekly');
+    expect(windowName('seven_day_fable')).toBe('weekly Fable');
+    expect(windowName('five_hour_opus')).toBe('5-hour Opus');
     expect(windowName('seven_day_opus')).toBe('weekly Opus');
     expect(windowName('monthly')).toBe('monthly');
     expect(windowName('daily')).toBe('daily');

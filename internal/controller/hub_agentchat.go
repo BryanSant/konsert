@@ -60,6 +60,9 @@ type chatSendRequest struct {
 	SessionID   string   `json:"session_id"`
 	Content     string   `json:"content"`
 	Attachments []string `json:"attachments,omitempty"`
+	// TurnID is the client's id for this turn (it shows the prompt optimistically and
+	// replaces it when the recorded user_message with the same turn id arrives).
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 type chatRespondRequest struct {
@@ -845,6 +848,9 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		return err
 	}
 	turnID := uuid.NewString()
+	if id := strings.TrimSpace(req.TurnID); validClientTurnID(id) {
+		turnID = id
+	}
 	rt := h.chatRT(cs.ID)
 	rt.mu.Lock()
 	rt.turnID = turnID
@@ -1335,4 +1341,17 @@ func exhaustedWarning(a protocol.AgentAccount, u protocol.AgentRateLimit) string
 		msg += " until " + u.ResetsAt.UTC().Format(time.RFC3339)
 	}
 	return msg + "; the request may be rejected"
+}
+
+// validClientTurnID accepts a client-chosen turn id of reasonable shape (UUID-like).
+func validClientTurnID(id string) bool {
+	if len(id) < 8 || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		if !(r == '-' || r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+			return false
+		}
+	}
+	return true
 }

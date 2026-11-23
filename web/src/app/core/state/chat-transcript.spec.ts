@@ -111,6 +111,13 @@ describe('transcript reducer', () => {
     expect((s.items[0] as { pending?: boolean }).pending).toBeUndefined();
   });
 
+  it('replaces the optimistic prompt even when the hub assigned a different turn id', () => {
+    // Seen live: the prompt appeared twice because the echoed user_message had another turn id.
+    let s = addPendingUser(emptyTranscript(FIXTURE_CHAT_ID), 'client-turn', 'what is the capital of France?');
+    s = applyEvent(s, ev('user_message', { turn_id: 'hub-turn', text: 'what is the capital of France?' }));
+    expect(s.items.filter((i) => i.type === 'user')).toHaveLength(1);
+  });
+
   it('splits legacy attachment trailers into file chips', () => {
     const s = applyEvent(
       emptyTranscript(FIXTURE_CHAT_ID),

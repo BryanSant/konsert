@@ -70,6 +70,12 @@ describe('composer logic', () => {
     expect(pickDefaultAccount([claude2Account()])?.id).toBe('claude2');
   });
 
+  it('prefers Claude over an alphabetically earlier agent when nothing was chosen', () => {
+    // Seen live: a new chat defaulted to Antigravity ("agy" sorts first).
+    const agy = { ...cursorAccount(), id: 'agy', agent: 'agy', label: 'Antigravity' };
+    expect(pickDefaultAccount([agy, cursorAccount(), claudeAccount()])?.id).toBe('claude');
+  });
+
   it('formats the trigger and tones full access amber', () => {
     expect(modelTriggerText(claude.models![1], 'medium')).toEqual({ label: 'Sonnet 5.5 Med', tooltip: 'Sonnet 5.5 · Medium' });
     expect(modelTriggerText(claude.models![2], '')).toEqual({ label: 'Haiku 5', tooltip: 'Haiku 5' });

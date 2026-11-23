@@ -118,7 +118,7 @@ export function chatTitleFrom(text: string): string {
             }
           </ks-popover>
 
-          <div aria-live="polite" class="min-w-0 hidden sm:flex items-center">
+          <div aria-live="polite" class="shrink-0 max-w-[45%] overflow-hidden hidden sm:flex items-center">
             @if (active()) {
               <ks-status-pill [status]="status()" [subtitle]="subtitle()" data-testid="header-status" />
             }
