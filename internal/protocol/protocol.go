@@ -396,6 +396,8 @@ type FleetUpdatePayload struct {
 	// "chat_session"; "chat_session_deleted" uses DeletedID (additive).
 	ChatSession any    `json:"chat_session,omitempty"`
 	DeletedID   string `json:"deleted_id,omitempty"`
+	// WorkerID names the worker for worker-scoped kinds such as "agent_accounts" (additive).
+	WorkerID string `json:"worker_id,omitempty"`
 }
 
 type GitChangedFile struct {

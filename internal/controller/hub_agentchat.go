@@ -310,7 +310,9 @@ func (h *Hub) onAgentCapabilities(ctx context.Context, wc *workerConn, env proto
 		}
 	}
 	views, _ := h.agentAccountViews(ctx, wc.id)
-	h.broadcastFleetUpdate("agent_accounts", views)
+	// The PWA applies account updates per worker: without worker_id it dropped them, so
+	// login/usage changes only showed after a reload (KON-PYG35).
+	h.broadcastJSON(protocol.MsgFleetUpdate, protocol.FleetUpdatePayload{Kind: "agent_accounts", WorkerID: wc.id, Accounts: views})
 }
 
 // failInterruptedChats runs when a worker (re)connects: a chat that was working on

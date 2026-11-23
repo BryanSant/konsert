@@ -283,11 +283,14 @@ func TestAgentCapabilitiesBroadcastAndRefresh(t *testing.T) {
 	for {
 		var p struct {
 			Kind     string             `json:"kind"`
+			WorkerID string             `json:"worker_id"`
 			Accounts []AgentAccountView `json:"accounts"`
 		}
 		_ = json.Unmarshal(env.Payload, &p)
 		if p.Kind == "agent_accounts" {
-			if len(p.Accounts) != 1 || p.Accounts[0].WorkerID != "w1" {
+			// The PWA applies account updates per worker and ignores pushes without
+			// worker_id (KON-PYG35: live login/usage changes never reached the UI).
+			if p.WorkerID != "w1" || len(p.Accounts) != 1 || p.Accounts[0].WorkerID != "w1" {
 				t.Fatalf("agent_accounts update: %s", env.Payload)
 			}
 			break

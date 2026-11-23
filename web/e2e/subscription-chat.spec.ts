@@ -336,15 +336,8 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
       })
       .toBe(true);
 
-    // KON-PYG35: the live fleet.update push is dropped by the PWA (no worker_id), so use the
-    // account menu's "Refresh login and usage" here. The last test checks the live push.
+    // The hub pushes the account change live (fleet.update agent_accounts with worker_id).
     const chip = chat.getByTestId('account-chip');
-    await chip.click();
-    await chat
-      .getByRole('menu', { name: 'Agent account' })
-      .getByRole('menuitem', { name: 'Refresh login and usage' })
-      .click();
-
     await expect(chip).toContainText('Out');
     const footer = page.locator('app-status-footer');
     await expect(footer.locator('[data-usage-account="mock"]')).toContainText('out');
@@ -381,15 +374,12 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     expect(sessions.filter((s) => s.title === 'limit').map((s) => s.account_id)).toContain('mock2');
   });
 
-  // KON-PYG35: hub fleet.update agent_accounts lacks worker_id and the PWA drops it, so the
-  // chip only changes after a reload or Refresh. Marked as an expected failure: once the bug
-  // is fixed this test "unexpectedly passes" and the annotation must be removed. It exhausts
-  // mock2 too, so it stays last.
+  // KON-PYG35 regression: the chip must turn exhausted from the live push alone (no reload,
+  // no Refresh). It exhausts mock2 too, so it stays last.
   test('usage limit: the account chip turns exhausted live, without a refresh', async ({
     page,
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'desktop only');
-    test.fail(true, 'KON-PYG35: live agent_accounts updates have no worker_id');
     const chat = await newChat(page, 'mock2');
     await send(chat, 'limit');
     await expect(chat.locator('[data-error-kind="usage_limit"]')).toBeVisible();
