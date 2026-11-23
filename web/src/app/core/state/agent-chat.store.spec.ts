@@ -159,4 +159,70 @@ describe('AgentChatStore', () => {
     });
     expect(accounts.accountsFor('w2').map((a) => a.label)).toEqual(['Claude 2']);
   });
+
+  describe('live chat list (fleet.update chat_session)', () => {
+    const other: ChatSession = { ...chat, id: 'chat-other', title: 'From the CLI', status: 'working' };
+
+    it('adds chats created elsewhere to the top and merges updates in place', () => {
+      const ws = connect();
+      const orch = TestBed.inject(OrchestratorStore);
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
+      expect(orch.sessions().map((s) => s.id)).toEqual(['chat-other', FIXTURE_CHAT_ID]);
+      expect(store.statusOf('chat-other')).toBe('working');
+
+      // A rename / settings change keeps the chat where it is.
+      ws.receiveJSON('fleet.update', {
+        kind: CHAT_PROTOCOL.fleetChatSessionKind,
+        chat_session: { ...chat, title: 'Renamed', model: 'opus' },
+      });
+      expect(orch.sessions().map((s) => s.id)).toEqual(['chat-other', FIXTURE_CHAT_ID]);
+      expect(orch.sessions()[1]).toMatchObject({ title: 'Renamed', model: 'opus' });
+      // Malformed payloads are ignored.
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind });
+      expect(orch.sessions()).toHaveLength(2);
+    });
+
+    it('updates the status of chats that are not open, even with a cached transcript', async () => {
+      const ws = connect();
+      const orch = TestBed.inject(OrchestratorStore);
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
+      await store.open('chat-other');
+      orch.activeSessionId.set(FIXTURE_CHAT_ID);
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: { ...other, status: 'needs_you' } });
+      expect(store.statusOf('chat-other')).toBe('needs_you');
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: { ...other, status: 'done' } });
+      expect(store.statusOf('chat-other')).toBe('done');
+    });
+
+    it("leaves the open chat's status to its event stream", () => {
+      const ws = connect();
+      const orch = TestBed.inject(OrchestratorStore);
+      orch.activeSessionId.set(FIXTURE_CHAT_ID);
+      store.send(chat, 'hi');
+      expect(store.statusOf(FIXTURE_CHAT_ID)).toBe('working');
+      // A stale session broadcast must not flip the live pill back.
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: { ...chat, status: 'idle' } });
+      expect(store.statusOf(FIXTURE_CHAT_ID)).toBe('working');
+    });
+
+    it('removes deleted chats and their transcript, selecting another when the open one goes', async () => {
+      const ws = connect();
+      const orch = TestBed.inject(OrchestratorStore);
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
+      await store.open('chat-other');
+      orch.activeSessionId.set('chat-other');
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionDeletedKind, deleted_id: 'chat-other' });
+      await vi.runAllTimersAsync();
+      expect(orch.sessions().map((s) => s.id)).toEqual([FIXTURE_CHAT_ID]);
+      expect(store.transcripts()['chat-other']).toBeUndefined();
+      expect(orch.activeSessionId()).toBe(FIXTURE_CHAT_ID);
+
+      // Unknown ids are ignored; deleting the last chat shows the new-chat draft.
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionDeletedKind, deleted_id: 'nope' });
+      ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionDeletedKind, deleted_id: FIXTURE_CHAT_ID });
+      await vi.runAllTimersAsync();
+      expect(orch.sessions()).toEqual([]);
+      expect(orch.activeSessionId()).toBe('');
+    });
+  });
 });

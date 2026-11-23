@@ -8,6 +8,10 @@ export const CHAT_PROTOCOL = {
   wsEvent: 'agent.chat.event',
   /** fleet.update payload kind carrying one worker's accounts: {kind, worker_id, accounts}. */
   fleetAccountsKind: 'agent_accounts',
+  /** fleet.update kind carrying one chat session (same shape as GET /api/chats items): {kind, chat_session}. */
+  fleetChatSessionKind: 'chat_session',
+  /** fleet.update kind for a deleted chat session: {kind, deleted_id}. */
+  fleetChatSessionDeletedKind: 'chat_session_deleted',
 
   // WebSocket, browser -> hub
   /** {session_id, chat_id, turn_id, content, attachments?} */

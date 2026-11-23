@@ -103,6 +103,31 @@ export class AgentChatStore {
     }
   }
 
+  /**
+   * A chat session pushed by the hub (create, settings, title or status change). Chats that
+   * aren't open receive no agent.chat.event frames, so their cached transcript status is
+   * refreshed from the session; the open chat's status comes from its own event stream.
+   */
+  onSessionUpsert(session: ChatSession): void {
+    this.orch.upsertSession(session);
+    const t = this.transcripts()[session.id];
+    if (t && session.id !== this.orch.activeSessionId() && isChatStatus(session.status) && t.status !== session.status) {
+      this.transcripts.update((m) => ({ ...m, [session.id]: { ...t, status: session.status as ChatStatus } }));
+    }
+  }
+
+  /** A chat deleted elsewhere: remove it from the list and drop its transcript. */
+  async onSessionDeleted(chatId: string): Promise<void> {
+    if (this.transcripts()[chatId]) {
+      this.transcripts.update((m) => {
+        const next = { ...m };
+        delete next[chatId];
+        return next;
+      });
+    }
+    await this.orch.removeSession(chatId);
+  }
+
   async onReconnected(): Promise<void> {
     const id = this.orch.activeSessionId();
     if (id && this.transcripts()[id]) await this.catchUp(id);

@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
   AuditEvent,
+  ChatSession,
   ChatToolCard,
   Envelope,
   FRAME_HEADER_SIZE,
@@ -205,6 +206,7 @@ export class KonsertSocketService {
           deleted_id?: string;
           worker_id?: string;
           accounts?: AgentAccount[];
+          chat_session?: ChatSession;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -218,6 +220,10 @@ export class KonsertSocketService {
           this.telemetryStore.appendEvent(p.event);
         } else if (p.kind === CHAT_PROTOCOL.fleetAccountsKind && p.worker_id) {
           this.agentAccounts.applyWorkerAccounts(p.worker_id, p.accounts ?? []);
+        } else if (p.kind === CHAT_PROTOCOL.fleetChatSessionKind && p.chat_session?.id) {
+          this.agentChat.onSessionUpsert(p.chat_session);
+        } else if (p.kind === CHAT_PROTOCOL.fleetChatSessionDeletedKind && p.deleted_id) {
+          void this.agentChat.onSessionDeleted(p.deleted_id);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
         } else if (p.kind === 'space' && p.space) {
