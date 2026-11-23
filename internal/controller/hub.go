@@ -85,6 +85,12 @@ type Hub struct {
 	// Configurable for tests (defaults to 30s timeout, 10s check interval).
 	StaleWorkerTimeout time.Duration
 	ReapInterval       time.Duration
+
+	// LostTaskGrace is how long a task may be missing from a connected worker's
+	// hello/heartbeat active list before the hub treats it as lost. konsertd
+	// re-sends buffered final statuses right after hello, so this must comfortably
+	// exceed that flush and a heartbeat round-trip.
+	LostTaskGrace time.Duration
 }
 
 // NewHub constructs a Hub backed by store.Store.
@@ -107,6 +113,7 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		rpcWaiters:         make(map[string]chan protocol.Envelope),
 		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
+		LostTaskGrace:      45 * time.Second,
 	}
 }
 
@@ -478,12 +485,27 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 
 	// Clean up stale non-terminal external sessions from prior daemon lifetimes;
 	// SessionDiscovery immediately re-reports any still-running external agents right after worker.hello.
+	// Hub-managed tasks this worker owns but did not list are checked again after
+	// LostTaskGrace (the worker may still deliver their final status from its outbox).
 	if prevTasks, err := h.store.ListTasks(ctx, "", wModel.ID, 200); err == nil {
+		reported := make(map[string]bool, len(hello.ActiveTasks))
+		for _, at := range hello.ActiveTasks {
+			reported[at.TaskID] = true
+		}
+		var missing []string
 		for _, pt := range prevTasks {
-			if pt.Origin == protocol.TaskOriginExternal && !protocol.IsTerminalTaskStatus(pt.Status) {
+			if protocol.IsTerminalTaskStatus(pt.Status) {
+				continue
+			}
+			if pt.Origin == protocol.TaskOriginExternal {
 				_ = h.store.UpdateTaskStatus(ctx, pt.ID, protocol.TaskStatusCompleted, "session ended before reconnect", "", nil)
+				continue
+			}
+			if pt.Status != protocol.TaskStatusQueued && !reported[pt.ID] {
+				missing = append(missing, pt.ID)
 			}
 		}
+		h.scheduleLostTaskCheck(wc, missing)
 	}
 
 	h.logger.Info("worker registered",
@@ -556,6 +578,78 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	}
 	h.mu.Unlock()
 	h.logger.Info("worker disconnected", "worker_id", wModel.ID)
+}
+
+// scheduleLostTaskCheck re-examines taskIDs after LostTaskGrace and reconciles
+// any that the worker still does not report as active.
+func (h *Hub) scheduleLostTaskCheck(wc *workerConn, taskIDs []string) {
+	if len(taskIDs) == 0 {
+		return
+	}
+	grace := h.LostTaskGrace
+	if grace <= 0 {
+		grace = 45 * time.Second
+	}
+	ids := append([]string(nil), taskIDs...)
+	h.goBackground(func(ctx context.Context) {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		h.reconcileLostTasks(ctx, wc, ids)
+	})
+}
+
+// reconcileLostTasks marks tasks lost that a still-connected worker no longer
+// reports and that have not reached a terminal status. Tasks with the requeue
+// orphan policy go back to the queue; others fail with exit code -1. If the
+// worker disconnected meanwhile, the reaper's orphan handling owns the tasks.
+func (h *Hub) reconcileLostTasks(ctx context.Context, wc *workerConn, taskIDs []string) {
+	h.mu.RLock()
+	current := h.workers[wc.id] == wc
+	h.mu.RUnlock()
+	if !current {
+		return
+	}
+	kick := false
+	for _, id := range taskIDs {
+		wc.mu.Lock()
+		active := wc.activeTasks[id]
+		wc.mu.Unlock()
+		if active {
+			continue
+		}
+		t, err := h.store.GetTask(ctx, id)
+		if err != nil || t.WorkerID != wc.id || t.Origin == protocol.TaskOriginExternal ||
+			t.Status == protocol.TaskStatusQueued || protocol.IsTerminalTaskStatus(t.Status) {
+			continue
+		}
+		h.logger.Warn("worker no longer reports task; reconciling as lost", "task_id", id, "worker_id", wc.id, "status", t.Status)
+		h.forgetTask(id)
+		if t.OrphanPolicy == protocol.OrphanPolicyRequeue {
+			_, _, pinned := h.taskStartSpec(ctx, t)
+			if ok, _ := h.store.RequeueTask(ctx, id, "requeued: worker no longer reports the task", pinned); ok {
+				kick = true
+			}
+			if updated, err := h.store.GetTask(ctx, id); err == nil {
+				h.broadcastFleetUpdate("task", updated)
+			}
+			continue
+		}
+		code := -1
+		_ = h.store.UpdateTaskStatus(ctx, id, protocol.TaskStatusFailed, "task lost: worker no longer reports it", "", &code)
+		if updated, err := h.store.GetTask(ctx, id); err == nil {
+			h.notifyTaskDone(updated)
+			h.broadcastFleetUpdate("task", updated)
+		}
+		kick = true // capacity freed
+	}
+	if kick {
+		h.kickScheduler()
+	}
 }
 
 // supersedePingTimeout bounds the liveness ping sent to an existing connection
@@ -667,11 +761,21 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 			return
 		}
 		wc.mu.Lock()
+		prev := wc.activeTasks
 		wc.activeTasks = make(map[string]bool, len(p.ActiveTaskIDs))
 		for _, id := range p.ActiveTaskIDs {
 			wc.activeTasks[id] = true
 		}
+		var vanished []string
+		for id := range prev {
+			if !wc.activeTasks[id] {
+				vanished = append(vanished, id)
+			}
+		}
 		wc.mu.Unlock()
+		// Tasks that dropped off the active list normally end with a task.status
+		// shortly before or after; if not, they are reconciled after the grace period.
+		h.scheduleLostTaskCheck(wc, vanished)
 
 		if p.Metrics != nil {
 			h.mu.Lock()
