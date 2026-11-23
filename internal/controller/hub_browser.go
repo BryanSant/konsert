@@ -375,6 +375,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Audit = item
 	case "agent_accounts":
 		p.Accounts = item
+	case "chat_session":
+		p.ChatSession = item
 	case "space":
 		p.Space = item
 	case "workspace":
@@ -385,7 +387,7 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Repo = item
 	case "worktree":
 		p.Worktree = item
-	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted":
+	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}

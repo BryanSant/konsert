@@ -391,8 +391,11 @@ type FleetUpdatePayload struct {
 	// Audit carries a new fleet audit log entry when Kind is "audit" (additive).
 	Audit any `json:"audit,omitempty"`
 	// Accounts carries a worker's agent accounts when Kind is "agent_accounts" (additive).
-	Accounts  any    `json:"accounts,omitempty"`
-	DeletedID string `json:"deleted_id,omitempty"`
+	Accounts any `json:"accounts,omitempty"`
+	// ChatSession carries a created/updated chat (status, title, settings) when Kind is
+	// "chat_session"; "chat_session_deleted" uses DeletedID (additive).
+	ChatSession any    `json:"chat_session,omitempty"`
+	DeletedID   string `json:"deleted_id,omitempty"`
 }
 
 type GitChangedFile struct {

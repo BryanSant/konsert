@@ -207,6 +207,9 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	if cs != before {
 		if err := h.store.UpdateChatSession(ctx, cs); err != nil {
 			h.logger.Warn("update chat session failed", "chat_id", chatID, "err", err)
+		} else if cs.Status != before.Status || cs.Title != before.Title {
+			// Every browser's chat list (not just subscribers) shows status pills.
+			h.broadcastFleetUpdate("chat_session", cs)
 		}
 	}
 	if ev.TurnID != "" && (ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError) {
@@ -253,7 +256,11 @@ func applyEventToSession(cs *store.ChatSession, ev protocol.AgentChatEvent) {
 			cs.Status = protocol.ChatStatusDone
 		}
 	case protocol.EventError:
-		cs.Status = protocol.ChatStatusFailed
+		// The worker's watchdog reports a quiet turn as ErrKindTimeout but keeps it
+		// running (the user may wait or stop): that is not a failure.
+		if ev.Error == nil || ev.Error.Kind != protocol.ErrKindTimeout {
+			cs.Status = protocol.ChatStatusFailed
+		}
 		if ev.Error != nil {
 			if b, err := json.Marshal(ev.Error); err == nil {
 				cs.LastErrorJSON = string(b)

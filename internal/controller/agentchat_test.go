@@ -658,3 +658,17 @@ func TestValidClientTurnID(t *testing.T) {
 		}
 	}
 }
+
+// The worker's watchdog reports a quiet turn as a timeout error but keeps the turn
+// running: the chat must not be shown as failed.
+func TestTimeoutErrorDoesNotFailChat(t *testing.T) {
+	cs := store.ChatSession{Status: protocol.ChatStatusWorking}
+	applyEventToSession(&cs, protocol.AgentChatEvent{Kind: protocol.EventError, Error: &protocol.AgentChatError{Kind: protocol.ErrKindTimeout, Message: "no progress"}})
+	if cs.Status != protocol.ChatStatusWorking {
+		t.Fatalf("status after watchdog timeout = %q, want working", cs.Status)
+	}
+	applyEventToSession(&cs, protocol.AgentChatEvent{Kind: protocol.EventError, Error: &protocol.AgentChatError{Kind: protocol.ErrKindExit}})
+	if cs.Status != protocol.ChatStatusFailed {
+		t.Fatalf("status after exit error = %q, want failed", cs.Status)
+	}
+}

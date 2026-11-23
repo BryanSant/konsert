@@ -87,6 +87,9 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 	if err := s.store.CreateChatSession(ctx, cs); err != nil {
 		return cs, err
 	}
+	// Other browsers (and tabs) learn about chats created elsewhere, e.g. by the CLI,
+	// the orchestrator or another tab.
+	s.hub.broadcastFleetUpdate("chat_session", cs)
 	return cs, nil
 }
 
@@ -175,6 +178,7 @@ func (s *Server) handleRenameChatSession(w http.ResponseWriter, r *http.Request)
 		writeChatError(w, err)
 		return
 	}
+	s.hub.broadcastFleetUpdate("chat_session", cs)
 	writeJSON(w, http.StatusOK, cs)
 }
 
@@ -188,6 +192,7 @@ func (s *Server) handleDeleteChatSession(w http.ResponseWriter, r *http.Request)
 	// The row (and its token hash) is gone; drop the in-memory token, end any
 	// pending ask_user and close the engine.
 	s.hub.forgetChat(id, cs.WorkerID)
+	s.hub.broadcastFleetUpdate("chat_session_deleted", id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
