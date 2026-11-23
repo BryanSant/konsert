@@ -45,6 +45,28 @@ type WorkerStatusView struct {
 	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
 }
 
+// toWorkerView builds the API/WebSocket view of a worker row with its live
+// active-task count and latest metrics. Facts are decoded from the cached JSON.
+func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
+	return WorkerStatusView{
+		ID:             w.ID,
+		Name:           w.Name,
+		HostGroup:      w.HostGroup,
+		OS:             w.OS,
+		Arch:           w.Arch,
+		Isolation:      w.Isolation,
+		PermissionMode: string(w.PermissionMode),
+		Agents:         w.Agents,
+		Tags:           w.Tags,
+		MaxConcurrent:  w.MaxConcurrent,
+		Status:         w.Status,
+		ActiveTasks:    active,
+		LastSeenAt:     w.LastSeenAt,
+		Metrics:        metrics,
+		Facts:          decodeWorkerFacts(w.FactsJSON),
+	}
+}
+
 func decodeWorkerFacts(raw string) *protocol.MachineFacts {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -76,23 +98,9 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		if st == "online" && !s.hub.IsWorkerConnected(w.ID) {
 			st = "offline"
 		}
-		views = append(views, WorkerStatusView{
-			ID:             w.ID,
-			Name:           w.Name,
-			HostGroup:      w.HostGroup,
-			OS:             w.OS,
-			Arch:           w.Arch,
-			Isolation:      w.Isolation,
-			PermissionMode: string(w.PermissionMode),
-			Agents:         w.Agents,
-			Tags:           w.Tags,
-			MaxConcurrent:  w.MaxConcurrent,
-			Status:         st,
-			ActiveTasks:    ac,
-			LastSeenAt:     w.LastSeenAt,
-			Metrics:        s.hub.WorkerMetrics(w.ID),
-			Facts:          decodeWorkerFacts(w.FactsJSON),
-		})
+		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
+		view.Status = st
+		views = append(views, view)
 	}
 	return FleetStatusResult{
 		Workers:          views,
