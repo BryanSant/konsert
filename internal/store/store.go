@@ -202,6 +202,7 @@ type Store interface {
 	GetWorker(ctx context.Context, id string) (Worker, error)
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error
+	DeduplicateWorkers(ctx context.Context) ([]string, error)
 	MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error)
 
 	CreateSpace(ctx context.Context, sp Space) error

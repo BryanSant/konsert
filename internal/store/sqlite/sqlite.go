@@ -52,6 +52,11 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Automatically collapse any legacy duplicate machine rows (migrating their spaces, repos, and tasks).
+	if _, err := st.DeduplicateWorkers(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	return st, nil
 }
@@ -240,6 +245,92 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		return store.ErrNotFound
 	}
 	return tx.Commit()
+}
+
+// DeduplicateWorkers collapses any duplicate worker rows representing the same machine
+// (matching name, host_group, os, arch, isolation), migrating all spaces, repos, tasks,
+// and subscription quotas to the canonical online/most-recently-seen row.
+func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) {
+	workers, err := s.ListWorkers(ctx)
+	if err != nil || len(workers) < 2 {
+		return nil, err
+	}
+
+	type machineKey struct {
+		name      string
+		hostGroup string
+		os        string
+		arch      string
+		isolation string
+	}
+	groups := make(map[machineKey][]store.Worker)
+	for _, w := range workers {
+		k := machineKey{
+			name:      strings.ToLower(strings.TrimSpace(w.Name)),
+			hostGroup: strings.ToLower(strings.TrimSpace(w.HostGroup)),
+			os:        strings.ToLower(strings.TrimSpace(w.OS)),
+			arch:      strings.ToLower(strings.TrimSpace(w.Arch)),
+			isolation: strings.ToLower(strings.TrimSpace(w.Isolation)),
+		}
+		groups[k] = append(groups[k], w)
+	}
+
+	var removedIDs []string
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, grp := range groups {
+		if len(grp) < 2 {
+			continue
+		}
+		// Choose canonical winner: online beats offline, then most recent LastSeenAt.
+		winner := grp[0]
+		for _, cand := range grp[1:] {
+			winnerOnline := winner.Status == "online"
+			candOnline := cand.Status == "online"
+			if candOnline && !winnerOnline {
+				winner = cand
+			} else if candOnline == winnerOnline && cand.LastSeenAt.After(winner.LastSeenAt) {
+				winner = cand
+			}
+		}
+
+		for _, w := range grp {
+			if w.ID == winner.ID {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE spaces SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE repos SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE subscription_quotas SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM workers WHERE id = ?`, w.ID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+			removedIDs = append(removedIDs, w.ID)
+		}
+	}
+	if len(removedIDs) > 0 {
+		// Remove any exact duplicate saved spaces on the same worker/path created across duplicate worker rows.
+		_, _ = tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return removedIDs, nil
 }
 
 func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error) {

@@ -319,6 +319,11 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	if err := h.store.UpsertWorker(ctx, wModel); err != nil {
 		h.logger.Error("upsert worker failed", "worker_id", wModel.ID, "err", err)
 	}
+	if removedDups, dErr := h.store.DeduplicateWorkers(ctx); dErr == nil {
+		for _, dupID := range removedDups {
+			h.broadcastFleetUpdate("worker_deleted", dupID)
+		}
+	}
 
 	h.mu.Lock()
 	var prevConn *workerConn
