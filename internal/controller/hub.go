@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/orchestrator"
@@ -51,13 +52,25 @@ type Hub struct {
 	workers       map[string]*workerConn
 	workerMetrics map[string]*protocol.WorkerMetrics
 	clients       map[*browserClient]struct{}
-	taskWorker    map[string]string                 // taskID -> workerID
+	taskWorker    map[string]string                  // taskID -> workerID
 	ptySubs       map[string]map[*browserClient]bool // taskID -> client -> needsSnapshot
 	waiters       map[string][]chan store.Task
 	rpcWaiters    map[string]chan protocol.Envelope
-	pendingStart  map[string]protocol.TaskStartPayload // queued tasks awaiting capacity
 
 	orch *orchestrator.Service
+
+	// Hub lifetime: ctx is canceled by Shutdown; wg tracks background goroutines
+	// (scheduler runs, delayed reconciliation checks, chat turns, the reaper).
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	closed bool // guarded by mu; set once Shutdown starts so no new goroutines are tracked
+
+	// Scheduler single-flight: schedMu serializes SchedulePending runs and
+	// schedRunning/schedDirty coalesce kicks into at most one queued rerun.
+	schedMu      sync.Mutex
+	schedRunning atomic.Bool
+	schedDirty   atomic.Bool
 
 	// Configurable for tests (defaults to 30s timeout, 10s check interval).
 	StaleWorkerTimeout time.Duration
@@ -69,7 +82,10 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	hctx, hcancel := context.WithCancel(context.Background())
 	return &Hub{
+		ctx:                hctx,
+		cancel:             hcancel,
 		store:              st,
 		logger:             logger,
 		workers:            make(map[string]*workerConn),
@@ -79,7 +95,6 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		ptySubs:            make(map[string]map[*browserClient]bool),
 		waiters:            make(map[string][]chan store.Task),
 		rpcWaiters:         make(map[string]chan protocol.Envelope),
-		pendingStart:       make(map[string]protocol.TaskStartPayload),
 		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
 	}
@@ -92,8 +107,25 @@ func (h *Hub) SetOrchestrator(o *orchestrator.Service) {
 	h.orch = o
 }
 
-// Close terminates all active worker and browser WebSocket connections cleanly.
+// Close shuts the hub down, waiting up to five seconds for background work to drain.
+// Prefer Shutdown when the caller has its own deadline.
 func (h *Hub) Close() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = h.Shutdown(ctx)
+}
+
+// Shutdown stops the hub: it cancels the hub lifetime context (stopping the
+// reaper, scheduler runs, pending reconciliation checks and in-flight chat
+// turns), closes every worker and browser WebSocket with StatusGoingAway (which
+// konsertd treats as reconnectable), and waits for tracked background goroutines
+// to exit. It returns ctx.Err() if ctx expires first. Safe to call more than once.
+func (h *Hub) Shutdown(ctx context.Context) error {
+	h.mu.Lock()
+	h.closed = true
+	h.mu.Unlock()
+	h.cancel()
+
 	h.mu.Lock()
 	workers := make([]*workerConn, 0, len(h.workers))
 	for _, wc := range h.workers {
@@ -106,17 +138,61 @@ func (h *Hub) Close() {
 	h.mu.Unlock()
 
 	for _, wc := range workers {
+		if wc.conn != nil {
+			_ = wc.conn.Close(websocket.StatusGoingAway, "controller shutting down")
+		}
 		wc.cancel()
-		_ = wc.conn.Close(websocket.StatusGoingAway, "controller shutting down")
 	}
 	for _, c := range clients {
 		c.cancel()
 		_ = c.conn.Close(websocket.StatusGoingAway, "controller shutting down")
 	}
+
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// goBackground runs fn on a goroutine tracked by the hub WaitGroup, passing the
+// hub lifetime context. It returns false (and does not run fn) once Shutdown began.
+func (h *Hub) goBackground(fn func(ctx context.Context)) bool {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return false
+	}
+	h.wg.Add(1)
+	h.mu.Unlock()
+	go func() {
+		defer h.wg.Done()
+		fn(h.ctx)
+	}()
+	return true
 }
 
 // RunReaper periodically marks workers with missed heartbeats offline and applies orphan policies.
+// It returns when ctx is canceled or the hub shuts down.
 func (h *Hub) RunReaper(ctx context.Context) {
+	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		return
+	}
+	h.wg.Add(1)
+	h.mu.Unlock()
+	defer h.wg.Done()
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	defer context.AfterFunc(h.ctx, stop)()
+
 	interval := h.ReapInterval
 	if interval <= 0 {
 		interval = 10 * time.Second
@@ -164,6 +240,12 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 	if err != nil {
 		return
 	}
+	requeued := false
+	defer func() {
+		if requeued {
+			h.kickScheduler()
+		}
+	}()
 	for _, t := range tasks {
 		if protocol.IsTerminalTaskStatus(t.Status) || t.Status == protocol.TaskStatusQueued {
 			continue
@@ -177,7 +259,12 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 			continue
 		}
 		if t.OrphanPolicy == protocol.OrphanPolicyRequeue {
-			_ = h.store.UpdateTaskStatus(ctx, t.ID, protocol.TaskStatusQueued, "requeued after worker disconnect", "", nil)
+			// Keep the dead worker only when the task was explicitly pinned to it;
+			// otherwise the scheduler may place it on any matching worker.
+			_, _, pinned := h.taskStartSpec(ctx, t)
+			if ok, _ := h.store.RequeueTask(ctx, t.ID, "requeued after worker disconnect", pinned); ok {
+				requeued = true
+			}
 			if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
 				h.broadcastFleetUpdate("task", updated)
 			}
@@ -400,7 +487,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	})
 
 	// Drain any queued tasks that can now run on this worker.
-	go h.SchedulePending(context.Background())
+	h.kickScheduler()
 
 	// Writer goroutine
 	go func() {
@@ -597,7 +684,7 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 			h.broadcastFleetUpdate("task", updated)
 			if protocol.IsTerminalTaskStatus(updated.Status) {
 				h.notifyTaskDone(updated)
-				go h.SchedulePending(context.Background())
+				h.kickScheduler()
 			}
 		}
 
@@ -915,64 +1002,137 @@ func (h *Hub) DispatchToWorker(workerID string, payload protocol.TaskStartPayloa
 		wc.mu.Lock()
 		delete(wc.activeTasks, payload.TaskID)
 		wc.mu.Unlock()
+		h.mu.Lock()
+		if h.taskWorker[payload.TaskID] == workerID {
+			delete(h.taskWorker, payload.TaskID)
+		}
+		h.mu.Unlock()
 		return fmt.Errorf("failed to enqueue task.start to worker %s", workerID)
 	}
 	return nil
 }
 
-// QueuePendingStart remembers a task's start payload when queued waiting for worker capacity.
-func (h *Hub) QueuePendingStart(payload protocol.TaskStartPayload, selector WorkerSelector) {
-	h.mu.Lock()
-	h.pendingStart[payload.TaskID] = payload
-	h.mu.Unlock()
+// kickScheduler requests a SchedulePending run on a tracked background goroutine.
+// Concurrent kicks coalesce: at most one run is active and at most one more is
+// queued behind it, so a burst of hellos or terminal statuses costs one or two passes.
+func (h *Hub) kickScheduler() {
+	h.schedDirty.Store(true)
+	if !h.schedRunning.CompareAndSwap(false, true) {
+		return
+	}
+	started := h.goBackground(func(ctx context.Context) {
+		for {
+			for h.schedDirty.Swap(false) {
+				if ctx.Err() != nil {
+					break
+				}
+				h.SchedulePending(ctx)
+			}
+			h.schedRunning.Store(false)
+			// A kick may have landed between the last Swap and the Store above.
+			if ctx.Err() != nil || !h.schedDirty.Load() || !h.schedRunning.CompareAndSwap(false, true) {
+				return
+			}
+		}
+	})
+	if !started {
+		h.schedRunning.Store(false)
+	}
 }
 
-// SchedulePending tries to dispatch any queued tasks to newly available workers.
+// taskStartSpec returns the persisted task.start payload and worker selector for t,
+// and whether its worker was explicitly pinned. Tasks created before the spec was
+// persisted fall back to a payload rebuilt from the task row.
+func (h *Hub) taskStartSpec(ctx context.Context, t store.Task) (protocol.TaskStartPayload, WorkerSelector, bool) {
+	var (
+		payload     protocol.TaskStartPayload
+		sel         WorkerSelector
+		havePayload bool
+		pinned      bool
+	)
+	spec, err := h.store.GetTaskStartSpec(ctx, t.ID)
+	if err == nil && spec.PayloadJSON != "" {
+		havePayload = json.Unmarshal([]byte(spec.PayloadJSON), &payload) == nil
+	}
+	if err == nil && spec.SelectorJSON != "" && json.Unmarshal([]byte(spec.SelectorJSON), &sel) == nil {
+		pinned = spec.WorkerPinned
+	} else {
+		// Legacy row: the only constraint we know is the recorded worker.
+		sel = WorkerSelector{WorkerID: t.WorkerID}
+		pinned = t.WorkerID != ""
+	}
+	if !havePayload {
+		payload = protocol.TaskStartPayload{
+			Agent:          t.Agent,
+			Model:          t.Model,
+			SessionKind:    t.SessionKind,
+			Workdir:        t.Workdir,
+			Branch:         t.Branch,
+			UseWorktree:    t.Branch != "",
+			Prompt:         t.Prompt,
+			Mode:           t.Mode,
+			PermissionMode: string(t.PermissionMode),
+			TimeoutSeconds: 3600,
+		}
+	}
+	payload.TaskID = t.ID
+	return payload, sel, pinned
+}
+
+// SchedulePending dispatches queued tasks to connected workers with capacity.
+// Runs are serialized, and each task is claimed atomically in the store
+// (queued -> assigned) before task.start is sent, so a task is never dispatched
+// twice. A failed send returns the task to queued.
 func (h *Hub) SchedulePending(ctx context.Context) {
-	tasks, err := h.store.ListTasks(ctx, protocol.TaskStatusQueued, "", 100)
+	h.schedMu.Lock()
+	defer h.schedMu.Unlock()
+
+	tasks, err := h.store.ListTasks(ctx, protocol.TaskStatusQueued, "", 200)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
-	workers, err := h.store.ListWorkers(ctx)
+	all, err := h.store.ListWorkers(ctx)
 	if err != nil {
+		return
+	}
+	// Only connected workers can receive task.start; a disconnected-but-online
+	// worker would otherwise win placement and leave the task waiting.
+	workers := make([]store.Worker, 0, len(all))
+	for _, w := range all {
+		if h.IsWorkerConnected(w.ID) {
+			workers = append(workers, w)
+		}
+	}
+	if len(workers) == 0 {
 		return
 	}
 	counts := h.ActiveTaskCounts()
 
-	for _, t := range tasks {
-		h.mu.RLock()
-		startPayload, hasPayload := h.pendingStart[t.ID]
-		h.mu.RUnlock()
-		if !hasPayload {
-			startPayload = protocol.TaskStartPayload{
-				TaskID:         t.ID,
-				Agent:          t.Agent,
-				Workdir:        t.Workdir,
-				Branch:         t.Branch,
-				UseWorktree:    t.Branch != "",
-				Prompt:         t.Prompt,
-				Mode:           t.Mode,
-				PermissionMode: string(t.PermissionMode),
-				TimeoutSeconds: 3600,
-			}
+	// ListTasks returns newest first; dispatch oldest first.
+	for i := len(tasks) - 1; i >= 0; i-- {
+		t := tasks[i]
+		if ctx.Err() != nil {
+			return
 		}
-
-		sel := WorkerSelector{WorkerID: t.WorkerID}
-		w, ok := SelectWorker(workers, counts, sel, t.Agent, t.PermissionMode)
-		if !ok || !h.IsWorkerConnected(w.ID) {
+		if t.Origin == protocol.TaskOriginExternal {
 			continue
 		}
-
-		_ = h.store.UpdateTaskAssignment(ctx, t.ID, w.ID, "")
-		_ = h.store.UpdateTaskStatus(ctx, t.ID, protocol.TaskStatusAssigned, "", "", nil)
-		if err := h.DispatchToWorker(w.ID, startPayload); err != nil {
+		payload, sel, pinned := h.taskStartSpec(ctx, t)
+		w, ok := SelectWorker(workers, counts, sel, t.Agent, t.PermissionMode)
+		if !ok {
+			continue
+		}
+		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID)
+		if err != nil || !claimed {
+			continue
+		}
+		if err := h.DispatchToWorker(w.ID, payload); err != nil {
+			h.logger.Warn("dispatch of queued task failed; returning it to the queue",
+				"task_id", t.ID, "worker_id", w.ID, "err", err)
+			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned)
 			continue
 		}
 		counts[w.ID]++
-		h.mu.Lock()
-		delete(h.pendingStart, t.ID)
-		h.mu.Unlock()
-
 		if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
 			h.broadcastFleetUpdate("task", updated)
 		}

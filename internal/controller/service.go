@@ -529,15 +529,29 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		TimeoutSeconds: timeoutSecs,
 	}
 
+	// Persist the selector and full start payload so a queued (or later requeued)
+	// task keeps its constraints and launch options across controller restarts.
+	pinned := strings.TrimSpace(req.WorkerSelector.WorkerID) != ""
+	spec := store.TaskStartSpec{WorkerPinned: pinned}
+	if b, mErr := json.Marshal(req.WorkerSelector); mErr == nil {
+		spec.SelectorJSON = string(b)
+	}
+	if b, mErr := json.Marshal(startPayload); mErr == nil {
+		spec.PayloadJSON = string(b)
+	}
+	if err := s.store.SetTaskStartSpec(ctx, taskID, spec); err != nil {
+		return DispatchResult{}, fmt.Errorf("persist task start spec: %w", err)
+	}
+
 	if ok {
 		if err := s.hub.DispatchToWorker(selected.ID, startPayload); err != nil {
-			_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusQueued, "", "", nil)
+			_, _ = s.store.RequeueTask(ctx, taskID, "", pinned)
 			task.Status = protocol.TaskStatusQueued
-			hQueue := s.hub
-			hQueue.QueuePendingStart(startPayload, req.WorkerSelector)
+			if !pinned {
+				task.WorkerID = ""
+			}
+			s.hub.kickScheduler()
 		}
-	} else {
-		s.hub.QueuePendingStart(startPayload, req.WorkerSelector)
 	}
 
 	s.hub.broadcastFleetUpdate("task", task)

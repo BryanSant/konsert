@@ -133,6 +133,15 @@ type Task struct {
 	CompletedAt    *time.Time     `json:"completed_at,omitempty"`
 }
 
+// TaskStartSpec is the persisted placement and launch specification of a task:
+// the JSON-encoded worker selector and task.start payload, plus whether the
+// worker was explicitly pinned (so requeue keeps it instead of clearing it).
+type TaskStartSpec struct {
+	SelectorJSON string `json:"selector_json,omitempty"`
+	PayloadJSON  string `json:"payload_json,omitempty"`
+	WorkerPinned bool   `json:"worker_pinned,omitempty"`
+}
+
 type TaskEvent struct {
 	ID        int64     `json:"id"`
 	TaskID    string    `json:"task_id"`
@@ -239,6 +248,16 @@ type Store interface {
 	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error
 	GetTask(ctx context.Context, id string) (Task, error)
 	ListTasks(ctx context.Context, status, workerID string, limit int) ([]Task, error)
+
+	// Task placement persistence and atomic scheduling transitions.
+	SetTaskStartSpec(ctx context.Context, taskID string, spec TaskStartSpec) error
+	GetTaskStartSpec(ctx context.Context, taskID string) (TaskStartSpec, error)
+	ClaimQueuedTask(ctx context.Context, taskID, workerID string) (bool, error)
+	RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool) (bool, error)
+
+	// Stable konsertd machine identity (WorkerInfo.MachineID).
+	SetWorkerMachineID(ctx context.Context, workerID, machineID string) error
+	ListWorkerMachineIDs(ctx context.Context) (map[string]string, error)
 
 	AppendEvent(ctx context.Context, e TaskEvent) (int64, error)
 	ListEvents(ctx context.Context, taskID string, afterID int64, limit int) ([]TaskEvent, error)
