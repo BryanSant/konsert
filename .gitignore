@@ -1,8 +1,8 @@
 # Binaries & build artifacts
 /bin/
 /dist/
-konsert
-konsertd
+/konsert
+/konsertd
 *.exe
 
 # Local database & runtime state

@@ -182,6 +182,9 @@ type WorkerInfo struct {
 	Tags           map[string]string `json:"tags"`
 	MaxConcurrent  int               `json:"max_concurrent"`
 	Facts          *MachineFacts     `json:"facts,omitempty"`
+	// MachineID is a stable per-installation UUID persisted by konsertd; the hub
+	// prefers it over the name/host tuple for identity matching.
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 // ActiveTaskInfo is sent in worker.hello so the controller can re-adopt in-flight tasks on restart.
