@@ -2,7 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { KonsertSocketService } from '../../core/services/konsert-socket.service';
+import { Task } from '../../core/models/konsert.models';
 import { FleetStore } from '../../core/state/fleet.store';
+import { TabsStore } from '../../core/state/tabs.store';
 import { XtermPaneComponent, clampFontSize } from './xterm-pane.component';
 
 class NoopResizeObserver {
@@ -14,6 +16,7 @@ class NoopResizeObserver {
 describe('XtermPaneComponent', () => {
   let subscribePty: ReturnType<typeof vi.fn>;
   let unsubs: Record<string, ReturnType<typeof vi.fn>>;
+  let setTaskControl: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', NoopResizeObserver);
@@ -30,9 +33,10 @@ describe('XtermPaneComponent', () => {
     );
     unsubs = {};
     subscribePty = vi.fn((taskId: string) => (unsubs[taskId] = vi.fn()));
+    setTaskControl = vi.fn(async () => ({ ok: true }));
     TestBed.configureTestingModule({
       providers: [
-        { provide: ApiClientService, useValue: { cancelTask: vi.fn() } },
+        { provide: ApiClientService, useValue: { cancelTask: vi.fn(), setTaskControl } },
         {
           provide: KonsertSocketService,
           useValue: { subscribePty, sendPtyResize: vi.fn(), sendPtyStdin: vi.fn() },
@@ -84,6 +88,21 @@ describe('XtermPaneComponent', () => {
 
     fixture.destroy();
     expect(unsubs['t2']).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports Take Control toggles to the hub for the audit log', async () => {
+    const tabs = TestBed.inject(TabsStore);
+    tabs.openTaskTab({ id: 't1', worker_id: 'w1', agent: 'claude', origin: 'orchestrator', status: 'running', workdir: '/r', created_at: '' } as Task, 'w1');
+    const fixture = await create('t1');
+    const cmp = fixture.componentInstance;
+    expect(cmp.interactiveMode()).toBe(false);
+
+    cmp.toggleInteractive();
+    expect(setTaskControl).toHaveBeenLastCalledWith('t1', true);
+    cmp.toggleInteractive();
+    expect(setTaskControl).toHaveBeenLastCalledWith('t1', false);
+    expect(setTaskControl).toHaveBeenCalledTimes(2);
+    fixture.destroy();
   });
 
   it('clampFontSize falls back to the default for out-of-range values', () => {

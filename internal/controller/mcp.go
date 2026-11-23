@@ -187,6 +187,7 @@ func (s *FleetService) UpdateSettingsMap(ctx context.Context, updates map[string
 	if err := s.store.SetSettings(ctx, filtered); err != nil {
 		return nil, err
 	}
+	recordSettingsAudit(ctx, s.hub, filtered)
 	return s.GetSettingsMap(ctx)
 }
 
@@ -408,6 +409,21 @@ func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Se
 		return jsonToolResult(res)
 	})
 
+	// Read-only fleet audit log (KON-WP2A5).
+	if ab, ok := backend.(AuditBackend); ok {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "list_audit",
+			Description: "Read the fleet-wide operator audit log (Take Control, steer, cancel, git commit, worker removal, settings and wake-lock changes), newest first. Filter by worker_id, task_id, user, action or time; page with before_id = next_cursor.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ListAuditInput) (*mcp.CallToolResult, any, error) {
+			res, err := ab.ListAudit(ctx, in)
+			if err != nil {
+				return nil, nil, err
+			}
+			return jsonToolResult(res)
+		})
+	}
+
 	// Full control-plane tools (taxonomy, fan-out, settings, memory, Orchestrator)
 	if cp, ok := backend.(ControlPlaneBackend); ok {
 		mcp.AddTool(srv, &mcp.Tool{
@@ -529,6 +545,9 @@ type RemoteFleetClient struct {
 	BaseURL string
 	Token   string
 	Client  *http.Client
+	// Source optionally labels this client ("cli" or "mcp") in the hub's audit
+	// log via the X-Konsert-Client header. Identity still comes from Token.
+	Source string
 }
 
 func NewRemoteFleetClient(baseURL, token string) *RemoteFleetClient {
@@ -574,6 +593,9 @@ func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, req
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if c.Source != "" {
+		req.Header.Set(clientKindHeader, c.Source)
 	}
 	resp, err := c.Client.Do(req)
 	if err != nil {
@@ -679,6 +701,13 @@ func (c *RemoteFleetClient) FanOutFleet(ctx context.Context, req FanOutRequest) 
 	var res FanOutResult
 	err := c.doJSON(ctx, http.MethodPost, "/api/fleet/fanout", req, &res)
 	return res, err
+}
+
+// ListAudit implements AuditBackend over GET /api/audit.
+func (c *RemoteFleetClient) ListAudit(ctx context.Context, in ListAuditInput) (AuditListResponse, error) {
+	var resp AuditListResponse
+	err := c.doJSON(ctx, http.MethodGet, "/api/audit?"+url.Values(in.query()).Encode(), nil, &resp)
+	return resp, err
 }
 
 func (c *RemoteFleetClient) ListTaskEvents(ctx context.Context, taskID string, afterID int64) ([]store.TaskEvent, error) {

@@ -190,4 +190,52 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
       expect((box?.width ?? 999)).toBeLessThanOrEqual(390);
     }
   });
+
+  test('audit log inspector lists control actions, live-appends and filters', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'mobile', 'desktop inspector rail');
+    const env = loadEnv();
+    await loginThroughUI(page, env);
+
+    const api = (path: string, body?: unknown) =>
+      page.evaluate(
+        async ({ path, body }) => {
+          const res = await fetch(path, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+            body: JSON.stringify(body ?? {}),
+          });
+          if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+          return res.json();
+        },
+        { path, body },
+      );
+
+    const { task_id: taskId } = (await api('/api/tasks', {
+      worker_selector: { worker_id: env.workerId },
+      agent: 'mock',
+      repo_path: env.workdir,
+      prompt: 'WAIT_INPUT',
+      mode: 'interactive',
+      origin: 'orchestrator',
+    })) as { task_id: string };
+    await api(`/api/tasks/${taskId}/control`, { enabled: true });
+
+    await page.getByRole('button', { name: 'Audit Log' }).click();
+    const inspector = page.locator('#ks-right-pane');
+    const table = inspector.getByRole('table');
+    await expect(table.getByRole('columnheader', { name: 'User' })).toBeVisible();
+    const takeRow = table.getByRole('row').filter({ hasText: 'Take control' }).first();
+    await expect(takeRow).toContainText('operator');
+    await expect(takeRow).toContainText(env.workerName);
+
+    // A new action appears without reloading the panel (fleet.update "audit").
+    await api(`/api/tasks/${taskId}/cancel`);
+    await expect(table.getByRole('row').filter({ hasText: 'Cancel' }).first()).toBeVisible();
+
+    // Filtering by action narrows the table.
+    await inspector.getByLabel('Action').selectOption('task.take_control');
+    await expect(table.getByRole('row').filter({ hasText: 'Cancel' })).toHaveCount(0);
+    await expect(table.getByRole('row').filter({ hasText: 'Take control' }).first()).toBeVisible();
+  });
 });

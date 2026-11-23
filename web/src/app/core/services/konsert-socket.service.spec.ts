@@ -8,6 +8,7 @@ import {
   FRAME_PTY_SNAPSHOT,
   FRAME_PTY_STDIN,
 } from '../models/konsert.models';
+import { AuditStore } from '../state/audit.store';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { AuthService } from './auth.service';
@@ -168,6 +169,22 @@ describe('KonsertSocketService', () => {
       expect(fleet.workersById()['w1']?.name).toBe('box');
       ws.receiveJSON('fleet.update', { kind: 'worker_deleted', deleted_id: 'w1' });
       expect(fleet.workersById()['w1']).toBeUndefined();
+    });
+
+    it('forwards fleet.update audit entries to AuditStore subscribers', () => {
+      socket.connect();
+      const ws = FakeWebSocket.last;
+      ws.open();
+      const seen: number[] = [];
+      const unsubscribe = TestBed.inject(AuditStore).subscribe((ev) => seen.push(ev.id));
+      ws.receiveJSON('fleet.update', {
+        kind: 'audit',
+        audit: { id: 7, created_at: '2026-11-22T00:00:00Z', user: 'mcp', action: 'task.cancel', task_id: 't1' },
+      });
+      ws.receiveJSON('fleet.update', { kind: 'audit' });
+      unsubscribe();
+      ws.receiveJSON('fleet.update', { kind: 'audit', audit: { id: 8, created_at: '', user: 'x', action: 'y' } });
+      expect(seen).toEqual([7]);
     });
   });
 

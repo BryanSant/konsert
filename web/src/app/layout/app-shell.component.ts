@@ -339,6 +339,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
     { id: 'agent', label: 'Agent', title: 'Agent Activity & History', icon: 'agent-history' },
     { id: 'git', label: 'Git', title: 'Git Changes', icon: 'git-branch' },
     { id: 'checks', label: 'Checks', title: 'Checks & Runtime', icon: 'checks' },
+    { id: 'audit', label: 'Audit', title: 'Audit Log', icon: 'shield' },
   ];
 
   // Modals: each is its own component, mounted while its signal is set.

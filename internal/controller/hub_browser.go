@@ -384,6 +384,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Task = item
 	case "event":
 		p.Event = item
+	case "audit":
+		p.Audit = item
 	case "space":
 		p.Space = item
 	case "workspace":

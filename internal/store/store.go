@@ -153,6 +153,36 @@ type TaskEvent struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// AuditEvent is one operator control action in the fleet-wide audit log: who
+// (User: the authenticated browser/Tailscale identity, "token" for admin bearer
+// callers, "mcp" for MCP clients), what (Action, Message), when, and which host
+// and task it touched. MetaJSON never carries secret values.
+type AuditEvent struct {
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	User      string    `json:"user"`
+	Source    string    `json:"source,omitempty"` // "rest" | "ws" | "mcp" | "orchestrator" | "cli" | "legacy"
+	Action    string    `json:"action"`           // e.g. "task.steer", "task.cancel", "task.take_control"
+	WorkerID  string    `json:"worker_id,omitempty"`
+	TaskID    string    `json:"task_id,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	MetaJSON  string    `json:"meta_json,omitempty"`
+}
+
+// AuditFilter selects audit events. Zero values mean "no filter". Results are
+// newest first; BeforeID pages toward older rows and AfterID fetches newer ones.
+type AuditFilter struct {
+	WorkerID string
+	TaskID   string
+	User     string
+	Action   string
+	Since    time.Time
+	Until    time.Time
+	BeforeID int64
+	AfterID  int64
+	Limit    int
+}
+
 type ChatSession struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -266,6 +296,13 @@ type Store interface {
 
 	AppendEvent(ctx context.Context, e TaskEvent) (int64, error)
 	ListEvents(ctx context.Context, taskID string, afterID int64, limit int) ([]TaskEvent, error)
+
+	// Fleet-wide operator audit log.
+	AppendAudit(ctx context.Context, e AuditEvent) (int64, error)
+	ListAudit(ctx context.Context, f AuditFilter) ([]AuditEvent, error)
+	// PruneAudit deletes rows older than olderThan and, when maxRows > 0, all but
+	// the newest maxRows rows. It returns the number of rows deleted.
+	PruneAudit(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
 
 	CreateChatSession(ctx context.Context, s ChatSession) error
 	GetChatSession(ctx context.Context, id string) (ChatSession, error)

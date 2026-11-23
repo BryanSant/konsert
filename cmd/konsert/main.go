@@ -150,6 +150,7 @@ func newMCPCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 			client := controller.NewRemoteFleetClient(controllerURL, token)
+			client.Source = "mcp"
 			return controller.RunMCPStdio(ctx, client, version)
 		},
 	}
@@ -192,7 +193,9 @@ func remoteClientFromFlags(url, token string) *controller.RemoteFleetClient {
 	if token == "" {
 		token = os.Getenv("KONSERT_ADMIN_TOKEN")
 	}
-	return controller.NewRemoteFleetClient(url, token)
+	client := controller.NewRemoteFleetClient(url, token)
+	client.Source = "cli"
+	return client
 }
 
 func newStatusCmd() *cobra.Command {

@@ -1,5 +1,6 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
+  AuditEvent,
   ChatToolCard,
   Envelope,
   FRAME_HEADER_SIZE,
@@ -18,6 +19,7 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
+import { AuditStore } from '../state/audit.store';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { TelemetryStore } from '../state/telemetry.store';
@@ -35,6 +37,7 @@ export class KonsertSocketService {
   private readonly fleetStore = inject(FleetStore);
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
+  private readonly auditStore = inject(AuditStore);
   private readonly notifications = inject(NotificationService);
   private readonly auth = inject(AuthService);
 
@@ -190,6 +193,7 @@ export class KonsertSocketService {
           project?: Project;
           repo?: Repo;
           worktree?: Worktree;
+          audit?: AuditEvent;
           deleted_id?: string;
         } | undefined;
         if (!p) return;
@@ -202,6 +206,8 @@ export class KonsertSocketService {
           this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
         } else if (p.kind === 'event' && p.event) {
           this.telemetryStore.appendEvent(p.event);
+        } else if (p.kind === 'audit' && p.audit) {
+          this.auditStore.publish(p.audit);
         } else if (p.kind === 'space' && p.space) {
           this.fleetStore.upsertSpace(p.space);
         } else if (p.kind === 'space_deleted' && p.deleted_id) {

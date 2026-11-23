@@ -763,6 +763,14 @@ func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, 
 		ev.ID = id
 	}
 	s.hub.broadcastFleetUpdate("event", ev)
+	// The steer text itself is never audited: it may carry secrets.
+	s.hub.recordAudit(ctx, store.AuditEvent{
+		Action:   AuditSteer,
+		WorkerID: t.WorkerID,
+		TaskID:   taskID,
+		Message:  ev.Message,
+		MetaJSON: auditMeta(map[string]any{"bytes": len(inputText), "append_newline": appendNewline}),
+	})
 
 	return ActionResult{OK: true, TaskID: taskID, Status: t.Status}, nil
 }
@@ -775,7 +783,17 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 	if protocol.IsTerminalTaskStatus(t.Status) {
 		return ActionResult{OK: true, TaskID: taskID, Status: t.Status}, nil
 	}
+	audit := func(msg string) {
+		s.hub.recordAudit(ctx, store.AuditEvent{
+			Action:   AuditCancel,
+			WorkerID: t.WorkerID,
+			TaskID:   taskID,
+			Message:  msg,
+			MetaJSON: auditMeta(map[string]any{"prior_status": t.Status}),
+		})
+	}
 	if t.Status == protocol.TaskStatusQueued {
+		audit("Canceled while queued")
 		_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled while queued", "", nil)
 		if updated, err := s.store.GetTask(ctx, taskID); err == nil {
 			s.hub.notifyTaskDone(updated)
@@ -786,6 +804,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 
 	sent := s.hub.SendCancel(taskID)
 	if !sent {
+		audit("Canceled (worker unreachable)")
 		_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled (worker unreachable)", "", nil)
 		if updated, err := s.store.GetTask(ctx, taskID); err == nil {
 			s.hub.notifyTaskDone(updated)
@@ -804,6 +823,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 		ev.ID = id
 	}
 	s.hub.broadcastFleetUpdate("event", ev)
+	audit("Cancellation requested")
 
 	return ActionResult{OK: true, TaskID: taskID, Status: protocol.TaskStatusCanceled}, nil
 }
@@ -1145,6 +1165,8 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 }
 
 func (s *FleetService) ExecuteTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	// Tool calls made by the Orchestrator LLM are audited as "orchestrator".
+	ctx = withDefaultAuditActor(ctx, auditSourceOrchestrator, auditSourceOrchestrator)
 	switch name {
 	case "fleet_status":
 		return s.FleetStatus(ctx)

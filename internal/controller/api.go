@@ -157,6 +157,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/steer", s.requireBrowserAuth(s.handleSteerTask))
 	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.handleCancelTask))
 	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.handleTaskEvents))
+	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.handleTaskControl))
+	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 
 	// Orchestrator Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))
@@ -183,6 +185,7 @@ func (s *Server) registerRoutes() {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
 			}
+			r = r.WithContext(withAuditActor(r.Context(), auditSourceMCP, auditSourceMCP))
 			if admin {
 				adminMCP.ServeHTTP(w, r)
 				return
@@ -197,11 +200,13 @@ func (s *Server) registerRoutes() {
 
 func (s *Server) requireBrowserAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := s.auth.AuthenticateBrowser(r); !ok {
+		user, ok := s.auth.AuthenticateBrowser(r)
+		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
-		next(w, r)
+		// Control actions are audited against the authenticated identity.
+		next(w, r.WithContext(withAuditActor(r.Context(), user, restAuditSource(r))))
 	})
 }
 
@@ -375,6 +380,10 @@ func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var name string
+	if wk, err := s.store.GetWorker(r.Context(), id); err == nil {
+		name = wk.Name
+	}
 	s.hub.DisconnectWorker(id)
 	if err := s.store.DeleteWorker(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -385,6 +394,16 @@ func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("worker_deleted", id)
+	msg := "Removed worker"
+	if name != "" {
+		msg += " " + name
+	}
+	s.hub.recordAudit(r.Context(), store.AuditEvent{
+		Action:   AuditWorkerRemove,
+		WorkerID: id,
+		Message:  msg,
+		MetaJSON: auditMeta(map[string]any{"name": name}),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
@@ -744,7 +763,28 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.broadcastFleetUpdate("event", ev)
 	}
+	if res.OK {
+		s.hub.recordAudit(r.Context(), store.AuditEvent{
+			Action:   AuditGitCommit,
+			WorkerID: workerID,
+			TaskID:   body.TaskID,
+			Message:  "Git commit " + res.CommitSHA + ": " + firstLine(body.Message),
+			MetaJSON: auditMeta(map[string]any{"sha": res.CommitSHA, "workdir": workdir, "space_id": body.SpaceID}),
+		})
+	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// firstLine returns the trimmed first line of s, capped at 200 bytes.
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if len(s) > 200 {
+		s = strings.ToValidUTF8(s[:200], "") + "…"
+	}
+	return s
 }
 
 func (s *Server) handleGitWorktreeCleanup(w http.ResponseWriter, r *http.Request) {

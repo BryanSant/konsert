@@ -51,6 +51,21 @@ describe('ApiClientService', () => {
     expect(headers.get('Content-Type')).toBe('application/json');
   });
 
+  it('builds GET /api/audit queries from set filters only', async () => {
+    await api.listAudit();
+    expect(lastCall().url).toBe('/api/audit');
+    await api.listAudit({ worker_id: 'w 1', user: '', action: 'task.steer', before_id: 42, limit: 50, task_id: undefined });
+    expect(lastCall().url).toBe('/api/audit?worker_id=w+1&action=task.steer&before_id=42&limit=50');
+  });
+
+  it('posts the Take Control audit signal', async () => {
+    await api.setTaskControl('t1', true);
+    const { url, init } = lastCall();
+    expect(url).toBe('/api/tasks/t1/control');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"enabled":true}');
+  });
+
   it('sends DELETE with JSON content type and the marker header', async () => {
     await api.deleteSpace('sp1');
     const { init, headers } = lastCall();

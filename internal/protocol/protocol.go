@@ -380,6 +380,8 @@ type FleetUpdatePayload struct {
 	Project   any    `json:"project,omitempty"`
 	Repo      any    `json:"repo,omitempty"`
 	Worktree  any    `json:"worktree,omitempty"`
+	// Audit carries a new fleet audit log entry when Kind is "audit" (additive).
+	Audit     any    `json:"audit,omitempty"`
 	DeletedID string `json:"deleted_id,omitempty"`
 }
 
