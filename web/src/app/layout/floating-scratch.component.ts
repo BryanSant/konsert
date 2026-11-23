@@ -116,6 +116,8 @@ import { IconComponent } from '../shared/icon.component';
                   <option value="claude">claude</option>
                   <option value="agy">agy</option>
                   <option value="grok">grok</option>
+                  <option value="copilot">copilot</option>
+                  <option value="cursor">cursor</option>
                   <option value="mock">mock</option>
                 </select>
               </div>

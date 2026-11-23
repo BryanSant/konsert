@@ -170,6 +170,10 @@ export class XtermPaneComponent implements OnDestroy {
         return 'Antigravity';
       case 'grok':
         return 'Grok';
+      case 'copilot':
+        return 'GitHub Copilot';
+      case 'cursor':
+        return 'Cursor Agent';
       case 'shell':
         return 'Shell';
       case 'mock':
