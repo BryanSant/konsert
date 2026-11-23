@@ -44,6 +44,11 @@ func TestDriverPermissionFlags(t *testing.T) {
 	if slices.Contains(grokSand.Args, "--always-approve") {
 		t.Fatalf("expected grok sandboxed to omit --always-approve, got %v", grokSand.Args)
 	}
+	// Full access pre-trusts the folder so the TUI trust dialog never blocks; sandboxed
+	// runs leave folder trust (which loads project hooks/rules) to the user.
+	if !slices.Contains(grokFull.Args, "--trust") || slices.Contains(grokSand.Args, "--trust") {
+		t.Fatalf("expected --trust only in full_access: full=%v sandboxed=%v", grokFull.Args, grokSand.Args)
+	}
 }
 
 func TestClaudeJSONLParserAndUsageDeltas(t *testing.T) {

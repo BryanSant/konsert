@@ -22,7 +22,8 @@ func init() {
 // GrokDriver runs xAI's Grok Build CLI (`grok`), verified against grok 1.0.92.
 //
 // Flags (from `grok --help` and live runs):
-//   - full_access: `--always-approve` (grok rejects `--yes`).
+//   - full_access: `--always-approve --trust` (grok rejects `--yes`; --trust skips the
+//     folder-trust dialog).
 //   - sandboxed:   `--sandbox workspace` (Seatbelt/Landlock: writes limited to the workdir,
 //     /tmp and ~/.grok), without auto-approval.
 //   - model:       `--model <id>`.
@@ -60,7 +61,12 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 	args := []string{}
 	if IsFullAccess(opts.PermissionMode) {
-		args = append(args, "--always-approve")
+		// --trust grants (and saves) folder trust, so the TUI's first-run "Do you trust
+		// the contents of this directory?" dialog never blocks a run, and headless runs
+		// in a repo with project config start instead of refusing. Full access already
+		// means the operator trusts the run. Sandboxed runs leave trust to the user:
+		// trusting a folder loads its project hooks and permission rules.
+		args = append(args, "--always-approve", "--trust")
 	} else {
 		args = append(args, "--sandbox", "workspace")
 	}

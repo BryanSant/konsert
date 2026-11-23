@@ -71,7 +71,7 @@ func kinds(events []TelemetryEvent) []string {
 func TestGrokArgv(t *testing.T) {
 	d := &GrokDriver{}
 	full := d.BuildCommand(LaunchOptions{TaskID: "a", Prompt: "fix it", Model: "grok-4.5", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionFullAccess})
-	if want := []string{"--always-approve", "--model", "grok-4.5", "--session-id", d.sessionFor("a"), "--single=fix it"}; !slices.Equal(full.Args, want) {
+	if want := []string{"--always-approve", "--trust", "--model", "grok-4.5", "--session-id", d.sessionFor("a"), "--single=fix it"}; !slices.Equal(full.Args, want) {
 		t.Fatalf("oneshot argv = %q, want %q", full.Args, want)
 	}
 	inter := d.BuildCommand(LaunchOptions{TaskID: "b", Prompt: "fix it", Mode: protocol.TaskModeInteractive, PermissionMode: protocol.PermissionSandboxed})
