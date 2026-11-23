@@ -23,6 +23,8 @@ import { SessionLauncherService } from './session-launcher.service';
 import { SettingsModalComponent } from './settings-modal.component';
 import { StatusFooterComponent } from './status-footer.component';
 import { TabStripComponent } from './tab-strip.component';
+import { PauseEverythingComponent, PausedBannerComponent } from '../features/control/pause-everything.component';
+import { ControlStore } from '../core/state/control.store';
 import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.component';
 
 @Component({
@@ -44,6 +46,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
     SessionDispatchModalComponent,
     NewSpaceModalComponent,
     TabStripComponent,
+    PauseEverythingComponent,
+    PausedBannerComponent,
   ],
   template: `
     <div class="flex flex-col h-screen w-screen overflow-hidden bg-[#111214] text-[#ececed]">
@@ -94,6 +98,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
         <!-- Right Orca-style Inspector Tab Icons & Collapse Toggle -->
         <div class="flex items-center gap-0.5 pr-2.5 pl-2 h-full shrink-0">
+          <!-- Pause everything: always visible (PRD §5.8a) -->
+          <ks-pause-everything class="mr-1.5" />
           @for (p of inspectorPanels; track p.id) {
             <button
               type="button"
@@ -101,9 +107,15 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               [ksTooltip]="p.title"
               [attr.aria-label]="p.title"
               [attr.aria-pressed]="rightOpen() && inspectorPanel() === p.id"
-              class="ks-icon-btn hidden md:inline-flex"
+              [attr.data-testid]="'inspector-' + p.id"
+              class="ks-icon-btn hidden md:inline-flex relative"
             >
               <app-icon [name]="p.icon" [size]="15" />
+              @if (p.id === 'control' && control.attentionCount() > 0) {
+                <span class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full bg-[var(--ks-amber)] px-1 text-[9px] font-semibold leading-[14px] text-[#111214]">
+                  {{ control.attentionCount() }}
+                </span>
+              }
             </button>
           }
 
@@ -130,6 +142,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
           </button>
         </div>
       </header>
+
+      <ks-paused-banner />
 
       <!-- Main 3-Pane Workspace (Animated Sidebars!) -->
       <div class="flex flex-1 min-h-0 relative overflow-hidden">
@@ -331,6 +345,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly notifications = inject(NotificationService);
   private readonly launcher = inject(SessionLauncherService);
   readonly setup = inject(SetupStore);
+  readonly control = inject(ControlStore);
 
   readonly leftOpen = signal(true);
   readonly rightOpen = signal(true);
@@ -341,6 +356,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
     { id: 'agent', label: 'Agent', title: 'Agent Activity & History', icon: 'agent-history' },
     { id: 'git', label: 'Git', title: 'Git Changes', icon: 'git-branch' },
     { id: 'checks', label: 'Checks', title: 'Checks & Runtime', icon: 'checks' },
+    { id: 'control', label: 'Actions', title: 'Your actions, holds & requests', icon: 'hand' },
     { id: 'audit', label: 'Audit', title: 'Audit Log', icon: 'shield' },
   ];
 
@@ -382,6 +398,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
       .then(() => this.tabs.pruneMissingTasks(this.fleet.tasks()))
       .catch(() => undefined);
     void this.fleet.loadSettings();
+    void this.control.load();
     this.socket.connect();
     // First run (persisted by the hub): open Add Machine with this machine on top.
     void this.setup.load().then((s) => {

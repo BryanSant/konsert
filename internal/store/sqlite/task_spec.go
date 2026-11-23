@@ -49,10 +49,10 @@ func (s *SQLiteStore) GetTaskStartSpec(ctx context.Context, taskID string) (stor
 
 // ClaimQueuedTask atomically moves a queued task to assigned on workerID.
 // It reports false when another scheduler run already claimed the task.
-func (s *SQLiteStore) ClaimQueuedTask(ctx context.Context, taskID, workerID string) (bool, error) {
+func (s *SQLiteStore) ClaimQueuedTask(ctx context.Context, taskID, workerID string, cause store.Cause) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET status = ?, worker_id = ? WHERE id = ? AND status = ?
-	`, protocol.TaskStatusAssigned, workerID, taskID, protocol.TaskStatusQueued)
+		UPDATE tasks SET status = ?, worker_id = ?, cause_json = ? WHERE id = ? AND status = ?
+	`, protocol.TaskStatusAssigned, workerID, causeJSON(&cause), taskID, protocol.TaskStatusQueued)
 	if err != nil {
 		return false, err
 	}
@@ -63,7 +63,7 @@ func (s *SQLiteStore) ClaimQueuedTask(ctx context.Context, taskID, workerID stri
 // RequeueTask returns a non-terminal task to queued. The worker assignment is
 // cleared unless keepWorker is set (the worker was explicitly pinned).
 // It reports false when the task is missing or already terminal.
-func (s *SQLiteStore) RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool) (bool, error) {
+func (s *SQLiteStore) RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool, cause store.Cause) (bool, error) {
 	keep := 0
 	if keepWorker {
 		keep = 1
@@ -72,9 +72,10 @@ func (s *SQLiteStore) RequeueTask(ctx context.Context, taskID, summary string, k
 		UPDATE tasks
 		SET status = ?,
 		    worker_id = CASE WHEN ? = 1 THEN worker_id ELSE NULL END,
-		    summary = CASE WHEN ? != '' THEN ? ELSE summary END
+		    summary = CASE WHEN ? != '' THEN ? ELSE summary END,
+		    cause_json = ?, suspended_by = ''
 		WHERE id = ? AND status NOT IN (?, ?, ?)
-	`, protocol.TaskStatusQueued, keep, summary, summary, taskID,
+	`, protocol.TaskStatusQueued, keep, summary, summary, causeJSON(&cause), taskID,
 		protocol.TaskStatusCompleted, protocol.TaskStatusFailed, protocol.TaskStatusCanceled)
 	if err != nil {
 		return false, err

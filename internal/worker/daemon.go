@@ -518,6 +518,20 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		}
 		_ = d.runner.CancelTask(p.TaskID)
 
+	case protocol.MsgTaskSuspend, protocol.MsgTaskResume:
+		p, err := protocol.DecodePayload[protocol.TaskSuspendPayload](env)
+		if err != nil {
+			return
+		}
+		op, verb := d.runner.SuspendTask, "suspend"
+		if env.Type == protocol.MsgTaskResume {
+			op, verb = d.runner.ResumeTask, "resume"
+		}
+		if err := op(p.TaskID); err != nil {
+			d.logger.Warn(verb+" task failed", "task_id", p.TaskID, "err", err)
+			d.sendJSON(protocol.MsgTaskEvent, protocol.TaskEventPayload{TaskID: p.TaskID, Kind: "error", Message: "Could not " + verb + " the task: " + err.Error()})
+		}
+
 	case protocol.MsgTaskSteer:
 		p, err := protocol.DecodePayload[protocol.TaskSteerPayload](env)
 		if err != nil {

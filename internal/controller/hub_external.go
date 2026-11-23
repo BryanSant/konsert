@@ -51,8 +51,10 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		Status:         status,
 		Summary:        p.Summary,
 		GitSummaryJSON: gitJSON,
+		// Observed sessions change state on their own: the agent (or its user) drives them.
+		Cause: &store.Cause{Actor: store.ActorAgent, Source: "observed:" + p.Source, Confidence: store.ConfidenceLikely},
 	}
-	taskID, err := h.store.UpsertExternalTask(ctx, t)
+	taskID, prev, err := h.store.UpsertExternalTask(ctx, t)
 	if err != nil {
 		h.logger.Warn("record external session", "worker_id", workerID, "external_id", p.ExternalID, "err", err)
 		return
@@ -70,6 +72,9 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		h.broadcastFleetUpdate("event", ev)
 	}
 	if updated, err := h.store.GetTask(ctx, taskID); err == nil {
+		if prev != updated.Status {
+			h.recordTaskTransition(ctx, updated, prev, *t.Cause, "")
+		}
 		h.broadcastFleetUpdate("task", updated)
 	}
 }

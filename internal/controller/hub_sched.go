@@ -114,6 +114,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	h.schedMu.Lock()
 	defer h.schedMu.Unlock()
 
+	// Pause everything stops all dispatching until the user resumes.
+	if h.fleetPaused(ctx) {
+		return
+	}
 	tasks, err := h.store.ListTasks(ctx, protocol.TaskStatusQueued, "", 200)
 	if err != nil || len(tasks) == 0 {
 		return
@@ -123,10 +127,11 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		return
 	}
 	// Only connected workers can receive task.start; a disconnected-but-online
-	// worker would otherwise win placement and leave the task waiting.
+	// worker would otherwise win placement and leave the task waiting. Drained machines
+	// accept nothing new.
 	workers := make([]store.Worker, 0, len(all))
 	for _, w := range all {
-		if h.IsWorkerConnected(w.ID) {
+		if h.IsWorkerConnected(w.ID) && !w.Drained {
 			workers = append(workers, w)
 		}
 	}
@@ -145,7 +150,15 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			continue
 		}
 		payload, sel, pinned := h.taskStartSpec(ctx, t)
-		w, ok := SelectWorker(workers, counts, sel, t.Agent, t.PermissionMode)
+		// Held machines (and machines holding a resource the task's prompt names) get no
+		// automatic placement; the task waits until the user releases the hold.
+		eligible := make([]store.Worker, 0, len(workers))
+		for _, w := range workers {
+			if _, held := h.holdBlocking(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
+				eligible = append(eligible, w)
+			}
+		}
+		w, ok := SelectWorker(eligible, counts, sel, t.Agent, t.PermissionMode)
 		if !ok {
 			continue
 		}
@@ -153,18 +166,19 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			// Leave it queued: the account must sign in again first.
 			continue
 		}
-		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID)
+		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID, causeScheduler)
 		if err != nil || !claimed {
 			continue
 		}
 		if err := h.DispatchToWorker(w.ID, payload); err != nil {
 			h.logger.Warn("dispatch of queued task failed; returning it to the queue",
 				"task_id", t.ID, "worker_id", w.ID, "err", err)
-			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned)
+			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
 			continue
 		}
 		counts[w.ID]++
 		if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
+			h.recordTaskTransition(ctx, updated, protocol.TaskStatusQueued, causeScheduler, "placed on "+w.Name)
 			h.broadcastFleetUpdate("task", updated)
 		}
 	}

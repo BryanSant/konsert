@@ -7,11 +7,14 @@ import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
+import { ControlStore } from '../core/state/control.store';
+import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
+import { YourActionsComponent } from '../features/control/your-actions.component';
 
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent, TooltipDirective],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent],
   template: `
     <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
@@ -101,6 +104,48 @@ import { TooltipDirective } from '../shared/tooltip.directive';
           <span>{{ copiedId() ? 'Copied' : 'Copy' }}</span>
         </button>
       </div>
+
+      <!-- Machine control: drain, suspend all, stop all; holds and requests here (PRD §5.8a) -->
+      <section class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px] space-y-2.5" aria-labelledby="machine-control-heading" data-testid="machine-control">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <h4 id="machine-control-heading" class="text-[#86888f]">Control</h4>
+            @if (worker().drained) {
+              <span class="rounded-full px-2 py-0.5 text-[10.5px] font-medium bg-[var(--ks-amber-soft)] text-[#e6b763]" data-testid="machine-drained">
+                Drained: no new work
+              </span>
+            }
+          </div>
+          <div class="flex items-center gap-1 flex-wrap">
+            <button
+              type="button"
+              class="ks-btn ks-btn-sm"
+              data-testid="machine-drain"
+              [attr.aria-pressed]="!!worker().drained"
+              [disabled]="control.isBusy(worker().id)"
+              (click)="control.setDrained(worker().id, !worker().drained)"
+              [ksTooltip]="worker().drained ? 'Accept new work again' : 'Finish current work and accept nothing new'"
+            >
+              <app-icon name="drain" [size]="11" />
+              {{ worker().drained ? 'Undrain' : 'Drain' }}
+            </button>
+            <button type="button" class="ks-btn ks-btn-sm" data-testid="machine-suspend-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'suspend-all')" ksTooltip="Suspend every managed session on this machine">
+              <app-icon name="pause" [size]="11" />
+              Suspend all
+            </button>
+            <button type="button" class="ks-btn ks-btn-sm" data-testid="machine-resume-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'resume-all')" ksTooltip="Resume suspended sessions on this machine">
+              <app-icon name="play" [size]="11" />
+              Resume all
+            </button>
+            <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" data-testid="machine-stop-all" [disabled]="control.isBusy(worker().id)" (click)="stopAll()" ksTooltip="Cancel every managed session on this machine">
+              <app-icon name="stop" [size]="10" />
+              Stop all
+            </button>
+          </div>
+        </div>
+        <ks-holds-requests [workerId]="worker().id" />
+        <ks-your-actions [workerId]="worker().id" [limit]="8" />
+      </section>
 
       <!-- How the hub starts konsertd here, and the last attempt -->
       @if (worker().launch; as launch) {
@@ -329,6 +374,7 @@ export class MachineDetailModalComponent {
   private readonly api = inject(ApiClientService);
   readonly fleet = inject(FleetStore);
   private readonly tabs = inject(TabsStore);
+  readonly control = inject(ControlStore);
 
   readonly confirmRemove = signal(false);
   readonly removing = signal(false);
@@ -339,7 +385,7 @@ export class MachineDetailModalComponent {
     const wid = this.worker().id;
     return this.fleet
       .tasks()
-      .filter((t) => t.worker_id === wid && (t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned'))
+      .filter((t) => t.worker_id === wid && (t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned' || t.status === 'suspended'))
       .length;
   });
 
@@ -386,6 +432,11 @@ export class MachineDetailModalComponent {
     const w = this.worker();
     return w.launch === 'ssh' ? `over ssh (${w.ssh_target || w.name})` : 'on the hub\'s machine';
   });
+
+  stopAll(): void {
+    if (!window.confirm(`Stop every managed session on ${this.worker().name}?`)) return;
+    void this.control.workerBulk(this.worker().id, 'stop-all');
+  }
 
   retryStart(): void {
     void this.fleet.retryStart(this.worker().id);

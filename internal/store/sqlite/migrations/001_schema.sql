@@ -7,7 +7,8 @@
 --       persistent UUID.
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
---       r-… repo, s-… space, ws-… workspace, wt-… worktree.
+--       r-… repo, s-… space, ws-… workspace, wt-… worktree,
+--       h-… hold, rq-… user request.
 -- Event/log/child tables keep integer or composite keys. External identities live in
 -- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
 -- tasks.external_id (the worker's key for a discovered session).
@@ -38,7 +39,10 @@ CREATE TABLE workers (
     -- Last start attempt: '' (none pending / connected), 'starting', 'failed'.
     launch_state     TEXT NOT NULL DEFAULT '',
     launch_error     TEXT NOT NULL DEFAULT '',
-    launch_at        TEXT
+    launch_at        TEXT,
+    -- Drained machines finish their current work and receive nothing new.
+    drained          INTEGER NOT NULL DEFAULT 0,
+    drained_at       TEXT
 );
 
 CREATE TABLE workspaces (
@@ -123,6 +127,12 @@ CREATE TABLE tasks (
     summary            TEXT NOT NULL DEFAULT '',
     git_summary_json   TEXT NOT NULL DEFAULT '',
     exit_code          INTEGER,
+    -- cause_json is the store.Cause of the last status transition (who and how sure).
+    cause_json         TEXT NOT NULL DEFAULT '',
+    -- suspended_by: '' | 'user' | 'pause' (Resume after Pause everything only restores 'pause').
+    suspended_by       TEXT NOT NULL DEFAULT '',
+    -- parent_chat_id is the orchestrator/agent chat that dispatched the task ('' otherwise).
+    parent_chat_id     TEXT NOT NULL DEFAULT '',
     created_at         TEXT NOT NULL,
     started_at         TEXT,
     completed_at       TEXT
@@ -163,6 +173,11 @@ CREATE TABLE chat_sessions (
     fleet_tools      INTEGER NOT NULL DEFAULT 0,
     last_error_json  TEXT NOT NULL DEFAULT '',
     mcp_token_hash   TEXT NOT NULL DEFAULT '',
+    cause_json       TEXT NOT NULL DEFAULT '',
+    suspended_by     TEXT NOT NULL DEFAULT '',
+    suspended_prev   TEXT NOT NULL DEFAULT '', -- status to restore on resume
+    -- notes_cursor: the last fleet_events.id already delivered to this chat as a note.
+    notes_cursor     INTEGER NOT NULL DEFAULT 0,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
 );
@@ -250,13 +265,81 @@ CREATE TABLE audit_log (
     task_id    TEXT NOT NULL DEFAULT '',
     task_sid   TEXT NOT NULL DEFAULT '',
     message    TEXT NOT NULL DEFAULT '',
-    meta_json  TEXT NOT NULL DEFAULT ''
+    meta_json  TEXT NOT NULL DEFAULT '',
+    -- actor_kind and cause_json attribute the action (store.Cause).
+    actor_kind TEXT NOT NULL DEFAULT '',
+    cause_json TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_audit_log_time ON audit_log(created_at);
 CREATE INDEX idx_audit_log_actor ON audit_log(actor, id);
 CREATE INDEX idx_audit_log_worker ON audit_log(worker_id, id);
 CREATE INDEX idx_audit_log_task ON audit_log(task_id, id);
 CREATE INDEX idx_audit_log_action ON audit_log(action, id);
+
+-- Fleet timeline: every task/chat status transition and every intervention, hold and
+-- request, with its cause (PRD §5.8a). Feeds "Your actions", recent_events and agent notes.
+CREATE TABLE fleet_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,
+    kind         TEXT NOT NULL, -- status | action | hold | request | veto | notice
+    action       TEXT NOT NULL DEFAULT '',
+    actor_kind   TEXT NOT NULL, -- user | orchestrator | agent | scheduler | system | unknown
+    actor_source TEXT NOT NULL DEFAULT '',
+    actor_id     TEXT NOT NULL DEFAULT '',
+    confidence   TEXT NOT NULL DEFAULT '',
+    request_id   TEXT NOT NULL DEFAULT '',
+    command_id   TEXT NOT NULL DEFAULT '',
+    hold_id      TEXT NOT NULL DEFAULT '',
+    worker_id    TEXT NOT NULL DEFAULT '',
+    task_id      TEXT NOT NULL DEFAULT '',
+    chat_id      TEXT NOT NULL DEFAULT '',
+    from_status  TEXT NOT NULL DEFAULT '',
+    to_status    TEXT NOT NULL DEFAULT '',
+    summary      TEXT NOT NULL DEFAULT '',
+    meta_json    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_fleet_events_time ON fleet_events(created_at);
+CREATE INDEX idx_fleet_events_worker ON fleet_events(worker_id, id);
+CREATE INDEX idx_fleet_events_task ON fleet_events(task_id, id);
+CREATE INDEX idx_fleet_events_chat ON fleet_events(chat_id, id);
+CREATE INDEX idx_fleet_events_actor ON fleet_events(actor_kind, id);
+
+-- Holds: an intervention no agent asked for blocks automatic actions on its scope until
+-- the user releases it.
+CREATE TABLE holds (
+    id            TEXT PRIMARY KEY,
+    sid           TEXT NOT NULL UNIQUE, -- h-…
+    scope_kind    TEXT NOT NULL, -- session | machine | resource
+    worker_id     TEXT NOT NULL DEFAULT '',
+    task_id       TEXT NOT NULL DEFAULT '',
+    chat_id       TEXT NOT NULL DEFAULT '',
+    resource_json TEXT NOT NULL DEFAULT '', -- {"kind":"service","name":"nginx"} / {"kind":"port","port":80}
+    summary       TEXT NOT NULL DEFAULT '',
+    cause_json    TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    released_at   TEXT,
+    released_by   TEXT NOT NULL DEFAULT '',
+    release_note  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_holds_active ON holds(released_at, worker_id);
+
+-- Open requests: an agent asked the user to do something on a machine.
+CREATE TABLE user_requests (
+    id            TEXT PRIMARY KEY,
+    sid           TEXT NOT NULL UNIQUE, -- rq-…
+    chat_id       TEXT NOT NULL DEFAULT '',
+    task_id       TEXT NOT NULL DEFAULT '',
+    worker_id     TEXT NOT NULL DEFAULT '',
+    resource_json TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL,
+    status        TEXT NOT NULL, -- open | done | declined | canceled
+    created_at    TEXT NOT NULL,
+    resolved_at   TEXT,
+    resolved_by   TEXT NOT NULL DEFAULT '',
+    resolution    TEXT NOT NULL DEFAULT '',
+    command_id    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_user_requests_status ON user_requests(status, worker_id);
 
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.

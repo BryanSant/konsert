@@ -171,10 +171,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		if st == "" {
 			st = protocol.TaskStatusRunning
 		}
-		_ = h.store.UpdateTaskStatus(ctx, at.TaskID, st, "", "", nil)
-		if updated, err := h.store.GetTask(ctx, at.TaskID); err == nil {
-			h.broadcastFleetUpdate("task", updated)
-		}
+		_, _ = h.setTaskStatus(ctx, at.TaskID, st, "", "", nil, causeWorker)
 		if hasSubs {
 			h.sendWorkerJSON(wc, protocol.MsgPtySubscribe, protocol.PtySubscribePayload{TaskID: at.TaskID})
 		}
@@ -195,7 +192,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 				continue
 			}
 			if pt.Origin == protocol.TaskOriginExternal {
-				_ = h.store.UpdateTaskStatus(ctx, pt.ID, protocol.TaskStatusCompleted, "session ended before reconnect", "", nil)
+				_, _ = h.setTaskStatus(ctx, pt.ID, protocol.TaskStatusCompleted, "session ended before reconnect", "", nil, causeWorker)
 				continue
 			}
 			if pt.Status != protocol.TaskStatusQueued && !reported[pt.ID] {
@@ -311,6 +308,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onAgentChatEvent(ctx, wc, env)
 	case protocol.MsgAgentCapabilities:
 		h.onAgentCapabilities(ctx, wc, env)
+	case protocol.MsgWorkerOperatorCommand:
+		h.onOperatorCommand(ctx, wc, env)
 	}
 }
 
@@ -454,7 +453,7 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 			gitJSON = string(b)
 		}
 	}
-	_ = h.store.UpdateTaskStatus(ctx, p.TaskID, p.Status, p.Summary, gitJSON, p.ExitCode)
+	cause := h.taskCauseForWorkerStatus(cur, p.Status, p.ExitCode)
 
 	wc.mu.Lock()
 	if protocol.IsTerminalTaskStatus(p.Status) {
@@ -464,12 +463,9 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 	}
 	wc.mu.Unlock()
 
-	if updated, err := h.store.GetTask(ctx, p.TaskID); err == nil {
-		h.broadcastFleetUpdate("task", updated)
-		if protocol.IsTerminalTaskStatus(updated.Status) {
-			h.notifyTaskDone(updated)
-			h.kickScheduler()
-		}
+	updated, err := h.setTaskStatus(ctx, p.TaskID, p.Status, p.Summary, gitJSON, p.ExitCode, cause)
+	if err == nil && protocol.IsTerminalTaskStatus(updated.Status) {
+		h.kickScheduler()
 	}
 }
 

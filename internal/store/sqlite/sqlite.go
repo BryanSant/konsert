@@ -262,7 +262,7 @@ func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON strin
 
 // workerColumns is the column list scanWorker reads, in order.
 const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
-		launch, ssh_target, controller_url, launch_state, launch_error, launch_at`
+		launch, ssh_target, controller_url, launch_state, launch_error, launch_at, drained, drained_at`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
@@ -274,11 +274,13 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 		factsJSON    string
 		factsUpdated sql.NullString
 		launchAt     sql.NullString
+		drained      int
+		drainedAt    sql.NullString
 	)
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
-		&w.Launch, &w.SSHTarget, &w.ControllerURL, &w.LaunchState, &w.LaunchError, &launchAt,
+		&w.Launch, &w.SSHTarget, &w.ControllerURL, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound
@@ -295,6 +297,11 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	if launchAt.Valid && launchAt.String != "" {
 		lt := parseTime(launchAt.String)
 		w.LaunchAt = &lt
+	}
+	w.Drained = drained != 0
+	if drainedAt.Valid && drainedAt.String != "" {
+		dt := parseTime(drainedAt.String)
+		w.DrainedAt = &dt
 	}
 	_ = json.Unmarshal([]byte(agentsJSON), &w.Agents)
 	_ = json.Unmarshal([]byte(tagsJSON), &w.Tags)
@@ -549,27 +556,30 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 			id, sid, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+			cause_json, suspended_by, parent_chat_id,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, t.ID, t.SID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
+		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID,
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	return err
 }
 
 // UpsertExternalTask creates or updates a passively discovered / hook-reported session row.
-func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (string, error) {
+func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (string, string, error) {
 	if t.WorkerID == "" || t.ExternalID == "" {
-		return "", fmt.Errorf("external task needs worker_id and external_id")
+		return "", "", fmt.Errorf("external task needs worker_id and external_id")
 	}
 	t.ID, t.SID = "", ""
-	err := s.db.QueryRowContext(ctx, `SELECT id, sid FROM tasks WHERE worker_id = ? AND external_id = ?`, t.WorkerID, t.ExternalID).Scan(&t.ID, &t.SID)
+	prev := ""
+	err := s.db.QueryRowContext(ctx, `SELECT id, sid, status FROM tasks WHERE worker_id = ? AND external_id = ?`, t.WorkerID, t.ExternalID).Scan(&t.ID, &t.SID, &prev)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = s.assignIDs(ctx, ids.Task, &t.ID, &t.SID)
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	now := time.Now().UTC()
 	if t.CreatedAt.IsZero() {
@@ -605,10 +615,11 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 		INSERT INTO tasks (
 			id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+			orphan_policy, prompt, status, summary, git_summary_json, exit_code, cause_json,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
+			cause_json = CASE WHEN excluded.status != tasks.status AND excluded.cause_json != '' THEN excluded.cause_json ELSE tasks.cause_json END,
 			workspace_id = excluded.workspace_id,
 			project_id = excluded.project_id,
 			repo_id = CASE WHEN excluded.repo_id != '' THEN excluded.repo_id ELSE tasks.repo_id END,
@@ -622,12 +633,12 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END
 	`, t.ID, t.SID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
-		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
+		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode, causeJSON(t.Cause),
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return t.ID, nil
+	return t.ID, prev, nil
 }
 
 func (s *SQLiteStore) UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error {
@@ -651,7 +662,7 @@ func (s *SQLiteStore) UpdateTaskAssignment(ctx context.Context, id, workerID, ef
 	return nil
 }
 
-func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error {
+func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int, cause store.Cause) (string, error) {
 	now := formatTime(time.Now().UTC())
 	var startedExpr, completedExpr any
 	if status == protocol.TaskStatusRunning {
@@ -660,22 +671,54 @@ func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id, status, summary,
 	if protocol.IsTerminalTaskStatus(status) {
 		completedExpr = now
 	}
-
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var prev string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM tasks WHERE id = ?`, id).Scan(&prev); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", store.ErrNotFound
+		}
+		return "", err
+	}
+	cj := causeJSON(&cause)
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE tasks
 		SET status = ?,
 		    summary = CASE WHEN ? != '' THEN ? ELSE summary END,
 		    git_summary_json = CASE WHEN ? != '' THEN ? ELSE git_summary_json END,
 		    exit_code = COALESCE(?, exit_code),
+		    cause_json = CASE WHEN ? != '' THEN ? ELSE cause_json END,
+		    suspended_by = CASE WHEN ? = 'suspended' THEN suspended_by ELSE '' END,
 		    started_at = COALESCE(started_at, ?),
 		    completed_at = COALESCE(?, completed_at)
 		WHERE id = ?
-	`, status, summary, summary, gitSummaryJSON, gitSummaryJSON, exitCode, startedExpr, completedExpr, id)
+	`, status, summary, summary, gitSummaryJSON, gitSummaryJSON, exitCode,
+		cj, cj, status, startedExpr, completedExpr, id); err != nil {
+		return "", err
+	}
+	return prev, tx.Commit()
+}
+
+// SetTaskSuspendedBy records who suspended a task.
+func (s *SQLiteStore) SetTaskSuspendedBy(ctx context.Context, id, by string) error {
+	return s.execOne(ctx, `UPDATE tasks SET suspended_by = ? WHERE id = ?`, by, id)
+}
+
+// SetTaskParentChat records the chat that dispatched a task.
+func (s *SQLiteStore) SetTaskParentChat(ctx context.Context, id, chatID string) error {
+	return s.execOne(ctx, `UPDATE tasks SET parent_chat_id = ? WHERE id = ?`, chatID, id)
+}
+
+// execOne runs an UPDATE that must touch exactly one row (else ErrNotFound).
+func (s *SQLiteStore) execOne(ctx context.Context, q string, args ...any) error {
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		return store.ErrNotFound
 	}
 	return nil
@@ -687,6 +730,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		workerID    sql.NullString
 		perm        string
 		exitCode    sql.NullInt64
+		cause       string
 		createdAt   string
 		startedAt   sql.NullString
 		completedAt sql.NullString
@@ -695,6 +739,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
+		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&createdAt, &startedAt, &completedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -704,6 +749,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	}
 	t.WorkerID = workerID.String
 	t.PermissionMode = store.PermissionMode(perm)
+	t.Cause = parseCause(cause)
 	if exitCode.Valid {
 		ec := int(exitCode.Int64)
 		t.ExitCode = &ec
@@ -725,6 +771,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error
 		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+		       cause_json, suspended_by, parent_chat_id,
 		       created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
 	`, id)
@@ -750,6 +797,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+		       cause_json, suspended_by, parent_chat_id,
 		       created_at, started_at, completed_at
 		FROM tasks`
 	if len(conds) > 0 {
@@ -821,17 +869,21 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, taskID string, afterID int
 // chatSessionCols is the column list scanned by scanChatSession.
 const chatSessionCols = `id, sid, title, provider, model, created_at, updated_at,
 	backend, worker_id, agent, account_id, effort, approval_mode, cwd,
-	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash`
+	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash,
+	cause_json, suspended_by, suspended_prev, notes_cursor`
 
 func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession, error) {
 	var cs store.ChatSession
 	var cAt, uAt string
 	var fleet int
+	var cause string
 	if err := scanner.Scan(&cs.ID, &cs.SID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
 		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
-		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash); err != nil {
+		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash,
+		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor); err != nil {
 		return store.ChatSession{}, err
 	}
+	cs.Cause = parseCause(cause)
 	cs.FleetTools = fleet != 0
 	cs.CreatedAt = parseTime(cAt)
 	cs.UpdatedAt = parseTime(uAt)
@@ -861,10 +913,11 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO chat_sessions (`+chatSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, cs.ID, cs.SID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode, cs.Cwd,
-		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash)
+		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash,
+		causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor)
 	return err
 }
 
@@ -915,12 +968,12 @@ func (s *SQLiteStore) UpdateChatSession(ctx context.Context, cs store.ChatSessio
 		UPDATE chat_sessions SET title = ?, provider = ?, model = ?, updated_at = ?,
 			backend = ?, worker_id = ?, agent = ?, account_id = ?, effort = ?, approval_mode = ?,
 			cwd = ?, agent_session_id = ?, status = ?, fleet_tools = ?, last_error_json = ?,
-			mcp_token_hash = ?
+			mcp_token_hash = ?, cause_json = ?, suspended_by = ?, suspended_prev = ?, notes_cursor = ?
 		WHERE id = ?
 	`, cs.Title, cs.Provider, cs.Model, formatTime(time.Now().UTC()),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode,
 		cs.Cwd, cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON,
-		cs.MCPTokenHash, cs.ID)
+		cs.MCPTokenHash, causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor, cs.ID)
 	if err != nil {
 		return err
 	}

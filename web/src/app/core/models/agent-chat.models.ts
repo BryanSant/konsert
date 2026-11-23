@@ -30,7 +30,8 @@ export type ChatStatus =
   | 'needs_you'
   | 'done'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'suspended';
 
 export interface AgentChatEvent {
   chat_id: string;

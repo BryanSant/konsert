@@ -62,7 +62,7 @@ func TestTaskStartSpecClaimAndRequeue(t *testing.T) {
 			if i%2 == 1 {
 				wid = "w2"
 			}
-			if ok, err := st.ClaimQueuedTask(ctx, "t1", wid); err == nil && ok {
+			if ok, err := st.ClaimQueuedTask(ctx, "t1", wid, store.Cause{Actor: store.ActorScheduler}); err == nil && ok {
 				wins.Add(1)
 			}
 		}(i)
@@ -77,16 +77,16 @@ func TestTaskStartSpecClaimAndRequeue(t *testing.T) {
 	}
 
 	// Requeue keeping the worker, then clearing it.
-	if ok, err := st.RequeueTask(ctx, "t1", "", true); err != nil || !ok {
+	if ok, err := st.RequeueTask(ctx, "t1", "", true, store.Cause{}); err != nil || !ok {
 		t.Fatalf("requeue keep: ok=%v err=%v", ok, err)
 	}
 	if task, _ = st.GetTask(ctx, "t1"); task.Status != protocol.TaskStatusQueued || task.WorkerID == "" {
 		t.Fatalf("expected queued with worker kept: %+v", task)
 	}
-	if ok, _ := st.ClaimQueuedTask(ctx, "t1", "w1"); !ok {
+	if ok, _ := st.ClaimQueuedTask(ctx, "t1", "w1", store.Cause{Actor: store.ActorScheduler}); !ok {
 		t.Fatal("re-claim after requeue failed")
 	}
-	if ok, err := st.RequeueTask(ctx, "t1", "requeued", false); err != nil || !ok {
+	if ok, err := st.RequeueTask(ctx, "t1", "requeued", false, store.Cause{}); err != nil || !ok {
 		t.Fatalf("requeue clear: ok=%v err=%v", ok, err)
 	}
 	if task, _ = st.GetTask(ctx, "t1"); task.Status != protocol.TaskStatusQueued || task.WorkerID != "" || task.Summary != "requeued" {
@@ -94,8 +94,8 @@ func TestTaskStartSpecClaimAndRequeue(t *testing.T) {
 	}
 
 	// Terminal tasks are never requeued.
-	_ = st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusCompleted, "", "", nil)
-	if ok, _ := st.RequeueTask(ctx, "t1", "", false); ok {
+	_, _ = st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusCompleted, "", "", nil, store.Cause{})
+	if ok, _ := st.RequeueTask(ctx, "t1", "", false, store.Cause{}); ok {
 		t.Fatal("terminal task must not be requeued")
 	}
 }

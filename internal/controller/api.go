@@ -180,6 +180,28 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskControl)))
 	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 
+	// Human control (PRD §5.8a): interventions, holds, open requests, the fleet timeline.
+	s.mux.Handle("POST /api/tasks/{id}/suspend", s.requireBrowserAuth(s.byRef(ids.Task, s.handleSuspendTask)))
+	s.mux.Handle("POST /api/tasks/{id}/resume", s.requireBrowserAuth(s.byRef(ids.Task, s.handleResumeTask)))
+	s.mux.Handle("POST /api/tasks/{id}/veto", s.requireBrowserAuth(s.byRef(ids.Task, s.handleVetoTask)))
+	s.mux.Handle("POST /api/chats/{id}/suspend", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleSuspendChat)))
+	s.mux.Handle("POST /api/chats/{id}/resume", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleResumeChat)))
+	s.mux.Handle("POST /api/chats/{id}/stop", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleStopChat)))
+	s.mux.Handle("POST /api/chats/{id}/veto", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleVetoChat)))
+	s.mux.Handle("POST /api/workers/{id}/drain", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDrainWorker)))
+	s.mux.Handle("POST /api/workers/{id}/suspend-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).SuspendAll))))
+	s.mux.Handle("POST /api/workers/{id}/resume-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).ResumeAll))))
+	s.mux.Handle("POST /api/workers/{id}/stop-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).StopAll))))
+	s.mux.Handle("GET /api/fleet/pause", s.requireBrowserAuth(s.handleGetFleetPause))
+	s.mux.Handle("POST /api/fleet/pause", s.requireBrowserAuth(s.handlePauseFleet))
+	s.mux.Handle("POST /api/fleet/resume", s.requireBrowserAuth(s.handleResumeFleet))
+	s.mux.Handle("GET /api/holds", s.requireBrowserAuth(s.handleListHolds))
+	s.mux.Handle("POST /api/holds/{id}/release", s.requireBrowserAuth(s.byRef(ids.Hold, s.handleReleaseHold)))
+	s.mux.Handle("GET /api/requests", s.requireBrowserAuth(s.handleListRequests))
+	s.mux.Handle("POST /api/requests/{id}/resolve", s.requireBrowserAuth(s.byRef(ids.Request, s.handleResolveRequest)))
+	s.mux.Handle("GET /api/events", s.requireBrowserAuth(s.handleListFleetEvents))
+	s.mux.Handle("GET /api/events/recent", s.requireBrowserAuth(s.handleRecentEvents))
+
 	// Orchestrator Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chat/sessions", s.requireBrowserAuth(s.handleCreateChatSession))
@@ -325,6 +347,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"taxonomy":           taxonomy,
 		"usage":              usage,
 		"controller_version": s.version,
+		"pause":              res.Pause,
 	})
 }
 

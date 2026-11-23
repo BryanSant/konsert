@@ -259,6 +259,14 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 		if p, err := protocol.DecodePayload[protocol.AgentChatClose](env); err == nil {
 			d.chat.CloseChat(p.ChatID)
 		}
+	case protocol.MsgAgentChatSuspend:
+		if p, err := protocol.DecodePayload[protocol.AgentChatSuspend](env); err == nil {
+			d.chat.Suspend(p.ChatID)
+		}
+	case protocol.MsgAgentChatResume:
+		if p, err := protocol.DecodePayload[protocol.AgentChatSuspend](env); err == nil {
+			d.chat.Resume(p.ChatID)
+		}
 	case protocol.MsgAgentCapabilitiesRefresh:
 		var req capabilitiesRefreshRequest
 		if len(env.Payload) > 0 {

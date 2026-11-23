@@ -57,6 +57,9 @@ type WorkerStatusView struct {
 	LaunchAt    *time.Time `json:"launch_at,omitzero"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
+	// Drained machines finish their current work and accept nothing new.
+	Drained   bool       `json:"drained,omitzero"`
+	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -85,6 +88,8 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		LaunchState:    w.LaunchState,
 		LaunchError:    w.LaunchError,
 		LaunchAt:       w.LaunchAt,
+		Drained:        w.Drained,
+		DrainedAt:      w.DrainedAt,
 	}
 }
 
@@ -104,6 +109,8 @@ type FleetStatusResult struct {
 	ActiveTasksCount int                `json:"active_tasks_count"`
 	// ControllerVersion is the hub's build version (set by GET /api/fleet).
 	ControllerVersion string `json:"controller_version,omitempty"`
+	// Pause is the fleet-wide Pause everything state.
+	Pause store.FleetPause `json:"pause"`
 }
 
 func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, error) {
@@ -129,6 +136,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 	return FleetStatusResult{
 		Workers:          views,
 		ActiveTasksCount: totalActive,
+		Pause:            s.hub.fleetPause(ctx),
 	}, nil
 }
 
@@ -494,12 +502,33 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	if err != nil {
 		return DispatchResult{}, err
 	}
-	// Restrict scheduling to currently connected online workers.
+	cause := causeFrom(ctx)
+	// Pause everything stops automatic dispatching; the user may still start work by hand.
+	if isAutomatic(cause) && s.hub.fleetPaused(ctx) {
+		return DispatchResult{}, errFleetPaused
+	}
+	// Restrict scheduling to currently connected online workers that accept new work
+	// (not drained) and, for automatic dispatch, are not held.
 	onlineWorkers := make([]store.Worker, 0, len(workers))
+	pinnedID := req.WorkerSelector.WorkerID
 	for _, w := range workers {
-		if w.Status == "online" && s.hub.IsWorkerConnected(w.ID) {
-			onlineWorkers = append(onlineWorkers, w)
+		if w.Status != "online" || !s.hub.IsWorkerConnected(w.ID) {
+			continue
 		}
+		if w.Drained {
+			// A drained machine accepts nothing new: work pinned to it waits in the queue
+			// until the user undrains it.
+			continue
+		}
+		if isAutomatic(cause) {
+			if hold, held := s.hub.holdBlocking(ctx, holdCheck{workerID: w.ID, text: req.Prompt}); held {
+				if w.ID == pinnedID {
+					return DispatchResult{}, holdError(hold, w.Name)
+				}
+				continue
+			}
+		}
+		onlineWorkers = append(onlineWorkers, w)
 	}
 
 	counts := s.hub.ActiveTaskCounts()
@@ -549,7 +578,11 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		OrphanPolicy:   orphanPolicy,
 		Prompt:         req.Prompt,
 		Status:         protocol.TaskStatusQueued,
+		Cause:          &cause,
 		CreatedAt:      time.Now().UTC(),
+	}
+	if o, fromChat := chatOriginFrom(ctx); fromChat {
+		task.ParentChatID = o.id
 	}
 	if ok {
 		task.WorkerID = selected.ID
@@ -559,6 +592,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	if err := s.store.CreateTask(ctx, task); err != nil {
 		return DispatchResult{}, err
 	}
+	s.hub.recordTaskTransition(ctx, task, "", cause, "")
 
 	// Persist last-used Machine/Agent/Model for future chat sessions.
 	if sessionKind == "chat" && origin != protocol.TaskOriginScratch {
@@ -611,7 +645,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	if ok {
 		if err := s.hub.DispatchToWorker(selected.ID, startPayload); err != nil {
-			_, _ = s.store.RequeueTask(ctx, taskID, "", pinned)
+			_, _ = s.store.RequeueTask(ctx, taskID, "", pinned, causeScheduler)
 			task.Status = protocol.TaskStatusQueued
 			if !pinned {
 				task.WorkerID = ""
@@ -653,6 +687,12 @@ type TaskListItem struct {
 	ElapsedSeconds int64  `json:"elapsed_seconds"`
 	LastMilestone  string `json:"last_milestone,omitempty"`
 	CreatedAt      string `json:"created_at"`
+	// LastCause attributes the last status change (who, through what, how sure).
+	LastCause *store.Cause `json:"last_cause,omitzero"`
+	// SuspendedBy is "user" or "pause" while the task is suspended.
+	SuspendedBy string `json:"suspended_by,omitempty"`
+	// Holds lists active holds on the task's session or machine ("h-… summary").
+	Holds []string `json:"holds,omitempty"`
 }
 
 func (s *FleetService) ListTasks(ctx context.Context, statusFilter, workerID string, limit int) ([]TaskListItem, error) {
@@ -697,6 +737,9 @@ func (s *FleetService) ListTasks(ctx context.Context, statusFilter, workerID str
 			ElapsedSeconds: elapsed,
 			LastMilestone:  lastMilestone,
 			CreatedAt:      t.CreatedAt.Format(time.RFC3339),
+			LastCause:      t.Cause,
+			SuspendedBy:    t.SuspendedBy,
+			Holds:          s.hub.holdLabelsFor(ctx, t.WorkerID, t.ID, t.ParentChatID),
 		})
 	}
 	return out, nil
@@ -724,6 +767,10 @@ type TaskResult struct {
 	Summary          string               `json:"summary"`
 	GitSummary       *protocol.GitSummary `json:"git_summary,omitzero"`
 	RecentMilestones []string             `json:"recent_milestones,omitempty"`
+	// LastCause attributes the last status change; Holds lists active holds covering it.
+	LastCause   *store.Cause `json:"last_cause,omitzero"`
+	SuspendedBy string       `json:"suspended_by,omitempty"`
+	Holds       []string     `json:"holds,omitempty"`
 }
 
 func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bool, timeoutSeconds int) (TaskResult, error) {
@@ -803,6 +850,9 @@ func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bo
 		Summary:          t.Summary,
 		GitSummary:       gitSum,
 		RecentMilestones: milestones,
+		LastCause:        t.Cause,
+		SuspendedBy:      t.SuspendedBy,
+		Holds:            s.hub.holdLabelsFor(ctx, t.WorkerID, t.ID, t.ParentChatID),
 	}, nil
 }
 
@@ -821,6 +871,14 @@ func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, 
 	}
 	if protocol.IsTerminalTaskStatus(t.Status) {
 		return ActionResult{}, fmt.Errorf("task %s is already %s", t.SID, t.Status)
+	}
+	if cause := causeFrom(ctx); isAutomatic(cause) {
+		if t.Status == protocol.TaskStatusSuspended {
+			return ActionResult{}, fmt.Errorf("task %s is suspended by the user; ask the user (ask_user) before steering it", t.SID)
+		}
+		if hold, held := s.hub.holdBlocking(ctx, holdCheck{workerID: t.WorkerID, taskID: t.ID, chatID: t.ParentChatID, text: inputText}); held {
+			return ActionResult{}, holdError(hold, s.hub.workerLabel(ctx, t.WorkerID))
+		}
 	}
 	if err := s.hub.SendSteer(taskID, inputText, appendNewline); err != nil {
 		return ActionResult{}, err
@@ -850,16 +908,31 @@ func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, 
 }
 
 func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
-	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
-	t, err := s.store.GetTask(ctx, taskID)
+	return s.hub.cancelTask(ctx, resolveRef(ctx, s.store, ids.Task, taskID), "")
+}
+
+// cancelTask cancels a task with the cause in ctx. note (a veto reason) is added to the
+// audit message. A cancel by the user that no agent asked for places a hold on the
+// session so the orchestrator doesn't simply restart it.
+func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult, error) {
+	t, err := h.store.GetTask(ctx, taskID)
 	if err != nil {
 		return ActionResult{}, err
 	}
 	if protocol.IsTerminalTaskStatus(t.Status) {
 		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: t.Status}, nil
 	}
+	cause := causeFrom(ctx)
+	if isAutomatic(cause) {
+		if hold, held := h.holdBlocking(ctx, holdCheck{taskID: t.ID, chatID: t.ParentChatID, sessionOnly: true}); held {
+			return ActionResult{}, holdError(hold, h.workerLabel(ctx, t.WorkerID))
+		}
+	}
 	audit := func(msg string) {
-		s.hub.recordAudit(ctx, store.AuditEvent{
+		if note != "" {
+			msg += " (" + note + ")"
+		}
+		h.recordAudit(ctx, store.AuditEvent{
 			Action:   AuditCancel,
 			WorkerID: t.WorkerID,
 			TaskID:   taskID,
@@ -867,24 +940,24 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 			MetaJSON: auditMeta(map[string]any{"prior_status": t.Status}),
 		})
 	}
+	h.recordIntervention(ctx, cause, "cancel", t.WorkerID, t.ID, t.ParentChatID,
+		fmt.Sprintf("%s canceled task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, h.workerLabel(ctx, t.WorkerID)))
+	hold := func() {
+		h.holdAfterIntervention(ctx, cause, holdSpec{scope: store.HoldScopeSession, workerID: t.WorkerID, taskID: t.ID,
+			summary: fmt.Sprintf("The user canceled task %s on %s", t.SID, h.workerLabel(ctx, t.WorkerID))})
+	}
 	if t.Status == protocol.TaskStatusQueued {
 		audit("Canceled while queued")
-		_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled while queued", "", nil)
-		if updated, err := s.store.GetTask(ctx, taskID); err == nil {
-			s.hub.notifyTaskDone(updated)
-			s.hub.broadcastFleetUpdate("task", updated)
-		}
+		_, _ = h.setTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled while queued", "", nil, cause)
+		hold()
 		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 	}
 
-	sent := s.hub.SendCancel(taskID)
-	if !sent {
+	h.setPendingCause(taskID, protocol.TaskStatusCanceled, cause)
+	if !h.SendCancel(taskID) {
 		audit("Canceled (worker unreachable)")
-		_ = s.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled (worker unreachable)", "", nil)
-		if updated, err := s.store.GetTask(ctx, taskID); err == nil {
-			s.hub.notifyTaskDone(updated)
-			s.hub.broadcastFleetUpdate("task", updated)
-		}
+		_, _ = h.setTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled (worker unreachable)", "", nil, cause)
+		hold()
 		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 	}
 
@@ -894,12 +967,12 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 		Message:   "Cancellation requested",
 		CreatedAt: time.Now().UTC(),
 	}
-	if id, err := s.store.AppendEvent(ctx, ev); err == nil {
+	if id, err := h.store.AppendEvent(ctx, ev); err == nil {
 		ev.ID = id
 	}
-	s.hub.broadcastFleetUpdate("event", ev)
+	h.broadcastFleetUpdate("event", ev)
 	audit("Cancellation requested")
-
+	hold()
 	return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 }
 

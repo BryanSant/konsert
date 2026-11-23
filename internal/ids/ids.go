@@ -10,7 +10,8 @@
 //   - sid: a short, typed, ka-style ID shown to users and accepted in API paths next to the
 //     id: a one- or two-letter kind prefix plus random lower-case Crockford base32, so the
 //     kind is clear wherever it shows up alone (logs, URLs): t-7qk3m task, c-yvp2f chat,
-//     m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree. The hub
+//     m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree, h-… hold,
+//     rq-… user request. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -36,10 +37,12 @@ const (
 	Space     Kind = "s"
 	Workspace Kind = "ws"
 	Worktree  Kind = "wt"
+	Hold      Kind = "h"
+	Request   Kind = "rq"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

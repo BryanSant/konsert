@@ -4,7 +4,7 @@ import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 
-const LIVE_STATUSES = new Set(['running', 'waiting_input', 'assigned']);
+const LIVE_STATUSES = new Set(['running', 'waiting_input', 'assigned', 'suspended']);
 
 /** One-click session launches triggered from the shell (no modal involved). */
 @Injectable({ providedIn: 'root' })

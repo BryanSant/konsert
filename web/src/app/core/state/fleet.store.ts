@@ -12,6 +12,7 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
+import { ControlStore } from './control.store';
 
 export interface WorkerNodeView {
   worker: Worker;
@@ -48,6 +49,7 @@ export interface AgentRosterItem {
 @Injectable({ providedIn: 'root' })
 export class FleetStore {
   private readonly api = inject(ApiClientService);
+  private readonly control = inject(ControlStore);
 
   readonly workers = signal<Worker[]>([]);
   /** Hub build version from GET /api/fleet, for worker version-mismatch warnings. */
@@ -211,7 +213,7 @@ export class FleetStore {
 
     return deduped
       .map((t) => {
-        const isWorking = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned';
+        const isWorking = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned' || t.status === 'suspended';
         const isIdle = t.status === 'idle';
         const stateGroup: AgentRosterItem['stateGroup'] = isWorking ? 'working' : isIdle ? 'idle' : 'recent';
         const dirName = basenamePath(t.effective_dir || t.workdir);
@@ -302,6 +304,9 @@ export class FleetStore {
       }
       if (snap.usage) {
         this.usage.set(snap.usage);
+      }
+      if (snap.pause) {
+        this.control.applyPause(snap.pause);
       }
       for (const op of this.liveLog.slice(logStart)) op();
     } finally {

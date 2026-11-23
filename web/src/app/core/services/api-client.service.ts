@@ -26,6 +26,18 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
+import {
+  ChatActionResult,
+  FleetEventQuery,
+  FleetEventsResponse,
+  FleetPause,
+  FleetPauseResult,
+  Hold,
+  TaskActionResult,
+  UserRequest,
+  VetoReason,
+  WorkerControlResult,
+} from '../models/control.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 
 /** Error thrown for non-2xx responses; carries the HTTP status. */
@@ -213,7 +225,7 @@ export class ApiClientService {
    * Reports the Take Control (Interactive) toggle so the hub can audit who took or
    * released interactive control of a task.
    */
-  setTaskControl(taskId: string, enabled: boolean): Promise<{ ok: boolean }> {
+  setTaskControl(taskId: string, enabled: boolean): Promise<{ ok: boolean; hold_id?: string }> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/control`, {
       method: 'POST',
       body: JSON.stringify({ enabled }),
@@ -234,6 +246,108 @@ export class ApiClientService {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
       method: 'POST',
     });
+  }
+
+  // --- Human control (PRD §5.8a) ---
+
+  suspendTask(taskId: string): Promise<TaskActionResult> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/suspend`, { method: 'POST' });
+  }
+
+  resumeTask(taskId: string): Promise<TaskActionResult> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/resume`, { method: 'POST' });
+  }
+
+  /** Cancels the task and records why, so the orchestrator does not simply retry it. */
+  vetoTask(taskId: string, reason: VetoReason, note?: string): Promise<TaskActionResult> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/veto`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, note: note || undefined }),
+    });
+  }
+
+  suspendChat(chatId: string): Promise<ChatActionResult> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/suspend`, { method: 'POST' });
+  }
+
+  resumeChat(chatId: string): Promise<ChatActionResult> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/resume`, { method: 'POST' });
+  }
+
+  stopChatTurn(chatId: string): Promise<ChatActionResult> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/stop`, { method: 'POST' });
+  }
+
+  vetoChat(chatId: string, reason: VetoReason, note?: string): Promise<ChatActionResult> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/veto`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, note: note || undefined }),
+    });
+  }
+
+  setWorkerDrained(workerId: string, drained: boolean): Promise<WorkerControlResult> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/drain`, {
+      method: 'POST',
+      body: JSON.stringify({ drained }),
+    });
+  }
+
+  /** Bulk machine control: suspend-all, resume-all or stop-all. */
+  workerBulk(workerId: string, action: 'suspend-all' | 'resume-all' | 'stop-all'): Promise<WorkerControlResult> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/${action}`, { method: 'POST' });
+  }
+
+  getFleetPause(): Promise<FleetPause> {
+    return this.request('/api/fleet/pause');
+  }
+
+  pauseFleet(): Promise<FleetPauseResult> {
+    return this.request('/api/fleet/pause', { method: 'POST' });
+  }
+
+  resumeFleet(): Promise<FleetPauseResult> {
+    return this.request('/api/fleet/resume', { method: 'POST' });
+  }
+
+  listHolds(q: { active?: boolean; worker_id?: string } = {}): Promise<{ holds: Hold[] }> {
+    const params = new URLSearchParams();
+    if (q.active) params.set('active', '1');
+    if (q.worker_id) params.set('worker_id', q.worker_id);
+    const qs = params.toString();
+    return this.request(`/api/holds${qs ? `?${qs}` : ''}`);
+  }
+
+  releaseHold(holdId: string, note?: string): Promise<Hold> {
+    return this.request(`/api/holds/${encodeURIComponent(holdId)}/release`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || undefined }),
+    });
+  }
+
+  listRequests(q: { status?: string; worker_id?: string } = {}): Promise<{ requests: UserRequest[] }> {
+    const params = new URLSearchParams();
+    if (q.status) params.set('status', q.status);
+    if (q.worker_id) params.set('worker_id', q.worker_id);
+    const qs = params.toString();
+    return this.request(`/api/requests${qs ? `?${qs}` : ''}`);
+  }
+
+  resolveRequest(requestId: string, status: 'done' | 'declined', note?: string): Promise<UserRequest> {
+    return this.request(`/api/requests/${encodeURIComponent(requestId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ status, note: note || undefined }),
+    });
+  }
+
+  /** Fleet timeline (attributed events), newest first. */
+  listFleetEvents(q: FleetEventQuery = {}): Promise<FleetEventsResponse> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) {
+      if (v === undefined || v === null || v === '' || v === 0 || v === false) continue;
+      params.set(k, v === true ? '1' : String(v));
+    }
+    const qs = params.toString();
+    return this.request<FleetEventsResponse>(`/api/events${qs ? `?${qs}` : ''}`);
   }
 
   getTaskEvents(taskId: string, afterId = 0): Promise<{ events: TaskEvent[] }> {

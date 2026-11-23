@@ -97,7 +97,15 @@ func (p *ccExecProcess) wait() {
 }
 
 func (p *ccExecProcess) Stdin() io.WriteCloser { return p.stdin }
-func (p *ccExecProcess) Stdout() io.Reader     { return p.stdout }
+
+// pid is the process (group leader) id, for suspend/resume.
+func (p *ccExecProcess) pid() int {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+func (p *ccExecProcess) Stdout() io.Reader { return p.stdout }
 
 func (p *ccExecProcess) Wait() (int, string) {
 	<-p.done

@@ -11,6 +11,8 @@ import { OrchestratorStore, isAgentChat } from '../../core/state/orchestrator.st
 import { IconComponent } from '../../shared/icon.component';
 import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
+import { causeLine } from '../../core/models/control.models';
+import { SessionControlsComponent } from '../control/session-controls.component';
 import { ChatComposerComponent, ComposerSubmit } from './composer/chat-composer.component';
 import { ComposerSelection, emptySelection, normalizeSelection, pickDefaultAccount } from './composer/composer-logic';
 import { legacyItems } from './legacy-adapter';
@@ -57,6 +59,7 @@ export function chatTitleFrom(text: string): string {
     StatusPillComponent,
     ChatTranscriptComponent,
     ChatComposerComponent,
+    SessionControlsComponent,
   ],
   template: `
     <div class="flex flex-col h-full w-full bg-[var(--ks-surface-0)]">
@@ -128,6 +131,14 @@ export function chatTitleFrom(text: string): string {
               <app-icon name="stop" [size]="11" />
               Stop
             </button>
+          }
+          @if (active(); as s) {
+            @if (isAgent()) {
+              <ks-session-controls kind="chat" [sessionId]="s.id" [status]="status()" [compact]="true" />
+            }
+            @if (causeText()) {
+              <span class="hidden lg:inline truncate text-[11px] text-[var(--ks-text-muted)]" data-testid="header-cause">{{ causeText() }}</span>
+            }
           }
         }
 
@@ -226,7 +237,7 @@ export function chatTitleFrom(text: string): string {
             [contextLocked]="!!active()"
             [sessionId]="orch.activeSessionId()"
             [approvalNote]="active() ? 'Changes apply live when the agent supports it, otherwise from the next turn.' : ''"
-            [blockedReason]="creating() ? 'Starting the chat…' : ''"
+            [blockedReason]="creating() ? 'Starting the chat…' : status() === 'suspended' ? 'Suspended: resume the chat to continue' : ''"
             (submitted)="submit($event)"
             (stop)="stopTurn()"
             (controlChange)="onControlChange($event)"
@@ -265,6 +276,15 @@ export class ChatViewComponent implements OnInit {
 
   readonly active = computed(() => this.orch.sessions().find((s) => s.id === this.orch.activeSessionId()) ?? null);
   readonly isApiChat = computed(() => !!this.active() && !isAgentChat(this.active()));
+  readonly isAgent = computed(() => !!this.active() && isAgentChat(this.active()));
+  /** "Suspended by you via the Konsert UI" for user-caused states; empty otherwise. */
+  readonly causeText = computed(() => {
+    const s = this.active();
+    const st = this.status();
+    if (!s?.cause || s.cause.actor !== 'user') return '';
+    if (st !== 'suspended' && st !== 'cancelled' && st !== 'failed') return '';
+    return causeLine(st, s.cause);
+  });
   readonly title = computed(() => this.active()?.title || 'New chat');
 
   readonly transcript = computed(() => {

@@ -4,7 +4,7 @@ import { ChatStatus } from '../../core/models/agent-chat.models';
 interface PillLook {
   label: string;
   cls: string;
-  dot: 'spin' | 'pulse' | 'solid' | 'hollow';
+  dot: 'spin' | 'pulse' | 'solid' | 'hollow' | 'pause';
 }
 
 export function statusLook(status: ChatStatus | string): PillLook {
@@ -21,6 +21,8 @@ export function statusLook(status: ChatStatus | string): PillLook {
       return { label: 'Failed', cls: 'text-[#f3a5a5] bg-[var(--ks-red-soft)]', dot: 'solid' };
     case 'cancelled':
       return { label: 'Cancelled', cls: 'text-[#b4b6be] bg-[var(--ks-raised)]', dot: 'hollow' };
+    case 'suspended':
+      return { label: 'Suspended', cls: 'text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]', dot: 'pause' };
     default:
       return { label: 'Ready', cls: 'text-[#b4b6be] bg-[var(--ks-raised)]', dot: 'hollow' };
   }
@@ -53,6 +55,12 @@ export function statusLook(status: ChatStatus | string): PillLook {
         }
         @case ('solid') {
           <span class="h-1.5 w-1.5 rounded-full bg-current shrink-0" aria-hidden="true"></span>
+        }
+        @case ('pause') {
+          <svg class="shrink-0" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+            <rect x="1" y="1" width="2" height="6" rx="0.5" fill="currentColor" />
+            <rect x="5" y="1" width="2" height="6" rx="0.5" fill="currentColor" />
+          </svg>
         }
         @default {
           <span class="h-1.5 w-1.5 rounded-full border border-current shrink-0" aria-hidden="true"></span>

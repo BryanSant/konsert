@@ -186,6 +186,47 @@ type mockSession struct {
 
 	done     chan struct{}
 	doneOnce sync.Once
+
+	// thaw is non-nil while the session is suspended; closed on resume.
+	thaw chan struct{}
+}
+
+// Suspend freezes the mock "process": scripted events stop until Resume (Suspender).
+func (s *mockSession) Suspend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.thaw == nil {
+		s.thaw = make(chan struct{})
+	}
+	return nil
+}
+
+// Resume lets the scripted events continue (Suspender).
+func (s *mockSession) Resume() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.thaw != nil {
+		close(s.thaw)
+		s.thaw = nil
+	}
+	return nil
+}
+
+// frozen waits while the session is suspended; false when ctx ended.
+func (s *mockSession) frozen(ctx context.Context) bool {
+	for {
+		s.mu.Lock()
+		thaw := s.thaw
+		s.mu.Unlock()
+		if thaw == nil {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-thaw:
+		}
+	}
 }
 
 // Done is closed when the mock "process" exits (crash or Close).
@@ -294,7 +335,7 @@ func (s *mockSession) sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	case <-t.C:
-		return true
+		return s.frozen(ctx)
 	}
 }
 
@@ -404,10 +445,10 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		if dur <= 0 {
 			dur = 60 * time.Second
 		}
-		deadline := time.Now().Add(dur)
 		tick := max(step, 200*time.Millisecond)
 		i := 0
-		for time.Now().Before(deadline) {
+		// Count ticks rather than wall time, so a suspended turn resumes where it stopped.
+		for n := int(dur / tick); i < n; {
 			if !s.sleep(ctx, tick) {
 				s.cancelled(turn)
 				return

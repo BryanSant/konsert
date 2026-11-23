@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/proctree"
 )
 
 // Tunables (variables so tests can shorten them).
@@ -183,6 +184,7 @@ type acpSession struct {
 	opMu sync.Mutex
 
 	mu          sync.Mutex
+	suspended   bool // process tree frozen by the user; the watchdog does not run
 	conn        *acpConn
 	sessionID   string
 	sess        acpSessionResult
@@ -1361,7 +1363,7 @@ func (s *acpSession) watchdog() {
 		}
 		s.mu.Lock()
 		t := s.turn
-		fire := t != nil && !t.timedOut && len(s.perms) == 0 && time.Since(t.lastEvent) > s.wdAfter
+		fire := t != nil && !t.timedOut && !s.suspended && len(s.perms) == 0 && time.Since(t.lastEvent) > s.wdAfter
 		if fire {
 			t.timedOut = true
 		}
@@ -1389,6 +1391,48 @@ func (s *acpSession) Close() error {
 	if conn != nil {
 		conn.kill()
 		<-conn.rpc.Done()
+	}
+	return nil
+}
+
+func (s *acpSession) pidLocked() int {
+	if s.conn == nil || s.conn.proc == nil || s.conn.proc.Cmd == nil || s.conn.proc.Cmd.Process == nil {
+		return 0
+	}
+	return s.conn.proc.Cmd.Process.Pid
+}
+
+// Suspend freezes the agent's process tree (Suspender).
+func (s *acpSession) Suspend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.suspended {
+		return nil
+	}
+	if pid := s.pidLocked(); pid > 0 {
+		if err := proctree.Suspend(pid); err != nil {
+			return err
+		}
+	}
+	s.suspended = true
+	return nil
+}
+
+// Resume thaws the agent's process tree; the watchdog restarts from now (Suspender).
+func (s *acpSession) Resume() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.suspended {
+		return nil
+	}
+	if pid := s.pidLocked(); pid > 0 {
+		if err := proctree.Resume(pid); err != nil && !errors.Is(err, proctree.ErrNoProcess) {
+			return err
+		}
+	}
+	s.suspended = false
+	if s.turn != nil {
+		s.turn.lastEvent = time.Now()
 	}
 	return nil
 }

@@ -8,13 +8,15 @@ import { TelemetryStore } from '../core/state/telemetry.store';
 import { IconComponent } from '../shared/icon.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { AuditLogComponent } from './audit-log.component';
+import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
+import { YourActionsComponent } from '../features/control/your-actions.component';
 
-export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
+export type InspectorPanel = 'agent' | 'git' | 'checks' | 'control' | 'audit';
 
 @Component({
   selector: 'app-telemetry-drawer',
   standalone: true,
-  imports: [TooltipDirective, FormsModule, IconComponent, AuditLogComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, AuditLogComponent, HoldsRequestsComponent, YourActionsComponent],
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8]">
       <!-- Panel Header -->
@@ -56,6 +58,12 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
               <div class="text-[11px] text-[var(--ks-text-muted)]">Execution posture & exit signals</div>
             </div>
           }
+          @case ('control') {
+            <div>
+              <h2 class="text-[13px] font-semibold text-[#ececed]">Your Actions</h2>
+              <div class="text-[11px] text-[var(--ks-text-muted)]">Holds, agent requests and how agents responded</div>
+            </div>
+          }
           @case ('audit') {
             <div>
               <h2 class="text-[13px] font-semibold text-[#ececed]">Audit Log</h2>
@@ -64,10 +72,18 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
           }
         }
 
-        @if (panel() !== 'git' && panel() !== 'audit' && activeTask(); as t) {
+        @if (panel() !== 'git' && panel() !== 'audit' && panel() !== 'control' && activeTask(); as t) {
           <span class="font-mono-ide text-[10px] text-[#86888f]">{{ t.sid || t.id }}</span>
         }
       </div>
+
+      <!-- PANEL: HUMAN CONTROL (holds, open requests, your actions) -->
+      @if (panel() === 'control') {
+        <div class="ks-panel-enter flex-1 overflow-y-auto px-4 pb-4 pt-1.5 space-y-4" data-testid="control-panel">
+          <ks-holds-requests />
+          <ks-your-actions />
+        </div>
+      }
 
       <!-- PANEL: FLEET AUDIT LOG (KON-WP2A5) -->
       @if (panel() === 'audit') {

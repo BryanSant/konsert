@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/proctree"
 )
 
 const (
@@ -475,6 +476,7 @@ type codexSession struct {
 	lastLimits     []protocol.AgentRateLimit
 	lastActivity   time.Time
 	watchdogFired  bool
+	suspended      bool // process tree frozen by the user; the watchdog does not run
 	closed         bool
 	stop           chan struct{}
 	stopOnce       sync.Once
@@ -914,7 +916,7 @@ func (s *codexSession) watchdogLoop() {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		fire := s.turn != nil && !s.watchdogFired && len(s.pending) == 0 && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
+		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		tid := ""
 		if fire {
 			s.watchdogFired = true
@@ -1537,4 +1539,37 @@ func (s *codexSession) onRequest(gen int, id jsontext.Value, method string, para
 	}
 	s.mu.Unlock()
 	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, Elicitation: el})
+}
+
+// Suspend freezes the app-server process tree (Suspender).
+func (s *codexSession) Suspend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.suspended {
+		return nil
+	}
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		if err := proctree.Suspend(p.pid()); err != nil {
+			return err
+		}
+	}
+	s.suspended = true
+	return nil
+}
+
+// Resume thaws the app-server process tree; the watchdog restarts from now (Suspender).
+func (s *codexSession) Resume() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.suspended {
+		return nil
+	}
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		if err := proctree.Resume(p.pid()); err != nil && !errors.Is(err, proctree.ErrNoProcess) {
+			return err
+		}
+	}
+	s.suspended = false
+	s.lastActivity = s.eng.now()
+	return nil
 }

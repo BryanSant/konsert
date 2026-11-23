@@ -191,12 +191,12 @@ func TestUpsertExternalTaskStableIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	ext := store.Task{WorkerID: wid, ExternalID: "claude:abc", Agent: "claude", Workdir: "/x", Prompt: "p", Status: "running"}
-	id1, err := st.UpsertExternalTask(ctx, ext)
+	id1, _, err := st.UpsertExternalTask(ctx, ext)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ext.Status = "completed"
-	id2, err := st.UpsertExternalTask(ctx, ext)
+	id2, _, err := st.UpsertExternalTask(ctx, ext)
 	if err != nil || id2 != id1 {
 		t.Fatalf("repeat upsert = %q, %v; want %q", id2, err, id1)
 	}

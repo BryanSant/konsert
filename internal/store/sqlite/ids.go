@@ -20,6 +20,8 @@ var idTables = map[ids.Kind]string{
 	ids.Repo:      "repos",
 	ids.Worktree:  "worktrees",
 	ids.Space:     "spaces",
+	ids.Hold:      "holds",
+	ids.Request:   "user_requests",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its
