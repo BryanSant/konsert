@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"github.com/BryanSant/konsert/internal/protocol"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -49,5 +50,24 @@ func TestManagedMarkerDoesNotMutateAccount(t *testing.T) {
 	}
 	if _, leaked := orig.Env[ManagedTaskEnv]; leaked {
 		t.Fatal("registry account env was modified")
+	}
+}
+
+// Seen live: "starting" and "working" were each reported twice (engine and manager).
+func TestManagerDropsRepeatedStatus(t *testing.T) {
+	var got []string
+	m := NewManager(ManagerOptions{Sink: func(ev protocol.AgentChatEvent) {
+		if ev.Kind == protocol.EventStatus {
+			got = append(got, ev.Status)
+		}
+	}})
+	c := &chatState{id: "c"}
+	for _, st := range []string{"starting", "starting", "working", "working"} {
+		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: st})
+	}
+	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventTurnEnd})
+	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: "working"})
+	if strings.Join(got, ",") != "starting,working,working" {
+		t.Fatalf("statuses = %v", got)
 	}
 }

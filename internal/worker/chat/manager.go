@@ -92,6 +92,10 @@ type Manager struct {
 type chatState struct {
 	id string
 
+	// lastStatus is the last EventStatus emitted, to drop repeats (engines and the
+	// manager both report starting/working); reset by turn_end and error.
+	lastStatus string
+
 	qmu     sync.Mutex
 	queue   []func()
 	running bool
@@ -796,6 +800,15 @@ func rateLimitOf(ev protocol.AgentChatEvent) (protocol.AgentRateLimit, bool) {
 
 // emitLocked stamps ev and hands it to the sink. c.mu must be held.
 func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
+	switch ev.Kind {
+	case protocol.EventStatus:
+		if ev.Text == "" && ev.Status == c.lastStatus {
+			return
+		}
+		c.lastStatus = ev.Status
+	case protocol.EventTurnEnd, protocol.EventError:
+		c.lastStatus = ""
+	}
 	c.seq++
 	ev.Seq = c.seq
 	ev.ChatID = c.id
