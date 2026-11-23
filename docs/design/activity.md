@@ -163,3 +163,36 @@ never empty. Every known machine is listed (in `ListWorkers` order), even with a
   `running` / `queued` / `needs_you` / `blocked` / `done` (+ `failed`): the bucket comes from the
   activity (asking → needs you, blocked, queued, done/error → done, else running), and a final
   task status always counts as done. Groups needing the user come first; Other work is last.
+
+## How the views show it
+
+The signed-off design (KON-K2GAD) renders all three with one **spinner**
+(`web/src/app/shared/activity-spinner.component.ts`, logic in `spinner-logic.ts`): the avatar
+fill is the machine (its initials on a slowly drifting gradient by heat, cool blue/teal →
+amber → red, hot drifts faster), the ring around it is the activity.
+
+| Ring state | Comes from | Ring |
+|---|---|---|
+| thinking | `thinking` | violet comet, breathing |
+| working | `working` | white segments spinning |
+| speaking | `speaking` | mint ripple, faster with `tokens_per_sec` (1.5 s → 0.5 s at 80 tok/s) |
+| asking | `asking` | solid amber, "?" badge |
+| held | `blocked`, or the control label HELD / SUSPENDED | dashed blue, pause badge |
+| you | control label YOU (Take control) | solid blue, "›" badge |
+| queued | `queued` | hollow avatar, dotted ring |
+| done | `done` | grey ring, green check, neutral avatar |
+| error | `error` | red, "!" badge |
+
+Observed sessions (`coarse` and started outside Konsert) draw the ring at half strength. A
+second machine peeks out behind the first (the component supports it; no task reports a
+second machine yet). The hover tooltip and the accessible name say the activity word, the
+machine(s), heat % and cause; every caller also shows a text label, never colour alone.
+`prefers-reduced-motion` stops all animation (static rings and fills). Fleet rows put the
+agent's mark in the centre instead of initials, since the row is the machine.
+
+Used in Command's Live work (the project story, `modes/command/live-work-logic.ts`: project
+name, orchestrator headline marked ✦, progress bar done today / running / needs you /
+queued, "N in flight on M machines · K queued", in-flight lines, the queue collapsed, done
+lines fading out over 5 minutes; Other work holds observed sessions and your terminals),
+Fleet's machine rows and session cards, Wall tile headers, Work cards, the session strip,
+Command's footer machine list (heat avatar only) and the phone inbox and fleet.
