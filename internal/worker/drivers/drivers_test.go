@@ -2,6 +2,7 @@ package drivers
 
 import (
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -123,5 +124,22 @@ func TestAgyLineClassifier(t *testing.T) {
 	ev, ok = classifyAgyLine("Allow this command to proceed? [y/n]")
 	if !ok || ev.Kind != "waiting_input" {
 		t.Fatalf("expected waiting_input, got %+v ok=%v", ev, ok)
+	}
+}
+
+// Seen live: "Open terminal and sign in" opened a shell that never ran the relogin
+// command (interactive mode ignored the prompt). It must run it, then stay open.
+func TestShellInteractiveRunsCommandThenStaysOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell argv")
+	}
+	spec := (&ShellDriver{}).BuildCommand(LaunchOptions{Prompt: "codex login --device-auth", Mode: "interactive"})
+	if len(spec.Args) != 3 || spec.Args[0] != "-l" || spec.Args[1] != "-c" ||
+		!strings.HasPrefix(spec.Args[2], "codex login --device-auth\nexec ") || !strings.HasSuffix(spec.Args[2], " -l") {
+		t.Fatalf("argv = %q", spec.Args)
+	}
+	plain := (&ShellDriver{}).BuildCommand(LaunchOptions{Mode: "interactive"})
+	if len(plain.Args) != 1 || plain.Args[0] != "-l" {
+		t.Fatalf("plain interactive argv = %q", plain.Args)
 	}
 }

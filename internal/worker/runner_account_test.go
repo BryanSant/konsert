@@ -32,7 +32,7 @@ type fakeAccounts map[string]chat.Account
 
 func (f fakeAccounts) Resolve(agent, id string) (chat.Account, error) {
 	a, ok := f[id]
-	if !ok || a.Agent != agent {
+	if !ok || (agent != "" && a.Agent != agent) {
 		return chat.Account{}, errors.New("no such account")
 	}
 	return a, nil
@@ -87,5 +87,26 @@ func TestSandboxedRunnerRefusesFullAccessApprovalMode(t *testing.T) {
 	})
 	if err == nil || len(drv.opts) != 0 {
 		t.Fatalf("sandboxed worker launched a full-access approval mode (err=%v)", err)
+	}
+}
+
+// shellCapture is a "shell" driver that records LaunchOptions.
+type shellCapture struct{ capturingDriver }
+
+func (d *shellCapture) Name() string { return "shell" }
+
+// Seen live: "Open terminal on <host>" to run `codex login` failed with
+// "account codex belongs to codex, not shell". A shell task may use any account's env.
+func TestRunnerShellTaskBorrowsAgentAccount(t *testing.T) {
+	drv := &shellCapture{}
+	reg := drivers.NewRegistry()
+	reg.Register(drv)
+	r := NewRunner(reg, false, nil, RunnerCallbacks{OnTaskStatus: newStatusRecorder().record}, nil)
+	r.SetAccounts(fakeAccounts{"codex": {ID: "codex", Agent: "codex", Env: map[string]string{"CODEX_HOME": "/cx"}}})
+	_ = r.StartTask(context.Background(), protocol.TaskStartPayload{TaskID: "t-relogin", Agent: "shell", Workdir: t.TempDir(), AccountID: "codex", Prompt: "codex login --device-auth"})
+	drv.mu.Lock()
+	defer drv.mu.Unlock()
+	if len(drv.opts) != 1 || !slices.Contains(drv.opts[0].Env, "CODEX_HOME=/cx") {
+		t.Fatalf("shell relogin task did not get the codex account env: %+v", drv.opts)
 	}
 }

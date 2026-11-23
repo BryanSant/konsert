@@ -62,6 +62,13 @@ func (d *ShellDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 			}
 			return LaunchSpec{Binary: bin, Args: []string{"-NoLogo", "-Command", opts.Prompt}, Env: opts.Env}
 		}
+		if strings.TrimSpace(opts.Prompt) != "" {
+			// Interactive with a command (e.g. a relogin): run it, then stay open.
+			if strings.HasSuffix(strings.ToLower(bin), "cmd.exe") {
+				return LaunchSpec{Binary: bin, Args: []string{"/K", opts.Prompt}, Env: opts.Env}
+			}
+			return LaunchSpec{Binary: bin, Args: []string{"-NoLogo", "-NoExit", "-Command", opts.Prompt}, Env: opts.Env}
+		}
 		return LaunchSpec{Binary: bin, Args: nil, Env: opts.Env}
 	}
 
@@ -69,6 +76,17 @@ func (d *ShellDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		return LaunchSpec{
 			Binary: bin,
 			Args:   []string{"-c", "--", opts.Prompt},
+			Env:    opts.Env,
+		}
+	}
+
+	if strings.TrimSpace(opts.Prompt) != "" {
+		// Interactive with a command (e.g. "Open terminal and sign in" running
+		// `codex login --device-auth`): run it in a login shell, then hand the terminal
+		// over to an interactive shell so the user sees the output and can continue.
+		return LaunchSpec{
+			Binary: bin,
+			Args:   []string{"-l", "-c", opts.Prompt + "\nexec " + shellSingleQuote(bin) + " -l"},
 			Env:    opts.Env,
 		}
 	}
@@ -101,4 +119,9 @@ func (d *ShellDriver) ExtractSummary(_ context.Context, opts SummaryOptions) str
 		}
 	}
 	return fmt.Sprintf("Shell session exited with code %d", opts.ExitCode)
+}
+
+// shellSingleQuote quotes s for a POSIX shell.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

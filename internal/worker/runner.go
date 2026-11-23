@@ -316,7 +316,13 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 			r.failTask(req.TaskID, effectiveDir, "agent accounts are not available on this worker")
 			return fmt.Errorf("task %s: no account registry", req.TaskID)
 		}
-		acct, aErr := accounts.Resolve(req.Agent, req.AccountID)
+		// A shell task may borrow any agent account's profile: that is how the UI's
+		// "Open terminal and sign in" runs e.g. `codex login` with the account's env.
+		agent := req.Agent
+		if agent == "shell" {
+			agent = ""
+		}
+		acct, aErr := accounts.Resolve(agent, req.AccountID)
 		if aErr != nil {
 			undoWorktree()
 			r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("agent account %q: %v", req.AccountID, aErr))
