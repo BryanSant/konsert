@@ -1299,3 +1299,96 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestWorkerDedupAndCleanRemoval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "dedup-remove.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+
+	// 1. Start first konsertd instance for machine "devbox" with ID "w-devbox-1"
+	wCfg1 := config.DefaultWorkerConfig()
+	wCfg1.ControllerURL = wsURL
+	wCfg1.WorkerID = "w-devbox-1"
+	wCfg1.Name = "devbox"
+	wCfg1.HostGroup = "devbox"
+	wCfg1.Isolation = "host"
+	wCfg1.EnableMockDriver = true
+
+	d1Ctx, d1Cancel := context.WithCancel(ctx)
+	d1 := worker.NewDaemon(wCfg1, drivers.DefaultRegistry, nil)
+	d1Done := make(chan struct{})
+	go func() {
+		defer close(d1Done)
+		_ = d1.Run(d1Ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-devbox-1")
+
+	// 2. Rerun konsertd on the same machine with a different ephemeral ID -> must reconcile, NOT add a redundant worker!
+	wCfg2 := config.DefaultWorkerConfig()
+	wCfg2.ControllerURL = wsURL
+	wCfg2.WorkerID = "w-devbox-ephemeral-2"
+	wCfg2.Name = "devbox"
+	wCfg2.HostGroup = "devbox"
+	wCfg2.Isolation = "host"
+	wCfg2.EnableMockDriver = true
+
+	d2 := worker.NewDaemon(wCfg2, drivers.DefaultRegistry, nil)
+	d2Done := make(chan struct{})
+	go func() {
+		defer close(d2Done)
+		_ = d2.Run(ctx)
+	}()
+
+	// Wait for d1 to be cleanly superseded and exit!
+	select {
+	case <-d1Done:
+	case <-time.After(5 * time.Second):
+		d1Cancel()
+		t.Fatal("expected superseded first konsertd to exit cleanly")
+	}
+	d1Cancel()
+
+	// Verify only 1 canonical worker exists in fleet (no redundant duplicate!)
+	fs, err := srv.Service().FleetStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.Workers) != 1 || fs.Workers[0].ID != "w-devbox-1" || fs.Workers[0].Status != "online" {
+		t.Fatalf("expected 1 reconciled online worker w-devbox-1, got %+v", fs.Workers)
+	}
+
+	// 3. DELETE /api/workers/w-devbox-1 while d2 is actively running -> d2 must exit cleanly and NOT reconnect!
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workers/w-devbox-1", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/workers/w-devbox-1 failed: resp=%v err=%v", delResp, err)
+	}
+	_ = delResp.Body.Close()
+
+	select {
+	case <-d2Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected removed konsertd to stop instead of reconnecting")
+	}
+
+	fsAfter, err := srv.Service().FleetStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fsAfter.Workers) != 0 {
+		t.Fatalf("expected 0 workers after removal, got %+v", fsAfter.Workers)
+	}
+}

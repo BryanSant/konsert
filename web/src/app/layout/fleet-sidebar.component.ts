@@ -391,11 +391,11 @@ import { IconComponent } from '../shared/icon.component';
                     </button>
                     <button
                       type="button"
-                      (click)="$event.stopPropagation(); deleteWorker(node.worker)"
-                      title="Remove machine {{ node.worker.name }}"
-                      class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#686a72] hover:text-[#f09595] transition cursor-pointer"
+                      (click)="$event.stopPropagation(); openMachineDetails.emit(node.worker)"
+                      title="Machine details &amp; remove {{ node.worker.name }}"
+                      class="opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                     >
-                      <app-icon name="trash" [size]="11" />
+                      <app-icon name="info" [size]="12" />
                     </button>
                     <span
                       class="h-1.5 w-1.5 rounded-full mx-0.5"
@@ -553,6 +553,7 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
   readonly openNewSpace = output<Worker | null>();
   readonly spaceSelected = output<{ space: Space; worker: Worker }>();
   readonly worktreeSelected = output<{ repo: Repo; worktree: Worktree | null }>();
+  readonly openMachineDetails = output<Worker>();
   readonly openAddMachine = output<void>();
   readonly openSettings = output<void>();
 

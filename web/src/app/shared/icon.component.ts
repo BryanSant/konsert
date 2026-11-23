@@ -248,6 +248,12 @@ import { Component, input } from '@angular/core';
           <path d="M4.2 10.8V7a3.8 3.8 0 0 1 7.6 0v3.8l1.2 1.4H3l1.2-1.4ZM6.6 12.4a1.4 1.4 0 0 0 2.8 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       }
+      @case ('info') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <circle cx="8" cy="8" r="5.6" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M8 7.2v3.6M8 5.2h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      }
       @default {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/>

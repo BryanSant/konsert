@@ -212,7 +212,8 @@ func (h *Hub) WorkerMetrics(workerID string) *protocol.WorkerMetrics {
 	return h.workerMetrics[workerID]
 }
 
-// DisconnectWorker closes any active WebSocket session for workerID and clears cached metrics.
+// DisconnectWorker closes any active WebSocket session for workerID with WSCloseWorkerRemoved
+// so the remote konsertd exits cleanly instead of auto-reconnecting.
 func (h *Hub) DisconnectWorker(workerID string) {
 	h.mu.Lock()
 	wc, ok := h.workers[workerID]
@@ -220,8 +221,9 @@ func (h *Hub) DisconnectWorker(workerID string) {
 	delete(h.workerMetrics, workerID)
 	h.mu.Unlock()
 	if ok && wc != nil {
+		// Send WebSocket close frame 4001 BEFORE canceling connCtx so coder/websocket doesn't hard-abort TCP with EOF.
+		_ = wc.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
 		wc.cancel()
-		_ = wc.conn.Close(websocket.StatusNormalClosure, "worker removed by operator")
 	}
 }
 
@@ -249,6 +251,27 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		_ = conn.Close(websocket.StatusProtocolError, "invalid worker.hello")
 		return
 	}
+
+	// Reconcile machine identity: if an already-joined worker matches (name, host_group, os, arch, isolation)
+	// with a different ephemeral ID, reuse the canonical existing ID instead of adding a redundant duplicate machine.
+	canonicalID := hello.Worker.ID
+	if existingWorkers, listErr := h.store.ListWorkers(ctx); listErr == nil {
+		for _, ew := range existingWorkers {
+			if ew.ID == hello.Worker.ID {
+				canonicalID = ew.ID
+				break
+			}
+			if strings.EqualFold(ew.Name, hello.Worker.Name) &&
+				strings.EqualFold(ew.HostGroup, hello.Worker.HostGroup) &&
+				strings.EqualFold(ew.OS, hello.Worker.OS) &&
+				strings.EqualFold(ew.Arch, hello.Worker.Arch) &&
+				strings.EqualFold(ew.Isolation, hello.Worker.Isolation) {
+				canonicalID = ew.ID
+				break
+			}
+		}
+	}
+	hello.Worker.ID = canonicalID
 
 	wc := &workerConn{
 		id:          hello.Worker.ID,
@@ -290,11 +313,16 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	}
 
 	h.mu.Lock()
+	var prevConn *workerConn
 	if prev, ok := h.workers[wModel.ID]; ok {
-		prev.cancel()
+		prevConn = prev
 	}
 	h.workers[wModel.ID] = wc
 	h.mu.Unlock()
+	if prevConn != nil {
+		_ = prevConn.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "superseded by newer konsertd connection")
+		prevConn.cancel()
+	}
 
 	// Re-adopt any in-flight tasks reported by worker.hello (controller restart resilience).
 	for _, at := range hello.ActiveTasks {

@@ -20,7 +20,6 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 )
 
 type outboundMsg struct {
@@ -52,9 +51,6 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if cfg.WorkerID == "" {
-		cfg.WorkerID = uuid.NewString()
-	}
 	if cfg.Name == "" {
 		host, _ := os.Hostname()
 		if host == "" {
@@ -64,6 +60,9 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	}
 	if cfg.HostGroup == "" {
 		cfg.HostGroup = cfg.Name
+	}
+	if cfg.WorkerID == "" {
+		cfg.WorkerID = ResolveStableWorkerID("", cfg.Name, cfg.HostGroup, cfg.Isolation)
 	}
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 2
@@ -123,6 +122,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			d.runner.ShutdownAll()
 			return ctx.Err()
+		}
+		if websocket.CloseStatus(err) == websocket.StatusCode(protocol.WSCloseWorkerRemoved) {
+			d.logger.Info("machine was removed from fleet by controller; stopping daemon", "worker_id", d.cfg.WorkerID)
+			d.runner.ShutdownAll()
+			return nil
 		}
 
 		// Reset backoff if we stayed connected for > 10 seconds.

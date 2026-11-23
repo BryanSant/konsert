@@ -13,6 +13,7 @@ import { IconComponent } from '../shared/icon.component';
 import { RemoteDirPickerComponent } from '../shared/remote-dir-picker.component';
 import { FleetSidebarComponent } from './fleet-sidebar.component';
 import { FloatingScratchComponent } from './floating-scratch.component';
+import { MachineDetailModalComponent } from './machine-detail-modal.component';
 import { SettingsModalComponent } from './settings-modal.component';
 import { StatusFooterComponent } from './status-footer.component';
 import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.component';
@@ -40,6 +41,7 @@ interface PaletteItem {
     TelemetryDrawerComponent,
     StatusFooterComponent,
     FloatingScratchComponent,
+    MachineDetailModalComponent,
     SettingsModalComponent,
     OrchestratorChatComponent,
     XtermPaneComponent,
@@ -232,6 +234,7 @@ interface PaletteItem {
               (openNewSpace)="openNewSpaceModal($event)"
               (spaceSelected)="handleSpaceSelected($event)"
               (worktreeSelected)="handleWorktreeSelected($event)"
+              (openMachineDetails)="openMachineDetailsModal($event)"
               (openAddMachine)="openAddMachineModal()"
               (openSettings)="settingsOpen.set(true)"
             />
@@ -247,6 +250,7 @@ interface PaletteItem {
                 (openNewSpace)="mobileFleetOpen.set(false); openNewSpaceModal($event)"
                 (spaceSelected)="mobileFleetOpen.set(false); handleSpaceSelected($event)"
                 (worktreeSelected)="mobileFleetOpen.set(false); handleWorktreeSelected($event)"
+                (openMachineDetails)="mobileFleetOpen.set(false); openMachineDetailsModal($event)"
                 (openAddMachine)="mobileFleetOpen.set(false); openAddMachineModal()"
                 (openSettings)="mobileFleetOpen.set(false); settingsOpen.set(true)"
               />
@@ -332,10 +336,24 @@ interface PaletteItem {
       </div>
 
       <!-- Orca-style Bottom Status Bar (28px) -->
-      <app-status-footer (openCommands)="openCommandPalette()" />
+      <app-status-footer
+        (openCommands)="openCommandPalette()"
+        (openMachineDetails)="openMachineDetailsModal($event)"
+      />
 
       <!-- Orca-style Floating Scratch Workspace -->
       <app-floating-scratch />
+
+      <!-- Machine Details & Removal Dialog -->
+      @if (inspectedWorker(); as iw) {
+        <app-machine-detail-modal
+          [worker]="iw"
+          (close)="inspectedWorkerId.set(null)"
+          (removed)="onMachineRemoved($event)"
+          (startChat)="inspectedWorkerId.set(null); openSessionModal('chat', $event)"
+          (startTerminal)="inspectedWorkerId.set(null); openSessionModal('terminal', $event)"
+        />
+      }
 
       <!-- Settings Modal (KON-0Q95Z) -->
       @if (settingsOpen()) {
@@ -671,10 +689,15 @@ interface PaletteItem {
 
                       <div class="shrink-0">
                         @if (host.added) {
-                          <span class="inline-flex items-center gap-1.5 text-[11px] text-[#8e9098] pr-1">
+                          <button
+                            type="button"
+                            (click)="inspectSSHHostMachine(host)"
+                            class="inline-flex items-center gap-1.5 rounded-md border border-transparent hover:border-[#32353f] hover:bg-[#24262d] px-2 py-1 text-[11px] text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                            title="View machine details or remove"
+                          >
                             <app-icon name="check-circle" [size]="13" />
-                            <span>Added</span>
-                          </span>
+                            <span>Added · Details</span>
+                          </button>
                         } @else if (bootstrappingTarget() === host.alias) {
                           <span class="inline-flex items-center gap-1.5 rounded-md border border-[#32353f] bg-[#24262d] px-2.5 py-1 text-[11px] text-[#c8cad0]">
                             <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
@@ -1003,8 +1026,13 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly creatingSpace = signal(false);
   readonly newSpaceError = signal('');
 
-  // Settings modal
+  // Settings & Machine Details modals
   readonly settingsOpen = signal(false);
+  readonly inspectedWorkerId = signal<string | null>(null);
+  readonly inspectedWorker = computed(() => {
+    const id = this.inspectedWorkerId();
+    return id ? this.fleet.workersById()[id] ?? null : null;
+  });
 
   // Add Machine modal (Herdr-style SSH config discovery + 1-click bootstrap + manual fallback)
   readonly addMachineOpen = signal(false);
@@ -1302,6 +1330,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
       this.dispatchModalOpen.set(false);
       this.newSpaceModalOpen.set(false);
       this.settingsOpen.set(false);
+      this.inspectedWorkerId.set(null);
     }
   }
 
@@ -1614,6 +1643,39 @@ export class AppShellComponent implements OnInit, OnDestroy {
     } finally {
       this.dispatching.set(false);
     }
+  }
+
+  openMachineDetailsModal(worker: Worker): void {
+    this.inspectedWorkerId.set(worker.id);
+  }
+
+  inspectSSHHostMachine(host: SSHHost): void {
+    const match = this.fleet.workers().find(
+      (w) =>
+        w.name.toLowerCase() === host.alias.toLowerCase() ||
+        w.host_group.toLowerCase() === host.alias.toLowerCase() ||
+        (host.hostname && w.name.toLowerCase() === host.hostname.toLowerCase())
+    );
+    if (match) {
+      this.addMachineOpen.set(false);
+      this.inspectedWorkerId.set(match.id);
+    }
+  }
+
+  onMachineRemoved(_workerId: string): void {
+    this.inspectedWorkerId.set(null);
+    // Refresh SSH host Added status if user re-opens Add Machine modal
+    this.sshHosts.update((list) =>
+      list.map((h) => ({
+        ...h,
+        added: this.fleet.workers().some(
+          (w) =>
+            w.name.toLowerCase() === h.alias.toLowerCase() ||
+            w.host_group.toLowerCase() === h.alias.toLowerCase() ||
+            (h.hostname && w.name.toLowerCase() === h.hostname.toLowerCase())
+        ),
+      }))
+    );
   }
 
   async openAddMachineModal(): Promise<void> {

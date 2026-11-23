@@ -168,7 +168,17 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
 
       await footer.getByTitle('Connected fleet hosts').click();
       await expect(footer.getByText('Fleet Hosts')).toBeVisible();
-      await expect(footer.getByText(env.workerName).first()).toBeVisible();
+      await footer.getByRole('button', { name: new RegExp(env.workerName, 'i') }).click();
+
+      // Machine Details dialog + inline "Are you sure?" removal prompt
+      const detailModal = page.locator('app-machine-detail-modal .ks-modal');
+      await expect(detailModal).toBeVisible();
+      await expect(detailModal.getByText('Worker ID')).toBeVisible();
+      await detailModal.getByRole('button', { name: 'Remove Machine' }).click();
+      await expect(detailModal.getByText(`Are you sure you want to remove "${env.workerName}"?`)).toBeVisible();
+      await detailModal.getByRole('button', { name: 'Cancel' }).click();
+      await page.keyboard.press('Escape');
+      await expect(detailModal).toBeHidden();
     } else {
       // Mobile-specific check: footer Used popover renders cleanly within 390px viewport
       const footer = page.locator('app-status-footer');

@@ -262,8 +262,9 @@ RestartSec=3
 [Install]
 WantedBy=default.target
 SVC_EOF
-  systemctl --user daemon-reload && systemctl --user enable --now konsertd.service && echo "systemd" && exit 0
+  systemctl --user daemon-reload && systemctl --user enable konsertd.service && systemctl --user restart konsertd.service && echo "systemd" && exit 0
 fi
+pkill -f "konsertd run" >/dev/null 2>&1 || true
 nohup "$BIN" run -c "$CFG" </dev/null >/tmp/konsertd.log 2>&1 & echo "nohup:$!"`
 	startOut, err := runSSH(ctx, target, startScript)
 	if err != nil {

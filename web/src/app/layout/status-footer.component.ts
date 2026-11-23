@@ -1,4 +1,5 @@
 import { Component, OnDestroy, computed, inject, output, signal } from '@angular/core';
+import { Worker } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
@@ -381,13 +382,17 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           </div>
           <div class="p-2 max-h-64 overflow-y-auto space-y-1.5">
             @for (w of fleet.workers(); track w.id) {
-              <div class="rounded-lg border border-[#23252c] bg-[#1a1b1f] px-2.5 py-2 space-y-1">
-                <div class="flex items-center justify-between">
-                  <span class="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#ececed]">
-                    <span class="h-1.5 w-1.5 rounded-full" [class.bg-[#69b879]]="w.status === 'online'" [class.bg-[#484a52]]="w.status !== 'online'"></span>
-                    {{ w.name }}
+              <button
+                type="button"
+                (click)="inspectHost(w)"
+                class="w-full text-left rounded-lg border border-[#23252c] hover:border-[#353946] bg-[#1a1b1f] hover:bg-[#202229] px-2.5 py-2 space-y-1 transition cursor-pointer"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#ececed] truncate">
+                    <span class="h-1.5 w-1.5 rounded-full shrink-0" [class.bg-[#69b879]]="w.status === 'online'" [class.bg-[#484a52]]="w.status !== 'online'"></span>
+                    <span class="truncate">{{ w.name }}</span>
                   </span>
-                  <span class="font-mono-ide text-[10px] text-[#787a82]">{{ w.os }}/{{ w.arch }} · {{ w.isolation }}</span>
+                  <span class="font-mono-ide text-[10px] text-[#787a82] shrink-0">{{ w.os }}/{{ w.arch }} · Details</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-1">
                   <span class="rounded bg-[#22242a] px-1.5 py-0.5 text-[9px] font-mono-ide" [class.text-[#69b879]]="w.permission_mode === 'full_access'" [class.text-[#d9a043]]="w.permission_mode === 'sandboxed'">
@@ -397,7 +402,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                     <span class="rounded bg-[#22242a] px-1.5 py-0.5 text-[9px] font-mono-ide text-[#b4b6be]">{{ a }}</span>
                   }
                 </div>
-              </div>
+              </button>
             }
           </div>
         </div>
@@ -407,6 +412,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
 })
 export class StatusFooterComponent implements OnDestroy {
   readonly openCommands = output<void>();
+  readonly openMachineDetails = output<Worker>();
 
   readonly fleet = inject(FleetStore);
   readonly socket = inject(KonsertSocketService);
@@ -445,6 +451,11 @@ export class StatusFooterComponent implements OnDestroy {
 
   togglePopover(name: FooterPopover): void {
     this.openPopover.update((cur) => (cur === name ? null : name));
+  }
+
+  inspectHost(w: Worker): void {
+    this.openPopover.set(null);
+    this.openMachineDetails.emit(w);
   }
 
   async toggleWakeLock(): Promise<void> {
