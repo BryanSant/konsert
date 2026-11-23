@@ -41,7 +41,7 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
     // 1. Verify Workspaces (Space > Project) & Machines sidebar
     if (isMobile) {
       // Open mobile slide-over fleet drawer
-      await page.locator('header button').first().click();
+      await page.getByRole('banner').getByRole('button').first().click();
     }
 
     const sidebar = page.locator('app-fleet-sidebar:visible');
@@ -86,7 +86,7 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
 
     // Open the mock task from the Agents roster in the visible sidebar
     if (isMobile) {
-      await page.locator('header button').first().click();
+      await page.getByRole('banner').getByRole('button').first().click();
     }
     const agentEntry = page
       .locator('app-fleet-sidebar:visible')
@@ -141,7 +141,7 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
     // 4. Desktop-only shortcuts & popovers: Cmd/Ctrl+K Spotlight, Cmd/Ctrl+J Scratchpad, Footer Popovers
     if (!isMobile) {
       // Blur xterm helper textarea first so Ctrl+K is not consumed as PTY kill-line
-      await page.locator('header').click({ position: { x: 10, y: 10 } });
+      await page.getByRole('banner').click({ position: { x: 10, y: 10 } });
       await page.keyboard.press('Control+k');
       const searchInput = page.getByPlaceholder(/Search spaces, projects, repos/i);
       await expect(searchInput).toBeVisible();
@@ -152,7 +152,7 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
 
       // Floating Scratchpad (Ctrl+J)
       await page.keyboard.press('Control+j');
-      await expect(page.getByText('Scratch Workspace')).toBeVisible();
+      await expect(page.getByText('Scratch Workspace', { exact: true })).toBeVisible();
       await page.keyboard.press('Control+j');
 
       // Footer popovers (Usage, Resources, Ports, Hosts)
