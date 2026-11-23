@@ -438,6 +438,10 @@ export interface DispatchTaskRequest {
   /** Worker-local agent account (its env profile is applied to the session). */
   account_id?: string;
   model?: string;
+  /** The model's effort id (AgentEffort.id); empty = the model default. */
+  effort?: string;
+  /** The agent's approval mode id (AgentApprovalMode.id); empty = the account default. */
+  approval_mode?: string;
   repo_path?: string;
   branch?: string;
   use_worktree?: boolean;

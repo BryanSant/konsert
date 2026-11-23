@@ -54,7 +54,7 @@ export const SPEECH_INPUT_ENABLED = false;
       [class.shadow-[var(--ks-shadow-composer)]]="!dragOver()"
       [class.shadow-[0_0_0_1.5px_#6d8fbf]]="dragOver()"
       (submit)="$event.preventDefault(); submit()"
-      (dragover)="onDragOver($event)"
+      (dragover)="allowAttachments() && onDragOver($event)"
       (dragleave)="dragOver.set(false)"
       (drop)="onDrop($event)"
     >
@@ -134,9 +134,11 @@ export const SPEECH_INPUT_ENABLED = false;
 
       <!-- Control row -->
       <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2.5 pt-0.5">
-        <button type="button" class="ks-icon-btn" aria-label="Attach file" ksTooltip="Attach file" (click)="fileInput.click()">
-          <app-icon name="plus" [size]="16" />
-        </button>
+        @if (allowAttachments()) {
+          <button type="button" class="ks-icon-btn" aria-label="Attach file" ksTooltip="Attach file" (click)="fileInput.click()">
+            <app-icon name="plus" [size]="16" />
+          </button>
+        }
 
         @if (mode() === 'agent') {
           <ks-approval-picker
@@ -186,8 +188,8 @@ export const SPEECH_INPUT_ENABLED = false;
             class="ks-send-btn ml-auto"
             data-testid="send-button"
             [disabled]="!canSend()"
-            aria-label="Send message"
-            [ksTooltip]="sendBlockedReason() || 'Send'"
+            [attr.aria-label]="sendLabel()"
+            [ksTooltip]="sendBlockedReason() || sendLabel()"
           >
             <app-icon name="send-up" [size]="15" />
           </button>
@@ -218,6 +220,11 @@ export class ChatComposerComponent {
   readonly sessionId = input('');
   readonly placeholder = input('Ask anything, @ to mention files, / for commands');
   readonly blockedReason = input('');
+  /** Session dispatch: an empty prompt starts an interactive session. */
+  readonly allowEmpty = input(false);
+  /** Accessible name and tooltip of the send button. */
+  readonly sendLabel = input('Send message');
+  readonly allowAttachments = input(true);
 
   readonly submitted = output<ComposerSubmit>();
   readonly stop = output<void>();
@@ -277,7 +284,9 @@ export class ChatComposerComponent {
   });
 
   readonly canSend = computed(
-    () => !this.sendBlockedReason() && (this.draft().trim().length > 0 || this.attachments().length > 0),
+    () =>
+      !this.sendBlockedReason() &&
+      (this.allowEmpty() || this.draft().trim().length > 0 || this.attachments().length > 0),
   );
 
   /** Prefills the prompt (empty-state suggestions) and focuses it. */
