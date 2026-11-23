@@ -176,6 +176,8 @@ type mockSession struct {
 	effort  string
 	mode    string
 	busy    bool
+	turn    string // the running turn's id
+	turnGen uint64
 	cancel  context.CancelFunc
 	dead    bool
 	closed  bool
@@ -201,6 +203,9 @@ func (s *mockSession) Prompt(_ context.Context, p protocol.AgentChatPrompt) erro
 		return errors.New("a turn is already running")
 	}
 	s.busy = true
+	s.turn = p.TurnID
+	s.turnGen++
+	gen := s.turnGen
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
@@ -209,11 +214,27 @@ func (s *mockSession) Prompt(_ context.Context, p protocol.AgentChatPrompt) erro
 		defer cancel()
 		s.run(ctx, p)
 		s.mu.Lock()
-		s.busy = false
-		s.cancel = nil
+		if s.turnGen == gen { // a later turn may already be running
+			s.busy = false
+			s.cancel = nil
+		}
 		s.mu.Unlock()
 	}()
 	return nil
+}
+
+// emitEv emits ev. Like the real engines, the turn is over before its final
+// event (turn_end or error) goes out, so a prompt sent on seeing it is accepted.
+func (s *mockSession) emitEv(ev protocol.AgentChatEvent) {
+	if ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError {
+		s.mu.Lock()
+		if s.busy && ev.TurnID == s.turn {
+			s.busy = false
+			s.cancel = nil
+		}
+		s.mu.Unlock()
+	}
+	s.emit(ev)
 }
 
 func (s *mockSession) Respond(_ context.Context, r protocol.AgentChatRespond) error {
@@ -278,7 +299,7 @@ func (s *mockSession) sleep(ctx context.Context, d time.Duration) bool {
 }
 
 func (s *mockSession) cancelled(turn string) {
-	s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
+	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
 }
 
 func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool {
@@ -286,9 +307,9 @@ func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool
 		if !s.sleep(ctx, s.eng.step()) {
 			return false
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: msgID, Text: w})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: msgID, Text: w})
 	}
-	s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: turn, MessageID: msgID, Text: text})
+	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: turn, MessageID: msgID, Text: text})
 	return true
 }
 
@@ -298,7 +319,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	step := s.eng.step()
 	switch {
 	case strings.Contains(text, "crash"):
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "Working on it"})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "Working on it"})
 		if !s.sleep(ctx, step) {
 			s.cancelled(turn)
 			return
@@ -307,14 +328,14 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		s.mu.Lock()
 		s.dead = true
 		s.mu.Unlock()
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
 			Kind: protocol.ErrKindExit, Message: "mock exited with code 3", ExitCode: &code,
 			Stderr: "mock: loading session " + s.sid + "\nmock: fatal: simulated crash (keyword \"crash\")",
 		}})
 		s.doneOnce.Do(func() { close(s.done) })
 
 	case strings.Contains(text, "fail auth"):
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
 			Kind: protocol.ErrKindAuth, Message: s.acct.Label + " needs you to sign in again (mock)",
 			Relogin: &protocol.AgentRelogin{Command: "mock login", Env: map[string]string{"KONSERT_MOCK_ACCOUNT": s.acct.ID},
 				URL: "https://example.com/mock/login", Note: "Simulated by the mock engine"},
@@ -324,15 +345,15 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		resets := s.eng.now().UTC().Add(2 * time.Hour).Truncate(time.Minute)
 		// The account's weekly window shows as exhausted in later probes.
 		s.eng.markExhausted(s.acct.ID, s.eng.now().UTC().Add(3*time.Hour).Truncate(time.Minute))
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventRateLimit, TurnID: turn, RateLimit: &protocol.AgentRateLimit{
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventRateLimit, TurnID: turn, RateLimit: &protocol.AgentRateLimit{
 			Window: "five_hour", UsedPercent: 100, ResetsAt: &resets, State: "exhausted"}})
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
 			Kind: protocol.ErrKindUsageLimit, Message: "5-hour usage limit reached (mock)", Window: "five_hour", ResetsAt: &resets,
 		}})
 
 	case strings.Contains(text, "permission"):
 		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: rm -rf build/", Status: "pending", Input: `{"command":"rm -rf build/"}`}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
 		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf build/?", ToolCall: tool,
 			Options: []protocol.AgentElicitationOption{
 				{ID: "allow_once", Label: "Allow once", Kind: "allow_once"},
@@ -351,12 +372,12 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		} else {
 			done.Status = "failed"
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
 		if !s.deltas(ctx, turn, "m-"+turn, reply) {
 			s.cancelled(turn)
 			return
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	case strings.Contains(text, "ask"):
 		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitQuestion, Title: "Which color should the button be?",
@@ -376,7 +397,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			s.cancelled(turn)
 			return
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	case strings.Contains(text, "slow"):
 		dur := s.eng.SlowDuration
@@ -392,25 +413,25 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 				return
 			}
 			i++
-			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "tick " + itoa(i) + " "})
+			s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "tick " + itoa(i) + " "})
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	default:
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: turn, Text: "Thinking about the request."})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: turn, Text: "Thinking about the request."})
 		if !s.deltas(ctx, turn, "m1-"+turn, "Let me look at the files.") {
 			s.cancelled(turn)
 			return
 		}
 		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Read", Kind: "read", Title: "Read README.md", Status: "running", Paths: []string{"README.md"}}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
 		if !s.sleep(ctx, step) {
 			s.cancelled(turn)
 			return
 		}
 		done := *tool
 		done.Status, done.Output = "completed", "# Konsert\n"
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
 		s.mu.Lock()
 		model := s.model
 		s.mu.Unlock()
@@ -418,8 +439,8 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			s.cancelled(turn)
 			return
 		}
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 	}
 }
 
@@ -429,7 +450,7 @@ func (s *mockSession) ask(ctx context.Context, turn string, el *protocol.AgentEl
 	s.mu.Lock()
 	s.answers[el.ID] = ch
 	s.mu.Unlock()
-	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: turn, Elicitation: el})
+	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: turn, Elicitation: el})
 	select {
 	case <-ctx.Done():
 		s.mu.Lock()
@@ -437,7 +458,7 @@ func (s *mockSession) ask(ctx context.Context, turn string, el *protocol.AgentEl
 		s.mu.Unlock()
 		return protocol.AgentChatRespond{}, false
 	case ans := <-ch:
-		s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitationOK, TurnID: turn, Elicitation: &protocol.AgentElicitation{ID: el.ID, Kind: el.Kind, Title: el.Title}})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventElicitationOK, TurnID: turn, Elicitation: &protocol.AgentElicitation{ID: el.ID, Kind: el.Kind, Title: el.Title}})
 		return ans, true
 	}
 }

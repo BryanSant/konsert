@@ -48,7 +48,7 @@ func TestAccountsDefaults(t *testing.T) {
 		t.Fatalf("ids = %v, want %v", ids, want)
 	}
 	cur, _ := r.Entry("cursor")
-	if cur.Agent != "cursor" || cur.Binary != "/bin/cursor-agent" || cur.Label != "Cursor" {
+	if cur.Agent != "cursor" || cur.Binary != filepath.Join("/bin", "cursor-agent") || cur.Label != "Cursor" {
 		t.Fatalf("cursor = %+v", cur)
 	}
 	acct, err := r.Resolve("claude", "")
@@ -96,7 +96,7 @@ func TestAccountsYAMLExtrasAndTokenFile(t *testing.T) {
 	if v, ok := acct.Env["ANTHROPIC_API_KEY"]; !ok || v != "" {
 		t.Fatalf("inherited API key not cleared: %v", acct.Env)
 	}
-	if acct.IsDefault || acct.Binary != "/bin/claude" || acct.Label != "Claude 2" {
+	if acct.IsDefault || acct.Binary != filepath.Join("/bin", "claude") || acct.Label != "Claude 2" {
 		t.Fatalf("account = %+v", acct)
 	}
 	// List never carries the token.

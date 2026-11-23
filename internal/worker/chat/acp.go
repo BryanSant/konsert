@@ -201,6 +201,7 @@ type acpSession struct {
 	commands    []string
 	closed      bool
 	dead        bool // process exited outside a turn
+	connecting  bool // connect is running: its own calls report an exit
 	stopWatch   chan struct{}
 	// watchdog settings, captured at Open.
 	wdAfter, wdTick time.Duration
@@ -248,15 +249,15 @@ func (s *acpSession) ecFor(conn *acpConn, phase string) errContext {
 	return ec
 }
 
-// abort classifies err, kills conn and detaches it.
+// abort detaches conn, classifies err and kills conn.
 func (s *acpSession) abort(conn *acpConn, phase string, err error) *acpOpenError {
-	ce := s.ecFor(conn, phase).classify(err)
-	conn.kill()
 	s.mu.Lock()
 	if s.conn == conn {
 		s.conn = nil
 	}
 	s.mu.Unlock()
+	ce := s.ecFor(conn, phase).classify(err)
+	conn.kill()
 	return &acpOpenError{ce}
 }
 
@@ -269,7 +270,15 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 		s.launch.Model, s.launch.Effort = s.model, s.effort
 	}
 	launch := s.launch
+	// An agent may answer a call with an error (e.g. auth required) and exit at
+	// once; monitor must leave reporting to connect, which classifies the reply.
+	s.connecting = true
 	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.connecting = false
+		s.mu.Unlock()
+	}()
 
 	conn, err := s.eng.start(ctx, s.acct, s.opts.Cwd, launch, s.handle)
 	if err != nil {
@@ -338,6 +347,13 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 	}
 	if err := s.applyApproval(ctx); err != nil {
 		return s.abort(conn, "set mode", err)
+	}
+	// Every call succeeded, but the process may have exited since (monitor
+	// stays quiet while connecting).
+	select {
+	case <-conn.proc.Done():
+		return s.abort(conn, "startup", errRPCClosed)
+	default:
 	}
 	return nil
 }
@@ -579,11 +595,11 @@ func (s *acpSession) monitor(c *acpConn) {
 		return
 	}
 	s.dead = true
-	busy := s.turn != nil
+	busy := s.turn != nil || s.connecting
 	ec := s.ecFor(c, "idle")
 	s.mu.Unlock()
 	if busy {
-		return // the turn's pending session/prompt fails and reports it
+		return // the turn's pending session/prompt (or connect's call) fails and reports it
 	}
 	ce := ec.classify(errRPCClosed)
 	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, Error: ce})
@@ -1206,9 +1222,8 @@ func (s *acpSession) Respond(ctx context.Context, r protocol.AgentChatRespond) e
 	if conn == nil {
 		return errors.New("session not running")
 	}
-	if err := conn.rpc.Reply(pr.rpcID, map[string]any{"outcome": outcome}); err != nil {
-		return err
-	}
+	// Report the resolution before replying: once the agent has the answer it may
+	// end the turn at once, and neither event may follow turn_end.
 	text := chosen
 	if text == "" {
 		text = "cancelled"
@@ -1218,7 +1233,7 @@ func (s *acpSession) Respond(ctx context.Context, r protocol.AgentChatRespond) e
 	if pending == 0 && turnID != "" {
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: turnID, Status: protocol.ChatStatusWorking})
 	}
-	return nil
+	return conn.rpc.Reply(pr.rpcID, map[string]any{"outcome": outcome})
 }
 
 // Control cancels the turn or changes model / effort / approval mode. Changes that the

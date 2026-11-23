@@ -572,25 +572,28 @@ func (s *claudeSession) Respond(_ context.Context, r protocol.AgentChatRespond) 
 		return err
 	}
 	delete(s.pending, r.ElicitationID)
+	turnID := ""
+	if s.turn != nil {
+		turnID = s.turn.id
+	}
 	s.mu.Unlock()
+	// Report the resolution before answering: once Claude has the answer it may
+	// finish the turn at once, and the resolution must not follow turn_end.
+	s.emit(protocol.AgentChatEvent{
+		Kind:        protocol.EventElicitationOK,
+		TurnID:      turnID,
+		Text:        r.OptionID,
+		Elicitation: &protocol.AgentElicitation{ID: p.id, Kind: p.kind},
+	})
 	resp := claudePermissionAnswer(p, r)
-	if err := s.write(map[string]any{
+	return s.write(map[string]any{
 		"type": "control_response",
 		"response": map[string]any{
 			"subtype":    "success",
 			"request_id": p.id,
 			"response":   resp,
 		},
-	}); err != nil {
-		return err
-	}
-	s.emit(protocol.AgentChatEvent{
-		Kind:        protocol.EventElicitationOK,
-		TurnID:      s.turnID(),
-		Text:        r.OptionID,
-		Elicitation: &protocol.AgentElicitation{ID: p.id, Kind: p.kind},
 	})
-	return nil
 }
 
 // claudeValidateAnswer checks the user's choice against what the elicitation offered.

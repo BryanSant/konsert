@@ -47,6 +47,9 @@ func accountByID(rep protocol.AgentCapabilitiesReport, id string) (protocol.Agen
 }
 
 func TestDaemonAgentChatRouting(t *testing.T) {
+	// Exhausted windows persist in the state dir's usage cache: a fresh one keeps an
+	// earlier run (-count=N) from pre-exhausting mock2, which suppresses the push below.
+	t.Setenv(StateDirEnv, t.TempDir())
 	hub := newFakeHub(t)
 	startTestDaemon(t, hub, nil)
 	c := hub.accept(t)
@@ -92,14 +95,13 @@ func TestDaemonAgentChatRouting(t *testing.T) {
 	}))
 
 	// Usage limit → usage_limit error, then capabilities pushed with the window exhausted.
+	// The capabilities push (triggered by the rate_limit event) and the error event
+	// race each other, so wait for both in either order.
 	c.send(t, protocol.MsgAgentChatPrompt, "", protocol.AgentChatPrompt{ChatID: "chat-1", TurnID: "turn-3", Text: "limit"})
-	errEnv := c.waitFor(t, 10*time.Second, "usage_limit", isChatEvent(func(e protocol.AgentChatEvent) bool {
+	isUsageLimit := isChatEvent(func(e protocol.AgentChatEvent) bool {
 		return e.Kind == protocol.EventError && e.Error != nil && e.Error.Kind == protocol.ErrKindUsageLimit
-	}))
-	if ev := chatEvent(t, errEnv); ev.Error.Window != "five_hour" || ev.Error.ResetsAt == nil {
-		t.Fatalf("usage_limit = %+v", ev.Error)
-	}
-	c.waitFor(t, 10*time.Second, "exhausted capabilities", capsWith(func(r protocol.AgentCapabilitiesReport) bool {
+	})
+	isExhausted := capsWith(func(r protocol.AgentCapabilitiesReport) bool {
 		a, ok := accountByID(r, "mock2")
 		if !ok {
 			return false
@@ -110,7 +112,22 @@ func TestDaemonAgentChatRouting(t *testing.T) {
 			}
 		}
 		return false
-	}))
+	})
+	var errEnv *protocol.Envelope
+	sawExhausted := false
+	for errEnv == nil || !sawExhausted {
+		env := c.waitFor(t, 10*time.Second, "usage_limit error and exhausted capabilities", func(e protocol.Envelope) bool {
+			return (errEnv == nil && isUsageLimit(e)) || (!sawExhausted && isExhausted(e))
+		})
+		if isUsageLimit(env) {
+			errEnv = &env
+		} else {
+			sawExhausted = true
+		}
+	}
+	if ev := chatEvent(t, *errEnv); ev.Error.Window != "five_hour" || ev.Error.ResetsAt == nil {
+		t.Fatalf("usage_limit = %+v", ev.Error)
+	}
 
 	// An explicit refresh re-probes: the mock now also reports seven_day exhausted.
 	c.send(t, protocol.MsgAgentCapabilitiesRefresh, "", map[string]string{"account_id": "mock2"})
