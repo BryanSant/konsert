@@ -24,6 +24,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const w1: Worker = {
       id: 'w1',
+      sid: 'w1-sid',
       name: 'bocabox',
       host_group: 'fedora-main',
       os: 'linux',
@@ -54,6 +55,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const task: Task = {
       id: 'task-1',
+      sid: 'task-1-sid',
       worker_id: 'w1',
       agent: 'claude',
       workdir: '/home/dev/konsert',
@@ -90,6 +92,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     // removeWorker removes worker and its spaces
     fleet.upsertSpace({
       id: 'sp-w1',
+      sid: 'sp-w1-sid',
       worker_id: 'w1',
       name: 'konsert',
       path: '/home/dev/konsert',
@@ -110,6 +113,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const orchTask: Task = {
       id: 'task-orch',
+      sid: 'task-orch-sid',
       worker_id: 'w1',
       agent: 'agy',
       workdir: '/repo',
@@ -148,6 +152,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const space = {
       id: 'sp-1',
+      sid: 's-1-sid',
       worker_id: 'w1',
       name: 'konsert',
       path: '/home/dev/konsert',
@@ -157,6 +162,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const shellTask: Task = {
       id: 't-shell',
+      sid: 't-shell-sid',
       worker_id: 'w1',
       space_id: 'sp-1',
       agent: 'shell',
@@ -186,6 +192,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const localW: Worker = {
       id: 'w-local',
+      sid: 'w-local-sid',
       name: 'localhost',
       host_group: 'localhost',
       os: 'darwin',
@@ -236,10 +243,10 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     expect(r3.model_source).toBe('default');
 
     // 4. Taxonomy cascading removal
-    fleet.upsertWorkspace({ id: 'ws-1', name: 'Work', is_default: false, created_at: new Date().toISOString() });
-    fleet.upsertProject({ id: 'p-1', workspace_id: 'ws-1', name: 'App1', is_default: false, created_at: new Date().toISOString() });
-    fleet.upsertRepo({ id: 'r-1', project_id: 'p-1', worker_id: 'w-local', name: 'api', path: '/api', created_at: new Date().toISOString() });
-    fleet.upsertWorktree({ id: 'wt-1', repo_id: 'r-1', branch: 'main', path: '/api', is_primary: true, created_at: new Date().toISOString() });
+    fleet.upsertWorkspace({ id: 'ws-1', sid: 'ws-1-sid', name: 'Work', is_default: false, created_at: new Date().toISOString() });
+    fleet.upsertProject({ id: 'p-1', sid: 'p-1-sid', workspace_id: 'ws-1', name: 'App1', is_default: false, created_at: new Date().toISOString() });
+    fleet.upsertRepo({ id: 'r-1', sid: 'r-1-sid', project_id: 'p-1', worker_id: 'w-local', name: 'api', path: '/api', created_at: new Date().toISOString() });
+    fleet.upsertWorktree({ id: 'wt-1', sid: 'wt-1-sid', repo_id: 'r-1', branch: 'main', path: '/api', is_primary: true, created_at: new Date().toISOString() });
     fleet.removeWorkspace('ws-1');
     expect(fleet.workspaces().length).toBe(0);
     expect(fleet.projects().length).toBe(0);
@@ -255,6 +262,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
 
     const t1: Task = {
       id: 'task-split-1',
+      sid: 'task-split-1-sid',
       worker_id: 'w1',
       agent: 'claude',
       workdir: '/repo',

@@ -53,7 +53,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
           <span class="font-medium text-[#ececed]">Scratch Workspace</span>
           @if (activeScratchTask(); as st) {
             <span class="font-mono-ide text-[10px] text-[#8a8c94]">
-              {{ fleet.workersById()[st.worker_id]?.name || st.worker_id }} · {{ st.agent }}
+              {{ fleet.workersById()[st.worker_id]?.name || fleet.workersById()[st.worker_id]?.sid || st.worker_id }} · {{ st.agent }}
             </span>
           }
         </div>

@@ -340,7 +340,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                     <app-icon [name]="t.agent" [size]="12" />
                     <div class="min-w-0">
                       <div class="text-[12px] text-[#ececed] truncate">{{ t.agent }} · {{ t.workdir }}</div>
-                      <div class="text-[10px] font-mono-ide text-[#8a8c94]">{{ fleet.workersById()[t.worker_id]?.name || t.worker_id }} · {{ t.status }}</div>
+                      <div class="text-[10px] font-mono-ide text-[#8a8c94]">{{ fleet.workersById()[t.worker_id]?.name || fleet.workersById()[t.worker_id]?.sid || t.worker_id }} · {{ t.status }}</div>
                     </div>
                   </button>
                   <button

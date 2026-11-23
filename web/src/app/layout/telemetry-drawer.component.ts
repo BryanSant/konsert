@@ -65,7 +65,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
         }
 
         @if (panel() !== 'git' && panel() !== 'audit' && activeTask(); as t) {
-          <span class="font-mono-ide text-[10px] text-[#86888f]">{{ t.id }}</span>
+          <span class="font-mono-ide text-[10px] text-[#86888f]">{{ t.sid || t.id }}</span>
         }
       </div>
 

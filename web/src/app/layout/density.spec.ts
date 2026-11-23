@@ -15,6 +15,7 @@ import { TelemetryDrawerComponent } from './telemetry-drawer.component';
 
 const worker: Worker = {
   id: 'w1',
+  sid: 'w1-sid',
   name: 'studio',
   host_group: 'studio',
   os: 'darwin',

@@ -111,8 +111,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       `ws://127.0.0.1:${port}/ws/worker`,
       '--token',
       fleetToken,
-      '--id',
-      'worker-e2e-box',
       '--name',
       workerName,
       '--host-group',
@@ -122,7 +120,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Keep worker/machine IDs and the status outbox out of the developer's ~/.konsert, and
+      // Keep the worker identity and the status outbox out of the developer's ~/.konsert, and
       // never run (or read the logins of) the host's real agent CLIs: only mock accounts.
       env: subscriptionOnlyEnv({
         KONSERT_STATE_DIR: path.join(tmpDir, 'state'),
@@ -141,22 +139,32 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const setCookie = loginRes.headers.get('set-cookie') || '';
   const cookieHeader = setCookie.split(';')[0] || '';
 
+  // konsertd registers with its own persisted UUIDv7 identity; the hub mints its m- sid.
+  let workerId = '';
+  let workerSid = '';
   await waitFor(
     async () => {
       const res = await fetch(`${baseURL}/api/fleet`, {
         headers: { Cookie: cookieHeader },
       });
       if (!res.ok) return false;
-      const body = (await res.json()) as { workers?: Array<{ name: string; status: string }> };
-      return !!body.workers?.some((w) => w.name === workerName && w.status === 'online');
+      const body = (await res.json()) as { workers?: Array<{ id: string; sid: string; name: string; status: string }> };
+      const w = body.workers?.find((w) => w.name === workerName && w.status === 'online');
+      if (!w) return false;
+      workerId = w.id;
+      workerSid = w.sid;
+      return true;
     },
     10_000,
     'konsertd worker registration'
   );
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(workerId) || !/^m-[0-9a-z]{5,12}$/.test(workerSid)) {
+    throw new Error(`worker registered as id=${workerId} sid=${workerSid}; want a UUIDv7 id and an m- sid`);
+  }
 
   fs.writeFileSync(
     E2E_STATE_FILE,
-    JSON.stringify({ baseURL, adminToken, workerName, workerId: 'worker-e2e-box', workdir })
+    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir })
   );
 
   return async () => {

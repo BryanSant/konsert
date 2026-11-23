@@ -169,17 +169,17 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
                 </td>
                 <td class="px-3 py-2 min-w-0">
                   @if (ev.worker_id) {
-                    <div class="truncate text-[#d4d4d8]" [ksTooltip]="ev.worker_id">{{ hostName(ev.worker_id) }}</div>
+                    <div class="truncate text-[#d4d4d8]" [ksTooltip]="ev.worker_sid || ev.worker_id">{{ hostName(ev) }}</div>
                   }
                   @if (ev.task_id) {
                     <button
                       type="button"
-                      (click)="openTask(ev.task_id)"
-                      [attr.aria-label]="'Open task ' + taskLabel(ev.task_id)"
-                      [ksTooltip]="ev.task_id"
+                      (click)="openTask(ev)"
+                      [attr.aria-label]="'Open task ' + taskLabel(ev)"
+                      [ksTooltip]="ev.task_sid || ev.task_id"
                       class="max-w-full truncate font-mono-ide text-[10px] text-[#7aa2d6] hover:text-[#a8c6ee] underline underline-offset-2 cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#4a668a] rounded-sm"
                     >
-                      {{ taskLabel(ev.task_id) }}
+                      {{ taskLabel(ev) }}
                     </button>
                   }
                   @if (!ev.worker_id && !ev.task_id) {
@@ -318,7 +318,7 @@ export class AuditLogComponent implements OnInit {
       (!this.hostFilter() || ev.worker_id === this.hostFilter()) &&
       (!user || ev.user === user) &&
       (!this.actionFilter() || ev.action === this.actionFilter()) &&
-      (!task || ev.task_id === task)
+      (!task || ev.task_id === task || ev.task_sid === task)
     );
   }
 
@@ -327,25 +327,31 @@ export class AuditLogComponent implements OnInit {
     this.events.update((cur) => mergeAudit(cur, [ev]));
   }
 
-  openTask(taskId: string): void {
+  openTask(ev: AuditEvent): void {
+    const taskId = ev.task_id ?? '';
     const task = this.fleet.tasksById()[taskId];
     if (task) {
       this.tabs.openTaskTab(task, this.fleet.workersById()[task.worker_id]?.name);
       return;
     }
     // Not in the loaded fleet snapshot (e.g. an old task): narrow the log to it instead.
-    this.taskFilter.set(taskId);
+    // The filter field is user-facing, so it shows the sid (the API accepts either).
+    this.taskFilter.set(ev.task_sid || taskId);
     void this.reload();
   }
 
-  hostName(workerId: string): string {
-    return this.fleet.workersById()[workerId]?.name || `machine …${workerId.slice(-6)}`;
+  hostName(ev: AuditEvent): string {
+    const workerId = ev.worker_id ?? '';
+    const w = this.fleet.workersById()[workerId];
+    return w?.name || `machine ${w?.sid || ev.worker_sid || workerId}`;
   }
 
-  taskLabel(taskId: string): string {
+  taskLabel(ev: AuditEvent): string {
+    const taskId = ev.task_id ?? '';
     const t = this.fleet.tasksById()[taskId];
+    const sid = t?.sid || ev.task_sid || taskId;
     const name = t ? basenamePath(t.workdir) || t.agent : '';
-    return name ? `${name} · ${taskId}` : taskId;
+    return name ? `${name} · ${sid}` : sid;
   }
 
   actionLabel(action: string): string {

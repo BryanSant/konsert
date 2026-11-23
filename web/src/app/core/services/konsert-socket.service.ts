@@ -213,7 +213,8 @@ export class KonsertSocketService {
           this.fleetStore.upsertWorker(p.worker);
         } else if (p.kind === 'task' && p.task) {
           const prev = this.fleetStore.tasksById()[p.task.id];
-          const workerName = this.fleetStore.workersById()[p.task.worker_id]?.name || p.task.worker_id;
+          const worker = this.fleetStore.workersById()[p.task.worker_id];
+          const workerName = worker?.name || worker?.sid || p.task.worker_id;
           this.fleetStore.upsertTask(p.task);
           this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
         } else if (p.kind === 'event' && p.event) {

@@ -12,6 +12,7 @@ import { OrchestratorStore } from './orchestrator.store';
 
 const chat: ChatSession = {
   id: FIXTURE_CHAT_ID,
+  sid: 'sid-fixture',
   title: 'Tests',
   provider: '',
   model: 'sonnet',
