@@ -2,6 +2,11 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ChatMessage, ChatSession, ChatToolCard } from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
 
+/** Is this a subscription-agent chat (vs the optional API-key orchestrator)? */
+export function isAgentChat(s: ChatSession | undefined | null): boolean {
+  return !!s && (s.backend === 'agent' || (!s.backend && !!s.agent));
+}
+
 export const CHAT_NOT_CONNECTED_ERROR =
   'Not connected to the Konsert hub. Your message was not sent and is still in the composer.';
 export const CHAT_CONNECTION_LOST_ERROR =
@@ -36,13 +41,11 @@ export class OrchestratorStore {
   async init(): Promise<void> {
     try {
       const res = await this.api.listChatSessions();
-      let list = res.sessions ?? [];
-      if (list.length === 0) {
-        const created = await this.api.createChatSession('Default Orchestrator');
-        list = [created];
-      }
+      const list = res.sessions ?? [];
       this.sessions.set(list);
-      await this.selectSession(list[0].id);
+      // No chats yet: the view shows a new-chat composer (nothing is created until the
+      // first message, and never an API-key chat by default).
+      if (list.length > 0) await this.selectSession(list[0].id);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load chat sessions');
     }
@@ -71,16 +74,23 @@ export class OrchestratorStore {
       this.inFlightSessionId.set('');
     }
     const remaining = this.sessions().filter((s) => s.id !== sessionId);
+    this.sessions.set(remaining);
     if (remaining.length === 0) {
-      const created = await this.api.createChatSession('Default Orchestrator');
-      this.sessions.set([created]);
-      await this.selectSession(created.id);
+      this.startDraft();
       return;
     }
-    this.sessions.set(remaining);
     if (this.activeSessionId() === sessionId) {
       await this.selectSession(remaining[0].id);
     }
+  }
+
+  /** Shows the new-chat composer (no active session). */
+  startDraft(): void {
+    this.activeSessionId.set('');
+    this.messages.set([]);
+    this.streamingBuffer.set('');
+    this.activeToolCards.set([]);
+    this.error.set('');
   }
 
   async selectSession(sessionId: string): Promise<void> {
@@ -88,6 +98,9 @@ export class OrchestratorStore {
     this.streamingBuffer.set('');
     this.activeToolCards.set([]);
     this.error.set('');
+    this.messages.set([]);
+    // Agent chats are rebuilt from their event log (AgentChatStore), not messages.
+    if (isAgentChat(this.sessions().find((s) => s.id === sessionId))) return;
     await this.reloadMessages(sessionId, true);
   }
 
@@ -145,7 +158,7 @@ export class OrchestratorStore {
   /** The socket reconnected: pull anything persisted while we were away. */
   async onReconnected(): Promise<void> {
     const sid = this.activeSessionId();
-    if (!sid) return;
+    if (!sid || isAgentChat(this.sessions().find((s) => s.id === sid))) return;
     if (this.error() === CHAT_CONNECTION_LOST_ERROR || this.error() === CHAT_NOT_CONNECTED_ERROR) {
       this.error.set('');
     }
