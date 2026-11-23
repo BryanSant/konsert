@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -114,12 +115,17 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 		return Message{}, err
 	}
 
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, model, p.apiKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	// The API key goes in the x-goog-api-key header, never the URL: *url.Error
+	// embeds the full URL in its message, and errors are broadcast to clients.
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent", p.baseURL, url.PathEscape(model))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return Message{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if p.apiKey != "" {
+		req.Header.Set("x-goog-api-key", p.apiKey)
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {

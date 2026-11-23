@@ -84,8 +84,8 @@ func TestGeminiProviderFunctionCall(t *testing.T) {
 	p := NewGeminiProvider("gem-key", "https://example.invalid/v1beta")
 	p.client = &http.Client{
 		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			if !strings.Contains(r.URL.RawQuery, "key=gem-key") {
-				t.Errorf("missing key query param")
+			if r.Header.Get("x-goog-api-key") != "gem-key" || r.URL.RawQuery != "" {
+				t.Errorf("key must be sent only in the x-goog-api-key header")
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,

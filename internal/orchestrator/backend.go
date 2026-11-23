@@ -125,6 +125,16 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	prov := s.provider
 	s.mu.RUnlock()
 
+	// fail scrubs secrets from err (errors reach every browser and MCP caller),
+	// reports it via OnError and returns the scrubbed error.
+	fail := func(err error) error {
+		err = redactError(err, cfg.APIKey)
+		if cb.OnError != nil {
+			cb.OnError(sessionID, err.Error())
+		}
+		return err
+	}
+
 	sess, err := s.store.GetChatSession(ctx, sessionID)
 	if err != nil {
 		// Auto-create session if needed.
@@ -137,10 +147,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			UpdatedAt: time.Now().UTC(),
 		}
 		if createErr := s.store.CreateChatSession(ctx, sess); createErr != nil {
-			if cb.OnError != nil {
-				cb.OnError(sessionID, createErr.Error())
-			}
-			return createErr
+			return fail(createErr)
 		}
 	}
 
@@ -149,10 +156,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		Role:      "user",
 		Content:   content,
 	}); err != nil {
-		if cb.OnError != nil {
-			cb.OnError(sessionID, err.Error())
-		}
-		return err
+		return fail(err)
 	}
 
 	if cfg.APIKey == "" && prov != nil && (prov.Name() == "openai" || prov.Name() == "anthropic" || prov.Name() == "gemini") {
@@ -176,10 +180,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 
 	history, checkpoint, err := s.loadBoundedHistory(ctx, sessionID, 24)
 	if err != nil {
-		if cb.OnError != nil {
-			cb.OnError(sessionID, err.Error())
-		}
-		return err
+		return fail(err)
 	}
 
 	system := defaultSystemPrompt
@@ -209,10 +210,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			}
 		})
 		if err != nil {
-			if cb.OnError != nil {
-				cb.OnError(sessionID, err.Error())
-			}
-			return err
+			return fail(err)
 		}
 
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
