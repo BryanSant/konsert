@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -150,6 +151,31 @@ func (d *Daemon) Runner() *Runner {
 	return d.runner
 }
 
+// ErrFleetTokenRequired is returned by Run when the hub requires a fleet token and none is
+// configured: retrying cannot succeed until the configuration changes.
+var ErrFleetTokenRequired = errors.New("hub requires a fleet token: set --token or KONSERT_FLEET_TOKEN (or fleet_token in the worker config); only a hub started with --no-auth accepts workers without one")
+
+// authError reports that the hub refused the WebSocket upgrade (HTTP 401/403).
+type authError struct {
+	status   int
+	tokenSet bool
+	err      error
+}
+
+func (e *authError) Error() string {
+	if !e.tokenSet {
+		return fmt.Sprintf("hub rejected the connection (HTTP %d): %v", e.status, ErrFleetTokenRequired)
+	}
+	return fmt.Sprintf("hub rejected the fleet token (HTTP %d): check --token / KONSERT_FLEET_TOKEN against the hub's fleet token", e.status)
+}
+
+func (e *authError) Unwrap() error {
+	if !e.tokenSet {
+		return ErrFleetTokenRequired
+	}
+	return e.err
+}
+
 // Run runs the reconnect loop until ctx is canceled.
 // Active tasks stay alive across transient controller disconnects and are re-adopted on reconnect.
 func (d *Daemon) Run(ctx context.Context) error {
@@ -178,6 +204,21 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return nil
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
 			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
+		}
+
+		var aerr *authError
+		if errors.As(err, &aerr) {
+			if !aerr.tokenSet {
+				// No token configured: retrying cannot succeed. Exit with a clear error
+				// instead of looping.
+				d.logger.Error(aerr.Error())
+				d.runner.ShutdownAll()
+				return ErrFleetTokenRequired
+			}
+			// A wrong token may be fixed on the hub side (rotation): keep retrying, but
+			// only at the slowest backoff and with an explicit error.
+			d.logger.Error(aerr.Error(), "retry_in", maxBackoff)
+			backoff = maxBackoff
 		}
 
 		// Reset backoff only after a session that got past worker.hello and lasted > 10 s.
@@ -212,11 +253,14 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	}
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
-	conn, _, err := websocket.Dial(dialCtx, d.cfg.ControllerURL, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(dialCtx, d.cfg.ControllerURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
 	dialCancel()
 	if err != nil {
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			return &authError{status: resp.StatusCode, tokenSet: d.cfg.FleetToken != "", err: err}
+		}
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}
 	conn.SetReadLimit(20 * 1024 * 1024)
