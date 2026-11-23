@@ -1309,6 +1309,20 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 				"required": []string{"task_id"},
 			},
 		},
+		{
+			Name:        "recent_events",
+			Description: recentEventsDescription,
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"machine":       map[string]any{"type": "string", "description": "Only events on this machine (id, sid or name)"},
+					"task_id":       map[string]any{"type": "string"},
+					"since_minutes": map[string]any{"type": "integer", "description": "How far back (default 120)"},
+					"limit":         map[string]any{"type": "integer"},
+					"all":           map[string]any{"type": "boolean", "description": "Include routine status changes"},
+				},
+			},
+		},
 	}
 }
 
@@ -1497,6 +1511,11 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 			return nil, fmt.Errorf("invalid cancel_task args: %w", err)
 		}
 		return s.CancelTask(ctx, req.TaskID)
+
+	case "recent_events":
+		var req RecentEventsInput
+		_ = json.Unmarshal(args, &req)
+		return s.RecentEvents(ctx, req)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)

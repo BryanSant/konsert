@@ -46,7 +46,7 @@ func actorKind(c *store.Cause) string {
 }
 
 func resourceJSON(r *store.Resource) string {
-	if r == nil || r.Kind == "" {
+	if r == nil || (r.Kind == "" && r.Name == "" && r.Port == 0) {
 		return ""
 	}
 	b, err := json.Marshal(r, json.Deterministic(true))
@@ -61,7 +61,7 @@ func parseResource(s string) *store.Resource {
 		return nil
 	}
 	var r store.Resource
-	if err := json.Unmarshal([]byte(s), &r); err != nil || r.Kind == "" {
+	if err := json.Unmarshal([]byte(s), &r); err != nil || (r.Kind == "" && r.Name == "" && r.Port == 0) {
 		return nil
 	}
 	return &r

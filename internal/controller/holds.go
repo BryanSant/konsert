@@ -130,6 +130,8 @@ func describeResource(r *store.Resource) string {
 		return "automatic restarts"
 	case r.Port > 0 && r.Name == "":
 		return "port " + strconv.Itoa(r.Port)
+	case r.Name != "" && r.Kind == "":
+		return r.Name
 	case r.Name != "":
 		return r.Kind + " " + r.Name
 	}

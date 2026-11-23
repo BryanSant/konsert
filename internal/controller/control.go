@@ -35,7 +35,7 @@ const (
 const fleetPauseSetting = "fleet_pause"
 
 // errFleetPaused is returned to automatic dispatch while everything is paused.
-var errFleetPaused = errors.New("Konsert is paused: the user paused everything, so no new work is dispatched. " +
+var errFleetPaused = errors.New("konsert is paused: the user paused everything, so no new work is dispatched. " +
 	"Do not retry; ask the user (ask_user) whether to wait or resume")
 
 // Veto reasons.
