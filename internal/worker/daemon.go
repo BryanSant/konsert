@@ -916,9 +916,14 @@ func (d *Daemon) cachedFacts() (protocol.MachineFacts, bool) {
 	return *d.lastFacts, true
 }
 
+// collectFacts gathers machine facts for worker.hello and worker.facts. Tests replace
+// it: the real probes spawn tools (e.g. `podman info` initializes container storage
+// under $HOME) that tests running with a temporary HOME must not trigger.
+var collectFacts = CollectMachineFacts
+
 // refreshFacts collects machine facts and caches them for the next reconnect.
 func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
-	f := CollectMachineFacts(ctx)
+	f := collectFacts(ctx)
 	d.factsMu.Lock()
 	d.lastFacts = &f
 	d.factsMu.Unlock()
