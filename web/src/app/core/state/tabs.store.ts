@@ -298,6 +298,6 @@ export class TabsStore {
   }
 }
 
-const ACTIVE_STATUSES = new Set<TaskStatus>(['queued', 'assigned', 'running', 'waiting_input']);
+const ACTIVE_STATUSES = new Set<TaskStatus>(['queued', 'assigned', 'running', 'waiting_input', 'suspended']);
 // A shell's exit code is its last command's, so `exit` after a failing command reports 'failed'.
 const SHELL_EXIT_STATUSES = new Set<TaskStatus>(['completed', 'failed']);

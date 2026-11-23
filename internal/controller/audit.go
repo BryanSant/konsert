@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -104,6 +105,10 @@ func (h *Hub) recordAudit(ctx context.Context, e store.AuditEvent) {
 	}
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now().UTC()
+	}
+	if e.Cause == nil {
+		c := causeFrom(ctx)
+		e.Cause = &c
 	}
 	// Record even if the request context was canceled right after the action.
 	id, err := h.store.AppendAudit(context.WithoutCancel(ctx), e)
@@ -276,7 +281,25 @@ func (s *Server) handleTaskControl(w http.ResponseWriter, r *http.Request) {
 		TaskID:   t.ID,
 		Message:  msg,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "task_id": t.ID, "enabled": *body.Enabled})
+	// Taking control of a session holds it (nothing automatic touches it while the user
+	// drives); handing back releases the hold and the agents are told.
+	cause := causeFrom(r.Context())
+	where := s.hub.workerLabel(r.Context(), t.WorkerID)
+	resp := map[string]any{"ok": true, "task_id": t.ID, "enabled": *body.Enabled}
+	if *body.Enabled {
+		s.hub.recordIntervention(r.Context(), cause, "take_control", t.WorkerID, t.ID, t.ParentChatID,
+			fmt.Sprintf("%s took control of task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, where))
+		if hd, ok := s.hub.holdAfterIntervention(r.Context(), cause, holdSpec{scope: store.HoldScopeSession, workerID: t.WorkerID, taskID: t.ID,
+			summary: fmt.Sprintf("The user took control of task %s on %s", t.SID, where)}); ok {
+			resp["hold_id"] = hd.ID
+			resp["hold_sid"] = hd.SID
+		}
+	} else {
+		s.hub.recordIntervention(r.Context(), cause, "release_control", t.WorkerID, t.ID, t.ParentChatID,
+			fmt.Sprintf("%s handed task %s (%s) on %s back", capitalize(describeActor(cause)), t.SID, t.Agent, where))
+		s.hub.releaseSessionHolds(r.Context(), t.ID, "", "handed back by the user")
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // --- MCP ---

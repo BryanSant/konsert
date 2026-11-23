@@ -47,6 +47,9 @@ const (
 	// eventUserMessage is a hub-generated AgentChatEvent kind recording the user's
 	// prompt (Text, TurnID) in the transcript.
 	eventUserMessage = "user_message"
+	// eventKonsertNote is a hub-generated AgentChatEvent kind recording the note about
+	// fleet events (user actions, holds, requests) prepended to the agent's prompt.
+	eventKonsertNote = "konsert_note"
 
 	// defaultAskUserTimeout bounds how long ask_user waits for the user.
 	defaultAskUserTimeout = 30 * time.Minute
@@ -149,6 +152,8 @@ type emitOpts struct {
 	fromWorker *workerConn
 	// update mutates the session alongside the event's own state changes.
 	update func(*store.ChatSession)
+	// cause attributes a status change the event makes (default: derived from the event).
+	cause *store.Cause
 }
 
 // emitChatEvent assigns the next hub seq, persists ev, applies its state to the
@@ -204,12 +209,32 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	if o.update != nil {
 		o.update(&cs)
 	}
+	// A chat stays suspended until the user resumes it, whatever the (frozen) engine
+	// last reported.
+	if before.Status == protocol.ChatStatusSuspended && cs.SuspendedBy != "" && o.cause == nil {
+		cs.Status = protocol.ChatStatusSuspended
+	}
+	var transition *store.Cause
+	if cs.Status != before.Status {
+		c := h.chatEventCause(ctx, cs, ev, o)
+		cs.Cause = &c
+		transition = &c
+	}
 	if cs != before {
 		if err := h.store.UpdateChatSession(ctx, cs); err != nil {
 			h.logger.Warn("update chat session failed", "chat_id", chatID, "err", err)
 		} else if cs.Status != before.Status || cs.Title != before.Title {
 			// Every browser's chat list (not just subscribers) shows status pills.
 			h.broadcastFleetUpdate("chat_session", cs)
+		}
+	}
+	if transition != nil {
+		// Record outside the chat lock's critical path ordering concerns: the timeline
+		// write does not touch chat state.
+		h.recordChatTransition(ctx, cs, before.Status, *transition)
+		if cs.FleetTools && chatIdle(cs.Status) {
+			// The orchestrator finished a turn: tell it what happened meanwhile.
+			h.scheduleDelivery()
 		}
 	}
 	if ev.TurnID != "" && (ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError) {
@@ -827,6 +852,15 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 			return err
 		}
 	}
+	if cs.Status == protocol.ChatStatusSuspended {
+		e := protocol.AgentChatError{
+			Kind:      protocol.ErrKindOther,
+			Message:   "This chat is suspended: its agent is frozen. Resume it to continue.",
+			Retryable: true,
+		}
+		h.hubError(ctx, cs.ID, e)
+		return errors.New(e.Message)
+	}
 	wc := h.workerConnFor(cs.WorkerID)
 	if wc == nil {
 		e := protocol.AgentChatError{
@@ -891,8 +925,14 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		exhausted.TurnID = turnID
 		h.emitChatEvent(ctx, cs.ID, *exhausted, emitOpts{})
 	}
+	// Tell the agent what the user (or Konsert) did since its last turn that concerns it.
+	text := req.Content
+	if note := h.noteForPrompt(ctx, cs.ID); note != "" {
+		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
+		text = note + "\n\n" + text
+	}
 	if !h.sendWorkerJSON(wc, protocol.MsgAgentChatPrompt, protocol.AgentChatPrompt{
-		ChatID: cs.ID, TurnID: turnID, Text: req.Content, Attachments: req.Attachments,
+		ChatID: cs.ID, TurnID: turnID, Text: text, Attachments: req.Attachments,
 	}) {
 		e := protocol.AgentChatError{Kind: protocol.ErrKindOther, Message: "The worker's send queue is full; try again.", Retryable: true}
 		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turnID, Error: &e}, emitOpts{})
@@ -1144,9 +1184,21 @@ func (h *Hub) controlChat(ctx context.Context, req chatControlRequest) error {
 		return errors.New("chat.control applies to agent chats only")
 	}
 	if req.Cancel {
+		cause := causeFrom(ctx)
+		if cs.Status == protocol.ChatStatusSuspended {
+			// A frozen engine can't act on the interrupt: thaw it first.
+			if cs, err = h.resumeChat(ctx, cs); err != nil {
+				return err
+			}
+		}
+		h.setPendingCause("chat:"+cs.ID, protocol.ChatStatusCancelled, cause)
 		h.resolveAsks(cs.ID, "the user cancelled the turn")
 		if wc := h.workerConnFor(cs.WorkerID); wc != nil {
 			h.sendWorkerJSON(wc, protocol.MsgAgentChatControl, protocol.AgentChatControl{ChatID: cs.ID, Cancel: true})
+		}
+		if chatBusy(cs.Status) {
+			h.recordIntervention(ctx, cause, "stop_turn", cs.WorkerID, "", cs.ID,
+				fmt.Sprintf("%s stopped the running turn of chat %s (%s)", capitalize(describeActor(cause)), cs.SID, cs.Title))
 		}
 	}
 	var p ChatSettingsPatch

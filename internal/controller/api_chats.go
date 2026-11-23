@@ -88,6 +88,8 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 	default:
 		return cs, errInvalidSettings{errors.New(`backend must be "agent" or "api"`)}
 	}
+	// A new chat is told about fleet events from now on (recent_events has the past).
+	s.hub.initNotesCursor(ctx, &cs)
 	if err := s.store.CreateChatSession(ctx, cs); err != nil {
 		return cs, err
 	}
@@ -275,7 +277,7 @@ func (s *Server) handleChatMCP(w http.ResponseWriter, r *http.Request) {
 	if cs.FleetTools {
 		user, source = "orchestrator", auditSourceOrchestrator
 	}
-	r = r.WithContext(withAuditActor(r.Context(), user, source))
+	r = r.WithContext(withChatOrigin(withAuditActor(r.Context(), user, source), cs.ID, cs.FleetTools))
 	s.hub.chatMCPHandler(cs).ServeHTTP(w, r)
 }
 
@@ -289,8 +291,10 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		return rt.mcp
 	}
 	var srv *mcp.Server
+	var control HumanControlBackend
 	if cs.FleetTools && h.chatFleetBackend != nil {
-		srv = NewMCPServer(h.chatFleetBackend, h.version)
+		srv = newMCPServer(h.chatFleetBackend, h.version, nil)
+		control, _ = h.chatFleetBackend.(HumanControlBackend)
 	} else {
 		v := h.version
 		if v == "" {
@@ -312,6 +316,7 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: ans}}}, nil, nil
 	})
+	h.addChatControlTools(srv, cs, control)
 	rt.mcp = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	rt.mcpFleet = cs.FleetTools
 	return rt.mcp

@@ -22,11 +22,14 @@ import { FleetStore } from '../../core/state/fleet.store';
 import { TabsStore } from '../../core/state/tabs.store';
 import { IconComponent } from '../../shared/icon.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
+import { causeLine } from '../../core/models/control.models';
+import { ControlStore } from '../../core/state/control.store';
+import { SessionControlsComponent } from '../control/session-controls.component';
 
 @Component({
   selector: 'app-xterm-pane',
   standalone: true,
-  imports: [TooltipDirective, IconComponent],
+  imports: [TooltipDirective, IconComponent, SessionControlsComponent],
   template: `
     <div class="h-full w-full flex flex-col" [class.p-2]="!embedded()" [class.bg-[#111214]]="true">
       <!-- Herdr-style Framed Terminal Container -->
@@ -67,14 +70,34 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                   <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] animate-pulse"></span>
                   Needs you
                 </span>
+              } @else if (task()?.status === 'suspended') {
+                <span
+                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--ks-violet-soft)] text-[var(--ks-violet)]"
+                  data-status="suspended"
+                  [ksTooltip]="causeText() || 'Processes frozen; resume to continue'"
+                >
+                  <app-icon name="pause" [size]="9" />
+                  {{ task()?.suspended_by === 'pause' ? 'Paused' : 'Suspended' }}
+                </span>
               } @else if (task()?.status === 'completed' || task()?.status === 'failed' || task()?.status === 'canceled') {
                 <span
                   class="rounded px-1.5 py-0.5 text-[10px] font-mono-ide"
                   [class.text-[#69b879]]="task()?.status === 'completed'"
                   [class.text-[#e05d5d]]="task()?.status === 'failed'"
                   [class.text-[#8e9098]]="task()?.status === 'canceled'"
+                  [ksTooltip]="causeText()"
                 >
                   {{ task()?.status }}
+                </span>
+              }
+              @if (hold(); as h) {
+                <span
+                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--ks-amber-soft)] text-[#e6b763]"
+                  data-testid="session-hold"
+                  [ksTooltip]="h.summary + ' — automatic actions are blocked until it is released'"
+                >
+                  <app-icon name="lock" [size]="9" />
+                  Held
                 </span>
               }
 
@@ -95,15 +118,8 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                 <span>{{ interactiveMode() ? 'Interactive' : 'Read-Only' }}</span>
               </button>
 
-              @if (isActiveTask()) {
-                <button
-                  type="button"
-                  (click)="cancelTask()"
-                  ksTooltip="Stop remote process"
-                  class="rounded-md border border-[#2a2c33] hover:border-[#e05d5d]/50 hover:bg-[#e05d5d]/10 px-2 py-0.5 text-[11px] text-[#8e9098] hover:text-[#f09595] transition cursor-pointer"
-                >
-                  Stop
-                </button>
+              @if (task(); as t) {
+                <ks-session-controls kind="task" [sessionId]="t.id" [status]="t.status" [compact]="true" />
               }
             </div>
           </div>
@@ -188,9 +204,12 @@ export class XtermPaneComponent implements OnDestroy {
     const tab = this.tabsStore.openTabs().find((t) => t.id === this.taskId());
     return tab?.interactiveMode ?? false;
   });
-  readonly isActiveTask = computed(() => {
-    const st = this.task()?.status;
-    return st === 'running' || st === 'waiting_input' || st === 'assigned' || st === 'queued';
+  private readonly control = inject(ControlStore);
+  /** The session hold on this task (e.g. placed by Take Control). */
+  readonly hold = computed(() => this.control.sessionHold(this.taskId()));
+  readonly causeText = computed(() => {
+    const t = this.task();
+    return t?.cause ? causeLine(t.status, t.cause) : '';
   });
 
   private term: Terminal | null = null;
@@ -382,14 +401,6 @@ export class XtermPaneComponent implements OnDestroy {
   sendKey(seq: string): void {
     if (!this.interactiveMode()) return;
     this.socket.sendPtyStdin(this.taskId(), seq);
-  }
-
-  async cancelTask(): Promise<void> {
-    try {
-      await this.api.cancelTask(this.taskId());
-    } catch {
-      // ignore
-    }
   }
 
   ngOnDestroy(): void {

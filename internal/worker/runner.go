@@ -19,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/konsert/internal/worker/proctree"
 	"github.com/BryanSant/konsert/internal/worker/shellint"
 )
 
@@ -42,6 +43,8 @@ type runningTask struct {
 	ring         *RingBuffer
 	streamActive atomic.Bool
 	cancelFunc   context.CancelFunc
+	// deadline is the task timeout; it does not run while the task is suspended.
+	deadline *taskDeadline
 
 	// Shell integration (Konsert terminals): marks are parsed out of the PTY stream.
 	shellParser  *shellint.Parser
@@ -51,6 +54,9 @@ type runningTask struct {
 	status   string
 	canceled bool
 	events   []drivers.TelemetryEvent
+	// suspended is set while the process tree is frozen; prevStatus is restored on resume.
+	suspended  bool
+	prevStatus string
 }
 
 // Runner manages the lifecycle of all executing tasks on a worker node.
@@ -384,15 +390,13 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		ShellIntegration: integ,
 	})
 
-	// Exactly one task context: with a deadline when the task has a timeout.
-	var (
-		taskCtx context.Context
-		cancel  context.CancelFunc
-	)
+	// Exactly one task context. The timeout is a pausable deadline (it stops while the
+	// user has the task suspended) that cancels the context with errTaskTimeout.
+	taskCtx, cancelCause := context.WithCancelCause(parentCtx)
+	cancel := func() { cancelCause(context.Canceled) }
+	var deadline *taskDeadline
 	if req.TimeoutSeconds > 0 {
-		taskCtx, cancel = context.WithTimeout(parentCtx, time.Duration(req.TimeoutSeconds)*time.Second)
-	} else {
-		taskCtx, cancel = context.WithCancel(parentCtx)
+		deadline = newTaskDeadline(time.Duration(req.TimeoutSeconds)*time.Second, func() { cancelCause(errTaskTimeout) })
 	}
 
 	env := append(append([]string(nil), spec.Env...), ManagedTaskEnv+"="+req.TaskID)
@@ -406,6 +410,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	})
 	if err != nil {
 		cancel()
+		deadline.stop()
 		undoWorktree()
 		r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("failed to launch %s: %v", spec.Binary, err))
 		return err
@@ -420,6 +425,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		pty:          proc,
 		ring:         NewRingBuffer(DefaultRingBufferSize),
 		cancelFunc:   cancel,
+		deadline:     deadline,
 		status:       protocol.TaskStatusRunning,
 	}
 	if spec.ShellIntegration && integ != nil {
@@ -455,6 +461,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers.AgentDriver) {
 	defer func() {
 		rt.cancelFunc()
+		rt.deadline.stop()
 		_ = rt.pty.Close()
 		r.mu.Lock()
 		// Only remove our own entry: never a newer task that reuses the ID.
@@ -566,10 +573,11 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	copy(eventsCopy, rt.events)
 	rt.mu.Unlock()
 
+	timedOut := errors.Is(context.Cause(ctx), errTaskTimeout)
 	finalStatus := protocol.TaskStatusCompleted
 	if wasCanceled {
 		finalStatus = protocol.TaskStatusCanceled
-	} else if ctx.Err() == context.DeadlineExceeded {
+	} else if timedOut {
 		finalStatus = protocol.TaskStatusFailed
 	} else if waitErr != nil || exitCode != 0 {
 		finalStatus = protocol.TaskStatusFailed
@@ -582,7 +590,7 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		RingSnapshot: rt.ring.Snapshot,
 		Events:       eventsCopy,
 	})
-	if ctx.Err() == context.DeadlineExceeded {
+	if timedOut {
 		summary = "task timed out; " + summary
 	}
 
@@ -832,7 +840,75 @@ func (r *Runner) CancelTask(taskID string) error {
 	rt.mu.Lock()
 	rt.canceled = true
 	rt.mu.Unlock()
+	// A frozen process tree can't handle SIGINT/SIGTERM: thaw it first.
+	_ = r.ResumeTask(taskID)
 	rt.cancelFunc()
+	return nil
+}
+
+// errTaskTimeout is the cancellation cause of a task that ran out of time.
+var errTaskTimeout = errors.New("task timed out")
+
+// suspendTree and resumeTree freeze and thaw a process tree (replaced in tests).
+var (
+	suspendTree = proctree.Suspend
+	resumeTree  = proctree.Resume
+)
+
+// SuspendTask freezes a running task's process tree (SIGSTOP of its process group on
+// Unix; every thread of its processes on Windows). Its timeout stops counting until it
+// is resumed. The task reports status "suspended".
+func (r *Runner) SuspendTask(taskID string) error {
+	r.mu.RLock()
+	rt, ok := r.tasks[taskID]
+	r.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("task %s not running", taskID)
+	}
+	rt.mu.Lock()
+	if rt.suspended || rt.canceled {
+		rt.mu.Unlock()
+		return nil
+	}
+	if err := suspendTree(rt.pty.Pid()); err != nil {
+		rt.mu.Unlock()
+		return fmt.Errorf("suspend task %s: %w", taskID, err)
+	}
+	rt.suspended = true
+	rt.prevStatus = rt.status
+	rt.status = protocol.TaskStatusSuspended
+	rt.mu.Unlock()
+	rt.deadline.pause()
+	r.emitStatus(protocol.TaskStatusPayload{TaskID: rt.id, Status: protocol.TaskStatusSuspended, EffectiveDir: rt.effectiveDir})
+	return nil
+}
+
+// ResumeTask thaws a suspended task and reports its status again.
+func (r *Runner) ResumeTask(taskID string) error {
+	r.mu.RLock()
+	rt, ok := r.tasks[taskID]
+	r.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("task %s not running", taskID)
+	}
+	rt.mu.Lock()
+	if !rt.suspended {
+		rt.mu.Unlock()
+		return nil
+	}
+	if err := resumeTree(rt.pty.Pid()); err != nil && !errors.Is(err, proctree.ErrNoProcess) {
+		rt.mu.Unlock()
+		return fmt.Errorf("resume task %s: %w", taskID, err)
+	}
+	rt.suspended = false
+	rt.status = cmp.Or(rt.prevStatus, protocol.TaskStatusRunning)
+	st := rt.status
+	canceled := rt.canceled
+	rt.mu.Unlock()
+	rt.deadline.resume()
+	if !canceled {
+		r.emitStatus(protocol.TaskStatusPayload{TaskID: rt.id, Status: st, EffectiveDir: rt.effectiveDir})
+	}
 	return nil
 }
 
@@ -848,6 +924,7 @@ func (r *Runner) ShutdownAll() {
 		rt.mu.Lock()
 		rt.canceled = true
 		rt.mu.Unlock()
+		_ = r.ResumeTask(rt.id) // a frozen tree can't handle the termination signals
 		rt.cancelFunc()
 	}
 	r.mu.Lock()
@@ -872,5 +949,69 @@ func (r *Runner) failTask(taskID, effectiveDir, reason string) {
 func (r *Runner) emitStatus(p protocol.TaskStatusPayload) {
 	if r.callbacks.OnTaskStatus != nil {
 		r.callbacks.OnTaskStatus(p)
+	}
+}
+
+// taskDeadline is a task timeout that can be paused (while the task is suspended).
+// All methods are safe on a nil receiver (no timeout).
+type taskDeadline struct {
+	mu        sync.Mutex
+	remaining time.Duration
+	armedAt   time.Time
+	timer     *time.Timer
+	fire      func()
+	stopped   bool
+}
+
+func newTaskDeadline(d time.Duration, fire func()) *taskDeadline {
+	t := &taskDeadline{remaining: d, fire: fire, armedAt: time.Now()}
+	t.timer = time.AfterFunc(d, fire)
+	return t
+}
+
+// pause stops the clock, keeping the remaining time.
+func (t *taskDeadline) pause() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped || t.timer == nil {
+		return
+	}
+	if t.timer.Stop() {
+		t.remaining -= time.Since(t.armedAt)
+		if t.remaining < 0 {
+			t.remaining = 0
+		}
+	}
+	t.timer = nil
+}
+
+// resume restarts the clock with the remaining time.
+func (t *taskDeadline) resume() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped || t.timer != nil {
+		return
+	}
+	t.armedAt = time.Now()
+	t.timer = time.AfterFunc(t.remaining, t.fire)
+}
+
+// stop disarms the deadline for good.
+func (t *taskDeadline) stop() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.stopped = true
+	if t.timer != nil {
+		t.timer.Stop()
+		t.timer = nil
 	}
 }

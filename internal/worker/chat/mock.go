@@ -186,6 +186,47 @@ type mockSession struct {
 
 	done     chan struct{}
 	doneOnce sync.Once
+
+	// thaw is non-nil while the session is suspended; closed on resume.
+	thaw chan struct{}
+}
+
+// Suspend freezes the mock "process": scripted events stop until Resume (Suspender).
+func (s *mockSession) Suspend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.thaw == nil {
+		s.thaw = make(chan struct{})
+	}
+	return nil
+}
+
+// Resume lets the scripted events continue (Suspender).
+func (s *mockSession) Resume() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.thaw != nil {
+		close(s.thaw)
+		s.thaw = nil
+	}
+	return nil
+}
+
+// frozen waits while the session is suspended; false when ctx ended.
+func (s *mockSession) frozen(ctx context.Context) bool {
+	for {
+		s.mu.Lock()
+		thaw := s.thaw
+		s.mu.Unlock()
+		if thaw == nil {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-thaw:
+		}
+	}
 }
 
 // Done is closed when the mock "process" exits (crash or Close).
@@ -294,7 +335,7 @@ func (s *mockSession) sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	case <-t.C:
-		return true
+		return s.frozen(ctx)
 	}
 }
 
@@ -314,7 +355,16 @@ func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool
 }
 
 func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
-	text := strings.ToLower(p.Text)
+	// Keywords come from the user's own text, not a "[Konsert]" note the hub prepended
+	// (its wording would otherwise trigger "ask", "permission", ...).
+	text := p.Text
+	if strings.HasPrefix(text, "[Konsert]") {
+		text = ""
+		if _, rest, ok := strings.Cut(p.Text, "\n\n"); ok {
+			text = rest
+		}
+	}
+	text = strings.ToLower(text)
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {
@@ -404,10 +454,10 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		if dur <= 0 {
 			dur = 60 * time.Second
 		}
-		deadline := time.Now().Add(dur)
 		tick := max(step, 200*time.Millisecond)
 		i := 0
-		for time.Now().Before(deadline) {
+		// Count ticks rather than wall time, so a suspended turn resumes where it stopped.
+		for n := int(dur / tick); i < n; {
 			if !s.sleep(ctx, tick) {
 				s.cancelled(turn)
 				return

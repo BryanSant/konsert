@@ -1,3 +1,5 @@
+import { Cause, FleetPause } from './control.models';
+
 export type PermissionMode = 'full_access' | 'sandboxed';
 export type TaskOrigin = 'orchestrator' | 'direct' | 'scratch';
 export type SessionKind = 'chat' | 'terminal';
@@ -8,6 +10,7 @@ export type TaskStatus =
   | 'running'
   | 'idle'
   | 'waiting_input'
+  | 'suspended'
   | 'completed'
   | 'failed'
   | 'canceled';
@@ -79,6 +82,9 @@ export interface Worker {
   launch_state?: WorkerLaunchState;
   launch_error?: string;
   launch_at?: string;
+  /** Drained: the machine accepts no new work and finishes what it runs. */
+  drained?: boolean;
+  drained_at?: string;
 }
 
 export type WorkerLaunch = 'local' | 'ssh';
@@ -351,6 +357,12 @@ export interface Task {
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;
+  /** Attribution of the last status transition. */
+  cause?: Cause;
+  /** Who suspended it ("user" or "pause"); empty unless suspended. */
+  suspended_by?: string;
+  /** The orchestrator chat that dispatched it. */
+  parent_chat_id?: string;
 }
 
 export interface TaskEvent {
@@ -447,6 +459,10 @@ export interface ChatSession {
   fleet_tools?: boolean;
   /** Last seq the hub persisted for this chat (for catch-up). */
   last_seq?: number;
+  /** Attribution of the last status transition. */
+  cause?: Cause;
+  /** Who suspended it ("user" or "pause"); empty unless suspended. */
+  suspended_by?: string;
 }
 
 export interface ChatMessage {
@@ -485,6 +501,8 @@ export interface FleetSnapshotResponse {
   usage?: UsageSummary;
   /** The hub's own build version ("dev" for unstamped local builds). */
   controller_version?: string;
+  /** Fleet-wide Pause everything state. */
+  pause?: FleetPause;
 }
 
 export interface DispatchTaskRequest {

@@ -410,6 +410,12 @@ type FleetUpdatePayload struct {
 	DeletedID   string `json:"deleted_id,omitempty"`
 	// WorkerID names the worker for worker-scoped kinds such as "agent_accounts" (additive).
 	WorkerID string `json:"worker_id,omitempty"`
+	// Human control kinds: "fleet_event" (FleetEvent), "hold" (Hold), "request"
+	// (Request) and "pause" (Pause, the fleet-wide Pause everything state).
+	FleetEvent any `json:"fleet_event,omitzero"`
+	Hold       any `json:"hold,omitzero"`
+	Request    any `json:"request,omitzero"`
+	Pause      any `json:"pause,omitzero"`
 }
 
 type GitChangedFile struct {

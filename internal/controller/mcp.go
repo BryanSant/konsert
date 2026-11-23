@@ -296,12 +296,23 @@ func jsonToolResult(v any) (*mcp.CallToolResult, any, error) {
 // NewMCPServer constructs a full-control MCP server exposing Konsert's fleet, taxonomy,
 // facts, configuration, memory, fan-out, and Orchestrator tools with concise progress notifications.
 func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Service) *mcp.Server {
-	if version == "" {
-		version = "1.0.0"
-	}
 	var orchSvc *orchestrator.Service
 	if len(orch) > 0 {
 		orchSvc = orch[0]
+	}
+	srv := newMCPServer(backend, version, orchSvc)
+	// Human-control tools; undoing a user's action needs the UI (no chat to confirm in).
+	if hc, ok := backend.(HumanControlBackend); ok {
+		addHumanControlTools(srv, hc, nil, nil)
+	}
+	return srv
+}
+
+// newMCPServer builds the fleet tool server without the human-control tools (per-chat
+// endpoints add their own, which can ask the chat's user to confirm).
+func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Service) *mcp.Server {
+	if version == "" {
+		version = "1.0.0"
 	}
 
 	srv := mcp.NewServer(&mcp.Implementation{

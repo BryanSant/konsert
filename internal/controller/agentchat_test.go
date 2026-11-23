@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -378,8 +379,14 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 1 || tools.Tools[0].Name != "ask_user" {
-		t.Fatalf("non-fleet chat tools: %+v", tools.Tools)
+	var names []string
+	for _, tl := range tools.Tools {
+		names = append(names, tl.Name)
+	}
+	slices.Sort(names)
+	// Every agent chat gets ask_user plus the human-control tools; no fleet tools.
+	if want := []string{"ask_user", "recent_events", "release_hold", "request_user_action"}; !slices.Equal(names, want) {
+		t.Fatalf("non-fleet chat tools: %v, want %v", names, want)
 	}
 
 	type result struct {

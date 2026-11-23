@@ -118,6 +118,16 @@ type chatState struct {
 	lastActivity   time.Time
 	pending        map[string]bool // open elicitations
 	errorSeen      bool            // an EventError was emitted by the current open attempt
+	// suspended: the user froze this chat's engine process tree. No watchdog, idle close
+	// or new turns until Resume.
+	suspended bool
+}
+
+// Suspender is implemented by sessions that can freeze and thaw their engine (every
+// real engine via its process tree; the mock in process).
+type Suspender interface {
+	Suspend() error
+	Resume() error
 }
 
 // NewManager creates a Manager and starts its sweeper.
@@ -285,6 +295,80 @@ func (m *Manager) Control(ctl protocol.AgentChatControl) {
 	m.enqueue(c, func() { m.doControl(c, ctl) })
 }
 
+// Suspend freezes the chat's engine process tree (SIGSTOP of its process group on Unix,
+// thread suspension on Windows) and reports ChatStatusSuspended. It runs immediately,
+// not behind the chat's queued operations, so a long open or prompt can't delay it.
+func (m *Manager) Suspend(chatID string) {
+	c := m.chat(chatID, true)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.suspended {
+		c.mu.Unlock()
+		return
+	}
+	sess := c.sess
+	c.mu.Unlock()
+	if sp, ok := sess.(Suspender); ok && sess != nil {
+		if err := sp.Suspend(); err != nil {
+			m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindOther, "could not suspend the agent: "+err.Error(), true))
+			return
+		}
+	}
+	c.mu.Lock()
+	c.suspended = true
+	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusSuspended})
+	c.mu.Unlock()
+}
+
+// Resume thaws a suspended chat. A turn that was running continues (status working, or
+// needs_you while an elicitation waits); the watchdog restarts from now.
+func (m *Manager) Resume(chatID string) {
+	c := m.chat(chatID, false)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if !c.suspended {
+		c.mu.Unlock()
+		return
+	}
+	sess := c.sess
+	c.mu.Unlock()
+	if sp, ok := sess.(Suspender); ok && sess != nil {
+		if err := sp.Resume(); err != nil {
+			m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindOther, "could not resume the agent: "+err.Error(), true))
+			return
+		}
+	}
+	c.mu.Lock()
+	c.suspended = false
+	now := m.opts.Now()
+	c.lastEvent, c.lastActivity, c.timedOut = now, now, false
+	switch {
+	case c.turnActive && len(c.pending) > 0:
+		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: c.turnID, Status: protocol.ChatStatusNeedsYou})
+	case c.turnActive:
+		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: c.turnID, Status: protocol.ChatStatusWorking})
+	default:
+		c.lastStatus = "" // the hub restores the chat's previous status
+	}
+	c.mu.Unlock()
+}
+
+// thawForClose resumes a suspended session before it is closed: a frozen process can't
+// act on the termination request.
+func (m *Manager) thawForClose(c *chatState, s Session) {
+	c.mu.Lock()
+	was := c.suspended
+	c.suspended = false
+	c.mu.Unlock()
+	if sp, ok := s.(Suspender); ok && was && s != nil {
+		_ = sp.Resume()
+	}
+}
+
 // CloseChat ends the chat's engine process; the chat can be resumed by a later Open or
 // Prompt. Seq continues.
 func (m *Manager) CloseChat(chatID string) {
@@ -322,6 +406,7 @@ func (m *Manager) Shutdown(ctx context.Context) {
 		if s == nil {
 			continue
 		}
+		m.thawForClose(c, s)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -560,6 +645,11 @@ func (m *Manager) watchDone(c *chatState, gen int, done <-chan struct{}) {
 
 func (m *Manager) doPrompt(c *chatState, p protocol.AgentChatPrompt) {
 	c.mu.Lock()
+	if c.suspended {
+		c.mu.Unlock()
+		m.emitDetachedTurn(c, p.TurnID, errEvent(protocol.ErrKindOther, "this chat is suspended; resume it to continue", true))
+		return
+	}
 	if c.turnActive {
 		busy := c.turnID
 		c.mu.Unlock()
@@ -683,6 +773,7 @@ func (m *Manager) closeSession(c *chatState, why string) {
 	}
 	c.mu.Unlock()
 	if s != nil {
+		m.thawForClose(c, s)
 		m.rememberSessionID(c, s)
 		closeWithTimeout(s, m.log, c.id)
 	}
@@ -901,6 +992,11 @@ func (m *Manager) Sweep() {
 	now := m.opts.Now()
 	for _, c := range chats {
 		c.mu.Lock()
+		if c.suspended {
+			// Frozen by the user: no watchdog, no cancel grace, no idle close.
+			c.mu.Unlock()
+			continue
+		}
 		switch {
 		case c.turnActive && !c.cancelAt.IsZero() && now.Sub(c.cancelAt) >= m.opts.CancelGrace:
 			// The engine did not end a cancelled turn: end it here.

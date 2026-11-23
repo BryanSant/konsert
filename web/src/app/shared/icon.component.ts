@@ -304,6 +304,28 @@ import { Component, input } from '@angular/core';
           <circle cx="8" cy="8" r="6"/><path d="m5.9 5.9 4.2 4.2M10.1 5.9l-4.2 4.2"/>
         </svg>
       }
+      @case ('pause') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <rect x="4.2" y="3.6" width="2.4" height="8.8" rx="0.8" fill="currentColor"/>
+          <rect x="9.4" y="3.6" width="2.4" height="8.8" rx="0.8" fill="currentColor"/>
+        </svg>
+      }
+      @case ('play') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M5 3.6v8.8a.6.6 0 0 0 .9.5l6.9-4.4a.6.6 0 0 0 0-1L5.9 3.1a.6.6 0 0 0-.9.5Z" fill="currentColor"/>
+        </svg>
+      }
+      @case ('ban') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" class="shrink-0">
+          <circle cx="8" cy="8" r="5.6"/>
+          <path d="M4.1 4.1l7.8 7.8"/>
+        </svg>
+      }
+      @case ('drain') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
+          <path d="M3 4.5h10M5 8h6M7 11.5h2"/>
+        </svg>
+      }
       @case ('stop') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
           <rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.6" fill="currentColor" stroke="none"/>

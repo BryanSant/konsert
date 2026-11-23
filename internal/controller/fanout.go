@@ -65,10 +65,26 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 		return FanOutResult{}, err
 	}
 	counts := s.hub.ActiveTaskCounts()
+	automatic := isAutomatic(causeFrom(ctx))
+	if automatic && kind == "agent_sweep" && s.hub.fleetPaused(ctx) {
+		return FanOutResult{}, errFleetPaused
+	}
 	var targets []store.Worker
+	var skipped []FanOutMachineOutcome
 	for _, w := range workers {
 		if !s.hub.IsWorkerConnected(w.ID) {
 			continue
+		}
+		// Drained machines accept nothing new; held machines get nothing automatic.
+		if w.Drained && kind == "agent_sweep" {
+			skipped = append(skipped, FanOutMachineOutcome{WorkerID: w.ID, WorkerName: w.Name, Status: "skipped", Error: "machine is drained"})
+			continue
+		}
+		if automatic {
+			if hold, held := s.hub.holdBlocking(ctx, holdCheck{workerID: w.ID, text: req.Prompt + " " + req.Query}); held {
+				skipped = append(skipped, FanOutMachineOutcome{WorkerID: w.ID, WorkerName: w.Name, Status: "held", Error: holdError(hold, w.Name).Error()})
+				continue
+			}
 		}
 		agentReq := ""
 		if kind == "agent_sweep" {
@@ -86,6 +102,7 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 		Machines:          make([]FanOutMachineOutcome, len(targets)),
 	}
 	if len(targets) == 0 {
+		out.Machines = append(out.Machines, skipped...)
 		return out, nil
 	}
 
@@ -219,5 +236,6 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 		}(i, wk)
 	}
 	wg.Wait()
+	out.Machines = append(out.Machines, skipped...)
 	return out, nil
 }

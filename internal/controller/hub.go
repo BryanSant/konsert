@@ -74,6 +74,13 @@ type Hub struct {
 	rpcWaiters    map[string]chan protocol.Envelope
 	chatSessions  map[string]*chatSession // per-session turn serialization
 	agentChats    map[string]*agentChatRT // agent chat runtime state (seq, MCP token, ask_user)
+	// pendingCauses holds the cause of an intervention sent to a worker (cancel, suspend,
+	// resume) until the worker reports the resulting status; keyed by task id or "chat:"+id.
+	pendingCauses map[string]pendingCause
+	// delivery batches fleet events for the orchestrator chat (see delivery.go).
+	delivery deliveryState
+	// operatorCommands de-duplicates worker.operator_command reports by command id.
+	operatorCommands seenCommands
 
 	// wake holds desired and reported host wake lock (Keep Awake) state.
 	wake hostWakeLocks

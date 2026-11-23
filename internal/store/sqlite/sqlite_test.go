@@ -93,11 +93,11 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	if err := st.UpdateTaskAssignment(ctx, "t1", "w1", "/repo/.konsert-worktrees/t1"); err != nil {
 		t.Fatalf("UpdateTaskAssignment failed: %v", err)
 	}
-	if err := st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusRunning, "", "", nil); err != nil {
+	if _, err := st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusRunning, "", "", nil, store.Cause{}); err != nil {
 		t.Fatalf("UpdateTaskStatus running failed: %v", err)
 	}
 	ec := 0
-	if err := st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusCompleted, "done!", `{"diff_stat":"1 file changed"}`, &ec); err != nil {
+	if _, err := st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusCompleted, "done!", `{"diff_stat":"1 file changed"}`, &ec, store.Cause{Actor: store.ActorAgent, Confidence: store.ConfidenceHigh}); err != nil {
 		t.Fatalf("UpdateTaskStatus completed failed: %v", err)
 	}
 	gotT, err := st.GetTask(ctx, "t1")

@@ -119,7 +119,7 @@ export function emptyTranscript(chatId: string, status: ChatStatus = 'idle'): Tr
   return { chatId, items: [], lastSeq: 0, status, subtitle: '', currentTurnId: '', pendingUsage: {} };
 }
 
-const KNOWN_STATUSES = new Set<ChatStatus>(['starting', 'idle', 'working', 'needs_you', 'done', 'failed', 'cancelled']);
+const KNOWN_STATUSES = new Set<ChatStatus>(['starting', 'idle', 'working', 'needs_you', 'done', 'failed', 'cancelled', 'suspended']);
 
 export function isChatStatus(s: string | undefined): s is ChatStatus {
   return !!s && KNOWN_STATUSES.has(s as ChatStatus);

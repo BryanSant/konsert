@@ -34,6 +34,9 @@
   --ks-red-soft: rgba(232, 107, 107, 0.13);
   --ks-green-soft: rgba(105, 184, 121, 0.13);
   --ks-blue-soft: rgba(106, 174, 250, 0.13);
+  /* Suspended (frozen by the user / Pause everything) */
+  --ks-violet: #b4a7f5;
+  --ks-violet-soft: rgba(180, 167, 245, 0.14);
 
   /* Spacing scale (4px base) */
   --ks-space-1: 4px;

@@ -439,6 +439,13 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                         [class.bg-[#484a52]]="node.worker.status !== 'online' && node.worker.launch_state !== 'failed'"
                       ></span>
                     }
+                    @if (node.worker.drained) {
+                      <span
+                        class="rounded px-1 text-[9.5px] font-medium bg-[var(--ks-amber-soft)] text-[#e6b763]"
+                        data-testid="worker-drained"
+                        ksTooltip="Drained: finishes current work, accepts nothing new"
+                      >drained</span>
+                    }
                     <button
                       type="button"
                       (click)="toggleWorker(node.worker.id)"
@@ -544,6 +551,10 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                     <span>{{ elapsedLabel(item.task) }}</span>
                     @if (item.task.status === 'waiting_input') {
                       <span class="h-2 w-2 rounded-full bg-[#d9a043]" role="img" aria-label="Needs you" ksTooltip="Needs you"></span>
+                    } @else if (item.task.status === 'suspended') {
+                      <span class="inline-flex text-[var(--ks-violet)]" role="img" aria-label="Suspended" ksTooltip="Suspended">
+                        <app-icon name="pause" [size]="10" />
+                      </span>
                     } @else {
                       <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin" role="img" aria-label="Working" ksTooltip="Working"></span>
                     }

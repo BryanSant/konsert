@@ -54,6 +54,10 @@ type Worker struct {
 	LaunchState   string     `json:"launch_state,omitempty"` // "" | "starting" | "failed"
 	LaunchError   string     `json:"launch_error,omitempty"`
 	LaunchAt      *time.Time `json:"launch_at,omitzero"`
+
+	// Drained machines finish their current work and receive nothing new (persisted).
+	Drained   bool       `json:"drained"`
+	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 
 // Worker launch modes and states (workers.launch / workers.launch_state).
@@ -158,13 +162,19 @@ type Task struct {
 	PermissionMode PermissionMode `json:"permission_mode"` // "full_access" | "sandboxed"
 	OrphanPolicy   string         `json:"orphan_policy"`   // "fail" | "requeue"
 	Prompt         string         `json:"prompt"`
-	Status         string         `json:"status"` // "queued","assigned","running","waiting_input","completed","failed","canceled"
+	Status         string         `json:"status"` // "queued","assigned","running","waiting_input","suspended","completed","failed","canceled"
 	Summary        string         `json:"summary"`
 	GitSummaryJSON string         `json:"git_summary_json,omitempty"`
 	ExitCode       *int           `json:"exit_code,omitzero"`
-	CreatedAt      time.Time      `json:"created_at"`
-	StartedAt      *time.Time     `json:"started_at,omitzero"`
-	CompletedAt    *time.Time     `json:"completed_at,omitzero"`
+	// Cause attributes the last status transition.
+	Cause *Cause `json:"cause,omitzero"`
+	// SuspendedBy is "user" or "pause" while the task is suspended ("" otherwise).
+	SuspendedBy string `json:"suspended_by"`
+	// ParentChatID is the chat (orchestrator or agent) that dispatched the task.
+	ParentChatID string     `json:"parent_chat_id,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	StartedAt    *time.Time `json:"started_at,omitzero"`
+	CompletedAt  *time.Time `json:"completed_at,omitzero"`
 }
 
 // TaskStartSpec is the persisted placement and launch specification of a task:
@@ -201,6 +211,8 @@ type AuditEvent struct {
 	TaskSID   string    `json:"task_sid,omitempty"`
 	Message   string    `json:"message,omitempty"`
 	MetaJSON  string    `json:"meta_json,omitempty"`
+	// Cause attributes the action (actor kind, path, confidence, correlation).
+	Cause *Cause `json:"cause,omitzero"`
 }
 
 // AuditFilter selects audit events. Zero values mean "no filter". Results are
@@ -247,6 +259,14 @@ type ChatSession struct {
 	LastErrorJSON  string `json:"last_error_json,omitempty"`
 	// MCPTokenHash is the SHA-256 hex of the chat's MCP bearer token; never serialized.
 	MCPTokenHash string `json:"-"`
+	// Cause attributes the last status transition.
+	Cause *Cause `json:"cause,omitzero"`
+	// SuspendedBy is "user" or "pause" while the chat is suspended; SuspendedPrev is the
+	// status restored on resume.
+	SuspendedBy   string `json:"suspended_by"`
+	SuspendedPrev string `json:"suspended_prev,omitempty"`
+	// NotesCursor is the last fleet event id delivered to this chat as a note.
+	NotesCursor int64 `json:"-"`
 }
 
 // ChatEvent is one stored agent chat event: JSON is the protocol.AgentChatEvent.
@@ -373,18 +393,24 @@ type Store interface {
 	CreateTask(ctx context.Context, t Task) error
 	// UpsertExternalTask creates or updates the discovered session keyed by (WorkerID,
 	// ExternalID) and returns its task id (id and sid minted on first sight; t.ID and
-	// t.SID are ignored).
-	UpsertExternalTask(ctx context.Context, t Task) (string, error)
+	// t.SID are ignored) and its previous status ("" when new). t.Cause is stored.
+	UpsertExternalTask(ctx context.Context, t Task) (string, string, error)
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
-	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error
+	// UpdateTaskStatus sets the status (and summary, git summary, exit code when given)
+	// with the cause of the transition, and returns the previous status.
+	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int, cause Cause) (string, error)
+	// SetTaskSuspendedBy records who suspended a task ("" when it is not suspended).
+	SetTaskSuspendedBy(ctx context.Context, id, by string) error
+	// SetTaskParentChat records the chat that dispatched a task.
+	SetTaskParentChat(ctx context.Context, id, chatID string) error
 	GetTask(ctx context.Context, id string) (Task, error)
 	ListTasks(ctx context.Context, status, workerID string, limit int) ([]Task, error)
 
 	// Task placement persistence and atomic scheduling transitions.
 	SetTaskStartSpec(ctx context.Context, taskID string, spec TaskStartSpec) error
 	GetTaskStartSpec(ctx context.Context, taskID string) (TaskStartSpec, error)
-	ClaimQueuedTask(ctx context.Context, taskID, workerID string) (bool, error)
-	RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool) (bool, error)
+	ClaimQueuedTask(ctx context.Context, taskID, workerID string, cause Cause) (bool, error)
+	RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool, cause Cause) (bool, error)
 
 	AppendEvent(ctx context.Context, e TaskEvent) (int64, error)
 	ListEvents(ctx context.Context, taskID string, afterID int64, limit int) ([]TaskEvent, error)
@@ -432,6 +458,22 @@ type Store interface {
 
 	GetAllSettings(ctx context.Context) (map[string]string, error)
 	SetSettings(ctx context.Context, kv map[string]string) error
+
+	// Human control: drain, fleet timeline, holds and open requests.
+	SetWorkerDrained(ctx context.Context, id string, drained bool, at time.Time) error
+	AppendFleetEvent(ctx context.Context, e FleetEvent) (int64, error)
+	ListFleetEvents(ctx context.Context, f FleetEventFilter) ([]FleetEvent, error)
+	MaxFleetEventID(ctx context.Context) (int64, error)
+	CreateHold(ctx context.Context, h Hold) (Hold, error)
+	GetHold(ctx context.Context, id string) (Hold, error)
+	ListHolds(ctx context.Context, f HoldFilter) ([]Hold, error)
+	// ReleaseHold marks an active hold released; false when it was already released.
+	ReleaseHold(ctx context.Context, id, by, note string, at time.Time) (bool, error)
+	CreateUserRequest(ctx context.Context, r UserRequest) (UserRequest, error)
+	GetUserRequest(ctx context.Context, id string) (UserRequest, error)
+	ListUserRequests(ctx context.Context, f UserRequestFilter) ([]UserRequest, error)
+	// ResolveUserRequest closes an open request; false when it was no longer open.
+	ResolveUserRequest(ctx context.Context, id, status, by, resolution, commandID string, at time.Time) (bool, error)
 
 	UpsertMemory(ctx context.Context, m MemoryEntry) error
 	ListMemory(ctx context.Context, scope string, limit int) ([]MemoryEntry, error)

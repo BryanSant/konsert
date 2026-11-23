@@ -28,6 +28,7 @@ import (
 
 	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/proctree"
 )
 
 const (
@@ -260,6 +261,7 @@ type claudeSession struct {
 	watchdogFired  bool
 	lastRejected   *protocol.AgentRateLimit
 	mcpFile        string
+	suspended      bool // process tree frozen by the user; the watchdog does not run
 	closed         bool
 	stop           chan struct{}
 	stopOnce       sync.Once
@@ -857,7 +859,7 @@ func (s *claudeSession) watchdogLoop() {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		fire := s.turn != nil && !s.watchdogFired && len(s.pending) == 0 &&
+		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 &&
 			s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		var tid string
 		if fire {
@@ -1773,4 +1775,37 @@ func claudeProjectDirName(cwd string) string {
 		}
 	}
 	return b.String()
+}
+
+// Suspend freezes the claude process tree (Suspender).
+func (s *claudeSession) Suspend() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.suspended {
+		return nil
+	}
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		if err := proctree.Suspend(p.pid()); err != nil {
+			return err
+		}
+	}
+	s.suspended = true
+	return nil
+}
+
+// Resume thaws the claude process tree; the watchdog restarts from now (Suspender).
+func (s *claudeSession) Resume() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.suspended {
+		return nil
+	}
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		if err := proctree.Resume(p.pid()); err != nil && !errors.Is(err, proctree.ErrNoProcess) {
+			return err
+		}
+	}
+	s.suspended = false
+	s.lastActivity = s.eng.now()
+	return nil
 }

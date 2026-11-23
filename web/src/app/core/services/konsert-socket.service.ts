@@ -24,6 +24,8 @@ import { AgentAccount } from '../models/agent-chat.models';
 import { AgentAccountsStore } from '../state/agent-accounts.store';
 import { AgentChatStore } from '../state/agent-chat.store';
 import { AuditStore } from '../state/audit.store';
+import { ControlStore } from '../state/control.store';
+import { FleetEvent, FleetPause, Hold, UserRequest } from '../models/control.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
@@ -43,6 +45,7 @@ export class KonsertSocketService {
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly auditStore = inject(AuditStore);
+  private readonly controlStore = inject(ControlStore);
   private readonly agentChat = inject(AgentChatStore);
   private readonly agentAccounts = inject(AgentAccountsStore);
   private readonly notifications = inject(NotificationService);
@@ -137,6 +140,7 @@ export class KonsertSocketService {
         void this.orchestratorStore.onReconnected();
         void this.agentChat.onReconnected();
         void this.telemetryStore.onReconnected();
+        void this.controlStore.load();
       }
       // A new socket starts with no subscriptions: re-subscribe the active chat session.
       this.subscribedChatSession = '';
@@ -207,6 +211,10 @@ export class KonsertSocketService {
           worker_id?: string;
           accounts?: AgentAccount[];
           chat_session?: ChatSession;
+          fleet_event?: FleetEvent;
+          hold?: Hold;
+          request?: UserRequest;
+          pause?: FleetPause;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -227,6 +235,14 @@ export class KonsertSocketService {
           void this.agentChat.onSessionDeleted(p.deleted_id);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
+        } else if (p.kind === 'fleet_event' && p.fleet_event) {
+          this.controlStore.applyEvent(p.fleet_event);
+        } else if (p.kind === 'hold' && p.hold) {
+          this.controlStore.applyHold(p.hold);
+        } else if (p.kind === 'request' && p.request) {
+          this.controlStore.applyRequest(p.request);
+        } else if (p.kind === 'pause' && p.pause) {
+          this.controlStore.applyPause(p.pause);
         } else if (p.kind === 'space' && p.space) {
           this.fleetStore.upsertSpace(p.space);
         } else if (p.kind === 'space_deleted' && p.deleted_id) {
