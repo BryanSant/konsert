@@ -1,14 +1,20 @@
 -- Konsert schema. Pre-1.0 there is exactly one migration: schema changes edit this file and
 -- older databases are refused (see migrate.go) rather than upgraded.
 --
--- IDs: every primary key is a short typed ID from internal/ids (t-7qk3m task, c-w47xk chat,
--- m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree). External or
--- UUID identities live in their own columns: workers.machine_id (konsertd's UUIDv7),
--- chat_sessions.agent_session_id (the agent CLI's session), tasks.external_id.
+-- IDs: every entity table has two identifiers.
+--   id  UUIDv7 primary key. Every foreign key column holds one, as do the hub<->worker
+--       protocol and the web app's internal state. workers.id is konsertd's own
+--       persistent UUID.
+--   sid short typed ID from internal/ids, unique, shown to users and accepted in API
+--       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
+--       r-… repo, s-… space, ws-… workspace, wt-… worktree.
+-- Event/log/child tables keep integer or composite keys. External identities live in
+-- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
+-- tasks.external_id (the worker's key for a discovered session).
 
 CREATE TABLE workers (
     id               TEXT PRIMARY KEY,
-    machine_id       TEXT NOT NULL DEFAULT '',
+    sid              TEXT NOT NULL UNIQUE,
     name             TEXT NOT NULL,
     host_group       TEXT NOT NULL,
     os               TEXT NOT NULL,
@@ -24,10 +30,10 @@ CREATE TABLE workers (
     facts_updated_at TEXT,
     last_seen_at     TEXT NOT NULL
 );
-CREATE UNIQUE INDEX idx_workers_machine_id ON workers(machine_id) WHERE machine_id != '';
 
 CREATE TABLE workspaces (
     id         TEXT PRIMARY KEY,
+    sid        TEXT NOT NULL UNIQUE,
     name       TEXT NOT NULL,
     is_default INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
@@ -35,6 +41,7 @@ CREATE TABLE workspaces (
 
 CREATE TABLE projects (
     id           TEXT PRIMARY KEY,
+    sid          TEXT NOT NULL UNIQUE,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name         TEXT NOT NULL,
     is_default   INTEGER NOT NULL DEFAULT 0,
@@ -44,6 +51,7 @@ CREATE INDEX idx_projects_workspace ON projects(workspace_id);
 
 CREATE TABLE repos (
     id         TEXT PRIMARY KEY,
+    sid        TEXT NOT NULL UNIQUE,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     worker_id  TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
     name       TEXT NOT NULL,
@@ -56,6 +64,7 @@ CREATE INDEX idx_repos_worker ON repos(worker_id);
 
 CREATE TABLE worktrees (
     id         TEXT PRIMARY KEY,
+    sid        TEXT NOT NULL UNIQUE,
     repo_id    TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
     branch     TEXT NOT NULL DEFAULT '',
     path       TEXT NOT NULL,
@@ -66,6 +75,7 @@ CREATE INDEX idx_worktrees_repo ON worktrees(repo_id);
 
 CREATE TABLE spaces (
     id         TEXT PRIMARY KEY,
+    sid        TEXT NOT NULL UNIQUE,
     worker_id  TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
     name       TEXT NOT NULL,
     path       TEXT NOT NULL,
@@ -76,13 +86,14 @@ CREATE INDEX idx_spaces_worker ON spaces(worker_id, created_at DESC);
 
 CREATE TABLE tasks (
     id                 TEXT PRIMARY KEY,
+    sid                TEXT NOT NULL UNIQUE,
     -- external_id is the worker's stable key for a passively discovered session ('' otherwise).
     external_id        TEXT NOT NULL DEFAULT '',
     worker_id          TEXT REFERENCES workers(id),
     worker_pinned      INTEGER NOT NULL DEFAULT 0,
     selector_json      TEXT NOT NULL DEFAULT '',
-    workspace_id       TEXT NOT NULL DEFAULT 'ws-00000',
-    project_id         TEXT NOT NULL DEFAULT 'p-00000',
+    workspace_id       TEXT NOT NULL DEFAULT '00000000-0000-7000-8000-000000000000',
+    project_id         TEXT NOT NULL DEFAULT '00000000-0000-7000-8000-000000000001',
     repo_id            TEXT NOT NULL DEFAULT '',
     worktree_id        TEXT NOT NULL DEFAULT '',
     space_id           TEXT NOT NULL DEFAULT '',
@@ -126,6 +137,7 @@ CREATE INDEX idx_task_events_task ON task_events(task_id, id ASC);
 
 CREATE TABLE chat_sessions (
     id               TEXT PRIMARY KEY,
+    sid              TEXT NOT NULL UNIQUE,
     title            TEXT NOT NULL,
     backend          TEXT NOT NULL DEFAULT 'agent',
     provider         TEXT NOT NULL,
@@ -187,7 +199,7 @@ CREATE TABLE usage_events (
 CREATE INDEX idx_usage_events_provider ON usage_events(provider, model);
 
 CREATE TABLE subscription_quotas (
-    id           TEXT PRIMARY KEY,
+    id           TEXT PRIMARY KEY, -- UUIDv7; rows are upserted on (provider, window_label)
     provider     TEXT NOT NULL,
     label        TEXT NOT NULL,
     window_label TEXT NOT NULL DEFAULT '',
@@ -201,7 +213,7 @@ CREATE TABLE subscription_quotas (
 CREATE INDEX idx_sub_quotas_provider ON subscription_quotas(provider);
 
 CREATE TABLE orchestrator_memory (
-    id         TEXT PRIMARY KEY,
+    id         TEXT PRIMARY KEY, -- UUIDv7; rows are upserted on (scope, mem_key)
     scope      TEXT NOT NULL, -- 'fleet' | 'session:<id>' | 'project:<id>'
     mem_key    TEXT NOT NULL,
     summary    TEXT NOT NULL,
@@ -224,7 +236,9 @@ CREATE TABLE audit_log (
     source     TEXT NOT NULL DEFAULT '',
     action     TEXT NOT NULL,
     worker_id  TEXT NOT NULL DEFAULT '',
+    worker_sid TEXT NOT NULL DEFAULT '', -- sids as of the event, for display
     task_id    TEXT NOT NULL DEFAULT '',
+    task_sid   TEXT NOT NULL DEFAULT '',
     message    TEXT NOT NULL DEFAULT '',
     meta_json  TEXT NOT NULL DEFAULT ''
 );
@@ -234,5 +248,5 @@ CREATE INDEX idx_audit_log_worker ON audit_log(worker_id, id);
 CREATE INDEX idx_audit_log_task ON audit_log(task_id, id);
 CREATE INDEX idx_audit_log_action ON audit_log(action, id);
 
--- The Default workspace and project (ids.DefaultWorkspace/DefaultProject) are seeded by
--- EnsureTaxonomyDefaults.
+-- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
+-- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.

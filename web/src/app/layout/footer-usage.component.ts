@@ -169,7 +169,7 @@ export class FooterUsageComponent {
   readonly rows = computed<FooterAccountRow[]>(() =>
     this.accounts.all().map(({ workerId, account }) => ({
       workerId,
-      host: this.fleet.workersById()[workerId]?.name || workerId,
+      host: this.fleet.workersById()[workerId]?.name || this.fleet.workersById()[workerId]?.sid || workerId,
       account,
       health: accountHealth(account),
       percent: usedPercent(account),

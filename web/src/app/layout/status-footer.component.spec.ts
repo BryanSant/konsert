@@ -11,6 +11,7 @@ import { StatusFooterComponent } from './status-footer.component';
 function worker(id: string, wake?: WorkerWakeLock, status = 'online'): Worker {
   return {
     id,
+    sid: id,
     name: id,
     host_group: id,
     os: 'darwin',

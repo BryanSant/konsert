@@ -51,6 +51,8 @@ export interface MachineFacts {
 
 export interface Worker {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   name: string;
   host_group: string;
   os: string;
@@ -104,6 +106,8 @@ export interface GitSummary {
 
 export interface Space {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   worker_id: string;
   name: string;
   path: string;
@@ -113,6 +117,8 @@ export interface Space {
 
 export interface Workspace {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   name: string;
   is_default: boolean;
   created_at: string;
@@ -120,6 +126,8 @@ export interface Workspace {
 
 export interface Project {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   workspace_id: string;
   name: string;
   is_default: boolean;
@@ -128,6 +136,8 @@ export interface Project {
 
 export interface Repo {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   project_id: string;
   worker_id: string;
   name: string;
@@ -138,6 +148,8 @@ export interface Repo {
 
 export interface Worktree {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   repo_id: string;
   branch?: string;
   path: string;
@@ -265,6 +277,8 @@ export interface AppSettings {
 
 export interface Task {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   worker_id: string;
   space_id?: string;
   workspace_id?: string;
@@ -310,7 +324,9 @@ export interface AuditEvent {
   source?: string;
   action: string;
   worker_id?: string;
+  worker_sid?: string;
   task_id?: string;
+  task_sid?: string;
   message?: string;
   meta_json?: string;
 }
@@ -362,6 +378,8 @@ export interface UsageSummary {
 
 export interface ChatSession {
   id: string;
+  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
+  sid: string;
   title: string;
   provider: string;
   model: string;
@@ -483,8 +501,8 @@ export interface PtyFrameEvent {
 export const FRAME_PTY_SNAPSHOT = 0x01;
 export const FRAME_PTY_DATA = 0x02;
 export const FRAME_PTY_STDIN = 0x03;
-export const FRAME_TASK_ID_SIZE = 16;
+export const FRAME_TASK_ID_SIZE = 36; // a UUIDv7 task id
 export const FRAME_HEADER_SIZE = 1 + FRAME_TASK_ID_SIZE;
 
-/** ID of the built-in Default project (Go: ids.DefaultProject). */
-export const DEFAULT_PROJECT_ID = 'p-00000';
+/** ID of the built-in Default project (Go: ids.DefaultProjectID; its sid is p-00000). */
+export const DEFAULT_PROJECT_ID = '00000000-0000-7000-8000-000000000001';

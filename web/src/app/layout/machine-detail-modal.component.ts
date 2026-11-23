@@ -90,7 +90,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       <div class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]">
         <div class="min-w-0">
           <span class="text-[#86888f] mr-2">Worker ID</span>
-          <span class="font-mono-ide text-[#c8cad0] break-all">{{ worker().id }}</span>
+          <span class="font-mono-ide text-[#c8cad0] break-all" [ksTooltip]="worker().id">{{ worker().sid || worker().id }}</span>
         </div>
         <button
           type="button"
@@ -354,7 +354,7 @@ export class MachineDetailModalComponent {
 
   async copyWorkerId(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(this.worker().id);
+      await navigator.clipboard.writeText(this.worker().sid || this.worker().id);
       this.copiedId.set(true);
       setTimeout(() => this.copiedId.set(false), 1600);
     } catch {

@@ -1,45 +1,84 @@
 package worker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/google/uuid"
 )
 
-// ResolveStableWorkerID returns a persistent, stable worker ID for this machine so rerunning
-// konsertd never registers duplicate redundant machine rows on the controller.
+// identityRecord is persisted at <stateDir>/worker-id[-<slug>].
+type identityRecord struct {
+	// ID is this daemon's UUIDv7: the hub's workers.id. The hub mints the short m- sid.
+	ID string `json:"id"`
+	// OSMachineHash fingerprints the OS machine identity (/etc/machine-id on Linux) the ID
+	// was generated on. If it changes, the state dir was copied to another machine (a cloned
+	// VM image), so a fresh ID is generated instead of impersonating the original.
+	OSMachineHash string `json:"os_machine_hash,omitempty"`
+}
+
+// osMachineIDPaths are read, first match wins, to fingerprint the OS installation.
+var osMachineIDPaths = []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}
+
+func osMachineHash() string {
+	for _, p := range osMachineIDPaths {
+		if raw, err := os.ReadFile(p); err == nil {
+			if v := strings.TrimSpace(string(raw)); v != "" {
+				sum := sha256.Sum256([]byte("konsert:" + v))
+				return hex.EncodeToString(sum[:8])
+			}
+		}
+	}
+	return ""
+}
+
+// ResolveStableWorkerID returns this daemon's persistent identity: a UUIDv7 that is the
+// hub's workers.id, so rerunning konsertd never registers a second machine row.
 //
 // Resolution order:
-//  1. Read existing persisted ID from <baseDir>/worker-id (or worker-id-<slug> if custom name/isolation).
-//  2. If absent (or not an m- ID), generate a new m- ID and persist it atomically with 0600 permissions.
-//  3. If the filesystem is read-only, fall back to a deterministic machine fingerprint ID.
+//  1. Read <baseDir>/worker-id (or worker-id-<slug> for a custom name/isolation). It is
+//     reused while it holds a UUIDv7 generated on this OS installation.
+//  2. Otherwise (absent, unreadable, or the OS machine hash changed because the state dir
+//     was cloned) generate a new UUIDv7 and persist it atomically with 0600 permissions.
+//  3. If it cannot be persisted (read-only filesystem), derive a deterministic UUID from
+//     host facts so the identity is still stable across restarts.
 func ResolveStableWorkerID(baseDir, name, hostGroup, isolation string) string {
 	dir := strings.TrimSpace(baseDir)
 	if dir == "" {
 		dir = defaultStateDir()
 	}
+	if dir == "" {
+		return deterministicWorkerID(name, hostGroup, isolation)
+	}
+	path := filepath.Join(dir, workerIDFilename(name, isolation))
+	osHash := osMachineHash()
 
-	filename := workerIDFilename(name, isolation)
-	if dir != "" {
-		idPath := filepath.Join(dir, filename)
-		if raw, err := os.ReadFile(idPath); err == nil {
-			// IDs from older builds (UUIDs) are replaced: pre-1.0 there is no compatibility.
-			if existing := strings.TrimSpace(string(raw)); ids.Valid(ids.Machine, existing) {
-				return existing
-			}
-		}
-		newID, _ := ids.New(ids.Machine, nil) // the hub re-mints it on a clash
-		if err := os.MkdirAll(dir, 0o700); err == nil {
-			if err := os.WriteFile(idPath, []byte(newID+"\n"), 0o600); err == nil {
-				return newID
-			}
+	if raw, err := os.ReadFile(path); err == nil {
+		var rec identityRecord
+		if json.Unmarshal(raw, &rec) == nil && ids.IsUUIDv7(rec.ID) &&
+			(rec.OSMachineHash == "" || osHash == "" || rec.OSMachineHash == osHash) {
+			return rec.ID
 		}
 	}
 
-	return deterministicMachineID(name, hostGroup, isolation)
+	rec := identityRecord{ID: ids.UUID(), OSMachineHash: osHash}
+	raw, err := json.Marshal(rec)
+	if err == nil && os.MkdirAll(dir, 0o700) == nil {
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err == nil {
+			if err := os.Rename(tmp, path); err == nil {
+				return rec.ID
+			}
+			_ = os.Remove(tmp)
+		}
+	}
+	return deterministicWorkerID(name, hostGroup, isolation)
 }
 
 func workerIDFilename(name, isolation string) string {
@@ -68,7 +107,9 @@ func workerIDFilename(name, isolation string) string {
 	return "worker-id-" + slug
 }
 
-func deterministicMachineID(name, hostGroup, isolation string) string {
+// deterministicWorkerID derives a stable RFC 9562 version-8 (custom) UUID from host facts,
+// for a daemon that cannot persist its identity.
+func deterministicWorkerID(name, hostGroup, isolation string) string {
 	host, _ := os.Hostname()
 	key := strings.Join([]string{
 		strings.ToLower(strings.TrimSpace(host)),
@@ -77,6 +118,12 @@ func deterministicMachineID(name, hostGroup, isolation string) string {
 		runtime.GOOS,
 		runtime.GOARCH,
 		strings.ToLower(strings.TrimSpace(isolation)),
+		osMachineHash(),
 	}, "|")
-	return ids.Hash(ids.Machine, key)
+	sum := sha256.Sum256([]byte("konsert-worker:" + key))
+	var u uuid.UUID
+	copy(u[:], sum[:16])
+	u[6] = (u[6] & 0x0f) | 0x80 // version 8
+	u[8] = (u[8] & 0x3f) | 0x80 // RFC 9562 variant
+	return u.String()
 }

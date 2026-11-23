@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -241,7 +242,7 @@ func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
 		t.Fatalf("UpdateWorkerFacts failed: %v", err)
 	}
 	gotW, err := st.GetWorker(ctx, "w-linux")
-	if err != nil || !containsStr(gotW.FactsJSON, `"postgres":"18.1"`) || gotW.FactsUpdatedAt == nil {
+	if err != nil || !strings.Contains(gotW.FactsJSON, `"postgres":"18.1"`) || gotW.FactsUpdatedAt == nil {
 		t.Fatalf("expected persisted facts on worker, got %+v err=%v", gotW, err)
 	}
 
@@ -255,69 +256,4 @@ func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
 	if err := st.DeleteMemory(ctx, "fleet", "deploy-host"); err != nil {
 		t.Fatalf("DeleteMemory failed: %v", err)
 	}
-}
-
-func TestDeduplicateWorkersMigratesSpacesAndTasks(t *testing.T) {
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "dedup.db")
-
-	st, err := Open(ctx, dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	now := time.Now().UTC()
-	// Simulate 3 legacy duplicate BocaMacMini.local rows (2 offline, 1 online), with a saved space on an offline duplicate
-	for _, w := range []store.Worker{
-		{ID: "dup-old-1", Name: "BocaMacMini.local", HostGroup: "BocaMacMini.local", OS: "darwin", Arch: "arm64", Isolation: "host", Status: "offline", LastSeenAt: now.Add(-2 * time.Hour)},
-		{ID: "dup-old-2", Name: "BocaMacMini.local", HostGroup: "BocaMacMini.local", OS: "darwin", Arch: "arm64", Isolation: "host", Status: "offline", LastSeenAt: now.Add(-1 * time.Hour)},
-		{ID: "dup-online", Name: "BocaMacMini.local", HostGroup: "BocaMacMini.local", OS: "darwin", Arch: "arm64", Isolation: "host", Status: "online", LastSeenAt: now},
-	} {
-		if err := st.UpsertWorker(ctx, w); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp-jk", WorkerID: "dup-old-2", Name: "jk", Path: "/Users/bsant/src/jk"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateTask(ctx, store.Task{ID: "t-old", WorkerID: "dup-old-1", Agent: "claude", Workdir: "/Users/bsant/src/jk", Status: protocol.TaskStatusCompleted}); err != nil {
-		t.Fatal(err)
-	}
-	_ = st.Close()
-
-	// Re-opening SQLite automatically collapses duplicates onto the single online canonical worker
-	st2, err := Open(ctx, dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st2.Close()
-
-	workers, err := st2.ListWorkers(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(workers) != 1 || workers[0].ID != "dup-online" {
-		t.Fatalf("expected exactly 1 canonical worker dup-online, got %+v", workers)
-	}
-	spaces, err := st2.ListSpaces(ctx, "dup-online")
-	if err != nil || len(spaces) != 1 || spaces[0].Name != "jk" {
-		t.Fatalf("expected space jk migrated onto dup-online, got %+v err=%v", spaces, err)
-	}
-	gotTask, err := st2.GetTask(ctx, "t-old")
-	if err != nil || gotTask.WorkerID != "dup-online" {
-		t.Fatalf("expected task t-old migrated onto dup-online, got %+v err=%v", gotTask, err)
-	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

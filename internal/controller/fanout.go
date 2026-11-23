@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
@@ -53,6 +54,7 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 	if kind == "" {
 		kind = "worktree_cleanup"
 	}
+	req.WorkerSelector.WorkerID = resolveRef(ctx, s.store, ids.Machine, req.WorkerSelector.WorkerID)
 	permMode := store.PermissionMode(req.PermissionMode)
 	if permMode == "" {
 		permMode = store.PermissionFullAccess

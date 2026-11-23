@@ -7,6 +7,7 @@ interface E2EEnv {
   adminToken: string;
   workerName: string;
   workerId: string;
+  workerSid: string;
   workdir: string;
 }
 
@@ -213,15 +214,19 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
         { path, body },
       );
 
-    const { task_id: taskId } = (await api('/api/tasks', {
-      worker_selector: { worker_id: env.workerId },
+    // The API takes ids or short sids: dispatch to the worker by its m- sid and drive the
+    // task by its t- sid. The UI shows the sid.
+    const { task_id: taskId, task_sid: taskSid } = (await api('/api/tasks', {
+      worker_selector: { worker_id: env.workerSid },
       agent: 'mock',
       repo_path: env.workdir,
       prompt: 'WAIT_INPUT',
       mode: 'interactive',
       origin: 'orchestrator',
-    })) as { task_id: string };
-    await api(`/api/tasks/${taskId}/control`, { enabled: true });
+    })) as { task_id: string; task_sid: string };
+    expect(taskId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/);
+    expect(taskSid).toMatch(/^t-[0-9a-z]{5,12}$/);
+    await api(`/api/tasks/${taskSid}/control`, { enabled: true });
 
     await page.getByRole('button', { name: 'Audit Log' }).click();
     const inspector = page.locator('#ks-right-pane');
@@ -230,6 +235,8 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
     const takeRow = table.getByRole('row').filter({ hasText: 'Take control' }).first();
     await expect(takeRow).toContainText('operator');
     await expect(takeRow).toContainText(env.workerName);
+    await expect(takeRow).toContainText(taskSid);
+    await expect(takeRow).not.toContainText(taskId);
 
     // A new action appears without reloading the panel (fleet.update "audit").
     await api(`/api/tasks/${taskId}/cancel`);

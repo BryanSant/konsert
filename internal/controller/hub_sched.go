@@ -102,6 +102,7 @@ func (h *Hub) taskStartSpec(ctx context.Context, t store.Task) (protocol.TaskSta
 		}
 	}
 	payload.TaskID = t.ID
+	payload.SID = t.SID
 	return payload, sel, pinned
 }
 

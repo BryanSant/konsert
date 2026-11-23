@@ -29,10 +29,18 @@ func (s *SQLiteStore) AppendAudit(ctx context.Context, e store.AuditEvent) (int6
 	if e.User == "" {
 		e.User = "unknown"
 	}
+	// The sids shown to users are recorded with the event (looked up unless given), so the
+	// log stays readable after the worker or task is deleted.
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO audit_log (created_at, actor, source, action, worker_id, task_id, message, meta_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, formatTime(e.CreatedAt), e.User, e.Source, e.Action, e.WorkerID, e.TaskID, e.Message, e.MetaJSON)
+		INSERT INTO audit_log (created_at, actor, source, action, worker_id, worker_sid, task_id, task_sid, message, meta_json)
+		VALUES (?, ?, ?, ?,
+			?, COALESCE(NULLIF(?, ''), (SELECT sid FROM workers WHERE id = ?), ''),
+			?, COALESCE(NULLIF(?, ''), (SELECT sid FROM tasks WHERE id = ?), ''),
+			?, ?)
+	`, formatTime(e.CreatedAt), e.User, e.Source, e.Action,
+		e.WorkerID, e.WorkerSID, e.WorkerID,
+		e.TaskID, e.TaskSID, e.TaskID,
+		e.Message, e.MetaJSON)
 	if err != nil {
 		return 0, err
 	}
@@ -85,7 +93,7 @@ func (s *SQLiteStore) ListAudit(ctx context.Context, f store.AuditFilter) ([]sto
 	if f.AfterID > 0 {
 		add("id > ?", f.AfterID)
 	}
-	q := `SELECT id, created_at, actor, source, action, worker_id, task_id, message, meta_json FROM audit_log`
+	q := `SELECT id, created_at, actor, source, action, worker_id, worker_sid, task_id, task_sid, message, meta_json FROM audit_log`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -101,7 +109,7 @@ func (s *SQLiteStore) ListAudit(ctx context.Context, f store.AuditFilter) ([]sto
 	for rows.Next() {
 		var e store.AuditEvent
 		var ts string
-		if err := rows.Scan(&e.ID, &ts, &e.User, &e.Source, &e.Action, &e.WorkerID, &e.TaskID, &e.Message, &e.MetaJSON); err != nil {
+		if err := rows.Scan(&e.ID, &ts, &e.User, &e.Source, &e.Action, &e.WorkerID, &e.WorkerSID, &e.TaskID, &e.TaskSID, &e.Message, &e.MetaJSON); err != nil {
 			return nil, err
 		}
 		e.CreatedAt = parseTime(ts)

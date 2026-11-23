@@ -41,9 +41,6 @@ type Daemon struct {
 	factsMu   sync.Mutex
 	lastFacts *protocol.MachineFacts
 
-	// machineID is the persisted per-installation UUID sent as WorkerInfo.MachineID.
-	machineID string
-
 	// version is konsertd's build version, reported as WorkerInfo.Version.
 	version string
 
@@ -111,7 +108,6 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg:               cfg,
 		registry:          registry,
 		logger:            logger,
-		machineID:         ResolveMachineID("", cfg.Name, cfg.Isolation),
 		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
@@ -193,12 +189,7 @@ func (d *Daemon) advertisedAgents() []string {
 	return out
 }
 
-// MachineID returns the persisted per-installation UUID sent in worker.hello.
-func (d *Daemon) MachineID() string {
-	return d.machineID
-}
-
-// WorkerID returns the stable ID for this worker daemon.
+// WorkerID returns this daemon's stable identity (the hub's workers.id).
 func (d *Daemon) WorkerID() string {
 	return d.cfg.WorkerID
 }
@@ -364,7 +355,6 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			Tags:           d.cfg.Tags,
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,
-			MachineID:      d.machineID,
 			Version:        d.version,
 		},
 		ActiveTasks: d.runner.ActiveTasks(),

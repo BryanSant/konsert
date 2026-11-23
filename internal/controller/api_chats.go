@@ -32,13 +32,14 @@ type createChatRequest struct {
 // createChat creates a chat session. Agent chats fill worker, agent, account,
 // model, effort and approval mode from the reported capabilities.
 func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.ChatSession, error) {
-	chatID, err := s.store.NewID(ctx, ids.Chat)
+	chatSID, err := s.store.NewSID(ctx, ids.Chat)
 	if err != nil {
 		return store.ChatSession{}, err
 	}
 	now := time.Now().UTC()
 	cs := store.ChatSession{
-		ID:        chatID,
+		ID:        ids.UUID(),
+		SID:       chatSID,
 		Title:     strings.TrimSpace(body.Title),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -60,7 +61,7 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 		}
 	case "", store.ChatBackendAgent:
 		cs.Backend = store.ChatBackendAgent
-		cs.WorkerID = strings.TrimSpace(body.WorkerID)
+		cs.WorkerID = resolveRef(ctx, s.store, ids.Machine, body.WorkerID)
 		cs.Agent = strings.TrimSpace(body.Agent)
 		cs.AccountID = strings.TrimSpace(body.AccountID)
 		cs.Model = strings.TrimSpace(body.Model)

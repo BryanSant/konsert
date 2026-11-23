@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
@@ -321,6 +322,8 @@ func (in ListAuditInput) query() map[string][]string {
 
 // ListAudit implements AuditBackend on the local FleetService.
 func (s *FleetService) ListAudit(ctx context.Context, in ListAuditInput) (AuditListResponse, error) {
+	in.WorkerID = resolveRef(ctx, s.store, ids.Machine, in.WorkerID)
+	in.TaskID = resolveRef(ctx, s.store, ids.Task, in.TaskID)
 	f, err := auditFilterFromQuery(in.query())
 	if err != nil {
 		return AuditListResponse{}, err

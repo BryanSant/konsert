@@ -11,6 +11,7 @@ import { SessionDispatchModalComponent, SessionDispatchRequest } from './session
 
 const worker = (id: string, name: string): Worker => ({
   id,
+  sid: id,
   name,
   host_group: 'default',
   os: 'darwin',

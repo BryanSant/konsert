@@ -154,16 +154,19 @@ describe('AuditLogComponent', () => {
   });
 
   it('opens the task tab from a task link, or filters to tasks not loaded', async () => {
-    responses.push({ events: [ev(2), ev(1, { task_id: 'old-task-xyz' })] });
+    const old = ev(1, { task_id: 'old-task-xyz', task_sid: 't-0ldtk' });
+    responses.push({ events: [ev(2), old] });
     const { cmp, root } = await setup();
     const tabs = TestBed.inject(TabsStore);
 
     (rows(root)[0].querySelector('button') as HTMLButtonElement).click();
     expect(tabs.activeTabId()).toBe('t1');
 
-    cmp.openTask('old-task-xyz');
-    expect(cmp.taskFilter()).toBe('old-task-xyz');
-    expect(listAudit).toHaveBeenLastCalledWith(expect.objectContaining({ task_id: 'old-task-xyz' }));
+    // The task link shows the sid; filtering to an unloaded task uses the sid too.
+    expect(rows(root)[1].textContent).toContain('t-0ldtk');
+    cmp.openTask(old);
+    expect(cmp.taskFilter()).toBe('t-0ldtk');
+    expect(listAudit).toHaveBeenLastCalledWith(expect.objectContaining({ task_id: 't-0ldtk' }));
   });
 
   it('drops a superseded response and shows API errors', async () => {

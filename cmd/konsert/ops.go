@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -66,9 +67,9 @@ func newSteerCmd() *cobra.Command {
 		Short: "Send input to a running interactive task",
 		Long: "Write text to a running task's terminal, followed by a newline unless --no-newline is set.\n" +
 			"Pass \"-\" as the text to read it from stdin.",
-		Example: "  konsert steer 3f2a9c1e \"also add tests\"\n" +
-			"  konsert steer --no-newline 3f2a9c1e y\n" +
-			"  git diff | konsert steer 3f2a9c1e -",
+		Example: "  konsert steer t-7qk3m \"also add tests\"\n" +
+			"  konsert steer --no-newline t-7qk3m y\n" +
+			"  git diff | konsert steer t-7qk3m -",
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			taskID := args[0]
@@ -89,7 +90,7 @@ func newSteerCmd() *cobra.Command {
 			if asJSON {
 				return writeJSONOut(out, res)
 			}
-			fmt.Fprintf(out, "sent input to task %s (status: %s)\n", res.TaskID, res.Status)
+			fmt.Fprintf(out, "sent input to task %s (status: %s)\n", cmp.Or(res.TaskSID, res.TaskID), res.Status)
 			return nil
 		},
 	}
@@ -105,7 +106,7 @@ func newCancelCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "cancel <task-id>",
 		Short:   "Cancel a queued or running task",
-		Example: "  konsert cancel 3f2a9c1e",
+		Example: "  konsert cancel t-7qk3m",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := remoteClientFromFlags(url, token)
@@ -117,7 +118,7 @@ func newCancelCmd() *cobra.Command {
 			if asJSON {
 				return writeJSONOut(out, res)
 			}
-			fmt.Fprintf(out, "cancel requested for task %s (status: %s)\n", res.TaskID, res.Status)
+			fmt.Fprintf(out, "cancel requested for task %s (status: %s)\n", cmp.Or(res.TaskSID, res.TaskID), res.Status)
 			return nil
 		},
 	}
@@ -136,9 +137,9 @@ func newLogsCmd() *cobra.Command {
 		Short: "Print a task's structured telemetry events",
 		Long: "Print a task's structured telemetry events (milestones, tool calls, file edits, errors, exit).\n" +
 			"With --follow, keep polling for new events until the task finishes or you press Ctrl-C.",
-		Example: "  konsert logs 3f2a9c1e\n" +
-			"  konsert logs -f 3f2a9c1e\n" +
-			"  konsert logs --json 3f2a9c1e | jq .message",
+		Example: "  konsert logs t-7qk3m\n" +
+			"  konsert logs -f t-7qk3m\n" +
+			"  konsert logs --json t-7qk3m | jq .message",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval <= 0 {

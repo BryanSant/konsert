@@ -7,7 +7,7 @@ import (
 )
 
 func TestValidateTaskID(t *testing.T) {
-	for _, ok := range []string{"t-7qk3m", "a", "Task-1", strings.Repeat("z", FrameTaskIDSize)} {
+	for _, ok := range []string{"0196f3c2-5d0e-7b3a-9c41-2f8e6a1b0c9d", "a", "Task-1", strings.Repeat("z", FrameTaskIDSize)} {
 		if err := ValidateTaskID(ok); err != nil {
 			t.Fatalf("ValidateTaskID(%q) = %v, want nil", ok, err)
 		}

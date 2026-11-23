@@ -82,34 +82,3 @@ func (s *SQLiteStore) RequeueTask(ctx context.Context, taskID, summary string, k
 	n, _ := res.RowsAffected()
 	return n == 1, nil
 }
-
-// SetWorkerMachineID records the stable konsertd machine UUID for a worker row.
-func (s *SQLiteStore) SetWorkerMachineID(ctx context.Context, workerID, machineID string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE workers SET machine_id = ? WHERE id = ?`, machineID, workerID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return store.ErrNotFound
-	}
-	return nil
-}
-
-// ListWorkerMachineIDs returns workerID -> machine UUID for every worker row
-// (an empty string for legacy workers that never reported one).
-func (s *SQLiteStore) ListWorkerMachineIDs(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, machine_id FROM workers`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make(map[string]string)
-	for rows.Next() {
-		var id, mid string
-		if err := rows.Scan(&id, &mid); err != nil {
-			return nil, err
-		}
-		out[id] = mid
-	}
-	return out, rows.Err()
-}

@@ -11,68 +11,43 @@ import (
 	"github.com/coder/websocket"
 )
 
-func TestSameHostnameMachinesCoexistByMachineID(t *testing.T) {
+// The hub keys a worker by the UUID it sends in hello, mints its m- sid the first time it
+// sees it, and keeps that sid across reconnects (even if the name changes).
+func TestHubMintsMachineSIDOnFirstHelloAndKeepsIt(t *testing.T) {
 	th := newTestHub(t)
 	ctx := context.Background()
+	id := ids.UUID()
 
-	// A legacy row from before machine IDs existed.
-	legacy := th.connectWorker(t, testWorkerInfo("w-ubuntu", "ubuntu"), nil, "w-ubuntu")
-	legacy.close()
-	waitFor(t, 3*time.Second, "legacy worker to disconnect", func() bool { return !th.h.IsWorkerConnected("w-ubuntu") })
+	c := th.connectWorker(t, testWorkerInfo(id, "box"), nil, id)
+	w, err := th.st.GetWorker(ctx, id)
+	if err != nil || !ids.Valid(ids.Machine, w.SID) {
+		t.Fatalf("worker after hello = %+v, %v; want an m- sid", w, err)
+	}
+	c.close()
+	waitFor(t, 3*time.Second, "worker to disconnect", func() bool { return !th.h.IsWorkerConnected(id) })
 
-	// Two cloned VMs: same hostname, same deterministic hello ID, distinct machine IDs.
-	infoA := testWorkerInfo("w-ubuntu", "ubuntu")
-	infoA.MachineID = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-	infoB := infoA
-	infoB.MachineID = "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-
-	a := th.connectWorker(t, infoA, nil, "w-ubuntu") // adopts the legacy row
-	b := th.dialWorker(t, infoB, nil)
-	// B's proposed ID is taken by A, so the hub mints B its own machine ID.
-	var bID string
-	waitFor(t, 5*time.Second, "clone B to get its own id", func() bool {
-		mids, _ := th.st.ListWorkerMachineIDs(ctx)
-		for id, mid := range mids {
-			if mid == infoB.MachineID {
-				bID = id
-			}
-		}
-		return bID != "" && th.h.IsWorkerConnected(bID)
-	})
-	if !ids.Valid(ids.Machine, bID) {
-		t.Fatalf("clone got id %q, want a minted m- id", bID)
+	info := testWorkerInfo(id, "box-renamed")
+	th.connectWorker(t, info, nil, id)
+	again, err := th.st.GetWorker(ctx, id)
+	if err != nil || again.SID != w.SID || again.Name != "box-renamed" {
+		t.Fatalf("after reconnect = %+v, %v; want sid %s kept", again, err, w.SID)
 	}
-	if !th.h.IsWorkerConnected("w-ubuntu") {
-		t.Fatal("both same-hostname machines should stay connected")
-	}
-	select {
-	case <-a.done:
-		t.Fatal("first machine was kicked off by its clone")
-	case <-time.After(300 * time.Millisecond):
-	}
-	workers, err := th.st.ListWorkers(ctx)
-	if err != nil || len(workers) != 2 {
-		t.Fatalf("expected 2 worker rows, got %d (err=%v)", len(workers), err)
-	}
-
-	// Reconnects keep each machine on its own row, whatever hello ID it sends.
-	b.close()
-	waitFor(t, 3*time.Second, "B to disconnect", func() bool { return !th.h.IsWorkerConnected(bID) })
-	infoB.ID = "m-zz9yx"
-	th.connectWorker(t, infoB, nil, bID)
-	if workers, _ := th.st.ListWorkers(ctx); len(workers) != 2 {
+	if workers, _ := th.st.ListWorkers(ctx); len(workers) != 1 {
 		t.Fatalf("reconnect created a duplicate row: %d workers", len(workers))
 	}
-	mids, _ := th.st.ListWorkerMachineIDs(ctx)
-	if mids["w-ubuntu"] != infoA.MachineID || mids[bID] != infoB.MachineID {
-		t.Fatalf("unexpected machine IDs: %v", mids)
+
+	// A different machine with the same hostname is a separate worker with its own sid.
+	other := ids.UUID()
+	th.connectWorker(t, testWorkerInfo(other, "box-renamed"), nil, other)
+	ow, err := th.st.GetWorker(ctx, other)
+	if err != nil || ow.SID == w.SID || !ids.Valid(ids.Machine, ow.SID) {
+		t.Fatalf("second machine = %+v, %v", ow, err)
 	}
 }
 
 func TestDuplicateLiveConnectionIsTurnedAwayReconnectably(t *testing.T) {
 	th := newTestHub(t)
 	info := testWorkerInfo("w-dup", "dup")
-	info.MachineID = "33333333-cccc-4ccc-8ccc-cccccccccccc"
 	first := th.connectWorker(t, info, nil, "w-dup")
 
 	second := th.dialWorker(t, info, nil)
@@ -93,7 +68,6 @@ func TestDuplicateLiveConnectionIsTurnedAwayReconnectably(t *testing.T) {
 func TestDeadConnectionIsSupersededWithReconnectableCode(t *testing.T) {
 	th := newTestHub(t)
 	info := testWorkerInfo("w-stale", "stale")
-	info.MachineID = "44444444-dddd-4ddd-8ddd-dddddddddddd"
 
 	// The old connection never reads, so it cannot answer the liveness ping.
 	old := th.dialWorkerOpts(t, info, nil, true)

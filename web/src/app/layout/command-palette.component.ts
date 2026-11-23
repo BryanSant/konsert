@@ -211,7 +211,7 @@ export class CommandPaletteComponent {
         label: repo.name,
         sublabel: `${projName} · ${repo.path}`,
         icon: 'repo',
-        pill: workersById[repo.worker_id]?.name || repo.worker_id,
+        pill: workersById[repo.worker_id]?.name || workersById[repo.worker_id]?.sid || repo.worker_id,
         run: emit({ kind: 'open-worktree', repo, worktree: null }),
       });
     }

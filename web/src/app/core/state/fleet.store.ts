@@ -218,7 +218,7 @@ export class FleetStore {
         const label = t.branch ? `${dirName} · ${t.branch}` : dirName || t.agent;
         return {
           task: t,
-          workerName: wMap[t.worker_id]?.name || t.worker_id || 'queued',
+          workerName: wMap[t.worker_id]?.name || wMap[t.worker_id]?.sid || t.worker_id || 'queued',
           label,
           isActive: isWorking,
           stateGroup,

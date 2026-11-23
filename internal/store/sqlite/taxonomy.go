@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/store"
 )
 
@@ -21,15 +22,15 @@ func boolToInt(b bool) int {
 func (s *SQLiteStore) EnsureTaxonomyDefaults(ctx context.Context) error {
 	now := formatTime(time.Now().UTC())
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at)
-		VALUES (?, 'Default', 1, ?)
-	`, store.DefaultWorkspaceID, now); err != nil {
+		INSERT OR IGNORE INTO workspaces (id, sid, name, is_default, created_at)
+		VALUES (?, ?, 'Default', 1, ?)
+	`, store.DefaultWorkspaceID, ids.DefaultWorkspaceSID, now); err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO projects (id, workspace_id, name, is_default, created_at)
-		VALUES (?, ?, 'Default', 1, ?)
-	`, store.DefaultProjectID, store.DefaultWorkspaceID, now); err != nil {
+		INSERT OR IGNORE INTO projects (id, sid, workspace_id, name, is_default, created_at)
+		VALUES (?, ?, ?, 'Default', 1, ?)
+	`, store.DefaultProjectID, ids.DefaultProjectSID, store.DefaultWorkspaceID, now); err != nil {
 		return err
 	}
 	return nil
@@ -66,10 +67,13 @@ func (s *SQLiteStore) CreateWorkspace(ctx context.Context, ws store.Workspace) e
 	if ws.CreatedAt.IsZero() {
 		ws.CreatedAt = time.Now().UTC()
 	}
+	if err := s.assignIDs(ctx, ids.Workspace, &ws.ID, &ws.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO workspaces (id, name, is_default, created_at)
-		VALUES (?, ?, ?, ?)
-	`, ws.ID, ws.Name, boolToInt(ws.IsDefault), formatTime(ws.CreatedAt))
+		INSERT INTO workspaces (id, sid, name, is_default, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, ws.ID, ws.SID, ws.Name, boolToInt(ws.IsDefault), formatTime(ws.CreatedAt))
 	return err
 }
 
@@ -78,8 +82,8 @@ func (s *SQLiteStore) GetWorkspace(ctx context.Context, id string) (store.Worksp
 	var isDef int
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, is_default, created_at FROM workspaces WHERE id = ?
-	`, id).Scan(&ws.ID, &ws.Name, &isDef, &createdAt)
+		SELECT id, sid, name, is_default, created_at FROM workspaces WHERE id = ?
+	`, id).Scan(&ws.ID, &ws.SID, &ws.Name, &isDef, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Workspace{}, store.ErrNotFound
 	}
@@ -93,7 +97,7 @@ func (s *SQLiteStore) GetWorkspace(ctx context.Context, id string) (store.Worksp
 
 func (s *SQLiteStore) ListWorkspaces(ctx context.Context) ([]store.Workspace, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, is_default, created_at
+		SELECT id, sid, name, is_default, created_at
 		FROM workspaces ORDER BY is_default DESC, created_at ASC
 	`)
 	if err != nil {
@@ -106,7 +110,7 @@ func (s *SQLiteStore) ListWorkspaces(ctx context.Context) ([]store.Workspace, er
 		var ws store.Workspace
 		var isDef int
 		var createdAt string
-		if err := rows.Scan(&ws.ID, &ws.Name, &isDef, &createdAt); err != nil {
+		if err := rows.Scan(&ws.ID, &ws.SID, &ws.Name, &isDef, &createdAt); err != nil {
 			return nil, err
 		}
 		ws.IsDefault = isDef != 0
@@ -155,10 +159,13 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p store.Project) error 
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()
 	}
+	if err := s.assignIDs(ctx, ids.Project, &p.ID, &p.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects (id, workspace_id, name, is_default, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, p.ID, p.WorkspaceID, p.Name, boolToInt(p.IsDefault), formatTime(p.CreatedAt))
+		INSERT INTO projects (id, sid, workspace_id, name, is_default, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, p.ID, p.SID, p.WorkspaceID, p.Name, boolToInt(p.IsDefault), formatTime(p.CreatedAt))
 	return err
 }
 
@@ -167,8 +174,8 @@ func (s *SQLiteStore) GetProject(ctx context.Context, id string) (store.Project,
 	var isDef int
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, workspace_id, name, is_default, created_at FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.WorkspaceID, &p.Name, &isDef, &createdAt)
+		SELECT id, sid, workspace_id, name, is_default, created_at FROM projects WHERE id = ?
+	`, id).Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Project{}, store.ErrNotFound
 	}
@@ -187,12 +194,12 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 	)
 	if workspaceID != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, workspace_id, name, is_default, created_at
+			SELECT id, sid, workspace_id, name, is_default, created_at
 			FROM projects WHERE workspace_id = ? ORDER BY is_default DESC, created_at ASC
 		`, workspaceID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, workspace_id, name, is_default, created_at
+			SELECT id, sid, workspace_id, name, is_default, created_at
 			FROM projects ORDER BY is_default DESC, created_at ASC
 		`)
 	}
@@ -206,7 +213,7 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 		var p store.Project
 		var isDef int
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Name, &isDef, &createdAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &createdAt); err != nil {
 			return nil, err
 		}
 		p.IsDefault = isDef != 0
@@ -254,10 +261,13 @@ func (s *SQLiteStore) CreateRepo(ctx context.Context, r store.Repo) error {
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}
+	if err := s.assignIDs(ctx, ids.Repo, &r.ID, &r.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO repos (id, project_id, worker_id, name, path, remote_url, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, r.ID, r.ProjectID, r.WorkerID, r.Name, r.Path, r.RemoteURL, formatTime(r.CreatedAt))
+		INSERT INTO repos (id, sid, project_id, worker_id, name, path, remote_url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, r.ID, r.SID, r.ProjectID, r.WorkerID, r.Name, r.Path, r.RemoteURL, formatTime(r.CreatedAt))
 	return err
 }
 
@@ -265,9 +275,9 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, id string) (store.Repo, error
 	var r store.Repo
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, project_id, worker_id, name, path, remote_url, created_at
+		SELECT id, sid, project_id, worker_id, name, path, remote_url, created_at
 		FROM repos WHERE id = ?
-	`, id).Scan(&r.ID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt)
+	`, id).Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Repo{}, store.ErrNotFound
 	}
@@ -289,7 +299,7 @@ func (s *SQLiteStore) ListRepos(ctx context.Context, projectID, workerID string)
 		conds = append(conds, "worker_id = ?")
 		args = append(args, workerID)
 	}
-	q := `SELECT id, project_id, worker_id, name, path, remote_url, created_at FROM repos`
+	q := `SELECT id, sid, project_id, worker_id, name, path, remote_url, created_at FROM repos`
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")
 	}
@@ -305,7 +315,7 @@ func (s *SQLiteStore) ListRepos(ctx context.Context, projectID, workerID string)
 	for rows.Next() {
 		var r store.Repo
 		var createdAt string
-		if err := rows.Scan(&r.ID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt); err != nil {
 			return nil, err
 		}
 		r.CreatedAt = parseTime(createdAt)
@@ -342,10 +352,13 @@ func (s *SQLiteStore) CreateWorktree(ctx context.Context, wt store.Worktree) err
 	if wt.CreatedAt.IsZero() {
 		wt.CreatedAt = time.Now().UTC()
 	}
+	if err := s.assignIDs(ctx, ids.Worktree, &wt.ID, &wt.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO worktrees (id, repo_id, branch, path, is_primary, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, wt.ID, wt.RepoID, wt.Branch, wt.Path, boolToInt(wt.IsPrimary), formatTime(wt.CreatedAt))
+		INSERT INTO worktrees (id, sid, repo_id, branch, path, is_primary, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, wt.ID, wt.SID, wt.RepoID, wt.Branch, wt.Path, boolToInt(wt.IsPrimary), formatTime(wt.CreatedAt))
 	return err
 }
 
@@ -354,9 +367,9 @@ func (s *SQLiteStore) GetWorktree(ctx context.Context, id string) (store.Worktre
 	var isPrim int
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, repo_id, branch, path, is_primary, created_at
+		SELECT id, sid, repo_id, branch, path, is_primary, created_at
 		FROM worktrees WHERE id = ?
-	`, id).Scan(&wt.ID, &wt.RepoID, &wt.Branch, &wt.Path, &isPrim, &createdAt)
+	`, id).Scan(&wt.ID, &wt.SID, &wt.RepoID, &wt.Branch, &wt.Path, &isPrim, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Worktree{}, store.ErrNotFound
 	}
@@ -375,12 +388,12 @@ func (s *SQLiteStore) ListWorktrees(ctx context.Context, repoID string) ([]store
 	)
 	if repoID != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, repo_id, branch, path, is_primary, created_at
+			SELECT id, sid, repo_id, branch, path, is_primary, created_at
 			FROM worktrees WHERE repo_id = ? ORDER BY is_primary DESC, created_at ASC
 		`, repoID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, repo_id, branch, path, is_primary, created_at
+			SELECT id, sid, repo_id, branch, path, is_primary, created_at
 			FROM worktrees ORDER BY is_primary DESC, created_at ASC
 		`)
 	}
@@ -394,7 +407,7 @@ func (s *SQLiteStore) ListWorktrees(ctx context.Context, repoID string) ([]store
 		var wt store.Worktree
 		var isPrim int
 		var createdAt string
-		if err := rows.Scan(&wt.ID, &wt.RepoID, &wt.Branch, &wt.Path, &isPrim, &createdAt); err != nil {
+		if err := rows.Scan(&wt.ID, &wt.SID, &wt.RepoID, &wt.Branch, &wt.Path, &isPrim, &createdAt); err != nil {
 			return nil, err
 		}
 		wt.IsPrimary = isPrim != 0

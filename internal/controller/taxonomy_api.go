@@ -66,13 +66,14 @@ func (s *Server) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-	wsID, err := s.store.NewID(r.Context(), ids.Workspace)
+	wsSID, err := s.store.NewSID(r.Context(), ids.Workspace)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	ws := store.Workspace{
-		ID:        wsID,
+		ID:        ids.UUID(),
+		SID:       wsSID,
 		Name:      name,
 		IsDefault: false,
 		CreatedAt: time.Now().UTC(),
@@ -127,7 +128,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
-	wsID := strings.TrimSpace(body.WorkspaceID)
+	wsID := resolveRef(r.Context(), s.store, ids.Workspace, body.WorkspaceID)
 	if wsID == "" {
 		wsID = store.DefaultWorkspaceID
 	}
@@ -139,13 +140,14 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	projectID, err := s.store.NewID(r.Context(), ids.Project)
+	projectSID, err := s.store.NewSID(r.Context(), ids.Project)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	proj := store.Project{
-		ID:          projectID,
+		ID:          ids.UUID(),
+		SID:         projectSID,
 		WorkspaceID: wsID,
 		Name:        name,
 		IsDefault:   false,
@@ -200,7 +202,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	body.WorkerID = strings.TrimSpace(body.WorkerID)
+	body.WorkerID = resolveRef(r.Context(), s.store, ids.Machine, body.WorkerID)
 	body.Path = strings.TrimSpace(body.Path)
 	if body.WorkerID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id is required"})
@@ -209,7 +211,7 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	if body.Path == "" {
 		body.Path = "~"
 	}
-	projID := strings.TrimSpace(body.ProjectID)
+	projID := resolveRef(r.Context(), s.store, ids.Project, body.ProjectID)
 	if projID == "" {
 		projID = store.DefaultProjectID
 	}
@@ -235,13 +237,14 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		name = derivePathLeaf(body.Path)
 	}
 	now := time.Now().UTC()
-	repoID, err := s.store.NewID(r.Context(), ids.Repo)
+	repoSID, err := s.store.NewSID(r.Context(), ids.Repo)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	repo := store.Repo{
-		ID:        repoID,
+		ID:        ids.UUID(),
+		SID:       repoSID,
 		ProjectID: projID,
 		WorkerID:  body.WorkerID,
 		Name:      name,
@@ -256,13 +259,14 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	s.hub.broadcastFleetUpdate("repo", repo)
 
 	// Automatically create a primary worktree pointing at the repo's main checkout.
-	wtID, err := s.store.NewID(r.Context(), ids.Worktree)
+	wtSID, err := s.store.NewSID(r.Context(), ids.Worktree)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	wt := store.Worktree{
-		ID:        wtID,
+		ID:        ids.UUID(),
+		SID:       wtSID,
 		RepoID:    repo.ID,
 		Branch:    strings.TrimSpace(body.Branch),
 		Path:      repo.Path,
@@ -312,7 +316,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	body.RepoID = strings.TrimSpace(body.RepoID)
+	body.RepoID = resolveRef(r.Context(), s.store, ids.Repo, body.RepoID)
 	if body.RepoID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo_id is required"})
 		return
@@ -330,13 +334,14 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	if wtPath == "" {
 		wtPath = repo.Path
 	}
-	wtID, err := s.store.NewID(r.Context(), ids.Worktree)
+	wtSID, err := s.store.NewSID(r.Context(), ids.Worktree)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	wt := store.Worktree{
-		ID:        wtID,
+		ID:        ids.UUID(),
+		SID:       wtSID,
 		RepoID:    repo.ID,
 		Branch:    strings.TrimSpace(body.Branch),
 		Path:      wtPath,

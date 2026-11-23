@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
@@ -30,6 +31,7 @@ func NewFleetService(st store.Store, hub *Hub) *FleetService {
 
 type WorkerStatusView struct {
 	ID             string                  `json:"id"`
+	SID            string                  `json:"sid"`
 	Name           string                  `json:"name"`
 	HostGroup      string                  `json:"host_group"`
 	OS             string                  `json:"os"`
@@ -55,6 +57,7 @@ type WorkerStatusView struct {
 func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
 	return WorkerStatusView{
 		ID:             w.ID,
+		SID:            w.SID,
 		Name:           w.Name,
 		HostGroup:      w.HostGroup,
 		OS:             w.OS,
@@ -160,6 +163,7 @@ func workerHasAgent(w store.Worker, agent string) bool {
 // ResolveSessionDefaults resolves Machine (default localhost), Agent (default -> last used -> guess),
 // and Model (default -> last used -> the agent account's reported default) for a new Chat session.
 func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, reqAgent, reqModel string) (SessionDefaultsResult, error) {
+	reqMachine = resolveRef(ctx, s.store, ids.Machine, reqMachine)
 	saved, _ := s.store.GetAllSettings(ctx)
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
@@ -307,6 +311,7 @@ type DispatchRequest struct {
 
 type DispatchResult struct {
 	TaskID           string `json:"task_id"`
+	TaskSID          string `json:"task_sid"`
 	WorkerID         string `json:"worker_id,omitempty"`
 	SpaceID          string `json:"space_id,omitempty"`
 	WorkspaceID      string `json:"workspace_id,omitempty"`
@@ -323,6 +328,14 @@ type DispatchResult struct {
 }
 
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
+	resolveRefs(ctx, s.store, map[ids.Kind][]*string{
+		ids.Machine:   {&req.WorkerSelector.WorkerID},
+		ids.Space:     {&req.SpaceID},
+		ids.Workspace: {&req.WorkspaceID},
+		ids.Project:   {&req.ProjectID},
+		ids.Repo:      {&req.RepoID},
+		ids.Worktree:  {&req.WorktreeID},
+	})
 	// Resolve taxonomy bindings from Worktree -> Repo -> Project -> Workspace (falling back to Default).
 	if wtID := strings.TrimSpace(req.WorktreeID); wtID != "" {
 		wt, err := s.store.GetWorktree(ctx, wtID)
@@ -460,7 +473,8 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		timeoutSecs = *req.TimeoutSeconds
 	}
 
-	taskID, err := s.store.NewID(ctx, ids.Task)
+	taskID := ids.UUID()
+	taskSID, err := s.store.NewSID(ctx, ids.Task)
 	if err != nil {
 		return DispatchResult{}, err
 	}
@@ -505,6 +519,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	task := store.Task{
 		ID:             taskID,
+		SID:            taskSID,
 		SpaceID:        req.SpaceID,
 		WorkspaceID:    req.WorkspaceID,
 		ProjectID:      req.ProjectID,
@@ -552,6 +567,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	startPayload := protocol.TaskStartPayload{
 		TaskID:         taskID,
+		SID:            taskSID,
 		Agent:          req.Agent,
 		Model:          task.Model,
 		SessionKind:    sessionKind,
@@ -596,6 +612,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	return DispatchResult{
 		TaskID:           task.ID,
+		TaskSID:          task.SID,
 		WorkerID:         task.WorkerID,
 		SpaceID:          task.SpaceID,
 		WorkspaceID:      task.WorkspaceID,
@@ -613,7 +630,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 type TaskListItem struct {
 	TaskID         string `json:"task_id"`
+	TaskSID        string `json:"task_sid"`
 	WorkerID       string `json:"worker_id,omitempty"`
+	WorkerSID      string `json:"worker_sid,omitempty"`
 	Agent          string `json:"agent"`
 	Status         string `json:"status"`
 	Branch         string `json:"branch,omitempty"`
@@ -625,10 +644,12 @@ type TaskListItem struct {
 }
 
 func (s *FleetService) ListTasks(ctx context.Context, statusFilter, workerID string, limit int) ([]TaskListItem, error) {
+	workerID = resolveRef(ctx, s.store, ids.Machine, workerID)
 	tasks, err := s.store.ListTasks(ctx, statusFilter, workerID, limit)
 	if err != nil {
 		return nil, err
 	}
+	workerSIDs := s.workerSIDs(ctx)
 	now := time.Now().UTC()
 	out := make([]TaskListItem, 0, len(tasks))
 	for _, t := range tasks {
@@ -653,7 +674,9 @@ func (s *FleetService) ListTasks(ctx context.Context, statusFilter, workerID str
 
 		out = append(out, TaskListItem{
 			TaskID:         t.ID,
+			TaskSID:        t.SID,
 			WorkerID:       t.WorkerID,
+			WorkerSID:      workerSIDs[t.WorkerID],
 			Agent:          t.Agent,
 			Status:         t.Status,
 			Branch:         t.Branch,
@@ -667,8 +690,20 @@ func (s *FleetService) ListTasks(ctx context.Context, statusFilter, workerID str
 	return out, nil
 }
 
+// workerSIDs maps every worker's id to its sid.
+func (s *FleetService) workerSIDs(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	if workers, err := s.store.ListWorkers(ctx); err == nil {
+		for _, w := range workers {
+			out[w.ID] = w.SID
+		}
+	}
+	return out
+}
+
 type TaskResult struct {
 	TaskID           string               `json:"task_id"`
+	TaskSID          string               `json:"task_sid"`
 	WorkerID         string               `json:"worker_id,omitempty"`
 	Agent            string               `json:"agent"`
 	Status           string               `json:"status"`
@@ -680,6 +715,7 @@ type TaskResult struct {
 }
 
 func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bool, timeoutSeconds int) (TaskResult, error) {
+	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
 	t, err := s.store.GetTask(ctx, taskID)
 	if err != nil {
 		return TaskResult{}, err
@@ -746,6 +782,7 @@ func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bo
 
 	return TaskResult{
 		TaskID:           t.ID,
+		TaskSID:          t.SID,
 		WorkerID:         t.WorkerID,
 		Agent:            t.Agent,
 		Status:           t.Status,
@@ -758,18 +795,20 @@ func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bo
 }
 
 type ActionResult struct {
-	OK     bool   `json:"ok"`
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+	OK      bool   `json:"ok"`
+	TaskID  string `json:"task_id"`
+	TaskSID string `json:"task_sid"`
+	Status  string `json:"status"`
 }
 
 func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, appendNewline bool) (ActionResult, error) {
+	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
 	t, err := s.store.GetTask(ctx, taskID)
 	if err != nil {
 		return ActionResult{}, err
 	}
 	if protocol.IsTerminalTaskStatus(t.Status) {
-		return ActionResult{}, fmt.Errorf("task %s is already %s", taskID, t.Status)
+		return ActionResult{}, fmt.Errorf("task %s is already %s", t.SID, t.Status)
 	}
 	if err := s.hub.SendSteer(taskID, inputText, appendNewline); err != nil {
 		return ActionResult{}, err
@@ -795,16 +834,17 @@ func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, 
 		MetaJSON: auditMeta(map[string]any{"bytes": len(inputText), "append_newline": appendNewline}),
 	})
 
-	return ActionResult{OK: true, TaskID: taskID, Status: t.Status}, nil
+	return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: t.Status}, nil
 }
 
 func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
+	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
 	t, err := s.store.GetTask(ctx, taskID)
 	if err != nil {
 		return ActionResult{}, err
 	}
 	if protocol.IsTerminalTaskStatus(t.Status) {
-		return ActionResult{OK: true, TaskID: taskID, Status: t.Status}, nil
+		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: t.Status}, nil
 	}
 	audit := func(msg string) {
 		s.hub.recordAudit(ctx, store.AuditEvent{
@@ -822,7 +862,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 			s.hub.notifyTaskDone(updated)
 			s.hub.broadcastFleetUpdate("task", updated)
 		}
-		return ActionResult{OK: true, TaskID: taskID, Status: protocol.TaskStatusCanceled}, nil
+		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 	}
 
 	sent := s.hub.SendCancel(taskID)
@@ -833,7 +873,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 			s.hub.notifyTaskDone(updated)
 			s.hub.broadcastFleetUpdate("task", updated)
 		}
-		return ActionResult{OK: true, TaskID: taskID, Status: protocol.TaskStatusCanceled}, nil
+		return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 	}
 
 	ev := store.TaskEvent{
@@ -848,7 +888,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 	s.hub.broadcastFleetUpdate("event", ev)
 	audit("Cancellation requested")
 
-	return ActionResult{OK: true, TaskID: taskID, Status: protocol.TaskStatusCanceled}, nil
+	return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 }
 
 // --- orchestrator.ContextProvider & daemon-first RPC helpers ---
@@ -862,7 +902,7 @@ func (s *FleetService) BuildCompactContext(ctx context.Context, sessionID string
 		b.WriteString("Machines:\n")
 		for _, w := range fs.Workers {
 			line := fmt.Sprintf("- %s (id=%s, %s, %s/%s, active=%d/%d, agents=[%s]",
-				w.Name, w.ID, w.Status, w.OS, w.Arch, w.ActiveTasks, w.MaxConcurrent, strings.Join(w.Agents, ","))
+				w.Name, cmp.Or(w.SID, w.ID), w.Status, w.OS, w.Arch, w.ActiveTasks, w.MaxConcurrent, strings.Join(w.Agents, ","))
 			if w.Facts != nil {
 				line += fmt.Sprintf(", virt=%s, %dc/%dGB RAM, %dGB free",
 					w.Facts.Virtualization, w.Facts.CPUCores, w.Facts.RAMTotalMB/1024, w.Facts.DiskFreeGB)
@@ -934,7 +974,7 @@ func (s *FleetService) ScanTempWorktrees(ctx context.Context, workerID, rootPath
 		if w.Status != "online" || !s.hub.IsWorkerConnected(w.ID) {
 			continue
 		}
-		if workerID != "" && w.ID != workerID && !strings.EqualFold(w.Name, workerID) {
+		if workerID != "" && w.ID != workerID && w.SID != workerID && !strings.EqualFold(w.Name, workerID) {
 			continue
 		}
 		targets = append(targets, w)
@@ -1205,16 +1245,17 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 		}
 		type factRow struct {
 			WorkerID   string                 `json:"worker_id"`
+			WorkerSID  string                 `json:"worker_sid"`
 			WorkerName string                 `json:"worker_name"`
 			Status     string                 `json:"status"`
 			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
 		}
 		var out []factRow
 		for _, w := range fs.Workers {
-			if req.WorkerID != "" && w.ID != req.WorkerID && !strings.EqualFold(w.Name, req.WorkerID) {
+			if req.WorkerID != "" && w.ID != req.WorkerID && w.SID != req.WorkerID && !strings.EqualFold(w.Name, req.WorkerID) {
 				continue
 			}
-			out = append(out, factRow{WorkerID: w.ID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
+			out = append(out, factRow{WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
 		}
 		return map[string]any{"machines": out}, nil
 

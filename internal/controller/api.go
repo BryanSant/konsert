@@ -128,8 +128,8 @@ func (s *Server) registerRoutes() {
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
 	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
-	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.handleDeleteWorker))
-	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.handleGetWorkerFacts))
+	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDeleteWorker)))
+	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
 	s.registerWakeLockRoutes()
 	s.mux.Handle("GET /api/orchestrator/memory", s.requireBrowserAuth(s.handleListMemory))
 	s.mux.Handle("POST /api/orchestrator/memory", s.requireBrowserAuth(s.handleUpsertMemory))
@@ -141,20 +141,20 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/usage/quotas", s.requireBrowserAuth(s.handleUpsertQuotas))
 	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
 	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
-	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.handleDeleteSpace))
+	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.byRef(ids.Space, s.handleDeleteSpace)))
 	s.mux.Handle("GET /api/taxonomy", s.requireBrowserAuth(s.handleGetTaxonomy))
 	s.mux.Handle("GET /api/workspaces", s.requireBrowserAuth(s.handleListWorkspaces))
 	s.mux.Handle("POST /api/workspaces", s.requireBrowserAuth(s.handleCreateWorkspace))
-	s.mux.Handle("DELETE /api/workspaces/{id}", s.requireBrowserAuth(s.handleDeleteWorkspace))
+	s.mux.Handle("DELETE /api/workspaces/{id}", s.requireBrowserAuth(s.byRef(ids.Workspace, s.handleDeleteWorkspace)))
 	s.mux.Handle("GET /api/projects", s.requireBrowserAuth(s.handleListProjects))
 	s.mux.Handle("POST /api/projects", s.requireBrowserAuth(s.handleCreateProject))
-	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.handleDeleteProject))
+	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProject)))
 	s.mux.Handle("GET /api/repos", s.requireBrowserAuth(s.handleListRepos))
 	s.mux.Handle("POST /api/repos", s.requireBrowserAuth(s.handleCreateRepo))
-	s.mux.Handle("DELETE /api/repos/{id}", s.requireBrowserAuth(s.handleDeleteRepo))
+	s.mux.Handle("DELETE /api/repos/{id}", s.requireBrowserAuth(s.byRef(ids.Repo, s.handleDeleteRepo)))
 	s.mux.Handle("GET /api/worktrees", s.requireBrowserAuth(s.handleListWorktrees))
 	s.mux.Handle("POST /api/worktrees", s.requireBrowserAuth(s.handleCreateWorktree))
-	s.mux.Handle("DELETE /api/worktrees/{id}", s.requireBrowserAuth(s.handleDeleteWorktree))
+	s.mux.Handle("DELETE /api/worktrees/{id}", s.requireBrowserAuth(s.byRef(ids.Worktree, s.handleDeleteWorktree)))
 	s.mux.Handle("GET /api/sessions/defaults", s.requireBrowserAuth(s.handleSessionDefaults))
 	s.mux.Handle("POST /api/sessions", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
@@ -164,27 +164,27 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/git/worktree/cleanup", s.requireBrowserAuth(s.handleGitWorktreeCleanup))
 	s.mux.Handle("GET /api/tasks", s.requireBrowserAuth(s.handleListTasks))
 	s.mux.Handle("POST /api/tasks", s.requireBrowserAuth(s.handleCreateTask))
-	s.mux.Handle("GET /api/tasks/{id}", s.requireBrowserAuth(s.handleGetTask))
-	s.mux.Handle("POST /api/tasks/{id}/steer", s.requireBrowserAuth(s.handleSteerTask))
-	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.handleCancelTask))
-	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.handleTaskEvents))
-	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.handleTaskControl))
+	s.mux.Handle("GET /api/tasks/{id}", s.requireBrowserAuth(s.byRef(ids.Task, s.handleGetTask)))
+	s.mux.Handle("POST /api/tasks/{id}/steer", s.requireBrowserAuth(s.byRef(ids.Task, s.handleSteerTask)))
+	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.byRef(ids.Task, s.handleCancelTask)))
+	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskEvents)))
+	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskControl)))
 	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 
 	// Orchestrator Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chat/sessions", s.requireBrowserAuth(s.handleCreateChatSession))
-	s.mux.Handle("PATCH /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleRenameChatSession))
-	s.mux.Handle("DELETE /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleDeleteChatSession))
-	s.mux.Handle("GET /api/chat/sessions/{id}/messages", s.requireBrowserAuth(s.handleListChatMessages))
+	s.mux.Handle("PATCH /api/chat/sessions/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleRenameChatSession)))
+	s.mux.Handle("DELETE /api/chat/sessions/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleDeleteChatSession)))
+	s.mux.Handle("GET /api/chat/sessions/{id}/messages", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleListChatMessages)))
 	// Agent chat (subscription-backed; see hub_agentchat.go).
 	s.mux.Handle("GET /api/chats", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chats", s.requireBrowserAuth(s.handleCreateChatSession))
 	s.mux.Handle("POST /api/chats/orchestrator", s.requireBrowserAuth(s.handleEnsureOrchestratorChat))
-	s.mux.Handle("GET /api/chats/{id}", s.requireBrowserAuth(s.handleGetChat))
-	s.mux.Handle("PATCH /api/chats/{id}", s.requireBrowserAuth(s.handleRenameChatSession))
-	s.mux.Handle("DELETE /api/chats/{id}", s.requireBrowserAuth(s.handleDeleteChatSession))
-	s.mux.Handle("GET /api/chats/{id}/events", s.requireBrowserAuth(s.handleChatEvents))
+	s.mux.Handle("GET /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleGetChat)))
+	s.mux.Handle("PATCH /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleRenameChatSession)))
+	s.mux.Handle("DELETE /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleDeleteChatSession)))
+	s.mux.Handle("GET /api/chats/{id}/events", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleChatEvents)))
 	s.mux.Handle("GET /api/agents/accounts", s.requireBrowserAuth(s.handleListAgentAccounts))
 	s.mux.Handle("POST /api/agents/accounts/refresh", s.requireBrowserAuth(s.handleRefreshAgentAccounts))
 	s.mux.Handle("POST /api/attachments", s.requireBrowserAuth(s.handleUploadAttachment))
@@ -195,7 +195,7 @@ func (s *Server) registerRoutes() {
 
 	// Per-chat MCP endpoint (ask_user, plus fleet tools for the orchestrator chat),
 	// authenticated by the chat's own bearer token. Always on: agent chats need it.
-	s.mux.HandleFunc("/mcp/chat/{id}", s.handleChatMCP)
+	s.mux.HandleFunc("/mcp/chat/{id}", s.byRef(ids.Chat, s.handleChatMCP))
 
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
@@ -231,7 +231,8 @@ func (s *Server) requireBrowserAuth(next http.HandlerFunc) http.Handler {
 			return
 		}
 		// Control actions are audited against the authenticated identity.
-		next(w, r.WithContext(withAuditActor(r.Context(), user, restAuditSource(r))))
+		r = r.WithContext(withAuditActor(r.Context(), user, restAuditSource(r)))
+		s.withQueryRefs(next).ServeHTTP(w, r)
 	})
 }
 
@@ -341,7 +342,7 @@ func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	body.WorkerID = strings.TrimSpace(body.WorkerID)
+	body.WorkerID = resolveRef(r.Context(), s.store, ids.Machine, body.WorkerID)
 	body.Path = strings.TrimSpace(body.Path)
 	body.Name = strings.TrimSpace(body.Name)
 	if body.WorkerID == "" {
@@ -373,13 +374,14 @@ func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	spaceID, err := s.store.NewID(r.Context(), ids.Space)
+	spaceSID, err := s.store.NewSID(r.Context(), ids.Space)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	sp := store.Space{
-		ID:        spaceID,
+		ID:        ids.UUID(),
+		SID:       spaceSID,
 		WorkerID:  body.WorkerID,
 		Name:      body.Name,
 		Path:      body.Path,
@@ -410,9 +412,9 @@ func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var name string
+	var name, sid string
 	if wk, err := s.store.GetWorker(r.Context(), id); err == nil {
-		name = wk.Name
+		name, sid = wk.Name, wk.SID
 	}
 	s.hub.DisconnectWorker(id)
 	if err := s.store.DeleteWorker(r.Context(), id); err != nil {
@@ -429,10 +431,11 @@ func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 		msg += " " + name
 	}
 	s.hub.recordAudit(r.Context(), store.AuditEvent{
-		Action:   AuditWorkerRemove,
-		WorkerID: id,
-		Message:  msg,
-		MetaJSON: auditMeta(map[string]any{"name": name}),
+		Action:    AuditWorkerRemove,
+		WorkerID:  id,
+		WorkerSID: sid,
+		Message:   msg,
+		MetaJSON:  auditMeta(map[string]any{"name": name}),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
@@ -701,6 +704,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resolveGitTarget(ctx context.Context, workerID, workdir, taskID, spaceID string) (string, string, error) {
+	workerID = resolveRef(ctx, s.store, ids.Machine, workerID)
+	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
+	spaceID = resolveRef(ctx, s.store, ids.Space, spaceID)
 	if taskID != "" {
 		t, err := s.store.GetTask(ctx, taskID)
 		if err != nil {
@@ -769,6 +775,8 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
+	body.TaskID = resolveRef(r.Context(), s.store, ids.Task, body.TaskID)
+	body.SpaceID = resolveRef(r.Context(), s.store, ids.Space, body.SpaceID)
 	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, body.SpaceID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

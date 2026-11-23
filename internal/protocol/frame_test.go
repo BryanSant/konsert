@@ -10,7 +10,7 @@ import (
 )
 
 func TestEncodeDecodeFrame(t *testing.T) {
-	taskID := "t-7qk3m"
+	taskID := ids.UUID()
 	payload := []byte("\x1b[32mhello world\x1b[0m\r\n")
 
 	for _, ft := range []byte{FramePtySnapshot, FramePtyData, FramePtyStdin} {
@@ -91,9 +91,12 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestFrameFitsLongestMintedTaskID(t *testing.T) {
-	longest := string(ids.Task) + "-" + strings.Repeat("Z", 12)
-	if err := ValidateTaskID(longest); err != nil {
-		t.Fatalf("ValidateTaskID(%q) = %v", longest, err)
+func TestFrameFitsUUIDTaskID(t *testing.T) {
+	id := ids.UUID()
+	if len(id) != FrameTaskIDSize {
+		t.Fatalf("UUID task id %q is %d bytes, frame field is %d", id, len(id), FrameTaskIDSize)
+	}
+	if err := ValidateTaskID(id); err != nil {
+		t.Fatalf("ValidateTaskID(%q) = %v", id, err)
 	}
 }
