@@ -277,6 +277,14 @@ func (s *Server) handleGetWakeLock(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+// wakeLockAuditMessage summarizes a Keep Awake change for the audit log.
+func wakeLockAuditMessage(scope string, d WakeLockDesire) string {
+	if d.Enabled {
+		return "Enabled Keep Awake (" + scope + "): " + d.Reason
+	}
+	return "Disabled Keep Awake (" + scope + ")"
+}
+
 // handleSetFleetWakeLock applies {enabled, reason} to every host (POST /api/wakelock).
 func (s *Server) handleSetFleetWakeLock(w http.ResponseWriter, r *http.Request) {
 	var body wakeLockRequest
@@ -289,6 +297,11 @@ func (s *Server) handleSetFleetWakeLock(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	sent := s.hub.SetFleetWakeLock(r.Context(), d)
+	s.hub.recordAudit(r.Context(), store.AuditEvent{
+		Action:   AuditWakeLockFleet,
+		Message:  wakeLockAuditMessage("fleet", d),
+		MetaJSON: auditMeta(map[string]any{"enabled": d.Enabled, "reason": d.Reason, "sent_to": len(sent)}),
+	})
 	st, err := s.wakeLockStatus(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -319,6 +332,12 @@ func (s *Server) handleSetWorkerWakeLock(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	sent := s.hub.SetWorkerWakeLock(r.Context(), id, d)
+	s.hub.recordAudit(r.Context(), store.AuditEvent{
+		Action:   AuditWakeLockHost,
+		WorkerID: id,
+		Message:  wakeLockAuditMessage("host", d),
+		MetaJSON: auditMeta(map[string]any{"enabled": d.Enabled, "reason": d.Reason, "sent": sent}),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
 		"worker_id": id,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -18,6 +19,10 @@ import (
 // SQLiteStore implements store.Store backed by modernc.org/sqlite in WAL mode.
 type SQLiteStore struct {
 	db *sql.DB
+
+	// auditInserts counts AppendAudit calls so retention pruning runs on the
+	// first insert after Open and then every auditPruneEvery inserts.
+	auditInserts atomic.Uint64
 }
 
 // connPragmas are applied by the driver to every new connection in the pool (via

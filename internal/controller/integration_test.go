@@ -1418,3 +1418,81 @@ func TestWorkerDedupAndCleanRemoval(t *testing.T) {
 		t.Fatalf("expected 0 workers after removal, got %+v", fsAfter.Workers)
 	}
 }
+
+// TestAuditLogEndToEndWithRealWorker drives Take Control and steer over REST
+// against a real konsertd (mock driver) and reads them back from GET /api/audit.
+func TestAuditLogEndToEndWithRealWorker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert-audit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	defer srv.Hub().Close()
+
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg.WorkerID = "worker-audit-1"
+	wCfg.EnableMockDriver = true
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemonDone := make(chan struct{})
+	go func() {
+		defer close(daemonDone)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "worker-audit-1")
+
+	disp, err := srv.Service().DispatchTask(ctx, DispatchRequest{
+		Agent:    "mock",
+		RepoPath: t.TempDir(),
+		Prompt:   "WAIT_INPUT",
+		Mode:     protocol.TaskModeInteractive,
+	})
+	if err != nil {
+		t.Fatalf("DispatchTask failed: %v", err)
+	}
+	waitFor(t, 10*time.Second, "task running", func() bool {
+		tk, err := st.GetTask(ctx, disp.TaskID)
+		return err == nil && (tk.Status == protocol.TaskStatusRunning || tk.Status == protocol.TaskStatusWaitingInput)
+	})
+
+	post := func(path, body string) {
+		t.Helper()
+		resp := doReq(t, http.MethodPost, ts.URL+path, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST %s: %d", path, resp.StatusCode)
+		}
+	}
+	post("/api/tasks/"+disp.TaskID+"/control", `{"enabled":true}`)
+	post("/api/tasks/"+disp.TaskID+"/steer", `{"input_text":"exit"}`)
+	res, err := srv.Service().GetTaskResult(ctx, disp.TaskID, true, 10)
+	if err != nil || res.Status != protocol.TaskStatusCompleted {
+		t.Fatalf("expected task to complete, got %+v err=%v", res, err)
+	}
+
+	resp := doReq(t, http.MethodGet, ts.URL+"/api/audit?task_id="+disp.TaskID, nil, nil)
+	var out AuditListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	for _, ev := range out.Events {
+		if ev.User != "local" || ev.WorkerID != "worker-audit-1" {
+			t.Fatalf("audit event %+v: want user local on worker-audit-1", ev)
+		}
+		actions = append(actions, ev.Action)
+	}
+	if strings.Join(actions, ",") != AuditSteer+","+AuditTakeControl {
+		t.Fatalf("audit actions (newest first) = %v", actions)
+	}
+
+	cancel()
+	<-daemonDone
+}

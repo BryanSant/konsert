@@ -12,6 +12,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/store"
 )
 
 // errAdminScopeRequired is returned when a caller without the admin scope (e.g. an
@@ -122,7 +123,26 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		s.orch.SetMaxTokens(next.MaxTokens)
 	}
+	recordSettingsAudit(ctx, s.hub, updates)
 	return nil
+}
+
+// recordSettingsAudit audits a settings change by key name only. Values are never
+// recorded: llm_api_key is a secret and the others are not needed to audit.
+func recordSettingsAudit(ctx context.Context, h *Hub, updates map[string]string) {
+	if len(updates) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h.recordAudit(ctx, store.AuditEvent{
+		Action:   AuditSettingsUpdate,
+		Message:  "Changed settings: " + strings.Join(keys, ", "),
+		MetaJSON: auditMeta(map[string]any{"keys": keys}),
+	})
 }
 
 // validateOrchestratorConfig applies config validation plus the orchestrator's own
@@ -218,7 +238,18 @@ func (b serverControlPlane) GetSettingsMap(ctx context.Context) (map[string]any,
 	return settingsToMap(b.srv.buildSettingsResponse(ctx)), nil
 }
 
+// SteerTask, CancelTask and UpdateSettingsMap attribute MCP-initiated control
+// actions to "mcp" in the audit log.
+func (b serverControlPlane) SteerTask(ctx context.Context, taskID, inputText string, appendNewline bool) (ActionResult, error) {
+	return b.FleetService.SteerTask(withAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID, inputText, appendNewline)
+}
+
+func (b serverControlPlane) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
+	return b.FleetService.CancelTask(withAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID)
+}
+
 func (b serverControlPlane) UpdateSettingsMap(ctx context.Context, updates map[string]string) (map[string]any, error) {
+	ctx = withAuditActor(ctx, auditSourceMCP, auditSourceMCP)
 	u, err := settingsUpdateFromMap(updates)
 	if err != nil {
 		return nil, err
