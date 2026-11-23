@@ -38,7 +38,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           title="Subscription quotas & API token usage"
           class="inline-flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer min-w-0 overflow-hidden"
         >
-          <span class="text-[#686a72] shrink-0">Used</span>
+          <span class="text-[#86888f] shrink-0">Used</span>
           @if (subscriptionQuotas().length > 0) {
             <span class="inline-flex items-center gap-2.5 truncate">
               @for (q of subscriptionQuotas(); track q.provider + ':' + (q.window_label || '')) {
@@ -46,7 +46,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                   <app-icon [name]="q.provider" [size]="11" />
                   <span class="text-[#b4b6be]">{{ q.label }}</span>
                   @if (q.window_label) {
-                    <span class="font-mono-ide text-[#787a82]">{{ q.window_label }}</span>
+                    <span class="font-mono-ide text-[#8a8c94]">{{ q.window_label }}</span>
                   }
                   <span
                     class="font-mono-ide"
@@ -62,7 +62,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           } @else {
             <span class="font-mono-ide text-[#b4b6be]">{{ formattedTotalTokens() }}</span>
             @if (auth.provider()) {
-              <span class="hidden md:inline text-[#686a72]">· {{ auth.provider() }}</span>
+              <span class="hidden md:inline text-[#86888f]">· {{ auth.provider() }}</span>
             }
           }
         </button>
@@ -128,7 +128,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           type="button"
           (click)="openCommands.emit()"
           title="Command Palette (⌘K)"
-          class="hidden md:inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] text-[#787a82] transition cursor-pointer ml-1"
+          class="hidden md:inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] text-[#8a8c94] transition cursor-pointer ml-1"
         >
           <span class="font-mono-ide text-[10px]">⌘K</span>
           <span>commands</span>
@@ -151,11 +151,11 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           <div class="p-3 space-y-3 text-[11px] max-h-80 overflow-y-auto">
             <!-- Subscription Quotas (Primary) -->
             <div class="space-y-1.5">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-[#686a72]">
+              <div class="text-[10px] font-semibold uppercase tracking-wider text-[#86888f]">
                 Subscription Windows
               </div>
               @if (subscriptionQuotas().length === 0) {
-                <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#686a72]">
+                <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#86888f]">
                   No rolling subscription quotas reported yet. Active providers appear here automatically.
                 </div>
               } @else {
@@ -167,7 +167,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                           <app-icon [name]="q.provider" [size]="12" />
                           <span>{{ q.label }}</span>
                           @if (q.window_label) {
-                            <span class="font-mono-ide text-[10px] text-[#787a82]">{{ q.window_label }}</span>
+                            <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ q.window_label }}</span>
                           }
                         </span>
                         <span
@@ -189,7 +189,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                         ></div>
                       </div>
                       @if (q.reset_at) {
-                        <div class="text-[10px] font-mono-ide text-[#686a72]">
+                        <div class="text-[10px] font-mono-ide text-[#86888f]">
                           {{ formatReset(q.reset_at) }}
                         </div>
                       }
@@ -201,17 +201,17 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
 
             <!-- API Token Usage (Fallback / Secondary) -->
             <div class="space-y-2 pt-2 border-t border-[#24262c]">
-              <div class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#686a72]">
+              <div class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#86888f]">
                 <span>API Token Usage</span>
                 <span class="font-mono-ide font-normal">{{ fleet.usage().total_requests }} calls</span>
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                  <div class="text-[#686a72]">Input Tokens</div>
+                  <div class="text-[#86888f]">Input Tokens</div>
                   <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_input_tokens) }}</div>
                 </div>
                 <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                  <div class="text-[#686a72]">Output Tokens</div>
+                  <div class="text-[#86888f]">Output Tokens</div>
                   <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_output_tokens) }}</div>
                 </div>
               </div>
@@ -256,7 +256,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
               [class.border-[#ececed]]="resourceTab() === 'resources'"
               [class.text-[#ececed]]="resourceTab() === 'resources'"
               [class.border-transparent]="resourceTab() !== 'resources'"
-              [class.text-[#787a82]]="resourceTab() !== 'resources'"
+              [class.text-[#8a8c94]]="resourceTab() !== 'resources'"
             >
               Resources
             </button>
@@ -267,7 +267,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
               [class.border-[#ececed]]="resourceTab() === 'ptys'"
               [class.text-[#ececed]]="resourceTab() === 'ptys'"
               [class.border-transparent]="resourceTab() !== 'ptys'"
-              [class.text-[#787a82]]="resourceTab() !== 'ptys'"
+              [class.text-[#8a8c94]]="resourceTab() !== 'ptys'"
             >
               <span>PTYs</span>
               <span class="rounded-full bg-[#26282e] px-1.5 text-[10px] font-mono-ide">{{ fleet.resourceTotals().activePtys }}</span>
@@ -296,7 +296,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
 
               <!-- Per-Worker Table -->
               <div class="space-y-1 max-h-56 overflow-y-auto">
-                <div class="grid grid-cols-12 text-[10px] text-[#686a72] px-1.5 pb-1">
+                <div class="grid grid-cols-12 text-[10px] text-[#86888f] px-1.5 pb-1">
                   <span class="col-span-6">Host</span>
                   <span class="col-span-3 text-right">CPU</span>
                   <span class="col-span-3 text-right">Mem</span>
@@ -320,7 +320,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           } @else {
             <div class="p-3 space-y-1.5 max-h-64 overflow-y-auto">
               @if (activePtyTasks().length === 0) {
-                <div class="py-6 text-center text-[12px] text-[#686a72]">No active PTY sessions running</div>
+                <div class="py-6 text-center text-[12px] text-[#86888f]">No active PTY sessions running</div>
               }
               @for (t of activePtyTasks(); track t.id) {
                 <div class="flex items-center justify-between gap-2 rounded-lg border border-[#24262c] bg-[#1b1c20] px-2.5 py-2">
@@ -332,7 +332,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                     <app-icon [name]="t.agent" [size]="12" />
                     <div class="min-w-0">
                       <div class="text-[12px] text-[#ececed] truncate">{{ t.agent }} · {{ t.workdir }}</div>
-                      <div class="text-[10px] font-mono-ide text-[#787a82]">{{ fleet.workersById()[t.worker_id]?.name || t.worker_id }} · {{ t.status }}</div>
+                      <div class="text-[10px] font-mono-ide text-[#8a8c94]">{{ fleet.workersById()[t.worker_id]?.name || t.worker_id }} · {{ t.status }}</div>
                     </div>
                   </button>
                   <button
@@ -354,11 +354,11 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
         <div class="ks-popover absolute bottom-8 right-16 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
           <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
             <span class="text-[12px] font-semibold text-[#ececed]">Listening Fleet Ports</span>
-            <span class="font-mono-ide text-[10px] text-[#787a82]">{{ fleet.listeningPorts().length }} open</span>
+            <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ fleet.listeningPorts().length }} open</span>
           </div>
           <div class="p-2 max-h-60 overflow-y-auto space-y-1">
             @if (fleet.listeningPorts().length === 0) {
-              <div class="py-5 text-center text-[11px] text-[#686a72]">No listening dev ports detected yet.</div>
+              <div class="py-5 text-center text-[11px] text-[#86888f]">No listening dev ports detected yet.</div>
             }
             @for (p of fleet.listeningPorts(); track p.workerId + ':' + p.port) {
               <div class="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-[#1f2127] font-mono-ide text-[11px]">
@@ -366,7 +366,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                   <span class="text-[#69b879] font-semibold">:{{ p.port }}</span>
                   <span class="text-[#d4d4d8] truncate">{{ p.process }}</span>
                 </div>
-                <span class="text-[10px] text-[#787a82] shrink-0">{{ p.workerName }}</span>
+                <span class="text-[10px] text-[#8a8c94] shrink-0">{{ p.workerName }}</span>
               </div>
             }
           </div>
@@ -378,7 +378,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
         <div class="ks-popover absolute bottom-8 right-3 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
           <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
             <span class="text-[12px] font-semibold text-[#ececed]">Fleet Hosts</span>
-            <span class="font-mono-ide text-[10px] text-[#787a82]">{{ fleet.onlineWorkersCount() }}/{{ fleet.workers().length }} online</span>
+            <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ fleet.onlineWorkersCount() }}/{{ fleet.workers().length }} online</span>
           </div>
           <div class="p-2 max-h-64 overflow-y-auto space-y-1.5">
             @for (w of fleet.workers(); track w.id) {
@@ -392,7 +392,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
                     <span class="h-1.5 w-1.5 rounded-full shrink-0" [class.bg-[#69b879]]="w.status === 'online'" [class.bg-[#484a52]]="w.status !== 'online'"></span>
                     <span class="truncate">{{ w.name }}</span>
                   </span>
-                  <span class="font-mono-ide text-[10px] text-[#787a82] shrink-0">{{ w.os }}/{{ w.arch }} · Details</span>
+                  <span class="font-mono-ide text-[10px] text-[#8a8c94] shrink-0">{{ w.os }}/{{ w.arch }} · Details</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-1">
                   <span class="rounded bg-[#22242a] px-1.5 py-0.5 text-[9px] font-mono-ide" [class.text-[#69b879]]="w.permission_mode === 'full_access'" [class.text-[#d9a043]]="w.permission_mode === 'sandboxed'">

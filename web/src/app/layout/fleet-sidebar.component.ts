@@ -17,7 +17,7 @@ import { IconComponent } from '../shared/icon.component';
       <!-- Top Search & Orchestrator Navigation -->
       <div class="px-2.5 pt-2.5 pb-2 space-y-1.5 shrink-0">
         <div class="relative">
-          <app-icon name="search" [size]="13" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#686a72]" />
+          <app-icon name="search" [size]="13" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#86888f]" />
           <input
             type="text"
             [ngModel]="query()"
@@ -55,7 +55,7 @@ import { IconComponent } from '../shared/icon.component';
             class="rounded py-1 font-medium transition cursor-pointer"
             [class.bg-[#23252d]]="navMode() === 'workspaces'"
             [class.text-[#ececed]]="navMode() === 'workspaces'"
-            [class.text-[#787a82]]="navMode() !== 'workspaces'"
+            [class.text-[#8a8c94]]="navMode() !== 'workspaces'"
           >
             Workspaces
           </button>
@@ -65,7 +65,7 @@ import { IconComponent } from '../shared/icon.component';
             class="rounded py-1 font-medium transition cursor-pointer"
             [class.bg-[#23252d]]="navMode() === 'machines'"
             [class.text-[#ececed]]="navMode() === 'machines'"
-            [class.text-[#787a82]]="navMode() !== 'machines'"
+            [class.text-[#8a8c94]]="navMode() !== 'machines'"
           >
             Machines
           </button>
@@ -78,6 +78,7 @@ import { IconComponent } from '../shared/icon.component';
           <!-- Workspace (Space) Selector Row -->
           <div class="flex items-center gap-1 px-1 pb-1">
             <select
+              aria-label="Space"
               class="flex-1 min-w-0 rounded-md border border-[#262830] bg-[#1b1c20] px-2 py-1 text-[11.5px] font-medium text-[#e4e4e7] focus:border-[#4a668a] focus:outline-none"
               [ngModel]="activeWorkspaceId()"
               (ngModelChange)="selectedWorkspaceId.set($event)"
@@ -108,20 +109,20 @@ import { IconComponent } from '../shared/icon.component';
                 class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[11.5px] text-[#ececed] focus:outline-none"
               />
               <div class="flex justify-end gap-1">
-                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#787a82] cursor-pointer">Cancel</button>
+                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#8a8c94] cursor-pointer">Cancel</button>
                 <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 text-[10.5px] font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add</button>
               </div>
             </form>
           }
 
           <!-- Projects Section Header -->
-          <div class="flex items-center justify-between px-1.5 pt-0.5 text-[10.5px] font-medium text-[#787a82]">
+          <div class="flex items-center justify-between px-1.5 pt-0.5 text-[10.5px] font-medium text-[#8a8c94]">
             <span>Projects</span>
             <button
               type="button"
               (click)="toggleCreateForm('project')"
               title="New Project in Space"
-              class="rounded hover:bg-[#24262d] p-0.5 text-[#787a82] hover:text-[#ececed] transition cursor-pointer"
+              class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
             >
               <app-icon name="plus" [size]="12" />
             </button>
@@ -139,7 +140,7 @@ import { IconComponent } from '../shared/icon.component';
                 class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[11.5px] text-[#ececed] focus:outline-none"
               />
               <div class="flex justify-end gap-1">
-                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#787a82] cursor-pointer">Cancel</button>
+                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#8a8c94] cursor-pointer">Cancel</button>
                 <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 text-[10.5px] font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add</button>
               </div>
             </form>
@@ -157,7 +158,7 @@ import { IconComponent } from '../shared/icon.component';
                   <app-icon
                     name="chevron-down"
                     [size]="11"
-                    class="text-[#686a72] transition-transform duration-150"
+                    class="text-[#86888f] transition-transform duration-150"
                     [class.-rotate-90]="isProjectCollapsed(proj.id)"
                   />
                   <app-icon name="project" [size]="12" class="text-[#8e9098]" />
@@ -168,7 +169,7 @@ import { IconComponent } from '../shared/icon.component';
                     type="button"
                     (click)="openAddRepoForm(proj.id)"
                     title="Add Repo to {{ proj.name }}"
-                    class="opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
+                    class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
                   >
                     <app-icon name="plus" [size]="11" />
                   </button>
@@ -177,7 +178,7 @@ import { IconComponent } from '../shared/icon.component';
                       type="button"
                       (click)="$event.stopPropagation(); deleteProject(proj)"
                       title="Delete Project"
-                      class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#686a72] hover:text-[#f09595] cursor-pointer"
+                      class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                     >
                       <app-icon name="trash" [size]="10" />
                     </button>
@@ -189,6 +190,7 @@ import { IconComponent } from '../shared/icon.component';
                 <form (ngSubmit)="submitCreateRepo(proj.id)" class="mx-2 mb-1 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5 text-[11px]">
                   <select
                     name="repoWorker"
+                    aria-label="Machine"
                     [ngModel]="formWorkerId()"
                     (ngModelChange)="formWorkerId.set($event)"
                     class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[#ececed]"
@@ -214,7 +216,7 @@ import { IconComponent } from '../shared/icon.component';
                     class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[#ececed] focus:outline-none"
                   />
                   <div class="flex justify-end gap-1">
-                    <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#787a82] cursor-pointer">Cancel</button>
+                    <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#8a8c94] cursor-pointer">Cancel</button>
                     <button type="submit" [disabled]="!formPath().trim() || !formWorkerId()" class="rounded bg-[#ececed] px-2 py-0.5 font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add Repo</button>
                   </div>
                 </form>
@@ -232,7 +234,7 @@ import { IconComponent } from '../shared/icon.component';
                         >
                           <app-icon name="repo" [size]="11" class="text-[#7aa8e8]" />
                           <span class="text-[11.5px] text-[#d4d4d8] truncate">{{ repo.name }}</span>
-                          <span class="text-[9.5px] font-mono-ide text-[#686a72] truncate">
+                          <span class="text-[9.5px] font-mono-ide text-[#86888f] truncate">
                             {{ fleet.workersById()[repo.worker_id]?.name || '' }}
                           </span>
                         </button>
@@ -249,7 +251,7 @@ import { IconComponent } from '../shared/icon.component';
                             type="button"
                             (click)="$event.stopPropagation(); deleteRepo(repo)"
                             title="Remove Repo"
-                            class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#686a72] hover:text-[#f09595] cursor-pointer"
+                            class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                           >
                             <app-icon name="close" [size]="10" />
                           </button>
@@ -276,7 +278,7 @@ import { IconComponent } from '../shared/icon.component';
                             class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 font-mono-ide text-[#ececed] focus:outline-none"
                           />
                           <div class="flex justify-end gap-1">
-                            <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#787a82] cursor-pointer">Cancel</button>
+                            <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#8a8c94] cursor-pointer">Cancel</button>
                             <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Create</button>
                           </div>
                         </form>
@@ -297,7 +299,7 @@ import { IconComponent } from '../shared/icon.component';
                               type="button"
                               (click)="$event.stopPropagation(); deleteWorktree(wt)"
                               title="Remove worktree entry"
-                              class="opacity-0 group-hover/wt:opacity-100 rounded p-0.5 text-[#686a72] hover:text-[#f09595] cursor-pointer"
+                              class="opacity-0 group-hover/wt:opacity-100 rounded p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
                             >
                               <app-icon name="close" [size]="9" />
                             </button>
@@ -310,7 +312,7 @@ import { IconComponent } from '../shared/icon.component';
                   <!-- Default Project shows uncategorized & passively discovered (external) sessions -->
                   @if (proj.is_default && defaultUncategorizedSessions().length > 0) {
                     <div class="pt-1 space-y-0.5">
-                      <div class="px-1.5 text-[10px] text-[#686a72]">Uncategorized &amp; Discovered</div>
+                      <div class="px-1.5 text-[10px] text-[#86888f]">Uncategorized &amp; Discovered</div>
                       @for (t of defaultUncategorizedSessions(); track t.id) {
                         <button
                           type="button"
@@ -331,7 +333,7 @@ import { IconComponent } from '../shared/icon.component';
                   }
 
                   @if (reposForProject(proj.id).length === 0 && (!proj.is_default || defaultUncategorizedSessions().length === 0)) {
-                    <div class="px-2 py-1 text-[11px] text-[#5e6068]">No repos yet</div>
+                    <div class="px-2 py-1 text-[11px] text-[#86888f]">No repos yet</div>
                   }
                 </div>
               }
@@ -339,20 +341,20 @@ import { IconComponent } from '../shared/icon.component';
           }
         } @else {
           <!-- Herdr-style Machines & Per-Machine Spaces Tree -->
-          <div class="flex items-center justify-between px-1.5 py-1 text-[11px] font-medium text-[#787a82]">
+          <div class="flex items-center justify-between px-1.5 py-1 text-[11px] font-medium text-[#8a8c94]">
             <span>Machines</span>
             <button
               type="button"
               (click)="openNewSpace.emit(null)"
               title="New folder shortcut on a machine"
-              class="rounded hover:bg-[#24262d] p-0.5 text-[#787a82] hover:text-[#ececed] transition cursor-pointer"
+              class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
             >
               <app-icon name="plus" [size]="13" />
             </button>
           </div>
 
           @if (filteredGroups().length === 0) {
-            <div class="px-2 py-4 text-[12px] text-[#686a72] leading-relaxed">
+            <div class="px-2 py-4 text-[12px] text-[#86888f] leading-relaxed">
               No machines connected yet. Click <span class="text-[#a1a3ab]">+ Add machine</span> below to connect a host or container.
             </div>
           }
@@ -370,13 +372,13 @@ import { IconComponent } from '../shared/icon.component';
                     <app-icon
                       [name]="workerIcon(node.worker)"
                       [size]="13"
-                      class="text-[#787a82] group-hover:text-[#b4b6be]"
+                      class="text-[#8a8c94] group-hover:text-[#b4b6be]"
                     />
                     <span class="text-[12px] text-[#d4d4d8] truncate">{{ node.worker.name }}</span>
                     @if (node.worker.isolation === 'container') {
-                      <span class="text-[9px] font-mono-ide text-[#686a72] shrink-0">ctr</span>
+                      <span class="text-[9px] font-mono-ide text-[#86888f] shrink-0">ctr</span>
                     } @else if (node.worker.isolation === 'vm') {
-                      <span class="text-[9px] font-mono-ide text-[#686a72] shrink-0">vm</span>
+                      <span class="text-[9px] font-mono-ide text-[#86888f] shrink-0">vm</span>
                     }
                   </button>
 
@@ -385,7 +387,7 @@ import { IconComponent } from '../shared/icon.component';
                       type="button"
                       (click)="openNewSpace.emit(node.worker)"
                       title="New space on {{ node.worker.name }}"
-                      class="opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                     >
                       <app-icon name="plus" [size]="12" />
                     </button>
@@ -393,7 +395,7 @@ import { IconComponent } from '../shared/icon.component';
                       type="button"
                       (click)="$event.stopPropagation(); openMachineDetails.emit(node.worker)"
                       title="Machine details &amp; remove {{ node.worker.name }}"
-                      class="opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                     >
                       <app-icon name="info" [size]="12" />
                     </button>
@@ -406,7 +408,9 @@ import { IconComponent } from '../shared/icon.component';
                     <button
                       type="button"
                       (click)="toggleWorker(node.worker.id)"
-                      class="text-[#686a72] hover:text-[#b4b6be] cursor-pointer transition-transform duration-150"
+                      [attr.aria-label]="(isCollapsed(node.worker.id) ? 'Expand ' : 'Collapse ') + node.worker.name"
+                      [attr.aria-expanded]="!isCollapsed(node.worker.id)"
+                      class="text-[#86888f] hover:text-[#b4b6be] cursor-pointer transition-transform duration-150"
                       [class.-rotate-90]="isCollapsed(node.worker.id)"
                     >
                       <app-icon name="chevron-down" [size]="12" />
@@ -434,7 +438,7 @@ import { IconComponent } from '../shared/icon.component';
 
                         <div class="flex items-center gap-1 shrink-0">
                           @if (sp.branch) {
-                            <span class="text-[10px] font-mono-ide text-[#686a72] truncate max-w-[70px]">
+                            <span class="text-[10px] font-mono-ide text-[#86888f] truncate max-w-[70px]">
                               {{ sp.branch }}
                             </span>
                           }
@@ -442,7 +446,7 @@ import { IconComponent } from '../shared/icon.component';
                             type="button"
                             (click)="$event.stopPropagation(); deleteSpace(sp)"
                             title="Remove space"
-                            class="opacity-0 group-hover/sp:opacity-100 rounded p-0.5 hover:bg-white/10 text-[#686a72] hover:text-[#f09595] transition cursor-pointer"
+                            class="opacity-0 group-hover/sp:opacity-100 rounded p-0.5 hover:bg-white/10 text-[#86888f] hover:text-[#f09595] transition cursor-pointer"
                           >
                             <app-icon name="close" [size]="10" />
                           </button>
@@ -454,7 +458,7 @@ import { IconComponent } from '../shared/icon.component';
                       <button
                         type="button"
                         (click)="openNewSpace.emit(node.worker)"
-                        class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] text-[#686a72] hover:text-[#a1a3ab] hover:bg-[#1c1e24] transition cursor-pointer"
+                        class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] text-[#86888f] hover:text-[#a1a3ab] hover:bg-[#1c1e24] transition cursor-pointer"
                       >
                         <app-icon name="plus" [size]="11" />
                         <span>New space there</span>
@@ -470,19 +474,19 @@ import { IconComponent } from '../shared/icon.component';
 
       <!-- Herdr-style Live Agents Roster (Lower Section) -->
       <div class="h-[36%] min-h-[140px] max-h-[260px] flex flex-col border-t border-[#26282e] px-2 pt-2 pb-1 shrink-0">
-        <div class="flex items-center justify-between px-1.5 pb-1.5 text-[11px] font-medium text-[#787a82] shrink-0">
+        <div class="flex items-center justify-between px-1.5 pb-1.5 text-[11px] font-medium text-[#8a8c94] shrink-0">
           <span>Agents</span>
-          <app-icon name="clock" [size]="12" class="text-[#5e6068]" />
+          <app-icon name="clock" [size]="12" class="text-[#86888f]" />
         </div>
 
         <div class="flex-1 overflow-y-auto space-y-0.5">
           @if (filteredRoster().length === 0) {
-            <div class="px-1.5 py-2 text-[11px] text-[#5e6068] leading-relaxed">
+            <div class="px-1.5 py-2 text-[11px] text-[#86888f] leading-relaxed">
               No active or recent agents yet. Open a Space or ask the Orchestrator to start a session.
             </div>
           } @else {
             @if (workingRoster().length > 0) {
-              <div class="px-1.5 pt-0.5 pb-1 text-[10px] text-[#686a72]">
+              <div class="px-1.5 pt-0.5 pb-1 text-[10px] text-[#86888f]">
                 Working {{ workingRoster().length }}
               </div>
               @for (item of workingRoster(); track item.task.id) {
@@ -501,7 +505,7 @@ import { IconComponent } from '../shared/icon.component';
                     }
                   </div>
 
-                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#86888f]">
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
                     @if (item.task.status === 'waiting_input') {
@@ -515,7 +519,7 @@ import { IconComponent } from '../shared/icon.component';
             }
 
             @if (idleRoster().length > 0) {
-              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#686a72]">
+              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#86888f]">
                 Idle {{ idleRoster().length }}
               </div>
               @for (item of idleRoster(); track item.task.id) {
@@ -531,7 +535,7 @@ import { IconComponent } from '../shared/icon.component';
                     <span class="text-[12px] text-[#d4d4d8] truncate">{{ item.label }}</span>
                   </div>
 
-                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#86888f]">
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
                     <span class="h-2 w-2 rounded-full border border-[#5e6068]" title="Idle"></span>
@@ -541,7 +545,7 @@ import { IconComponent } from '../shared/icon.component';
             }
 
             @if (recentRoster().length > 0) {
-              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#686a72]">
+              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#86888f]">
                 Recent
               </div>
               @for (item of recentRoster(); track item.task.id) {
@@ -557,7 +561,7 @@ import { IconComponent } from '../shared/icon.component';
                     <span class="text-[12px] text-[#b4b6be] truncate">{{ item.label }}</span>
                   </div>
 
-                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#86888f]">
                     <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
                     <span>{{ elapsedLabel(item.task) }}</span>
                     @if (item.task.status === 'failed') {
@@ -585,7 +589,7 @@ import { IconComponent } from '../shared/icon.component';
             <span>Settings</span>
           </span>
           @if (auth.authRequired()) {
-            <span class="text-[10px] text-[#5e6068]">{{ auth.user() }}</span>
+            <span class="text-[10px] text-[#86888f]">{{ auth.user() }}</span>
           }
         </button>
         <button

@@ -7,7 +7,7 @@ import { AuthService } from '../../core/services/auth.service';
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="h-screen w-screen flex items-center justify-center bg-[#111214] px-4">
+    <main class="h-screen w-screen flex items-center justify-center bg-[#111214] px-4">
       <div class="w-full max-w-sm rounded-xl border border-[#26282e] bg-[#18191c] p-6 shadow-2xl">
         <div class="flex items-center gap-3 mb-6">
           <img src="icon.svg" alt="Konsert" class="h-9 w-9 rounded-lg" />
@@ -35,7 +35,7 @@ import { AuthService } from '../../core/services/auth.service';
           </div>
 
           @if (auth.error()) {
-            <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
+            <div role="alert" class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
               {{ auth.error() }}
             </div>
           }
@@ -49,7 +49,7 @@ import { AuthService } from '../../core/services/auth.service';
           </button>
         </form>
       </div>
-    </div>
+    </main>
   `,
 })
 export class LoginViewComponent {

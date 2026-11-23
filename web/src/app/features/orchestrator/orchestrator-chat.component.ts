@@ -1,6 +1,6 @@
 import { Component, ElementRef, OnInit, ViewChild, computed, effect, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ChatMessage, PermissionMode } from '../../core/models/konsert.models';
+import { ChatMessage, ORCHESTRATOR_DEFAULT_MODELS, PermissionMode } from '../../core/models/konsert.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AuthService } from '../../core/services/auth.service';
 import { KonsertSocketService } from '../../core/services/konsert-socket.service';
@@ -96,6 +96,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
               <input
                 type="text"
                 name="renameTitle"
+                aria-label="Session title"
                 [ngModel]="renameDraft()"
                 (ngModelChange)="renameDraft.set($event)"
                 (keydown.escape)="renaming.set(false)"
@@ -118,6 +119,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
             </form>
           } @else {
             <select
+              aria-label="Chat session"
               class="rounded-md border border-[#2a2c33] bg-[#1b1c20] px-2.5 py-1 text-[12px] text-[#e4e4e7] focus:border-[#4a668a] focus:outline-none max-w-[220px]"
               [ngModel]="orch.activeSessionId()"
               (ngModelChange)="orch.selectSession($event)"
@@ -177,7 +179,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
 
       <!-- Messages / Calm Empty State -->
       <div class="flex-1 overflow-y-auto px-4 py-6">
-        @if (orch.messages().length === 0 && !orch.sending()) {
+        @if (orch.messages().length === 0 && !orch.sending() && !orch.error()) {
           <div class="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center">
             <div class="h-12 w-12 rounded-xl border border-[#282a30] bg-[#191a1e] flex items-center justify-center mb-4 shadow-lg">
               <img src="icon.svg" alt="Konsert" class="h-7 w-7" />
@@ -204,14 +206,14 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <span>New Terminal</span>
               </button>
             </div>
-            <div class="w-full max-w-sm space-y-1.5 text-[12px] text-[#6d7078]">
+            <div class="w-full max-w-sm space-y-1.5 text-[12px] text-[#86888f]">
               <button
                 type="button"
                 (click)="usePrompt('Check fleet_status and summarize online hosts, available agents, and capacity.')"
                 class="w-full flex items-center justify-between rounded-lg px-3 py-1.5 hover:bg-[#1a1b1f] hover:text-[#b4b6be] transition cursor-pointer"
               >
                 <span>Inspect fleet capacity</span>
-                <span class="font-mono-ide text-[10px] text-[#5e6068]">fleet_status</span>
+                <span class="font-mono-ide text-[10px] text-[#86888f]">fleet_status</span>
               </button>
               <button
                 type="button"
@@ -219,7 +221,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 class="w-full flex items-center justify-between rounded-lg px-3 py-1.5 hover:bg-[#1a1b1f] hover:text-[#b4b6be] transition cursor-pointer"
               >
                 <span>Review recent fleet jobs</span>
-                <span class="font-mono-ide text-[10px] text-[#5e6068]">list_tasks</span>
+                <span class="font-mono-ide text-[10px] text-[#86888f]">list_tasks</span>
               </button>
             </div>
           </div>
@@ -323,11 +325,11 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 </div>
               </div>
             } @else if (orch.sending()) {
-              <div class="text-[12px] text-[#787a82] animate-pulse px-1">Orchestrator thinking...</div>
+              <div class="text-[12px] text-[#8a8c94] animate-pulse px-1">Orchestrator thinking...</div>
             }
 
             @if (orch.error()) {
-              <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
+              <div role="alert" class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
                 {{ orch.error() }}
               </div>
             }
@@ -366,11 +368,12 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                   >
                     <app-icon name="paperclip" [size]="10" class="text-[#8e9098]" />
                     <span class="max-w-[160px] truncate">{{ att.filename }}</span>
-                    <span class="text-[10px] font-mono-ide text-[#6d7078]">{{ formatBytes(att.size) }}</span>
+                    <span class="text-[10px] font-mono-ide text-[#86888f]">{{ formatBytes(att.size) }}</span>
                     <button
                       type="button"
                       (click)="removeAttachment(att.remotePath)"
-                      class="text-[#6d7078] hover:text-[#f09595] cursor-pointer"
+                      [attr.aria-label]="'Remove attachment ' + att.remotePath"
+                      class="text-[#86888f] hover:text-[#f09595] cursor-pointer"
                     >
                       <app-icon name="close" [size]="10" />
                     </button>
@@ -421,6 +424,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Permission Mode Selector -->
                 <select
                   name="composerPerm"
+                  aria-label="Permission mode"
                   [ngModel]="fleet.settings().default_permission_mode"
                   (ngModelChange)="onPermissionModeChange($event)"
                   title="Default permission mode for fleet dispatch"
@@ -437,6 +441,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Machine Selector (default localhost) -->
                 <select
                   name="composerMachine"
+                  aria-label="Machine"
                   [ngModel]="selectedMachineId()"
                   (ngModelChange)="onComposerMachineChange($event)"
                   title="Target machine (defaults to localhost)"
@@ -453,6 +458,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Agent Selector (default -> last used -> guess) -->
                 <select
                   name="composerAgent"
+                  aria-label="Agent"
                   [ngModel]="selectedAgent()"
                   (ngModelChange)="onComposerAgentChange($event)"
                   title="Preferred coding agent"
@@ -497,7 +503,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
           </form>
 
           <!-- Subtle Orca-style Context Breadcrumb Line -->
-          <div class="flex items-center justify-between px-2 pt-1.5 text-[11px] text-[#6d7078]">
+          <div class="flex items-center justify-between px-2 pt-1.5 text-[11px] text-[#86888f]">
             <div class="flex items-center gap-3">
               <span class="inline-flex items-center gap-1">
                 <app-icon name="server" [size]="11" />
@@ -555,7 +561,7 @@ export class OrchestratorChatComponent implements OnInit {
     const base = [
       this.auth.model(),
       this.fleet.settings().llm_model,
-      'gpt-4o',
+      ...Object.values(ORCHESTRATOR_DEFAULT_MODELS),
       'o4-mini',
       'claude-sonnet-4-5',
       'claude-opus-4-1',
@@ -574,7 +580,7 @@ export class OrchestratorChatComponent implements OnInit {
         const res = this.fleet.resolveSessionDefaults();
         if (res.machine_id) this.selectedMachineId.set(res.machine_id);
         if (res.agent) this.selectedAgent.set(res.agent);
-        this.selectedModel.set(settings.llm_model || res.model || this.auth.model() || 'gpt-4o');
+        this.selectedModel.set(settings.llm_model || res.model || this.auth.model() || ORCHESTRATOR_DEFAULT_MODELS.openai);
         this.defaultsSeeded = true;
       }
     });
@@ -740,10 +746,12 @@ export class OrchestratorChatComponent implements OnInit {
       payload = `${text}${ATTACHMENT_MARKER}${pathsBlock}`;
     }
 
+    // Only clear the composer once the frame was actually handed to an open socket;
+    // otherwise keep the draft (the store surfaces a "not connected" error).
+    if (!this.socket.sendChatMessage(sid, payload)) return;
     this.draft.set('');
     this.attachments.set([]);
     this.uploadError.set('');
-    this.socket.sendChatMessage(sid, payload);
   }
 
   parseUserMsg(content: string): { text: string; files: string[] } {

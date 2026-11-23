@@ -203,7 +203,19 @@ export interface SSHBootstrapResult {
   service_mode?: string;
   message?: string;
   error?: string;
+  /** Set (with host_keys) when the host key is unknown; resubmit with accept_host_key. */
+  host_key_confirmation_required?: boolean;
+  host_keys?: SSHHostKey[];
 }
+
+/** An SSH host key offered by a target, in OpenSSH SHA256 fingerprint form. */
+export interface SSHHostKey {
+  type: string;
+  fingerprint: string;
+}
+
+/** Bootstrap stage reported when an unknown host key needs operator confirmation. */
+export const SSH_STAGE_HOST_KEY_CONFIRMATION = 'host_key_confirmation';
 
 export interface AppSettings {
   llm_provider: string;
@@ -389,3 +401,18 @@ export const FRAME_PTY_DATA = 0x02;
 export const FRAME_PTY_STDIN = 0x03;
 export const FRAME_TASK_ID_SIZE = 36;
 export const FRAME_HEADER_SIZE = 37;
+
+/**
+ * Orchestrator default model per LLM provider. Mirrors internal/orchestrator/defaults.go
+ * (the hub is the source of truth; these only seed the settings form).
+ */
+export const ORCHESTRATOR_DEFAULT_MODELS = {
+  openai: 'gpt-5.1',
+  anthropic: 'claude-sonnet-5-5',
+  gemini: 'gemini-pro-latest',
+} as const;
+
+export function defaultOrchestratorModel(provider: string): string {
+  const key = (provider || 'openai').trim().toLowerCase() as keyof typeof ORCHESTRATOR_DEFAULT_MODELS;
+  return ORCHESTRATOR_DEFAULT_MODELS[key] ?? '';
+}

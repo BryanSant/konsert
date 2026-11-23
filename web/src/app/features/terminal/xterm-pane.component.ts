@@ -8,6 +8,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { FitAddon } from '@xterm/addon-fit';
@@ -42,7 +43,7 @@ import { IconComponent } from '../../shared/icon.component';
             <div class="flex items-center gap-2 min-w-0 text-[12px]">
               <app-icon [name]="task()?.agent || 'shell'" [size]="13" />
               <span class="font-medium text-[#e4e4e7] shrink-0">{{ displayAgent() }}</span>
-              <span class="font-mono-ide text-[11px] text-[#787a82] truncate">
+              <span class="font-mono-ide text-[11px] text-[#8a8c94] truncate">
                 {{ task()?.effective_dir || task()?.workdir }}
               </span>
               @if (task()?.branch) {
@@ -188,6 +189,9 @@ export class XtermPaneComponent implements OnDestroy {
   });
 
   private term: Terminal | null = null;
+  private webgl: WebglAddon | null = null;
+  /** Set once xterm is created so effects can react to it (afterNextRender runs after them). */
+  private readonly termReady = signal<Terminal | null>(null);
   private fitAddon: FitAddon | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private resizeDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -199,18 +203,74 @@ export class XtermPaneComponent implements OnDestroy {
     });
 
     effect(() => {
-      if (this.visible() && this.fitAddon && this.term) {
+      const term = this.termReady();
+      const visible = this.visible();
+      if (!term) return;
+      // Browsers cap live WebGL contexts (~16), so only visible panes hold one;
+      // hidden panes fall back to xterm's DOM renderer.
+      untracked(() => (visible ? this.enableWebgl(term) : this.disableWebgl()));
+      if (visible) {
         setTimeout(() => this.fitAndNotify(), 25);
       }
     });
 
     effect(() => {
-      const fs = this.fleetStore.settings().terminal_font_size;
-      if (this.term && fs >= 10 && fs <= 24) {
-        this.term.options.fontSize = fs;
-        this.fitAndNotify();
+      const term = this.termReady();
+      const fs = clampFontSize(this.fleetStore.settings().terminal_font_size);
+      if (term && term.options.fontSize !== fs) {
+        term.options.fontSize = fs;
+        untracked(() => this.fitAndNotify());
       }
     });
+
+    // (Re)bind the PTY stream whenever the taskId input changes.
+    effect(() => {
+      const term = this.termReady();
+      const id = this.taskId();
+      if (term) {
+        untracked(() => this.attachPty(term, id));
+      }
+    });
+  }
+
+  private enableWebgl(term: Terminal): void {
+    if (this.webgl) return;
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => this.disableWebgl());
+      term.loadAddon(webgl);
+      this.webgl = webgl;
+    } catch {
+      // No WebGL: keep the DOM renderer.
+    }
+  }
+
+  private disableWebgl(): void {
+    const webgl = this.webgl;
+    this.webgl = null;
+    try {
+      webgl?.dispose();
+    } catch {
+      // already disposed
+    }
+  }
+
+  private attachPty(term: Terminal, taskId: string): void {
+    this.unsubPty?.();
+    this.unsubPty = null;
+    term.reset();
+    if (!taskId) return;
+    this.unsubPty = this.socket.subscribePty(taskId, (ev) => {
+      if (ev.frameType === FRAME_PTY_SNAPSHOT) {
+        term.reset();
+        if (ev.data.byteLength > 0) {
+          term.write(ev.data);
+        }
+      } else if (ev.frameType === FRAME_PTY_DATA) {
+        term.write(ev.data);
+      }
+    });
+    this.fitAndNotify();
   }
 
   private initTerminal(): void {
@@ -219,7 +279,7 @@ export class XtermPaneComponent implements OnDestroy {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: clampFontSize(this.fleetStore.settings().terminal_font_size),
       lineHeight: 1.25,
       fontFamily: '"JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       theme: {
@@ -244,13 +304,6 @@ export class XtermPaneComponent implements OnDestroy {
     term.loadAddon(new WebLinksAddon());
     term.open(hostEl);
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // Canvas fallback
-    }
 
     this.term = term;
     this.fitAddon = fitAddon;
@@ -264,24 +317,13 @@ export class XtermPaneComponent implements OnDestroy {
       this.socket.sendPtyStdin(this.taskId(), data);
     });
 
-    const id = this.taskId();
-    this.unsubPty = this.socket.subscribePty(id, (ev) => {
-      if (ev.frameType === FRAME_PTY_SNAPSHOT) {
-        term.reset();
-        if (ev.data.byteLength > 0) {
-          term.write(ev.data);
-        }
-      } else if (ev.frameType === FRAME_PTY_DATA) {
-        term.write(ev.data);
-      }
-    });
-
     this.resizeObserver = new ResizeObserver(() => {
       if (this.resizeDebounce) clearTimeout(this.resizeDebounce);
       this.resizeDebounce = setTimeout(() => this.fitAndNotify(), 100);
     });
     this.resizeObserver.observe(hostEl);
-    this.fitAndNotify();
+    // Publishing the terminal triggers the font-size and PTY-binding effects.
+    this.termReady.set(term);
   }
 
   private fitAndNotify(): void {
@@ -330,6 +372,14 @@ export class XtermPaneComponent implements OnDestroy {
     if (this.resizeDebounce) clearTimeout(this.resizeDebounce);
     this.resizeObserver?.disconnect();
     this.unsubPty?.();
+    this.disableWebgl();
     this.term?.dispose();
   }
+}
+
+export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+
+/** Settings allow 10-24px; anything else (unset, corrupt) falls back to the default. */
+export function clampFontSize(size: number | undefined): number {
+  return typeof size === 'number' && size >= 10 && size <= 24 ? size : DEFAULT_TERMINAL_FONT_SIZE;
 }

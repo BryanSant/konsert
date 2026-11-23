@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
   ChatToolCard,
   Envelope,
@@ -21,10 +21,14 @@ import {
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { TelemetryStore } from '../state/telemetry.store';
+import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
 
 export type ConnectionState = 'connected' | 'connecting' | 'disconnected';
 type PtyListener = (ev: PtyFrameEvent) => void;
+
+/** After this many consecutive failed handshakes, re-check the session via /api/auth/me. */
+export const HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK = 3;
 
 @Injectable({ providedIn: 'root' })
 export class KonsertSocketService {
@@ -32,6 +36,7 @@ export class KonsertSocketService {
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly notifications = inject(NotificationService);
+  private readonly auth = inject(AuthService);
 
   readonly state = signal<ConnectionState>('disconnected');
 
@@ -39,6 +44,37 @@ export class KonsertSocketService {
   private shouldReconnect = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True once any socket in this connect() lifetime has opened (distinguishes reconnects). */
+  private hasConnected = false;
+  /** Consecutive sockets that closed without ever opening (e.g. 401 on upgrade). */
+  private failedHandshakes = 0;
+
+  /** Chat session whose events this client wants (the active orchestrator session). */
+  private desiredChatSession = '';
+  /** Chat session subscribed on the *current* socket ('' when none / not yet sent). */
+  private subscribedChatSession = '';
+
+  constructor() {
+    // The hub only fans chat.* events out to clients subscribed to that session, so
+    // follow the active session: unsubscribe from the old one, subscribe to the new.
+    effect(() => {
+      const sid = this.orchestratorStore.activeSessionId();
+      untracked(() => this.setChatSubscription(sid));
+    });
+  }
+
+  /** Subscribes this socket to chat events for `sessionId` ('' to unsubscribe). */
+  setChatSubscription(sessionId: string): void {
+    this.desiredChatSession = sessionId;
+    if (this.subscribedChatSession === sessionId) return;
+    if (this.subscribedChatSession) {
+      this.sendJSON('chat.unsubscribe', { session_id: this.subscribedChatSession });
+      this.subscribedChatSession = '';
+    }
+    if (sessionId && this.sendJSON('chat.subscribe', { session_id: sessionId })) {
+      this.subscribedChatSession = sessionId;
+    }
+  }
 
   private readonly ptyListeners = new Map<string, Set<PtyListener>>();
   private readonly encoder = new TextEncoder();
@@ -49,6 +85,8 @@ export class KonsertSocketService {
       return;
     }
     this.shouldReconnect = true;
+    this.hasConnected = false;
+    this.failedHandshakes = 0;
     this.openSocket();
   }
 
@@ -59,10 +97,12 @@ export class KonsertSocketService {
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close(1000, 'client disconnect');
+      const ws = this.ws;
       this.ws = null;
+      ws.close(1000, 'client disconnect');
     }
     this.state.set('disconnected');
+    this.orchestratorStore.onConnectionLost();
   }
 
   private openSocket(): void {
@@ -72,11 +112,23 @@ export class KonsertSocketService {
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    let opened = false;
 
     ws.onopen = () => {
+      opened = true;
+      this.failedHandshakes = 0;
+      const isReconnect = this.hasConnected;
+      this.hasConnected = true;
       this.reconnectAttempt = 0;
       this.state.set('connected');
       void this.fleetStore.refresh();
+      if (isReconnect) {
+        void this.orchestratorStore.onReconnected();
+        void this.telemetryStore.onReconnected();
+      }
+      // A new socket starts with no subscriptions: re-subscribe the active chat session.
+      this.subscribedChatSession = '';
+      this.setChatSubscription(this.desiredChatSession);
       // Re-subscribe any open terminal panes after reconnect.
       for (const taskId of this.ptyListeners.keys()) {
         this.sendJSON('pty.subscribe', { task_id: taskId });
@@ -92,10 +144,20 @@ export class KonsertSocketService {
     };
 
     ws.onclose = () => {
-      if (this.ws === ws) {
-        this.ws = null;
-      }
+      if (this.ws !== ws) return; // superseded by disconnect()/a newer socket
+      this.ws = null;
       this.state.set('disconnected');
+      this.orchestratorStore.onConnectionLost();
+      if (!opened) {
+        this.failedHandshakes++;
+        // The browser hides the upgrade's HTTP status, so a 401 looks like any other
+        // failure. Periodically ask the REST API whether the session is still valid.
+        if (this.failedHandshakes % HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK === 0) {
+          void this.auth.verifySession().then((valid) => {
+            if (!valid) this.disconnect();
+          });
+        }
+      }
       if (this.shouldReconnect) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 15000);
         this.reconnectAttempt++;
@@ -254,18 +316,40 @@ export class KonsertSocketService {
     this.sendJSON('pty.resize', { task_id: taskId, cols, rows });
   }
 
-  sendChatMessage(sessionId: string, content: string): void {
-    this.orchestratorStore.appendLocalUserMessage(content);
-    this.sendJSON('chat.send', { session_id: sessionId, content });
+  get isOpen(): boolean {
+    return !!this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 
-  private sendJSON(type: string, payload: unknown): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  /**
+   * Sends a chat message. Returns false (and records an error on the store) when the
+   * socket is not open, so the caller can keep the draft instead of silently losing it.
+   */
+  sendChatMessage(sessionId: string, content: string): boolean {
+    if (!this.isOpen) {
+      this.orchestratorStore.rejectSend();
+      return false;
+    }
+    this.orchestratorStore.beginSend(sessionId, content);
+    if (!this.sendJSON('chat.send', { session_id: sessionId, content })) {
+      this.orchestratorStore.abortSend(sessionId);
+      return false;
+    }
+    return true;
+  }
+
+  /** Writes a JSON envelope; returns false if the socket is not open or the write threw. */
+  private sendJSON(type: string, payload: unknown): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     const env: Envelope = {
       type,
       ts: new Date().toISOString(),
       payload,
     };
-    this.ws.send(JSON.stringify(env));
+    try {
+      this.ws.send(JSON.stringify(env));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

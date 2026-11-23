@@ -1,6 +1,11 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { ChatMessage, ChatSession, ChatToolCard } from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
+
+export const CHAT_NOT_CONNECTED_ERROR =
+  'Not connected to the Konsert hub. Your message was not sent and is still in the composer.';
+export const CHAT_CONNECTION_LOST_ERROR =
+  'Connection to the hub was lost while waiting for a reply. The conversation will refresh when it reconnects.';
 
 @Injectable({ providedIn: 'root' })
 export class OrchestratorStore {
@@ -11,8 +16,22 @@ export class OrchestratorStore {
   readonly messages = signal<ChatMessage[]>([]);
   readonly streamingBuffer = signal<string>('');
   readonly activeToolCards = signal<ChatToolCard[]>([]);
-  readonly sending = signal(false);
   readonly error = signal('');
+
+  /** Session with a chat.send awaiting chat.done / chat.error ('' when idle). */
+  readonly inFlightSessionId = signal('');
+
+  /**
+   * True only while the *active* session has a reply in flight. Switching to another
+   * session therefore never leaves its composer locked.
+   */
+  readonly sending = computed(() => {
+    const inflight = this.inFlightSessionId();
+    return inflight !== '' && inflight === this.activeSessionId();
+  });
+
+  /** Guards against an older listChatMessages response overwriting a newer one. */
+  private messagesSeq = 0;
 
   async init(): Promise<void> {
     try {
@@ -30,7 +49,9 @@ export class OrchestratorStore {
   }
 
   async createSession(title?: string): Promise<void> {
-    const created = await this.api.createChatSession(title || `Session ${this.sessions().length + 1}`);
+    const created = await this.api.createChatSession(
+      title || `Session ${this.sessions().length + 1}`,
+    );
     this.sessions.update((s) => [created, ...s]);
     await this.selectSession(created.id);
   }
@@ -40,12 +61,15 @@ export class OrchestratorStore {
     if (!clean) return;
     const updated = await this.api.renameChatSession(sessionId, clean);
     this.sessions.update((list) =>
-      list.map((s) => (s.id === sessionId ? { ...s, title: updated.title || clean } : s))
+      list.map((s) => (s.id === sessionId ? { ...s, title: updated.title || clean } : s)),
     );
   }
 
   async deleteSession(sessionId: string): Promise<void> {
     await this.api.deleteChatSession(sessionId);
+    if (this.inFlightSessionId() === sessionId) {
+      this.inFlightSessionId.set('');
+    }
     const remaining = this.sessions().filter((s) => s.id !== sessionId);
     if (remaining.length === 0) {
       const created = await this.api.createChatSession('Default Orchestrator');
@@ -64,30 +88,68 @@ export class OrchestratorStore {
     this.streamingBuffer.set('');
     this.activeToolCards.set([]);
     this.error.set('');
-    try {
-      const res = await this.api.listChatMessages(sessionId);
-      this.messages.set(res.messages ?? []);
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Failed to load messages');
-    }
+    await this.reloadMessages(sessionId, true);
   }
 
-  appendLocalUserMessage(content: string): void {
-    const sid = this.activeSessionId();
-    this.sending.set(true);
+  /**
+   * Records the optimistic user message and marks the session as awaiting a reply.
+   * Call only once the frame is known to be deliverable (socket open).
+   */
+  beginSend(sessionId: string, content: string): void {
+    this.inFlightSessionId.set(sessionId);
     this.streamingBuffer.set('');
     this.activeToolCards.set([]);
     this.error.set('');
     this.messages.update((list) => [
       ...list,
       {
-        id: Date.now(),
-        session_id: sid,
+        // Negative ids mark optimistic rows that are not yet persisted.
+        id: -Date.now(),
+        session_id: sessionId,
         role: 'user',
         content,
         created_at: new Date().toISOString(),
       },
     ]);
+  }
+
+  /** Rolls back a beginSend whose frame could not be written to the socket. */
+  abortSend(sessionId: string, errMsg = CHAT_NOT_CONNECTED_ERROR): void {
+    if (this.inFlightSessionId() === sessionId) {
+      this.inFlightSessionId.set('');
+    }
+    this.messages.update((list) => {
+      const last = list[list.length - 1];
+      return last && last.role === 'user' && last.id < 0 ? list.slice(0, -1) : list;
+    });
+    this.error.set(errMsg);
+  }
+
+  /** Refuses a send outright (socket not open); the caller keeps the draft. */
+  rejectSend(errMsg = CHAT_NOT_CONNECTED_ERROR): void {
+    this.error.set(errMsg);
+  }
+
+  /** The socket closed: any in-flight reply is lost, so unlock the composer. */
+  onConnectionLost(): void {
+    if (this.inFlightSessionId() === '') return;
+    const wasActive = this.sending();
+    this.inFlightSessionId.set('');
+    this.streamingBuffer.set('');
+    this.activeToolCards.set([]);
+    if (wasActive) {
+      this.error.set(CHAT_CONNECTION_LOST_ERROR);
+    }
+  }
+
+  /** The socket reconnected: pull anything persisted while we were away. */
+  async onReconnected(): Promise<void> {
+    const sid = this.activeSessionId();
+    if (!sid) return;
+    if (this.error() === CHAT_CONNECTION_LOST_ERROR || this.error() === CHAT_NOT_CONNECTED_ERROR) {
+      this.error.set('');
+    }
+    await this.reloadMessages(sid, false);
   }
 
   onChatDelta(sessionId: string, delta: string): void {
@@ -107,21 +169,33 @@ export class OrchestratorStore {
   }
 
   async onChatDone(sessionId: string): Promise<void> {
+    if (sessionId === this.inFlightSessionId()) {
+      this.inFlightSessionId.set('');
+    }
     if (sessionId !== this.activeSessionId()) return;
-    this.sending.set(false);
     this.streamingBuffer.set('');
     this.activeToolCards.set([]);
-    try {
-      const res = await this.api.listChatMessages(sessionId);
-      this.messages.set(res.messages ?? []);
-    } catch {
-      // ignore
-    }
+    await this.reloadMessages(sessionId, false);
   }
 
   onChatError(sessionId: string, errMsg: string): void {
+    if (sessionId === this.inFlightSessionId()) {
+      this.inFlightSessionId.set('');
+    }
     if (sessionId !== this.activeSessionId()) return;
-    this.sending.set(false);
+    this.streamingBuffer.set('');
     this.error.set(errMsg);
+  }
+
+  private async reloadMessages(sessionId: string, reportErrors: boolean): Promise<void> {
+    const seq = ++this.messagesSeq;
+    try {
+      const res = await this.api.listChatMessages(sessionId);
+      if (seq !== this.messagesSeq || sessionId !== this.activeSessionId()) return;
+      this.messages.set(res.messages ?? []);
+    } catch (err) {
+      if (!reportErrors || seq !== this.messagesSeq) return;
+      this.error.set(err instanceof Error ? err.message : 'Failed to load messages');
+    }
   }
 }

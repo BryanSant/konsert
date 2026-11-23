@@ -3,6 +3,8 @@ import { Component, input } from '@angular/core';
 @Component({
   selector: 'app-icon',
   standalone: true,
+  // Icons are decorative: the surrounding control carries the accessible name.
+  host: { 'aria-hidden': 'true' },
   template: `
     @switch (name()) {
       @case ('claude') {

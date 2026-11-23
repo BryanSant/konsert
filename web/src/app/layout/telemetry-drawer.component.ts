@@ -1,4 +1,4 @@
-import { Component, OnDestroy, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { GitInspectResult, GitSummary } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -21,7 +21,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
           @case ('agent') {
             <div>
               <div class="text-[12px] font-semibold text-[#ececed]">Agent Activity</div>
-              <div class="text-[10px] text-[#787a82]">
+              <div class="text-[10px] text-[#8a8c94]">
                 {{ activeTask() ? 'Live telemetry & session history' : 'Fleet session history' }}
               </div>
             </div>
@@ -51,13 +51,13 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
           @case ('checks') {
             <div>
               <div class="text-[12px] font-semibold text-[#ececed]">Checks & Runtime</div>
-              <div class="text-[10px] text-[#787a82]">Execution posture & exit signals</div>
+              <div class="text-[10px] text-[#8a8c94]">Execution posture & exit signals</div>
             </div>
           }
         }
 
         @if (panel() !== 'git' && activeTask(); as t) {
-          <span class="font-mono-ide text-[10px] text-[#686a72]">{{ t.id.slice(0, 8) }}</span>
+          <span class="font-mono-ide text-[10px] text-[#86888f]">{{ t.id.slice(0, 8) }}</span>
         }
       </div>
 
@@ -93,11 +93,11 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
             }
 
             <div class="space-y-1.5">
-              <div class="text-[11px] font-medium text-[#787a82]">
+              <div class="text-[11px] font-medium text-[#8a8c94]">
                 Milestones ({{ events().length }})
               </div>
               @if (events().length === 0) {
-                <div class="text-[11px] text-[#5e6068]">Waiting for structured agent milestones...</div>
+                <div class="text-[11px] text-[#86888f]">Waiting for structured agent milestones...</div>
               }
               @for (ev of events(); track ev.id) {
                 <div class="rounded-md border border-[#24262c] bg-[#191a1e] px-2.5 py-1.5">
@@ -112,7 +112,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                     >
                       {{ ev.kind }}
                     </span>
-                    <span class="text-[10px] font-mono-ide text-[#5e6068]">{{ formatTime(ev.created_at) }}</span>
+                    <span class="text-[10px] font-mono-ide text-[#86888f]">{{ formatTime(ev.created_at) }}</span>
                   </div>
                   <div class="text-[11px] text-[#d4d4d8] break-words font-mono-ide">{{ ev.message }}</div>
                 </div>
@@ -122,7 +122,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
 
           <div class="space-y-2" [class.pt-2]="!!activeTask()" [class.border-t]="!!activeTask()" [class.border-[#26282e]]="!!activeTask()">
             <div class="relative">
-              <app-icon name="search" [size]="12" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#686a72]" />
+              <app-icon name="search" [size]="12" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#86888f]" />
               <input
                 type="text"
                 [ngModel]="sessionFilter()"
@@ -132,7 +132,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
               />
             </div>
 
-            <div class="flex items-center justify-between text-[11px] text-[#686a72] px-0.5">
+            <div class="flex items-center justify-between text-[11px] text-[#86888f] px-0.5">
               <span>{{ filteredHistory().length }} sessions</span>
               <span>Recent</span>
             </div>
@@ -152,7 +152,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                       {{ item.summary }}
                     </div>
                   }
-                  <div class="flex items-center justify-between pt-0.5 text-[10px] text-[#686a72]">
+                  <div class="flex items-center justify-between pt-0.5 text-[10px] text-[#86888f]">
                     <span class="inline-flex items-center gap-1.5">
                       <app-icon [name]="item.agent" [size]="11" />
                       <span>{{ item.agent }}</span>
@@ -172,7 +172,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
       @if (panel() === 'git') {
         <div class="ks-panel-enter flex-1 flex flex-col min-h-0">
           @if (!hasGitTarget()) {
-            <div class="p-3 text-[12px] text-[#686a72]">
+            <div class="p-3 text-[12px] text-[#86888f]">
               Select a machine Space or workspace session tab to inspect live Git changes, diffs, and commit directly.
             </div>
           } @else {
@@ -187,14 +187,14 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                 <!-- Branch & Worktree info -->
                 <div class="rounded-lg border border-[#26282e] bg-[#191a1e] p-2.5 space-y-1.5 text-[12px]">
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-[#787a82]">Branch</span>
+                    <span class="text-[#8a8c94]">Branch</span>
                     <span class="inline-flex items-center gap-1 font-mono-ide text-[11px] text-[#e4e4e7]">
                       <app-icon name="git-branch" [size]="11" />
                       {{ lg.branch || '(not a git repo)' }}
                     </span>
                   </div>
                   @if (lg.effective_dir) {
-                    <div class="pt-1 border-t border-[#24262c] font-mono-ide text-[10px] text-[#787a82] break-all">
+                    <div class="pt-1 border-t border-[#24262c] font-mono-ide text-[10px] text-[#8a8c94] break-all">
                       {{ lg.effective_dir }}
                     </div>
                   }
@@ -213,11 +213,11 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                 </div>
 
                 @if (!lg.is_git_repo) {
-                  <div class="text-[12px] text-[#686a72] px-1">Directory is not a git repository.</div>
+                  <div class="text-[12px] text-[#86888f] px-1">Directory is not a git repository.</div>
                 } @else {
                   <!-- Changed Files with Expandable Unified Diffs -->
                   @if (lg.files.length === 0) {
-                    <div class="text-[12px] text-[#686a72] px-1 py-2">No uncommitted changes</div>
+                    <div class="text-[12px] text-[#86888f] px-1 py-2">No uncommitted changes</div>
                   } @else {
                     <div class="space-y-1.5">
                       @for (f of lg.files; track f.path) {
@@ -271,7 +271,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
                   <!-- Recent Commits -->
                   @if (lg.commits?.length) {
                     <div class="space-y-1 pt-1">
-                      <div class="text-[11px] font-medium text-[#787a82]">Recent Commits</div>
+                      <div class="text-[11px] font-medium text-[#8a8c94]">Recent Commits</div>
                       <div class="rounded-lg border border-[#26282e] bg-[#191a1e] p-2 space-y-1 font-mono-ide text-[10px] text-[#a1a3ab]">
                         @for (c of lg.commits; track c) {
                           <div class="truncate">{{ c }}</div>
@@ -324,17 +324,17 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
             @let w = activeWorker();
             <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[12px]">
               <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-[#787a82]">Status</span>
+                <span class="text-[#8a8c94]">Status</span>
                 <span class="font-mono-ide text-[11px] text-[#ececed]">{{ t.status }}</span>
               </div>
               @if (t.model) {
                 <div class="flex items-center justify-between px-3 py-2">
-                  <span class="text-[#787a82]">Model</span>
+                  <span class="text-[#8a8c94]">Model</span>
                   <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ t.model }}</span>
                 </div>
               }
               <div class="flex items-center justify-between px-3 py-2">
-                <span class="text-[#787a82]">Permissions</span>
+                <span class="text-[#8a8c94]">Permissions</span>
                 <span
                   class="font-mono-ide text-[11px]"
                   [class.text-[#69b879]]="t.permission_mode === 'full_access'"
@@ -345,7 +345,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
               </div>
               @if (t.exit_code !== null && t.exit_code !== undefined) {
                 <div class="flex items-center justify-between px-3 py-2">
-                  <span class="text-[#787a82]">Exit Code</span>
+                  <span class="text-[#8a8c94]">Exit Code</span>
                   <span class="font-mono-ide text-[11px]" [class.text-[#69b879]]="t.exit_code === 0" [class.text-[#e05d5d]]="t.exit_code !== 0">
                     {{ t.exit_code }}
                   </span>
@@ -353,7 +353,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
               }
               @if (w) {
                 <div class="flex items-center justify-between px-3 py-2">
-                  <span class="text-[#787a82]">Host</span>
+                  <span class="text-[#8a8c94]">Host</span>
                   <span class="font-mono-ide text-[11px] text-[#d4d4d8]">{{ w.name }} ({{ w.os }}/{{ w.arch }})</span>
                 </div>
               }
@@ -374,7 +374,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
           <!-- Cached Machine Facts & Capabilities -->
           @if (inspectedWorker(); as iw) {
             <div class="space-y-2">
-              <div class="flex items-center justify-between text-[11px] text-[#787a82]">
+              <div class="flex items-center justify-between text-[11px] text-[#8a8c94]">
                 <span>Machine Facts · {{ iw.name }}</span>
                 <span class="font-mono-ide text-[10px]">{{ iw.facts?.virtualization || iw.isolation }}</span>
               </div>
@@ -382,29 +382,29 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
               @if (iw.facts; as f) {
                 <div class="rounded-lg border border-[#26282e] bg-[#191a1e] divide-y divide-[#23252c] text-[11.5px]">
                   <div class="flex items-center justify-between gap-2 px-3 py-1.5">
-                    <span class="text-[#787a82]">OS</span>
+                    <span class="text-[#8a8c94]">OS</span>
                     <span class="font-mono-ide text-[11px] text-[#e4e4e7] truncate">{{ f.os_name }} {{ f.os_version }}</span>
                   </div>
                   @if (f.cpu_model || f.cpu_cores) {
                     <div class="flex items-center justify-between gap-2 px-3 py-1.5">
-                      <span class="text-[#787a82]">CPU</span>
+                      <span class="text-[#8a8c94]">CPU</span>
                       <span class="font-mono-ide text-[11px] text-[#d4d4d8] truncate">{{ f.cpu_cores }}c · {{ f.cpu_model || iw.arch }}</span>
                     </div>
                   }
                   <div class="flex items-center justify-between gap-2 px-3 py-1.5">
-                    <span class="text-[#787a82]">Memory / Swap</span>
+                    <span class="text-[#8a8c94]">Memory / Swap</span>
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
                       {{ formatGB(f.ram_total_mb) }} RAM · {{ formatGB(f.swap_total_mb) }} swap
                     </span>
                   </div>
                   <div class="flex items-center justify-between gap-2 px-3 py-1.5">
-                    <span class="text-[#787a82]">Storage</span>
+                    <span class="text-[#8a8c94]">Storage</span>
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8]">
                       {{ f.disk_free_gb }}/{{ f.disk_total_gb }} GB free ({{ f.storage_type || 'disk' }})
                     </span>
                   </div>
                   <div class="flex items-center justify-between gap-2 px-3 py-1.5">
-                    <span class="text-[#787a82]">Runtime</span>
+                    <span class="text-[#8a8c94]">Runtime</span>
                     <span class="font-mono-ide text-[10.5px] text-[#a1a3ab]">
                       {{ f.virtualization || 'bare_metal' }}@if (f.tmp_is_tmpfs) { · /tmp tmpfs }
                     </span>
@@ -413,7 +413,7 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
 
                 @if (authReadyEntries(f.auth_ready).length > 0) {
                   <div class="space-y-1">
-                    <div class="text-[10.5px] text-[#787a82]">Auth Ready</div>
+                    <div class="text-[10.5px] text-[#8a8c94]">Auth Ready</div>
                     <div class="flex flex-wrap gap-1">
                       @for (name of authReadyEntries(f.auth_ready); track name) {
                         <span class="rounded border border-[#69b879]/30 bg-[#69b879]/10 px-1.5 py-0.5 font-mono-ide text-[10px] text-[#8cd49b]">
@@ -426,22 +426,22 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
 
                 @if (toolEntries(f.tools).length > 0) {
                   <div class="space-y-1">
-                    <div class="text-[10.5px] text-[#787a82]">Detected Tools</div>
+                    <div class="text-[10.5px] text-[#8a8c94]">Detected Tools</div>
                     <div class="flex flex-wrap gap-1">
                       @for (entry of toolEntries(f.tools); track entry.name) {
                         <span class="rounded border border-[#2b2d36] bg-[#1e2026] px-1.5 py-0.5 font-mono-ide text-[10px] text-[#c8cad0]">
-                          {{ entry.name }} <span class="text-[#787a82]">{{ entry.version }}</span>
+                          {{ entry.name }} <span class="text-[#8a8c94]">{{ entry.version }}</span>
                         </span>
                       }
                     </div>
                   </div>
                 }
               } @else {
-                <div class="text-[11px] text-[#5e6068]">Waiting for machine facts from {{ iw.name }}...</div>
+                <div class="text-[11px] text-[#86888f]">Waiting for machine facts from {{ iw.name }}...</div>
               }
             </div>
           } @else {
-            <div class="text-[12px] text-[#686a72]">
+            <div class="text-[12px] text-[#86888f]">
               Connect a machine or open a session tab to inspect cached hardware, runtime, and tool facts.
             </div>
           }
@@ -452,6 +452,8 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
 })
 export class TelemetryDrawerComponent implements OnDestroy {
   readonly panel = input<InspectorPanel>('agent');
+  /** False while the hosting pane is collapsed: suspends git polling. */
+  readonly enabled = input(true);
 
   private readonly tabs = inject(TabsStore);
   private readonly fleet = inject(FleetStore);
@@ -539,52 +541,91 @@ export class TelemetryDrawerComponent implements OnDestroy {
       .slice(0, 20);
   });
 
+  /** Stable keys: task/space objects change on every upsert, their ids do not. */
+  readonly activeTaskId = computed(() => this.activeTask()?.id ?? '');
+  readonly activeSpaceId = computed(() => this.activeSpace()?.id ?? '');
+  /** What the Git panel inspects: the active task, else the active space. */
+  private readonly gitTargetKey = computed(() => {
+    const tid = this.activeTaskId();
+    if (tid) return `task:${tid}`;
+    const sid = this.activeSpaceId();
+    return sid ? `space:${sid}` : '';
+  });
+
+  private gitSeq = 0;
+  private gitAppliedSeq = 0;
+  private gitLoadingSeq = 0;
+  private lastGitTargetKey = '';
+
   constructor() {
     effect(() => {
-      const t = this.activeTask();
-      if (t) {
-        void this.telemetry.hydrateTask(t.id);
+      const id = this.activeTaskId();
+      if (id) {
+        untracked(() => void this.telemetry.hydrateTask(id));
       }
     });
 
-    // Auto-inspect live Git changes when switching to Git panel or changing active task/space.
+    // Auto-inspect live Git changes when the Git panel is shown or the inspected
+    // task/space changes (keyed on ids, so ordinary task upserts don't restart it).
     effect(() => {
-      const p = this.panel();
-      const t = this.activeTask();
-      const sp = this.activeSpace();
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-      if (p === 'git' && (t || sp)) {
-        void this.refreshLiveGit();
-        this.pollTimer = setInterval(() => void this.refreshLiveGit(true), 6000);
-      }
+      const p = this.enabled() ? this.panel() : null;
+      const key = this.gitTargetKey();
+      untracked(() => {
+        if (key !== this.lastGitTargetKey) {
+          this.lastGitTargetKey = key;
+          this.liveGit.set(null);
+          this.gitError.set('');
+          this.expandedDiffs.set({});
+          this.gitLoading.set(false);
+        }
+        this.stopPolling();
+        if (p === 'git' && key) {
+          void this.refreshLiveGit();
+          this.pollTimer = setInterval(() => void this.refreshLiveGit(true), 6000);
+        }
+      });
     });
   }
 
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
   async refreshLiveGit(silent = false): Promise<void> {
-    const t = this.activeTask();
-    const sp = this.activeSpace();
-    if (!t && !sp) return;
-    if (!silent) this.gitLoading.set(true);
-    this.gitError.set('');
+    const key = this.gitTargetKey();
+    const taskId = this.activeTaskId();
+    const spaceId = this.activeSpaceId();
+    if (!key) return;
+    const seq = ++this.gitSeq;
+    if (!silent) {
+      this.gitLoadingSeq = seq;
+      this.gitLoading.set(true);
+      this.gitError.set('');
+    }
+    // Drop responses for a target we've since left, or ones overtaken by a newer response.
+    const isCurrent = () => key === this.gitTargetKey() && seq > this.gitAppliedSeq;
     try {
       const res = await this.api.inspectGit({
-        taskId: t?.id,
-        spaceId: !t ? sp?.id : undefined,
+        taskId: taskId || undefined,
+        spaceId: !taskId ? spaceId : undefined,
       });
+      if (!isCurrent()) return;
+      this.gitAppliedSeq = seq;
       if (res.error) {
         this.gitError.set(res.error);
       } else {
+        this.gitError.set('');
         this.liveGit.set(res);
       }
     } catch (err) {
-      if (!silent) {
+      if (!silent && isCurrent()) {
         this.gitError.set(err instanceof Error ? err.message : 'Unable to inspect git status');
       }
     } finally {
-      if (!silent) this.gitLoading.set(false);
+      if (!silent && this.gitLoadingSeq === seq) this.gitLoading.set(false);
     }
   }
 
@@ -707,6 +748,6 @@ export class TelemetryDrawerComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.stopPolling();
   }
 }

@@ -1,8 +1,10 @@
-import { Component, OnDestroy, effect, inject, input, model, signal } from '@angular/core';
+import { Component, OnDestroy, effect, inject, input, model, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FSEntry } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { IconComponent } from './icon.component';
+
+let nextPickerId = 0;
 
 @Component({
   selector: 'app-remote-dir-picker',
@@ -15,6 +17,13 @@ import { IconComponent } from './icon.component';
           <input
             type="text"
             [name]="inputName()"
+            [attr.id]="inputId() || null"
+            [attr.aria-label]="inputId() ? null : 'Directory path'"
+            role="combobox"
+            aria-autocomplete="list"
+            [attr.aria-expanded]="suggestionsOpen() && !browseOpen() && suggestions().length > 0"
+            [attr.aria-controls]="listboxId"
+            [attr.aria-activedescendant]="suggestionsOpen() && suggestions().length > 0 ? listboxId + '-' + activeIdx() : null"
             [ngModel]="value()"
             (ngModelChange)="onInputChange($event)"
             (focus)="onFocus()"
@@ -47,12 +56,16 @@ import { IconComponent } from './icon.component';
           (mousedown)="$event.preventDefault()"
         >
           @if (loadingSuggestions() && suggestions().length === 0) {
-            <div class="px-3 py-2 text-[11px] text-[#787a82]">Searching remote host...</div>
+            <div class="px-3 py-2 text-[11px] text-[#8a8c94]">Searching remote host...</div>
           } @else {
-            <div class="max-h-48 overflow-y-auto py-1">
+            <div class="max-h-48 overflow-y-auto py-1" role="listbox" [id]="listboxId" aria-label="Matching folders">
               @for (entry of suggestions(); track entry.path; let i = $index) {
                 <button
                   type="button"
+                  role="option"
+                  tabindex="-1"
+                  [id]="listboxId + '-' + i"
+                  [attr.aria-selected]="activeIdx() === i"
                   (mouseenter)="activeIdx.set(i)"
                   (click)="pickSuggestion(entry)"
                   class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 text-left text-[12px] transition cursor-pointer"
@@ -61,7 +74,7 @@ import { IconComponent } from './icon.component';
                   [class.text-[#c8cad0]]="activeIdx() !== i"
                 >
                   <div class="flex items-center gap-2 min-w-0">
-                    <app-icon [name]="entry.is_git_repo ? 'git-branch' : 'folder'" [size]="12" [class.text-[#69b879]]="entry.is_git_repo" [class.text-[#787a82]]="!entry.is_git_repo" />
+                    <app-icon [name]="entry.is_git_repo ? 'git-branch' : 'folder'" [size]="12" [class.text-[#69b879]]="entry.is_git_repo" [class.text-[#8a8c94]]="!entry.is_git_repo" />
                     <span class="font-mono-ide truncate">{{ entry.path }}</span>
                   </div>
                   @if (entry.is_git_repo) {
@@ -104,7 +117,8 @@ import { IconComponent } from './icon.component';
               <button
                 type="button"
                 (click)="browseOpen.set(false)"
-                class="rounded p-0.5 text-[#6d7078] hover:text-[#ececed] cursor-pointer"
+                aria-label="Close folder browser"
+                class="rounded p-0.5 text-[#86888f] hover:text-[#ececed] cursor-pointer"
               >
                 <app-icon name="close" [size]="11" />
               </button>
@@ -114,9 +128,9 @@ import { IconComponent } from './icon.component';
           @if (browseError()) {
             <div class="px-3 py-2.5 text-[11px] text-[#f09595]">{{ browseError() }}</div>
           } @else if (loadingBrowse()) {
-            <div class="px-3 py-3 text-[11px] text-[#787a82]">Listing remote directories...</div>
+            <div class="px-3 py-3 text-[11px] text-[#8a8c94]">Listing remote directories...</div>
           } @else if (browseEntries().length === 0) {
-            <div class="px-3 py-3 text-[11px] text-[#686a72]">No subdirectories here.</div>
+            <div class="px-3 py-3 text-[11px] text-[#86888f]">No subdirectories here.</div>
           } @else {
             <div class="max-h-44 overflow-y-auto py-1">
               @for (entry of browseEntries(); track entry.path) {
@@ -130,7 +144,7 @@ import { IconComponent } from './icon.component';
                       [name]="entry.is_git_repo ? 'git-branch' : 'folder'"
                       [size]="12"
                       [class.text-[#69b879]]="entry.is_git_repo"
-                      [class.text-[#787a82]]="!entry.is_git_repo"
+                      [class.text-[#8a8c94]]="!entry.is_git_repo"
                     />
                     <span class="font-mono-ide text-[11px] text-[#d4d4d8] group-hover:text-[#f4f4f5] truncate">{{ entry.name }}</span>
                     @if (entry.is_git_repo) {
@@ -157,6 +171,9 @@ export class RemoteDirPickerComponent implements OnDestroy {
   readonly workerId = input<string>('');
   readonly placeholder = input<string>('~ or /path/to/repo');
   readonly inputName = input<string>('remoteDir');
+  /** id for the text input, so a parent <label for> can name it. */
+  readonly inputId = input<string>('');
+  readonly listboxId = `ks-dir-suggest-${nextPickerId++}`;
   readonly value = model<string>('~');
 
   private readonly api = inject(ApiClientService);
@@ -176,14 +193,25 @@ export class RemoteDirPickerComponent implements OnDestroy {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private blurTimer: ReturnType<typeof setTimeout> | null = null;
   private suggestSeq = 0;
+  private browseSeq = 0;
 
   constructor() {
+    // Re-fetch the browse view only when the target machine changes while the browser
+    // is open. value()/browseOpen() are read untracked: navigation and toggling already
+    // load explicitly, and typing must not trigger a browse fetch per keystroke.
+    let lastWorkerId: string | undefined;
     effect(() => {
-      // Re-fetch browse view if user switches target machine while browser is open
       const wid = this.workerId();
-      if (this.browseOpen()) {
-        void this.loadBrowse(this.value() || '~', wid);
-      }
+      untracked(() => {
+        const changed = lastWorkerId !== undefined && lastWorkerId !== wid;
+        lastWorkerId = wid;
+        if (!changed) return;
+        this.suggestSeq++; // drop suggestions in flight for the previous machine
+        this.loadingSuggestions.set(false);
+        if (this.browseOpen()) {
+          void this.loadBrowse(this.value() || '~', wid);
+        }
+      });
     });
   }
 
@@ -235,6 +263,8 @@ export class RemoteDirPickerComponent implements OnDestroy {
         this.pickSuggestion(target);
       }
     } else if (ev.key === 'Escape') {
+      // Close the suggestions only; don't let the enclosing dialog close too.
+      ev.preventDefault();
       ev.stopPropagation();
       this.suggestionsOpen.set(false);
     }
@@ -306,6 +336,7 @@ export class RemoteDirPickerComponent implements OnDestroy {
   }
 
   private async loadBrowse(path: string, workerId: string): Promise<void> {
+    const seq = ++this.browseSeq;
     this.loadingBrowse.set(true);
     this.browseError.set('');
     try {
@@ -314,6 +345,7 @@ export class RemoteDirPickerComponent implements OnDestroy {
         path: path || '~',
         dirsOnly: true,
       });
+      if (seq !== this.browseSeq) return; // a newer navigation superseded this one
       if (res.error) {
         this.browseError.set(res.error);
         this.browseEntries.set([]);
@@ -323,10 +355,11 @@ export class RemoteDirPickerComponent implements OnDestroy {
         this.browseEntries.set(res.entries ?? []);
       }
     } catch (err) {
+      if (seq !== this.browseSeq) return;
       this.browseError.set(err instanceof Error ? err.message : 'Unable to browse remote host');
       this.browseEntries.set([]);
     } finally {
-      this.loadingBrowse.set(false);
+      if (seq === this.browseSeq) this.loadingBrowse.set(false);
     }
   }
 
