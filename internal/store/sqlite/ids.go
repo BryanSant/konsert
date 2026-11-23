@@ -11,6 +11,7 @@ import (
 var idTables = map[ids.Kind]string{
 	ids.Task:      "tasks",
 	ids.Chat:      "chat_sessions",
+	ids.Machine:   "workers",
 	ids.Workspace: "workspaces",
 	ids.Project:   "projects",
 	ids.Repo:      "repos",

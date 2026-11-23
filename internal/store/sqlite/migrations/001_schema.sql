@@ -1,8 +1,10 @@
 -- Konsert schema. Pre-1.0 there is exactly one migration: schema changes edit this file and
 -- older databases are refused (see migrate.go) rather than upgraded.
 --
--- IDs: user-facing records use typed ka-style IDs minted by internal/ids (task-7qk3m,
--- chat-w47xk, WS-…, PRJ-…, REPO-…, WT-…, SPC-…); workers use their self-minted UUIDv7.
+-- IDs: every primary key is a short typed ID from internal/ids (t-7qk3m task, c-w47xk chat,
+-- m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree). External or
+-- UUID identities live in their own columns: workers.machine_id (konsertd's UUIDv7),
+-- chat_sessions.agent_session_id (the agent CLI's session), tasks.external_id.
 
 CREATE TABLE workers (
     id               TEXT PRIMARY KEY,
@@ -22,7 +24,7 @@ CREATE TABLE workers (
     facts_updated_at TEXT,
     last_seen_at     TEXT NOT NULL
 );
-CREATE INDEX idx_workers_machine_id ON workers(machine_id);
+CREATE UNIQUE INDEX idx_workers_machine_id ON workers(machine_id) WHERE machine_id != '';
 
 CREATE TABLE workspaces (
     id         TEXT PRIMARY KEY,
@@ -80,7 +82,7 @@ CREATE TABLE tasks (
     worker_pinned      INTEGER NOT NULL DEFAULT 0,
     selector_json      TEXT NOT NULL DEFAULT '',
     workspace_id       TEXT NOT NULL DEFAULT 'ws-00000',
-    project_id         TEXT NOT NULL DEFAULT 'prj-00000',
+    project_id         TEXT NOT NULL DEFAULT 'p-00000',
     repo_id            TEXT NOT NULL DEFAULT '',
     worktree_id        TEXT NOT NULL DEFAULT '',
     space_id           TEXT NOT NULL DEFAULT '',

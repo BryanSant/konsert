@@ -81,7 +81,7 @@ func TestRunnerRejectsDuplicateTaskID(t *testing.T) {
 	workdir := t.TempDir()
 	rec := newStatusRecorder()
 	r := NewRunner(drivers.DefaultRegistry, false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
-	const id = "task-me0n7"
+	const id = "t-me0n7"
 	req := protocol.TaskStartPayload{TaskID: id, Agent: "mock", Workdir: workdir, Prompt: "SLEEP=30", Mode: protocol.TaskModeOneshot}
 	if err := r.StartTask(context.Background(), req); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestRunnerRemovesWorktreeOnLaunchFailure(t *testing.T) {
 	reg.Register(missingBinaryDriver{})
 	rec := newStatusRecorder()
 	r := NewRunner(reg, false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
-	const id = "task-1ve2p"
+	const id = "t-1ve2p"
 	err := r.StartTask(context.Background(), protocol.TaskStartPayload{
 		TaskID: id, Agent: "missing", Workdir: repo, Branch: "konsert/launch-fail", UseWorktree: true,
 	})
@@ -161,7 +161,7 @@ func TestRunnerCancelDuringSlowSetup(t *testing.T) {
 	entered, _ := stubSlowWorktree(t)
 	rec := newStatusRecorder()
 	r := NewRunner(drivers.DefaultRegistry, false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
-	const id = "task-4jpfk"
+	const id = "t-4jpfk"
 	errCh := make(chan error, 1)
 	if err := r.StartTaskAsync(context.Background(), protocol.TaskStartPayload{
 		TaskID: id, Agent: "mock", Workdir: repo, Branch: "x", UseWorktree: true, Prompt: "SLEEP=30",

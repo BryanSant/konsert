@@ -2,17 +2,20 @@
 //
 // Two kinds exist:
 //
-//   - User-facing records (tasks, chats, workspaces, projects, repos, worktrees, spaces) get
-//     short, typed, ka-style IDs: a kind prefix plus random Crockford base32, e.g. task-7qk3m.
-//     The hub is the only minter and checks each candidate against the database, so a short
-//     suffix is safe; it grows by one character when collisions get frequent.
-//   - Everything that must be a UUID (worker/machine identity minted offline, protocol request
-//     and turn IDs, agent session IDs that CLIs require to be UUIDs) uses UUIDv7: time-ordered,
+//   - User-facing records get short, typed, ka-style IDs: a one- or two-letter kind prefix
+//     plus random lower-case Crockford base32, so the kind is clear wherever an ID shows up
+//     alone (logs, URLs): t-7qk3m task, c-yvp2f chat, m-… machine, p-… project, r-… repo,
+//     s-… space, ws-… workspace, wt-… worktree. The hub checks each candidate against the
+//     database, so a short suffix is safe; it grows by one character when collisions get
+//     frequent. Machines propose their own m- ID; the hub re-mints it on a clash.
+//   - Everything that must be a UUID (the hidden machine identity key, protocol request and
+//     turn IDs, agent session IDs that CLIs require to be UUIDs) uses UUIDv7: time-ordered,
 //     so they sort by creation and index well.
 package ids
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"strings"
@@ -24,20 +27,21 @@ import (
 type Kind string
 
 const (
-	Task      Kind = "task"
-	Chat      Kind = "chat"
+	Task      Kind = "t"
+	Chat      Kind = "c"
+	Machine   Kind = "m"
+	Project   Kind = "p"
+	Repo      Kind = "r"
+	Space     Kind = "s"
 	Workspace Kind = "ws"
-	Project   Kind = "prj"
-	Repo      Kind = "repo"
 	Worktree  Kind = "wt"
-	Space     Kind = "spc"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Workspace, Project, Repo, Worktree, Space}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
-// IDs are lower case because they appear in URLs (https://…/chat-yvp2f).
+// IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).
 const Alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 
 // SuffixLength is the starting length of the random part.
@@ -46,7 +50,7 @@ const SuffixLength = 5
 // maxTriesPerLength is how many collisions are tolerated before the suffix grows.
 const maxTriesPerLength = 8
 
-var idRe = regexp.MustCompile(`^([a-z]{2,4})-([0-9a-hjkmnp-tv-z]{5,12})$`)
+var idRe = regexp.MustCompile(`^([a-z]{1,2})-([0-9a-hjkmnp-tv-z]{5,12})$`)
 
 // Default IDs of the built-in workspace and project. All-zero suffixes are never minted
 // (see lowEntropy), so they cannot collide.
@@ -110,6 +114,17 @@ func Parse(id string) (Kind, string, bool) {
 func Valid(k Kind, id string) bool {
 	got, _, ok := Parse(id)
 	return ok && got == k
+}
+
+// Hash derives a stable ID of kind k from seed (for identities that must not change but
+// cannot be persisted, e.g. a worker on a read-only filesystem).
+func Hash(k Kind, seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	out := make([]byte, SuffixLength)
+	for i := range out {
+		out[i] = Alphabet[int(sum[i])%32]
+	}
+	return string(k) + "-" + string(out)
 }
 
 func random(n int) string {

@@ -10,7 +10,7 @@ import (
 )
 
 func TestEncodeDecodeFrame(t *testing.T) {
-	taskID := "task-7qk3m"
+	taskID := "t-7qk3m"
 	payload := []byte("\x1b[32mhello world\x1b[0m\r\n")
 
 	for _, ft := range []byte{FramePtySnapshot, FramePtyData, FramePtyStdin} {

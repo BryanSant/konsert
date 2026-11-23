@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
@@ -26,9 +27,22 @@ func TestSameHostnameMachinesCoexistByMachineID(t *testing.T) {
 	infoB.MachineID = "22222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 	a := th.connectWorker(t, infoA, nil, "w-ubuntu") // adopts the legacy row
-	b := th.connectWorker(t, infoB, nil, infoB.MachineID)
-
-	if !th.h.IsWorkerConnected("w-ubuntu") || !th.h.IsWorkerConnected(infoB.MachineID) {
+	b := th.dialWorker(t, infoB, nil)
+	// B's proposed ID is taken by A, so the hub mints B its own machine ID.
+	var bID string
+	waitFor(t, 5*time.Second, "clone B to get its own id", func() bool {
+		mids, _ := th.st.ListWorkerMachineIDs(ctx)
+		for id, mid := range mids {
+			if mid == infoB.MachineID {
+				bID = id
+			}
+		}
+		return bID != "" && th.h.IsWorkerConnected(bID)
+	})
+	if !ids.Valid(ids.Machine, bID) {
+		t.Fatalf("clone got id %q, want a minted m- id", bID)
+	}
+	if !th.h.IsWorkerConnected("w-ubuntu") {
 		t.Fatal("both same-hostname machines should stay connected")
 	}
 	select {
@@ -43,14 +57,14 @@ func TestSameHostnameMachinesCoexistByMachineID(t *testing.T) {
 
 	// Reconnects keep each machine on its own row, whatever hello ID it sends.
 	b.close()
-	waitFor(t, 3*time.Second, "B to disconnect", func() bool { return !th.h.IsWorkerConnected(infoB.MachineID) })
-	infoB.ID = "w-some-new-ephemeral-id"
-	th.connectWorker(t, infoB, nil, infoB.MachineID)
+	waitFor(t, 3*time.Second, "B to disconnect", func() bool { return !th.h.IsWorkerConnected(bID) })
+	infoB.ID = "m-zz9yx"
+	th.connectWorker(t, infoB, nil, bID)
 	if workers, _ := th.st.ListWorkers(ctx); len(workers) != 2 {
 		t.Fatalf("reconnect created a duplicate row: %d workers", len(workers))
 	}
 	mids, _ := th.st.ListWorkerMachineIDs(ctx)
-	if mids["w-ubuntu"] != infoA.MachineID || mids[infoB.MachineID] != infoB.MachineID {
+	if mids["w-ubuntu"] != infoA.MachineID || mids[bID] != infoB.MachineID {
 		t.Fatalf("unexpected machine IDs: %v", mids)
 	}
 }

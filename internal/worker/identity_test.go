@@ -41,15 +41,15 @@ func TestResolveStableWorkerIDPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
-func TestResolveStableWorkerIDIsUUIDv7AndReplacesOlderIDs(t *testing.T) {
+func TestResolveStableWorkerIDIsMachineIDAndReplacesOlderIDs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, workerIDFilename("", "host"))
 	if err := os.WriteFile(path, []byte("75cca373-29b6-4692-840b-bd942267949f\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	id := ResolveStableWorkerID(dir, "", "", "host")
-	if !ids.IsUUIDv7(id) {
-		t.Fatalf("worker id %q is not a UUIDv7", id)
+	if !ids.Valid(ids.Machine, id) {
+		t.Fatalf("worker id %q is not an m- id", id)
 	}
 	if again := ResolveStableWorkerID(dir, "", "", "host"); again != id {
 		t.Fatalf("replacement id not persisted: %q then %q", id, again)

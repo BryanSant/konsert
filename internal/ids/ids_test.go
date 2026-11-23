@@ -28,11 +28,11 @@ func TestNewFormatAndParse(t *testing.T) {
 		if !ok || got != k || len(sfx) != SuffixLength {
 			t.Fatalf("New(%s) = %q; Parse = %v %q %v", k, id, got, sfx, ok)
 		}
-		if !Valid(k, id) || Valid(Chat, "task-7qk3m") {
+		if !Valid(k, id) || Valid(Chat, "t-7qk3m") {
 			t.Fatalf("Valid mismatch for %q", id)
 		}
 	}
-	for _, bad := range []string{"", "TASK-7QK3M", "task-7qk3", "task-7qk3i", "nope-7qk3m", "75cca373-29b6-4692-840b-bd942267949f"} {
+	for _, bad := range []string{"", "T-7QK3M", "task-7qk3m", "t-7qk3", "t-7qk3i", "x-7qk3m", "abc-7qk3m", "75cca373-29b6-4692-840b-bd942267949f"} {
 		if _, _, ok := Parse(bad); ok {
 			t.Errorf("Parse(%q) accepted", bad)
 		}
@@ -62,5 +62,12 @@ func TestLowEntropy(t *testing.T) {
 		if got := lowEntropy(s); got != want {
 			t.Errorf("lowEntropy(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+func TestHashIsStableAndValid(t *testing.T) {
+	a, b := Hash(Machine, "host|linux"), Hash(Machine, "host|linux")
+	if a != b || !Valid(Machine, a) || a == Hash(Machine, "other") {
+		t.Fatalf("Hash: %q %q", a, b)
 	}
 }

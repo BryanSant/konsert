@@ -132,7 +132,7 @@ func removeGrokSessionsFor(t *testing.T, workdir string) {
 func TestLiveGrokOneshot(t *testing.T) {
 	workdir, r, rec, ev := liveGrokSetup(t)
 	err := r.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID: "task-gkw5a", Agent: "grok", Workdir: workdir,
+		TaskID: "t-gkw5a", Agent: "grok", Workdir: workdir,
 		Prompt: "reply with the single word OK", Mode: protocol.TaskModeOneshot,
 		PermissionMode: protocol.PermissionSandboxed, TimeoutSeconds: 180,
 	})
@@ -159,7 +159,7 @@ func TestLiveGrokOneshot(t *testing.T) {
 // flags the idle prompt as waiting_input, then the task is canceled like a user closing it.
 func TestLiveGrokInteractive(t *testing.T) {
 	workdir, r, rec, ev := liveGrokSetup(t)
-	const id = "task-yqbtw"
+	const id = "t-yqbtw"
 	err := r.StartTask(context.Background(), protocol.TaskStartPayload{
 		TaskID: id, Agent: "grok", Workdir: workdir,
 		Prompt:         "Create a file named ok.txt containing the word OK, then reply with the single word DONE",

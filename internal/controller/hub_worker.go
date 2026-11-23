@@ -318,8 +318,12 @@ func (h *Hub) resolveWorkerID(ctx context.Context, info protocol.WorkerInfo) str
 		if !exists[info.ID] {
 			return info.ID
 		}
-		// The hello ID already belongs to a different machine (e.g. a cloned VM
-		// that derived the same deterministic ID): key this one on its machine UUID.
+		// The proposed ID already belongs to a different machine (a cloned VM, or a
+		// rare collision): mint this machine its own ID; later hellos find it via its
+		// machine UUID.
+		if id, err := h.store.NewID(ctx, ids.Machine); err == nil {
+			return id
+		}
 		return mid
 	}
 

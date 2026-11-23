@@ -483,8 +483,8 @@ export interface PtyFrameEvent {
 export const FRAME_PTY_SNAPSHOT = 0x01;
 export const FRAME_PTY_DATA = 0x02;
 export const FRAME_PTY_STDIN = 0x03;
-export const FRAME_TASK_ID_SIZE = 24;
+export const FRAME_TASK_ID_SIZE = 16;
 export const FRAME_HEADER_SIZE = 1 + FRAME_TASK_ID_SIZE;
 
 /** ID of the built-in Default project (Go: ids.DefaultProject). */
-export const DEFAULT_PROJECT_ID = 'prj-00000';
+export const DEFAULT_PROJECT_ID = 'p-00000';
