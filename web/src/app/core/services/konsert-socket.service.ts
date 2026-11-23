@@ -24,6 +24,8 @@ import { AgentAccount } from '../models/agent-chat.models';
 import { AgentAccountsStore } from '../state/agent-accounts.store';
 import { AgentChatStore } from '../state/agent-chat.store';
 import { AuditStore } from '../state/audit.store';
+import { QuestionView } from '../models/question.models';
+import { QuestionsStore } from '../state/questions.store';
 import { ControlStore } from '../state/control.store';
 import { FleetEvent, FleetPause, Hold, UserRequest } from '../models/control.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
@@ -46,6 +48,7 @@ export class KonsertSocketService {
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly auditStore = inject(AuditStore);
   private readonly controlStore = inject(ControlStore);
+  private readonly questionsStore = inject(QuestionsStore);
   private readonly agentChat = inject(AgentChatStore);
   private readonly agentAccounts = inject(AgentAccountsStore);
   private readonly notifications = inject(NotificationService);
@@ -141,6 +144,7 @@ export class KonsertSocketService {
         void this.agentChat.onReconnected();
         void this.telemetryStore.onReconnected();
         void this.controlStore.load();
+        void this.questionsStore.load();
       }
       // A new socket starts with no subscriptions: re-subscribe the active chat session.
       this.subscribedChatSession = '';
@@ -215,6 +219,7 @@ export class KonsertSocketService {
           hold?: Hold;
           request?: UserRequest;
           pause?: FleetPause;
+          question?: QuestionView;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -243,6 +248,8 @@ export class KonsertSocketService {
           this.controlStore.applyRequest(p.request);
         } else if (p.kind === 'pause' && p.pause) {
           this.controlStore.applyPause(p.pause);
+        } else if (p.kind === 'question' && p.question) {
+          this.questionsStore.apply(p.question);
         } else if (p.kind === 'space' && p.space) {
           this.fleetStore.upsertSpace(p.space);
         } else if (p.kind === 'space_deleted' && p.deleted_id) {

@@ -89,6 +89,8 @@ export interface AgentElicitation {
   tool_call?: AgentToolCall;
   options?: AgentElicitationOption[];
   allow_text?: boolean;
+  /** The hub's question (q-…) this card shows; answered through the question queue. */
+  question_id?: string;
 }
 
 export interface AgentElicitationOption {
@@ -96,6 +98,9 @@ export interface AgentElicitationOption {
   label: string;
   /** allow_once, allow_always, reject_once, reject_always, choice */
   kind?: string;
+  /** What happens if the user picks it (ask_user questions). */
+  consequence?: string;
+  recommended?: boolean;
 }
 
 export interface AgentTokenUsage {

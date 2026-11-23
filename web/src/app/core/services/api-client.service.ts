@@ -38,6 +38,12 @@ import {
   VetoReason,
   WorkerControlResult,
 } from '../models/control.models';
+import {
+  QuestionAnswerRequest,
+  QuestionMetrics,
+  QuestionSettings,
+  QuestionView,
+} from '../models/question.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 
 /** Error thrown for non-2xx responses; carries the HTTP status. */
@@ -337,6 +343,50 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ status, note: note || undefined }),
     });
+  }
+
+  // --- Questions (PRD §5.8b) ---
+
+  /** The fleet-wide question queue (pending, sorted by blocking impact); `all` adds recent closed ones. */
+  listQuestions(q: { all?: boolean; chat_id?: string } = {}): Promise<{ questions: QuestionView[] }> {
+    const params = new URLSearchParams();
+    if (q.all) params.set('status', 'all');
+    if (q.chat_id) params.set('chat_id', q.chat_id);
+    const qs = params.toString();
+    return this.request(`/api/questions${qs ? `?${qs}` : ''}`);
+  }
+
+  getQuestion(id: string): Promise<QuestionView> {
+    return this.request(`/api/questions/${encodeURIComponent(id)}`);
+  }
+
+  answerQuestion(id: string, body: QuestionAnswerRequest): Promise<QuestionView> {
+    return this.request(`/api/questions/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  /** "Ask about this": a message in the question's side conversation. */
+  askAboutQuestion(id: string, text: string): Promise<QuestionView> {
+    return this.request(`/api/questions/${encodeURIComponent(id)}/ask`, { method: 'POST', body: JSON.stringify({ text }) });
+  }
+
+  delegateQuestion(id: string): Promise<QuestionView> {
+    return this.request(`/api/questions/${encodeURIComponent(id)}/delegate`, { method: 'POST', body: '{}' });
+  }
+
+  snoozeQuestion(id: string, minutes: number): Promise<QuestionView> {
+    return this.request(`/api/questions/${encodeURIComponent(id)}/snooze`, { method: 'POST', body: JSON.stringify({ minutes }) });
+  }
+
+  questionMetrics(days = 7): Promise<QuestionMetrics> {
+    return this.request(`/api/questions/metrics?days=${days}`);
+  }
+
+  getQuestionSettings(): Promise<QuestionSettings> {
+    return this.request('/api/questions/settings');
+  }
+
+  putQuestionSettings(s: QuestionSettings): Promise<QuestionSettings> {
+    return this.request('/api/questions/settings', { method: 'PUT', body: JSON.stringify(s) });
   }
 
   /** Fleet timeline (attributed events), newest first. */

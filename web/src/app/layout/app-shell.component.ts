@@ -25,6 +25,9 @@ import { StatusFooterComponent } from './status-footer.component';
 import { TabStripComponent } from './tab-strip.component';
 import { PauseEverythingComponent, PausedBannerComponent } from '../features/control/pause-everything.component';
 import { ControlStore } from '../core/state/control.store';
+import { QuestionsStore } from '../core/state/questions.store';
+import { QuestionsButtonComponent } from '../features/questions/questions-button.component';
+import { QuestionsPanelComponent } from '../features/questions/questions-panel.component';
 import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.component';
 
 @Component({
@@ -48,6 +51,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
     TabStripComponent,
     PauseEverythingComponent,
     PausedBannerComponent,
+    QuestionsButtonComponent,
+    QuestionsPanelComponent,
   ],
   template: `
     <div class="flex flex-col h-screen w-screen overflow-hidden bg-[#111214] text-[#ececed]">
@@ -98,6 +103,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
         <!-- Right Orca-style Inspector Tab Icons & Collapse Toggle -->
         <div class="flex items-center gap-0.5 pr-2.5 pl-2 h-full shrink-0">
+          <!-- Questions from agents across the fleet (PRD §5.8b) -->
+          <ks-questions-button class="mr-1" />
           <!-- Pause everything: always visible (PRD §5.8a) -->
           <ks-pause-everything class="mr-1.5" />
           @for (p of inspectorPanels; track p.id) {
@@ -326,6 +333,10 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         />
       }
 
+      @if (questions.panelOpen()) {
+        <ks-questions-panel />
+      }
+
       @if (commandPaletteOpen()) {
         <app-command-palette (close)="commandPaletteOpen.set(false)" (command)="onPaletteCommand($event)" />
       }
@@ -346,6 +357,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   private readonly launcher = inject(SessionLauncherService);
   readonly setup = inject(SetupStore);
   readonly control = inject(ControlStore);
+  readonly questions = inject(QuestionsStore);
 
   readonly leftOpen = signal(true);
   readonly rightOpen = signal(true);
@@ -399,6 +411,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
       .catch(() => undefined);
     void this.fleet.loadSettings();
     void this.control.load();
+    void this.questions.load();
     this.socket.connect();
     // First run (persisted by the hub): open Add Machine with this machine on top.
     void this.setup.load().then((s) => {

@@ -383,7 +383,9 @@ function finishTurn(items: TranscriptItem[], turnId: string): TranscriptItem[] {
     if (i.type === 'tool' && i.turnId === turnId && (i.call.status === 'running' || i.call.status === 'pending')) {
       return { ...i, call: { ...i.call, status: 'cancelled' } };
     }
-    if (i.type === 'elicitation' && (i.state === 'pending' || i.state === 'answering') && i.turnId === turnId) {
+    // A Konsert question stays open after the agent's turn ends (the answer is delivered
+    // as a note); the hub resolves its card when it is answered or cancelled.
+    if (i.type === 'elicitation' && (i.state === 'pending' || i.state === 'answering') && i.turnId === turnId && !i.elicitation.question_id) {
       return { ...i, state: 'expired' as const };
     }
     return i;
