@@ -6,7 +6,7 @@ import path from 'node:path';
 
 export const E2E_STATE_FILE = path.join(os.tmpdir(), 'konsert-playwright-e2e.json');
 
-function getFreePort(): Promise<number> {
+export function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
     srv.unref();
@@ -23,7 +23,7 @@ function getFreePort(): Promise<number> {
   });
 }
 
-async function waitFor(predicate: () => Promise<boolean>, timeoutMs: number, label: string): Promise<void> {
+export async function waitFor(predicate: () => Promise<boolean>, timeoutMs: number, label: string): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -89,7 +89,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: subscriptionOnlyEnv(),
+      // GET /api/setup runs `konsertd id`, and adding this machine would run `konsertd
+      // install`: keep the identity out of ~/.konsert and never register a real service.
+      env: subscriptionOnlyEnv({
+        KONSERT_STATE_DIR: path.join(tmpDir, 'hub-state'),
+        KONSERT_INSTALL_DRY_RUN: '1',
+        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+      }),
     }
   );
   procs.push(controller);
