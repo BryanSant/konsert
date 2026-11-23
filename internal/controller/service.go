@@ -57,6 +57,8 @@ type WorkerStatusView struct {
 	LaunchAt    *time.Time `json:"launch_at,omitzero"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
+	// Heat is the machine's smoothed load score (nil before its first heartbeat).
+	Heat *WorkerHeat `json:"heat,omitzero"`
 	// Drained machines finish their current work and accept nothing new.
 	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
@@ -131,6 +133,9 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
 		view.Status = st
 		view.WakeLock = s.hub.workerWakeLockView(w.ID)
+		if st == "online" {
+			view.Heat = s.hub.workerHeat(w.ID)
+		}
 		views = append(views, view)
 	}
 	return FleetStatusResult{
@@ -311,17 +316,20 @@ type DispatchRequest struct {
 	RepoID         string         `json:"repo_id,omitempty"`
 	WorktreeID     string         `json:"worktree_id,omitempty"`
 	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
-	Agent          string         `json:"agent"`
-	Model          string         `json:"model,omitempty"`
-	RepoPath       string         `json:"repo_path"`
-	Branch         string         `json:"branch,omitempty"`
-	UseWorktree    *bool          `json:"use_worktree,omitzero"`
-	Prompt         string         `json:"prompt"`
-	Mode           string         `json:"mode,omitempty"`
-	Origin         string         `json:"origin,omitempty"` // "orchestrator" | "direct" | "scratch"
-	PermissionMode string         `json:"permission_mode,omitempty"`
-	OrphanPolicy   string         `json:"orphan_policy,omitempty"`
-	TimeoutSeconds *int           `json:"timeout_seconds,omitzero"`
+	// Title is a short name for the task shown in the live work views (default: the
+	// prompt's first line).
+	Title          string `json:"title,omitempty" jsonschema:"Short name for the task (max 80 chars), e.g. 'KON-2Q0CH: questions card on mobile'"`
+	Agent          string `json:"agent"`
+	Model          string `json:"model,omitempty"`
+	RepoPath       string `json:"repo_path"`
+	Branch         string `json:"branch,omitempty"`
+	UseWorktree    *bool  `json:"use_worktree,omitzero"`
+	Prompt         string `json:"prompt"`
+	Mode           string `json:"mode,omitempty"`
+	Origin         string `json:"origin,omitempty"` // "orchestrator" | "direct" | "scratch"
+	PermissionMode string `json:"permission_mode,omitempty"`
+	OrphanPolicy   string `json:"orphan_policy,omitempty"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitzero"`
 	// AccountID selects the worker-local agent account ("" = the agent's default);
 	// ApprovalMode and Effort are the agent's own approval mode and effort IDs.
 	AccountID    string `json:"account_id,omitempty" jsonschema:"Agent account on the worker (see GET /api/agents/accounts); empty = the agent's default account"`
@@ -580,6 +588,8 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		Status:         protocol.TaskStatusQueued,
 		Cause:          &cause,
 		CreatedAt:      time.Now().UTC(),
+		Title:          oneLine(req.Title, 80),
+		TicketID:       detectTicket(req.Title, req.Prompt),
 	}
 	if o, fromChat := chatOriginFrom(ctx); fromChat {
 		task.ParentChatID = o.id
@@ -655,6 +665,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	}
 
 	s.hub.broadcastFleetUpdate("task", task)
+	s.hub.resolveTaskTicket(task.ID, task.TicketID)
 
 	return DispatchResult{
 		TaskID:           task.ID,
@@ -1310,6 +1321,11 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 			},
 		},
 		{
+			Name:        "set_narration",
+			Description: setNarrationDescription,
+			Parameters:  setNarrationToolDef,
+		},
+		{
 			Name:        "recent_events",
 			Description: recentEventsDescription,
 			Parameters: map[string]any{
@@ -1516,6 +1532,13 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 		var req RecentEventsInput
 		_ = json.Unmarshal(args, &req)
 		return s.RecentEvents(ctx, req)
+
+	case "set_narration":
+		in, err := decodeSetNarration(args)
+		if err != nil {
+			return nil, err
+		}
+		return s.SetNarration(ctx, in)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)

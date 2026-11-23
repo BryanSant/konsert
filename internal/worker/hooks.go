@@ -30,6 +30,8 @@ type HookEvent struct {
 	FilePath  string `json:"file_path,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// Tool is the tool a PreToolUse/PostToolUse hook fired for (from the hook's stdin JSON).
+	Tool string `json:"tool,omitempty"`
 	// TaskID is set when the hook fired inside a konsertd-managed task (KONSERT_TASK_ID).
 	TaskID    string    `json:"task_id,omitempty"`
 	Timestamp time.Time `json:"ts"`

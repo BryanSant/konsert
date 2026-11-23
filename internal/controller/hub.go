@@ -133,6 +133,10 @@ type Hub struct {
 
 	// questions is the question queue's in-memory state (questions.go).
 	questions questionState
+	// activity is the latest activity of every session (activity.go); heat is every
+	// worker's smoothed load score (heat.go).
+	activity activityState
+	heat     heatState
 	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
 	KaPath string
 	// kaShowFn and ghPRFn replace ka/gh in tests.

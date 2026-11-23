@@ -207,6 +207,10 @@ func ParseHookEventLine(line string) (protocol.ExternalSessionPayload, bool) {
 	if ev.FilePath != "" {
 		changed = []string{ev.FilePath}
 	}
+	tool := ""
+	if strings.EqualFold(ev.Event, "PreToolUse") {
+		tool = ev.Tool // PostToolUse: the tool finished
+	}
 	return protocol.ExternalSessionPayload{
 		ExternalID:   extID,
 		Agent:        strings.ToLower(strings.TrimSpace(ev.Agent)),
@@ -216,6 +220,8 @@ func ParseHookEventLine(line string) (protocol.ExternalSessionPayload, bool) {
 		Summary:      ev.Message,
 		ChangedFiles: changed,
 		Source:       "hook",
+		Tool:         tool,
+		Event:        ev.Event,
 	}, true
 }
 
@@ -424,7 +430,7 @@ func (s *SessionDiscovery) cachedProcessCwd(ctx context.Context, p psEntry) stri
 func (s *SessionDiscovery) emitIfChanged(p protocol.ExternalSessionPayload) {
 	s.mu.Lock()
 	prev, exists := s.activeExternal[p.ExternalID]
-	changed := !exists || prev.Status != p.Status || prev.Cwd != p.Cwd || prev.Branch != p.Branch || len(p.ChangedFiles) > 0 || (p.Summary != "" && p.Summary != prev.Summary)
+	changed := !exists || prev.Status != p.Status || prev.Tool != p.Tool || prev.Event != p.Event || prev.Cwd != p.Cwd || prev.Branch != p.Branch || len(p.ChangedFiles) > 0 || (p.Summary != "" && p.Summary != prev.Summary)
 	if changed {
 		s.activeExternal[p.ExternalID] = p
 	}

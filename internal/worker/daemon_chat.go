@@ -76,6 +76,7 @@ func (d *Daemon) initChat() {
 		Logger:      d.logger,
 		OnFailure:   d.onChatFailure,
 		OnRateLimit: d.onChatRateLimit,
+		OnActivity:  d.activity.Update,
 		CheckApproval: func(agent, accountID, mode string) error {
 			if !d.cfg.Sandbox || d.caps == nil {
 				return nil
@@ -259,6 +260,7 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 		if p, err := protocol.DecodePayload[protocol.AgentChatClose](env); err == nil {
 			if p.Discard {
 				d.chat.DiscardChat(p.ChatID)
+				d.activity.Forget("chat:" + p.ChatID)
 			} else {
 				d.chat.CloseChat(p.ChatID)
 			}

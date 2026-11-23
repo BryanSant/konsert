@@ -77,6 +77,9 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 		}
 		h.broadcastFleetUpdate("task", updated)
 	}
+	if a, ok := externalActivity(taskID, workerID, p); ok {
+		h.setActivity(a)
+	}
 }
 
 func (h *Hub) matchTaxonomyByPath(ctx context.Context, workerID, cwd string) (wsID, projID, repoID, wtID string) {

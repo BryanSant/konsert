@@ -503,6 +503,10 @@ func (h *Hub) askUserWait(ctx context.Context, chatID string, raw askUserInput) 
 	rt.asks[elID] = ask
 	rt.mu.Unlock()
 	h.showQuestionInChat(ctx, q)
+	// The hub knows best that the agent now waits for the user (its tool call shows as
+	// running to the worker).
+	h.setActivity(protocol.SessionActivity{ChatID: chatID, WorkerID: cs.WorkerID, State: protocol.ActivityAsking,
+		Tool: "ask_user", Label: oneLine(q.Prompt, 160), Source: protocol.ActivitySourceHub})
 	if !reused {
 		h.afterQuestionCreated(q)
 	}

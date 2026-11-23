@@ -192,6 +192,7 @@ func (s *Server) handleDeleteChatSession(w http.ResponseWriter, r *http.Request)
 	// pending ask_user and close the engine.
 	s.hub.forgetChat(id, cs.WorkerID)
 	s.hub.broadcastFleetUpdate("chat_session_deleted", id)
+	s.hub.forgetActivity("chat:" + id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 

@@ -258,6 +258,9 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 			rt.turnID = ""
 		}
 	}
+	if o.fromWorker == nil {
+		h.hubChatActivity(cs, ev)
+	}
 	// Broadcast under the chat lock so subscribers see events in seq order
 	// (sendChatEvent only enqueues).
 	h.sendChatEvent(chatID, protocol.MsgAgentChatEvent, ev)

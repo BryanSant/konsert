@@ -102,12 +102,16 @@ type Workspace struct {
 
 // Project groups one or more Repos (supporting multi-repo projects across machines) inside a Workspace.
 type Project struct {
-	ID          string    `json:"id"`
-	SID         string    `json:"sid"`
-	WorkspaceID string    `json:"workspace_id"`
-	Name        string    `json:"name"`
-	IsDefault   bool      `json:"is_default"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string `json:"id"`
+	SID         string `json:"sid"`
+	WorkspaceID string `json:"workspace_id"`
+	Name        string `json:"name"`
+	IsDefault   bool   `json:"is_default"`
+	// Headline is the project's current goal as the orchestrator states it ("" = none;
+	// the UI falls back to facts). HeadlineAt is when it was set.
+	Headline   string     `json:"headline,omitempty"`
+	HeadlineAt *time.Time `json:"headline_at,omitzero"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // Repo represents a repository or working folder on a specific machine belonging to a Project.
@@ -171,10 +175,17 @@ type Task struct {
 	// SuspendedBy is "user" or "pause" while the task is suspended ("" otherwise).
 	SuspendedBy string `json:"suspended_by"`
 	// ParentChatID is the chat (orchestrator or agent) that dispatched the task.
-	ParentChatID string     `json:"parent_chat_id,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at,omitzero"`
-	CompletedAt  *time.Time `json:"completed_at,omitzero"`
+	ParentChatID string `json:"parent_chat_id,omitempty"`
+	// Title is a short name for the task; Narration the orchestrator's one-line "now"
+	// (NarrationAt when it was set); TicketID/TicketTitle the ka ticket it works on.
+	Title       string     `json:"title,omitempty"`
+	Narration   string     `json:"narration,omitempty"`
+	NarrationAt *time.Time `json:"narration_at,omitzero"`
+	TicketID    string     `json:"ticket_id,omitempty"`
+	TicketTitle string     `json:"ticket_title,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitzero"`
+	CompletedAt *time.Time `json:"completed_at,omitzero"`
 }
 
 // TaskStartSpec is the persisted placement and launch specification of a task:
@@ -380,6 +391,8 @@ type Store interface {
 
 	CreateProject(ctx context.Context, p Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
+	// SetProjectHeadline sets (or, with "", clears) a project's headline.
+	SetProjectHeadline(ctx context.Context, id, headline string, at time.Time) error
 	ListProjects(ctx context.Context, workspaceID string) ([]Project, error)
 	DeleteProject(ctx context.Context, id string) error
 
@@ -407,6 +420,10 @@ type Store interface {
 	SetTaskSuspendedBy(ctx context.Context, id, by string) error
 	// SetTaskParentChat records the chat that dispatched a task.
 	SetTaskParentChat(ctx context.Context, id, chatID string) error
+	// SetTaskNarration sets (or, with "", clears) a task's one-line narration.
+	SetTaskNarration(ctx context.Context, id, narration string, at time.Time) error
+	// SetTaskTicket records the ka ticket a task works on (title may be filled in later).
+	SetTaskTicket(ctx context.Context, id, ticketID, ticketTitle string) error
 	GetTask(ctx context.Context, id string) (Task, error)
 	ListTasks(ctx context.Context, status, workerID string, limit int) ([]Task, error)
 
