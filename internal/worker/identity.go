@@ -17,25 +17,23 @@ import (
 type identityRecord struct {
 	// ID is this daemon's UUIDv7: the hub's workers.id. The hub mints the short m- sid.
 	ID string `json:"id"`
-	// OSMachineHash fingerprints the OS machine identity (/etc/machine-id on Linux) the ID
-	// was generated on. If it changes, the state dir was copied to another machine (a cloned
+	// OSMachineHash fingerprints the machine the ID was generated on (/etc/machine-id on
+	// Linux, IOPlatformUUID on macOS, MachineGuid on Windows). If it changes, the state dir was copied to another machine (a cloned
 	// VM image), so a fresh ID is generated instead of impersonating the original.
 	OSMachineHash string `json:"os_machine_hash,omitempty"`
 }
 
-// osMachineIDPaths are read, first match wins, to fingerprint the OS installation.
-var osMachineIDPaths = []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}
+// machineSource reads the platform's machine identity; tests replace it.
+var machineSource = osMachineSource
 
+// osMachineHash fingerprints the machine (see osMachineSource), or "" if it is unknown.
 func osMachineHash() string {
-	for _, p := range osMachineIDPaths {
-		if raw, err := os.ReadFile(p); err == nil {
-			if v := strings.TrimSpace(string(raw)); v != "" {
-				sum := sha256.Sum256([]byte("konsert:" + v))
-				return hex.EncodeToString(sum[:8])
-			}
-		}
+	v := strings.TrimSpace(machineSource())
+	if v == "" {
+		return ""
 	}
-	return ""
+	sum := sha256.Sum256([]byte("konsert:" + strings.ToLower(v)))
+	return hex.EncodeToString(sum[:8])
 }
 
 // ResolveStableWorkerID returns this daemon's persistent identity: a UUIDv7 that is the
@@ -61,8 +59,9 @@ func ResolveStableWorkerID(baseDir, name, hostGroup, isolation string) string {
 
 	if raw, err := os.ReadFile(path); err == nil {
 		var rec identityRecord
-		if json.Unmarshal(raw, &rec) == nil && ids.IsUUIDv7(rec.ID) &&
-			(rec.OSMachineHash == "" || osHash == "" || rec.OSMachineHash == osHash) {
+		// The hash must match exactly: a record from another machine, or one written before
+		// this platform had a fingerprint, gets a fresh identity.
+		if json.Unmarshal(raw, &rec) == nil && ids.IsUUIDv7(rec.ID) && rec.OSMachineHash == osHash {
 			return rec.ID
 		}
 	}

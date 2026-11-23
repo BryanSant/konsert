@@ -46,21 +46,19 @@ func TestResolveStableWorkerIDPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
-// A state dir copied into a cloned VM (different OS machine-id) gets a fresh UUIDv7.
+// A state dir copied into a cloned VM (different machine fingerprint) gets a fresh UUIDv7.
 func TestResolveStableWorkerIDRegeneratesOnOSHashChange(t *testing.T) {
 	dir := t.TempDir()
-	osID := filepath.Join(t.TempDir(), "machine-id")
-	orig := osMachineIDPaths
-	osMachineIDPaths = []string{osID}
-	t.Cleanup(func() { osMachineIDPaths = orig })
+	machine := "aaaa"
+	orig := machineSource
+	machineSource = func() string { return machine }
+	t.Cleanup(func() { machineSource = orig })
 
-	if err := os.WriteFile(osID, []byte("aaaa\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	first := ResolveStableWorkerID(dir, "", "", "host")
-	if err := os.WriteFile(osID, []byte("bbbb\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if again := ResolveStableWorkerID(dir, "", "", "host"); again != first {
+		t.Fatalf("identity not stable on the same machine: %q then %q", first, again)
 	}
+	machine = "bbbb" // the state dir now lives on a clone
 	cloned := ResolveStableWorkerID(dir, "", "", "host")
 	if cloned == first || !ids.IsUUIDv7(cloned) {
 		t.Fatalf("worker id must be a fresh UUIDv7 when the OS machine identity changes: %q then %q", first, cloned)
@@ -108,5 +106,18 @@ func TestHelloCarriesWorkerID(t *testing.T) {
 	}
 	if hello.Worker.ID == "" || hello.Worker.ID != d.WorkerID() {
 		t.Fatalf("hello id = %q, daemon = %q", hello.Worker.ID, d.WorkerID())
+	}
+}
+
+// An identity written where no fingerprint was available is replaced once one is.
+func TestResolveStableWorkerIDRequiresMatchingHash(t *testing.T) {
+	dir := t.TempDir()
+	orig := machineSource
+	t.Cleanup(func() { machineSource = orig })
+	machineSource = func() string { return "" }
+	unhashed := ResolveStableWorkerID(dir, "", "", "host")
+	machineSource = func() string { return "hw-uuid-1" }
+	if got := ResolveStableWorkerID(dir, "", "", "host"); got == unhashed {
+		t.Fatal("an identity without a machine fingerprint was reused once one became available")
 	}
 }
