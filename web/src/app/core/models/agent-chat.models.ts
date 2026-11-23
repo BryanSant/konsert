@@ -204,6 +204,11 @@ export interface AgentApprovalMode {
   risk: number;
   /** hand, edit, shield-check, shield-alert, eye */
   icon?: string;
+  /**
+   * When non-empty, the mode can't be used on this worker and this is why (e.g. konsertd
+   * runs with --sandbox, which refuses full-access modes).
+   */
+  disabled?: string;
 }
 
 /** An account as the hub reports it: the AgentAccount plus the worker that owns it. */

@@ -15,6 +15,7 @@ import { ChatComposerComponent, ComposerSubmit } from './chat-composer.component
 import {
   ComposerSelection,
   approvalTone,
+  defaultApproval,
   effortsFor,
   emptySelection,
   filterModels,
@@ -24,8 +25,31 @@ import {
   selectModel,
 } from './composer-logic';
 
+const SANDBOX_REASON = 'This machine runs konsertd with --sandbox, which refuses full-access modes.';
+/** Claude on a --sandbox worker: full access is disabled with the reason. */
+function sandboxedClaude(over: Partial<AgentAccount> = {}): AgentAccount {
+  const base = claudeAccount();
+  return {
+    ...base,
+    approval_modes: base.approval_modes!.map((m) => (m.risk >= 4 ? { ...m, disabled: SANDBOX_REASON } : m)),
+    ...over,
+  };
+}
+
 describe('composer logic', () => {
   const claude = claudeAccount();
+
+  it('never auto-selects a disabled approval mode', () => {
+    const sel = { ...emptySelection(), approvalMode: 'bypassPermissions' };
+    // A carried-over full-access choice falls back to the default on a sandboxed worker.
+    expect(normalizeSelection(sel, sandboxedClaude()).approvalMode).toBe('default');
+    // Even when the account's default (or the first mode) is the disabled one.
+    const odd = sandboxedClaude({ default_approval_mode: 'bypassPermissions' });
+    expect(defaultApproval(odd)).toBe('plan');
+    const first = sandboxedClaude();
+    first.approval_modes = [...first.approval_modes!].reverse();
+    expect(defaultApproval({ ...first, default_approval_mode: '' })).toBe('auto');
+  });
 
   it('filters models by name, id and description, all terms', () => {
     const models = claude.models!;
@@ -263,5 +287,36 @@ describe('ChatComposerComponent', () => {
     expect($('[data-testid="send-button"]')).toBeNull();
     $<HTMLButtonElement>('[data-testid="stop-button"]').click();
     expect(host.stops).toBe(1);
+  });
+
+  it('shows disabled approval modes greyed with the reason, never selects them, and skips them with the arrows', async () => {
+    const { host, render, $, el } = await setup();
+    host.accounts.set([sandboxedClaude()]);
+    host.selection.set(normalizeSelection({ ...host.selection(), approvalMode: 'auto' }, sandboxedClaude()));
+    await render();
+    $<HTMLButtonElement>('[data-testid="approval-chip"]').click();
+    await render();
+    const full = el.querySelector<HTMLButtonElement>('[data-mode="bypassPermissions"]')!;
+    expect(full.getAttribute('aria-disabled')).toBe('true');
+    expect(full.textContent).toContain(SANDBOX_REASON);
+    const reason = full.querySelector('[data-testid="approval-disabled-reason"]')!;
+    expect(full.getAttribute('aria-describedby')).toBe(reason.id);
+    // Enabled modes are not marked.
+    expect(el.querySelector('[data-mode="auto"]')!.hasAttribute('aria-disabled')).toBe(false);
+
+    full.click();
+    await render();
+    expect(host.selection().approvalMode).toBe('auto');
+    expect(host.changes).toEqual([]);
+    // The menu stays open after clicking a disabled item.
+    expect(el.querySelector('[role="menu"]')).toBeTruthy();
+
+    // Focus starts on the checked mode; ArrowDown wraps past the disabled last item.
+    const auto = el.querySelector<HTMLButtonElement>('[data-mode="auto"]')!;
+    expect(document.activeElement).toBe(auto);
+    auto.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(el.querySelector('[data-mode="plan"]'));
+    (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(auto);
   });
 });

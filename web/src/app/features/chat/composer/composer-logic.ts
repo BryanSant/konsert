@@ -42,8 +42,14 @@ export function defaultEffort(model: AgentModel | null | undefined): string {
   return efforts.find((e) => e.id === model?.default_effort)?.id ?? efforts[Math.floor((efforts.length - 1) / 2)].id;
 }
 
+/** Is the approval mode usable on its worker (no `disabled` reason)? */
+export function approvalEnabled(mode: AgentApprovalMode | null | undefined): boolean {
+  return !!mode && !mode.disabled;
+}
+
+/** The account's default approval mode; never a disabled one. */
 export function defaultApproval(account: AgentAccount | null | undefined): string {
-  const modes = account?.approval_modes ?? [];
+  const modes = (account?.approval_modes ?? []).filter(approvalEnabled);
   return modes.find((m) => m.id === account?.default_approval_mode)?.id ?? modes[0]?.id ?? '';
 }
 
@@ -57,7 +63,9 @@ export function normalizeSelection(sel: ComposerSelection, account: AgentAccount
   const efforts = effortsFor(model);
   const effort = efforts.some((e) => e.id === sel.effort) ? sel.effort : defaultEffort(model);
   const approvals = account.approval_modes ?? [];
-  const approvalMode = approvals.some((m) => m.id === sel.approvalMode) ? sel.approvalMode : defaultApproval(account);
+  const approvalMode = approvals.some((m) => m.id === sel.approvalMode && approvalEnabled(m))
+    ? sel.approvalMode
+    : defaultApproval(account);
   return { ...sel, accountId: account.id, model: model?.id ?? '', effort, approvalMode };
 }
 

@@ -442,8 +442,28 @@ dialog.ks-dialog::backdrop {
   background: var(--ks-raised);
 }
 .ks-menu-item[aria-disabled='true'] {
-  opacity: 0.45;
-  cursor: default;
+  cursor: not-allowed;
+}
+/* Grey the label/icon only, so the reason below stays readable (contrast >= 4.5:1). */
+.ks-menu-item[aria-disabled='true'] > :first-child,
+.ks-menu-item[aria-disabled='true'] .ks-menu-label {
+  color: var(--ks-text-muted);
+}
+.ks-menu-item[aria-disabled='true'] .ks-menu-desc {
+  color: var(--ks-text-muted);
+}
+.ks-menu-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #c9a46a;
+}
+.ks-menu-reason > app-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 .ks-menu-label {
   font-size: 12.5px;
