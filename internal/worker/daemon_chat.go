@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -81,6 +82,8 @@ func (d *Daemon) initChat() {
 		Engine:   d.chat.Engine,
 		Status:   status,
 		Logger:   d.logger,
+		// Exhausted usage windows survive a konsertd restart (no secrets stored).
+		PersistPath: usageCachePath(),
 	})
 	d.runner.SetAccounts(d.accounts)
 }
@@ -262,4 +265,13 @@ func (d *Daemon) shutdownChat() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	d.chat.Shutdown(ctx)
+}
+
+// usageCachePath is <state dir>/usage-cache.json ("" when there is no state dir).
+func usageCachePath() string {
+	dir := defaultStateDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "usage-cache.json")
 }

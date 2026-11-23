@@ -2,7 +2,10 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -35,6 +38,10 @@ type CapabilitiesOptions struct {
 	ForceInterval time.Duration
 	Logger        *slog.Logger
 	Now           func() time.Time
+	// PersistPath, when set, stores exhausted usage windows (no secrets: window, percent,
+	// reset time) so a restarted konsertd still knows an account is out of usage before
+	// the user sends anything.
+	PersistPath string
 }
 
 // Capabilities probes every account concurrently (with timeouts and per-account caching)
@@ -86,13 +93,78 @@ func NewCapabilities(opts CapabilitiesOptions) *Capabilities {
 	if opts.Engine == nil {
 		opts.Engine = func(string) (Engine, bool) { return nil, false }
 	}
-	return &Capabilities{
+	c := &Capabilities{
 		opts:     opts,
 		cache:    map[string]capEntry{},
 		forcedAt: map[string]time.Time{},
 		overlays: map[string]map[string]overlay{},
 		probing:  map[string]chan struct{}{},
 	}
+	c.loadOverlays()
+	return c
+}
+
+// persistedOverlay is one exhausted window saved across restarts.
+type persistedOverlay struct {
+	Account string                  `json:"account"`
+	Limit   protocol.AgentRateLimit `json:"limit"`
+	Until   time.Time               `json:"until"`
+}
+
+// loadOverlays restores exhausted windows that have not reset yet.
+func (c *Capabilities) loadOverlays() {
+	if c.opts.PersistPath == "" {
+		return
+	}
+	raw, err := os.ReadFile(c.opts.PersistPath)
+	if err != nil {
+		return
+	}
+	var saved []persistedOverlay
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		c.opts.Logger.Warn("ignoring unreadable usage cache", "path", c.opts.PersistPath, "err", err)
+		return
+	}
+	now := c.opts.Now()
+	for _, p := range saved {
+		if p.Account == "" || p.Limit.Window == "" || !now.Before(p.Until) {
+			continue
+		}
+		m := c.overlays[p.Account]
+		if m == nil {
+			m = map[string]overlay{}
+			c.overlays[p.Account] = m
+		}
+		m[p.Limit.Window] = overlay{rl: p.Limit, seen: now, until: p.Until}
+	}
+}
+
+// saveOverlaysLocked writes the exhausted windows (atomically, 0600). Caller holds c.mu.
+func (c *Capabilities) saveOverlaysLocked() {
+	if c.opts.PersistPath == "" {
+		return
+	}
+	now := c.opts.Now()
+	saved := []persistedOverlay{}
+	for acct, m := range c.overlays {
+		for _, o := range m {
+			if o.rl.State == "exhausted" && now.Before(o.until) {
+				saved = append(saved, persistedOverlay{Account: acct, Limit: o.rl, Until: o.until})
+			}
+		}
+	}
+	b, err := json.Marshal(saved)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(c.opts.PersistPath), 0o700); err != nil {
+		return
+	}
+	tmp := c.opts.PersistPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, c.opts.PersistPath)
 }
 
 // Invalidate marks an account (or every account when id is "") for re-probing on the next
@@ -154,7 +226,11 @@ func (c *Capabilities) NoteRateLimit(accountID string, rl protocol.AgentRateLimi
 		}
 	}
 	m[rl.Window] = o
-	return !had || !sameRateLimit(prev.rl, o.rl)
+	changed := !had || !sameRateLimit(prev.rl, o.rl)
+	if changed && (o.rl.State == "exhausted" || prev.rl.State == "exhausted") {
+		c.saveOverlaysLocked()
+	}
+	return changed
 }
 
 func sameRateLimit(a, b protocol.AgentRateLimit) bool {
