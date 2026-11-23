@@ -373,7 +373,11 @@ export class AppShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    void this.fleet.refresh();
+    // Once the first snapshot is in, close restored tabs whose task is gone.
+    void this.fleet
+      .refresh()
+      .then(() => this.tabs.pruneMissingTasks(this.fleet.tasks()))
+      .catch(() => undefined);
     void this.fleet.loadSettings();
     this.socket.connect();
   }

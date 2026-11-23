@@ -1,8 +1,25 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, effect, signal } from '@angular/core';
 import { Space, Task, TaskStatus, WorkspaceTab } from '../models/konsert.models';
 import { basenamePath } from './fleet.store';
 
 export const ORCHESTRATOR_TAB_ID = 'orchestrator';
+
+/** localStorage key for the open-tab layout restored after a page reload. */
+export const TABS_STORAGE_KEY = 'konsert.tabs.v1';
+
+interface PersistedTabs {
+  tabs: WorkspaceTab[];
+  activeTabId: string;
+  activeSpaceId: string | null;
+  splitTabId: string | null;
+  splitRatio: number;
+  scratchTaskId: string | null;
+}
+
+/** Take Control is never restored: tabs reopen in their default mode. */
+function defaultInteractive(origin: string | undefined): boolean {
+  return origin === 'direct' || origin === 'scratch';
+}
 
 @Injectable({ providedIn: 'root' })
 export class TabsStore {
@@ -72,7 +89,6 @@ export class TabsStore {
             ? `${workerName} · ${task.agent}`
             : task.agent;
       // Direct Mode & Scratch sessions default to Interactive; Orchestrated runs default to Read-Only.
-      const defaultInteractive = task.origin === 'direct' || task.origin === 'scratch';
       this.openTabs.update((tabs) => [
         ...tabs,
         {
@@ -87,7 +103,7 @@ export class TabsStore {
           model: task.model || undefined,
           sessionKind: task.session_kind || (task.agent === 'shell' ? 'terminal' : 'chat'),
           origin: task.origin || 'orchestrator',
-          interactiveMode: defaultInteractive,
+          interactiveMode: defaultInteractive(task.origin),
         },
       ]);
     }
@@ -188,6 +204,66 @@ export class TabsStore {
 
   toggleScratch(): void {
     this.scratchOpen.update((v) => !v);
+  }
+
+  constructor() {
+    this.restore();
+    // Save the layout whenever it changes so a reload reopens the same tabs.
+    effect(() => {
+      const state: PersistedTabs = {
+        tabs: this.openTabs().filter((t) => !t.pinned),
+        activeTabId: this.activeTabId(),
+        activeSpaceId: this.activeSpaceId(),
+        splitTabId: this.splitTabId(),
+        splitRatio: this.splitRatio(),
+        scratchTaskId: this.scratchTaskId(),
+      };
+      try {
+        localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        // Storage full or disabled (private mode): tabs just won't survive a reload.
+      }
+    });
+  }
+
+  private restore(): void {
+    let state: Partial<PersistedTabs> | null = null;
+    try {
+      const raw = localStorage.getItem(TABS_STORAGE_KEY);
+      state = raw ? (JSON.parse(raw) as Partial<PersistedTabs>) : null;
+    } catch {
+      state = null;
+    }
+    if (!state || !Array.isArray(state.tabs)) return;
+    const restored = state.tabs
+      .filter((t): t is WorkspaceTab => !!t && typeof t.id === 'string' && t.kind === 'terminal' && t.id !== ORCHESTRATOR_TAB_ID)
+      .map((t) => ({ ...t, pinned: false, interactiveMode: defaultInteractive(t.origin) }));
+    this.openTabs.update((tabs) => [...tabs, ...restored]);
+    const ids = new Set(this.openTabs().map((t) => t.id));
+    if (state.activeTabId && ids.has(state.activeTabId)) this.activeTabId.set(state.activeTabId);
+    if (typeof state.activeSpaceId === 'string') this.activeSpaceId.set(state.activeSpaceId);
+    if (state.splitTabId && ids.has(state.splitTabId)) this.splitTabId.set(state.splitTabId);
+    if (typeof state.splitRatio === 'number') this.setSplitRatio(state.splitRatio);
+    if (typeof state.scratchTaskId === 'string') this.scratchTaskId.set(state.scratchTaskId);
+  }
+
+  /**
+   * Drops restored tabs (and the scratch session) whose task no longer exists on the
+   * hub, e.g. after it was deleted or the hub's database was reset. Call it once the
+   * first fleet snapshot has loaded.
+   */
+  pruneMissingTasks(tasks: readonly Task[]): void {
+    const known = new Set(tasks.map((t) => t.id));
+    for (const tab of this.openTabs()) {
+      if (!tab.pinned && tab.kind === 'terminal' && !known.has(tab.taskId ?? tab.id)) {
+        this.closeTab(tab.id);
+      }
+    }
+    const scratch = this.scratchTaskId();
+    if (scratch && !known.has(scratch)) {
+      this.scratchTaskId.set(null);
+      this.scratchOpen.set(false);
+    }
   }
 
   /** Last observed status per task, used to detect live shell exits. */
