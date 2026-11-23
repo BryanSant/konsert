@@ -54,5 +54,7 @@ export class ReloginService {
     await this.fleet.refresh();
     const task = this.fleet.tasksById()[res.task_id];
     if (task) this.tabs.openTaskTab(task, this.fleet.workersById()[workerId]?.name, true);
+    // The terminal tab now shows the sign-in flow; don't leave the dialog covering it.
+    this.request.set(null);
   }
 }
