@@ -79,6 +79,16 @@ export class FleetStore {
   });
   readonly loading = signal(false);
 
+  /**
+   * Live (WebSocket) mutations applied while a snapshot refresh is in flight. Each
+   * refresh replays the ops recorded after it started on top of its snapshot, so a
+   * slower HTTP response never reverts newer fleet.update frames.
+   */
+  private liveLog: Array<() => void> = [];
+  private refreshesInFlight = 0;
+  private refreshSeq = 0;
+  private appliedRefreshSeq = 0;
+
   readonly spacesById = computed(() => {
     const map: Record<string, Space> = {};
     for (const sp of this.spaces()) {
@@ -260,10 +270,22 @@ export class FleetStore {
     this.tasks().filter((t) => t.status === 'queued')
   );
 
+  /** Applies a live mutation now and records it for replay if a refresh is pending. */
+  private live(op: () => void): void {
+    op();
+    if (this.refreshesInFlight > 0) this.liveLog.push(op);
+  }
+
   async refresh(): Promise<void> {
     this.loading.set(true);
+    this.refreshesInFlight++;
+    const logStart = this.liveLog.length;
+    const seq = ++this.refreshSeq;
     try {
       const snap = await this.api.getFleet();
+      // A newer refresh already landed; this snapshot is older than what we show.
+      if (seq < this.appliedRefreshSeq) return;
+      this.appliedRefreshSeq = seq;
       this.workers.set(snap.workers ?? []);
       this.tasks.set(snap.tasks ?? []);
       if (snap.spaces) {
@@ -278,8 +300,13 @@ export class FleetStore {
       if (snap.usage) {
         this.usage.set(snap.usage);
       }
+      for (const op of this.liveLog.slice(logStart)) op();
     } finally {
-      this.loading.set(false);
+      this.refreshesInFlight--;
+      if (this.refreshesInFlight === 0) {
+        this.liveLog = [];
+        this.loading.set(false);
+      }
     }
   }
 
@@ -293,88 +320,110 @@ export class FleetStore {
   }
 
   upsertSpace(space: Space): void {
-    this.spaces.update((list) => {
-      const idx = list.findIndex((s) => s.id === space.id);
-      if (idx === -1) return [...list, space];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...space };
-      return next;
+    this.live(() => {
+      this.spaces.update((list) => {
+        const idx = list.findIndex((s) => s.id === space.id);
+        if (idx === -1) return [...list, space];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...space };
+        return next;
+      });
     });
   }
 
   removeSpace(spaceId: string): void {
-    this.spaces.update((list) => list.filter((s) => s.id !== spaceId));
+    this.live(() => {
+      this.spaces.update((list) => list.filter((s) => s.id !== spaceId));
+    });
   }
 
   removeWorker(workerId: string): void {
-    this.workers.update((list) => list.filter((w) => w.id !== workerId));
-    this.spaces.update((list) => list.filter((s) => s.worker_id !== workerId));
-    this.repos.update((list) => list.filter((r) => r.worker_id !== workerId));
+    this.live(() => {
+      this.workers.update((list) => list.filter((w) => w.id !== workerId));
+      this.spaces.update((list) => list.filter((s) => s.worker_id !== workerId));
+      this.repos.update((list) => list.filter((r) => r.worker_id !== workerId));
+    });
   }
 
   upsertWorkspace(ws: Workspace): void {
-    this.workspaces.update((list) => {
-      const idx = list.findIndex((x) => x.id === ws.id);
-      if (idx === -1) return [...list, ws];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...ws };
-      return next;
+    this.live(() => {
+      this.workspaces.update((list) => {
+        const idx = list.findIndex((x) => x.id === ws.id);
+        if (idx === -1) return [...list, ws];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...ws };
+        return next;
+      });
     });
   }
 
   removeWorkspace(id: string): void {
-    this.workspaces.update((list) => list.filter((x) => x.id !== id));
-    const removedProjIds = new Set(this.projects().filter((p) => p.workspace_id === id).map((p) => p.id));
-    this.projects.update((list) => list.filter((p) => p.workspace_id !== id));
-    const removedRepoIds = new Set(this.repos().filter((r) => removedProjIds.has(r.project_id)).map((r) => r.id));
-    this.repos.update((list) => list.filter((r) => !removedProjIds.has(r.project_id)));
-    this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+    this.live(() => {
+      this.workspaces.update((list) => list.filter((x) => x.id !== id));
+      const removedProjIds = new Set(this.projects().filter((p) => p.workspace_id === id).map((p) => p.id));
+      this.projects.update((list) => list.filter((p) => p.workspace_id !== id));
+      const removedRepoIds = new Set(this.repos().filter((r) => removedProjIds.has(r.project_id)).map((r) => r.id));
+      this.repos.update((list) => list.filter((r) => !removedProjIds.has(r.project_id)));
+      this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+    });
   }
 
   upsertProject(proj: Project): void {
-    this.projects.update((list) => {
-      const idx = list.findIndex((x) => x.id === proj.id);
-      if (idx === -1) return [...list, proj];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...proj };
-      return next;
+    this.live(() => {
+      this.projects.update((list) => {
+        const idx = list.findIndex((x) => x.id === proj.id);
+        if (idx === -1) return [...list, proj];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...proj };
+        return next;
+      });
     });
   }
 
   removeProject(id: string): void {
-    this.projects.update((list) => list.filter((p) => p.id !== id));
-    const removedRepoIds = new Set(this.repos().filter((r) => r.project_id === id).map((r) => r.id));
-    this.repos.update((list) => list.filter((r) => r.project_id !== id));
-    this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+    this.live(() => {
+      this.projects.update((list) => list.filter((p) => p.id !== id));
+      const removedRepoIds = new Set(this.repos().filter((r) => r.project_id === id).map((r) => r.id));
+      this.repos.update((list) => list.filter((r) => r.project_id !== id));
+      this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+    });
   }
 
   upsertRepo(repo: Repo): void {
-    this.repos.update((list) => {
-      const idx = list.findIndex((x) => x.id === repo.id);
-      if (idx === -1) return [...list, repo];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...repo };
-      return next;
+    this.live(() => {
+      this.repos.update((list) => {
+        const idx = list.findIndex((x) => x.id === repo.id);
+        if (idx === -1) return [...list, repo];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...repo };
+        return next;
+      });
     });
   }
 
   removeRepo(id: string): void {
-    this.repos.update((list) => list.filter((r) => r.id !== id));
-    this.worktrees.update((list) => list.filter((wt) => wt.repo_id !== id));
+    this.live(() => {
+      this.repos.update((list) => list.filter((r) => r.id !== id));
+      this.worktrees.update((list) => list.filter((wt) => wt.repo_id !== id));
+    });
   }
 
   upsertWorktree(wt: Worktree): void {
-    this.worktrees.update((list) => {
-      const idx = list.findIndex((x) => x.id === wt.id);
-      if (idx === -1) return [...list, wt];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...wt };
-      return next;
+    this.live(() => {
+      this.worktrees.update((list) => {
+        const idx = list.findIndex((x) => x.id === wt.id);
+        if (idx === -1) return [...list, wt];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...wt };
+        return next;
+      });
     });
   }
 
   removeWorktree(id: string): void {
-    this.worktrees.update((list) => list.filter((wt) => wt.id !== id));
+    this.live(() => {
+      this.worktrees.update((list) => list.filter((wt) => wt.id !== id));
+    });
   }
 
   /**
@@ -469,32 +518,38 @@ export class FleetStore {
   }
 
   upsertWorker(worker: Worker): void {
-    this.workers.update((list) => {
-      const idx = list.findIndex((w) => w.id === worker.id);
-      if (idx === -1) return [...list, worker];
-      const next = [...list];
-      next[idx] = {
-        ...next[idx],
-        ...worker,
-        metrics: worker.metrics ?? next[idx].metrics,
-        facts: worker.facts ?? next[idx].facts,
-      };
-      return next;
+    this.live(() => {
+      this.workers.update((list) => {
+        const idx = list.findIndex((w) => w.id === worker.id);
+        if (idx === -1) return [...list, worker];
+        const next = [...list];
+        next[idx] = {
+          ...next[idx],
+          ...worker,
+          metrics: worker.metrics ?? next[idx].metrics,
+          facts: worker.facts ?? next[idx].facts,
+        };
+        return next;
+      });
     });
   }
 
   upsertTask(task: Task): void {
-    this.tasks.update((list) => {
-      const idx = list.findIndex((t) => t.id === task.id);
-      if (idx === -1) return [task, ...list];
-      const next = [...list];
-      next[idx] = { ...next[idx], ...task };
-      return next;
+    this.live(() => {
+      this.tasks.update((list) => {
+        const idx = list.findIndex((t) => t.id === task.id);
+        if (idx === -1) return [task, ...list];
+        const next = [...list];
+        next[idx] = { ...next[idx], ...task };
+        return next;
+      });
     });
   }
 
   setUsage(summary: UsageSummary): void {
-    this.usage.set(summary);
+    this.live(() => {
+      this.usage.set(summary);
+    });
   }
 }
 
