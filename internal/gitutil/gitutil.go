@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,74 +213,51 @@ func InspectWorkingTree(ctx context.Context, dir string) (*protocol.GitInspectRe
 		res.Branch = br
 	}
 
-	// Collect numstat for unstaged + staged changes.
-	type stat struct{ add, del int }
-	stats := make(map[string]stat)
-	parseNumstat := func(out string) {
-		for _, line := range strings.Split(out, "\n") {
-			parts := strings.Split(line, "\t")
-			if len(parts) < 3 {
-				continue
-			}
-			a, _ := strconv.Atoi(parts[0])
-			d, _ := strconv.Atoi(parts[1])
-			p := parts[2]
-			cur := stats[p]
-			cur.add += a
-			cur.del += d
-			stats[p] = cur
-		}
+	// Collect numstat for unstaged + staged changes. -z keeps paths verbatim (no C-quoting)
+	// and reports renames as separate old/new fields instead of "a => b".
+	stats := make(map[string]numstat)
+	if out, err := runGitRaw(ctx, dir, "--literal-pathspecs", "diff", "--numstat", "-z"); err == nil {
+		addNumstats(stats, ParseNumstatZ(out))
 	}
-	if out, err := runGit(ctx, dir, "diff", "--numstat"); err == nil && out != "" {
-		parseNumstat(out)
-	}
-	if out, err := runGit(ctx, dir, "diff", "--cached", "--numstat"); err == nil && out != "" {
-		parseNumstat(out)
+	if out, err := runGitRaw(ctx, dir, "--literal-pathspecs", "diff", "--cached", "--numstat", "-z"); err == nil {
+		addNumstats(stats, ParseNumstatZ(out))
 	}
 
-	// Parse porcelain status (preserve leading status column space!)
-	statusOut, err := runGitRaw(ctx, dir, "status", "--porcelain=v1", "-uall")
-	if err == nil && statusOut != "" {
-		lines := strings.Split(statusOut, "\n")
+	rootResolved, rootErr := filepath.EvalSymlinks(dir)
+	if rootErr != nil {
+		rootResolved = dir
+	}
+
+	statusOut, err := runGitRaw(ctx, dir, "status", "--porcelain=v1", "-z", "-uall")
+	if err == nil {
 		const maxFiles = 60
-		for i, line := range lines {
-			if i >= maxFiles || len(line) < 4 {
+		for _, entry := range ParsePorcelainZ(statusOut) {
+			if len(res.Files) >= maxFiles {
 				break
 			}
-			stCode := strings.TrimSpace(line[:2])
-			filePath := strings.TrimSpace(line[3:])
-			if idx := strings.Index(filePath, " -> "); idx >= 0 {
-				filePath = filePath[idx+4:]
-			}
-			filePath = strings.Trim(filePath, `"`)
-			if filePath == "" {
-				continue
-			}
+			stCode := strings.TrimSpace(entry.Code)
+			filePath := entry.Path
 
 			s := stats[filePath]
 			var diffText string
 			if stCode == "??" {
-				// Preview untracked text file as added lines (capped at 12 KB).
-				full := filepath.Join(dir, filePath)
-				if raw, rErr := os.ReadFile(full); rErr == nil {
-					if len(raw) > 12*1024 {
-						raw = raw[:12*1024]
+				// Preview untracked regular text files as added lines (capped at 12 KB).
+				// Symlinks and anything else that is not a regular file inside the repo are
+				// never read, so a repo symlink to ~/.ssh/id_ed25519 cannot leak its target.
+				if raw, ok := readUntrackedPreview(rootResolved, dir, filePath, 12*1024); ok && !bytes.ContainsRune(raw, 0) {
+					fileLines := strings.Split(string(raw), "\n")
+					s.add = len(fileLines)
+					var b strings.Builder
+					b.WriteString(fmt.Sprintf("--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", filePath, len(fileLines)))
+					for _, fl := range fileLines {
+						b.WriteString("+" + fl + "\n")
 					}
-					if !bytes.ContainsRune(raw, 0) {
-						fileLines := strings.Split(string(raw), "\n")
-						s.add = len(fileLines)
-						var b strings.Builder
-						b.WriteString(fmt.Sprintf("--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", filePath, len(fileLines)))
-						for _, fl := range fileLines {
-							b.WriteString("+" + fl + "\n")
-						}
-						diffText = b.String()
-					}
+					diffText = b.String()
 				}
 			} else {
-				if dOut, dErr := runGit(ctx, dir, "diff", "HEAD", "--", filePath); dErr == nil && dOut != "" {
+				if dOut, dErr := runGit(ctx, dir, "--literal-pathspecs", "diff", "HEAD", "--", filePath); dErr == nil && dOut != "" {
 					diffText = dOut
-				} else if dOut, dErr := runGit(ctx, dir, "diff", "--", filePath); dErr == nil {
+				} else if dOut, dErr := runGit(ctx, dir, "--literal-pathspecs", "diff", "--", filePath); dErr == nil {
 					diffText = dOut
 				}
 				if len(diffText) > 16*1024 {
@@ -308,6 +286,118 @@ func InspectWorkingTree(ctx context.Context, dir string) (*protocol.GitInspectRe
 	}
 
 	return res, nil
+}
+
+// PorcelainEntry is one record of `git status --porcelain=v1 -z`.
+type PorcelainEntry struct {
+	Code     string // two-character XY status
+	Path     string // current path (the destination for renames/copies)
+	OrigPath string // source path for renames/copies
+}
+
+// ParsePorcelainZ parses NUL-separated `git status --porcelain=v1 -z` output. Paths are
+// verbatim (never C-quoted) and a rename/copy record is followed by its original path.
+func ParsePorcelainZ(out string) []PorcelainEntry {
+	fields := strings.Split(out, "\x00")
+	var entries []PorcelainEntry
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 || f[2] != ' ' {
+			// Empty trailing field or malformed record: skip it, never abort the rest.
+			continue
+		}
+		e := PorcelainEntry{Code: f[:2], Path: f[3:]}
+		if e.Code[0] == 'R' || e.Code[0] == 'C' || e.Code[1] == 'R' || e.Code[1] == 'C' {
+			if i+1 < len(fields) {
+				e.OrigPath = fields[i+1]
+				i++
+			}
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+// NumstatEntry is one record of `git diff --numstat -z`.
+type NumstatEntry struct {
+	Added, Deleted int
+	Path           string // destination path for renames
+	OrigPath       string // source path for renames
+	Binary         bool
+}
+
+// ParseNumstatZ parses `git diff --numstat -z` output. Ordinary records are
+// "A\tD\tpath\0"; renames are "A\tD\t\0old\0new\0".
+func ParseNumstatZ(out string) []NumstatEntry {
+	fields := strings.Split(out, "\x00")
+	var entries []NumstatEntry
+	for i := 0; i < len(fields); i++ {
+		parts := strings.SplitN(fields[i], "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		e := NumstatEntry{}
+		if parts[0] == "-" && parts[1] == "-" {
+			e.Binary = true
+		} else {
+			e.Added, _ = strconv.Atoi(parts[0])
+			e.Deleted, _ = strconv.Atoi(parts[1])
+		}
+		if parts[2] == "" {
+			if i+2 >= len(fields) {
+				break
+			}
+			e.OrigPath, e.Path = fields[i+1], fields[i+2]
+			i += 2
+		} else {
+			e.Path = parts[2]
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+type numstat struct{ add, del int }
+
+func addNumstats(stats map[string]numstat, entries []NumstatEntry) {
+	for _, e := range entries {
+		cur := stats[e.Path]
+		cur.add += e.Added
+		cur.del += e.Deleted
+		stats[e.Path] = cur
+	}
+}
+
+// readUntrackedPreview returns up to limit bytes of an untracked file, but only when the
+// path is a regular file (Lstat, so symlinks are never followed) whose parent directory
+// resolves inside the repository root.
+func readUntrackedPreview(rootResolved, dir, rel string, limit int64) ([]byte, bool) {
+	full := filepath.Join(dir, filepath.FromSlash(rel))
+	info, err := os.Lstat(full)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(full))
+	if err != nil {
+		return nil, false
+	}
+	if r, err := filepath.Rel(rootResolved, parent); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(os.PathSeparator)) {
+		return nil, false
+	}
+	f, err := os.OpenFile(full, os.O_RDONLY|oNoFollow, 0)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	// Re-check the opened file is the same regular file (guards against a swap after Lstat).
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() || !os.SameFile(st, info) {
+		return nil, false
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
 }
 
 // CommitChanges stages (if stageAll) and commits changes in dir with message.
