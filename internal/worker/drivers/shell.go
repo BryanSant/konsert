@@ -17,7 +17,11 @@ func init() {
 // for Direct Mode sessions and the Floating Scratch Workspace.
 type ShellDriver struct{}
 
-func (d *ShellDriver) Name() string { return "shell" }
+// ShellDriverName is the registry name of the unrestricted shell driver. Sandboxed
+// workers refuse it unless explicitly opted in, because a shell ignores permission mode.
+const ShellDriverName = "shell"
+
+func (d *ShellDriver) Name() string { return ShellDriverName }
 
 func (d *ShellDriver) Detect() (string, bool) {
 	if runtime.GOOS == "windows" {
@@ -64,7 +68,7 @@ func (d *ShellDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if strings.TrimSpace(opts.Prompt) != "" && opts.Mode == "oneshot" {
 		return LaunchSpec{
 			Binary: bin,
-			Args:   []string{"-c", opts.Prompt},
+			Args:   []string{"-c", "--", opts.Prompt},
 			Env:    opts.Env,
 		}
 	}

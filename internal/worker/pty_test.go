@@ -138,7 +138,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	}
 	select {
 	case snap := <-snapCh:
-		if !strings.Contains(string(snap), "konsert-mock") {
+		if !strings.Contains(string(snap), "konsert-mock") && !strings.Contains(string(snap), "[MOCK:") {
 			t.Fatalf("unexpected snapshot content: %q", string(snap))
 		}
 	case <-time.After(3 * time.Second):

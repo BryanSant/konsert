@@ -21,6 +21,23 @@ var (
 	ErrInvalidTaskID    = errors.New("invalid task ID for binary PTY frame")
 )
 
+// ValidateTaskID checks that id is usable as a task ID everywhere a worker uses one: in
+// binary PTY frame headers (at most FrameTaskIDSize bytes) and as a single path component
+// for git worktrees. Valid IDs are 1..36 characters of [A-Za-z0-9-] (UUIDs qualify).
+func ValidateTaskID(id string) error {
+	if len(id) == 0 || len(id) > FrameTaskIDSize {
+		return fmt.Errorf("%w: length %d (must be 1..%d)", ErrInvalidTaskID, len(id), FrameTaskIDSize)
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+			continue
+		}
+		return fmt.Errorf("%w: character %q at %d (allowed: A-Z a-z 0-9 -)", ErrInvalidTaskID, c, i)
+	}
+	return nil
+}
+
 func isValidFrameType(t byte) bool {
 	return t == FramePtySnapshot || t == FramePtyData || t == FramePtyStdin
 }

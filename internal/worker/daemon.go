@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -22,11 +23,6 @@ import (
 	"github.com/coder/websocket"
 )
 
-type outboundMsg struct {
-	msgType websocket.MessageType
-	data    []byte
-}
-
 // Daemon connects outbound to konsert, handles reconnects with exponential backoff,
 // sends heartbeats, and bridges controller commands to Runner.
 type Daemon struct {
@@ -36,7 +32,21 @@ type Daemon struct {
 	logger   *slog.Logger
 
 	sendMu sync.RWMutex
-	sendCh chan outboundMsg
+	queues *connQueues // nil while disconnected
+
+	// machineID is the persisted per-installation UUID sent as WorkerInfo.MachineID.
+	machineID string
+
+	// outbox keeps final task statuses until written to a hub connection (persisted).
+	outbox *statusOutbox
+
+	// helloAt is when worker.hello was last written on a connection (zero if the last
+	// attempt never got that far). Only touched by the Run goroutine.
+	helloAt time.Time
+
+	// discovery outlives connections so hook events written while disconnected are
+	// delivered after reconnect.
+	discovery *SessionDiscovery
 
 	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
@@ -72,12 +82,20 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg:               cfg,
 		registry:          registry,
 		logger:            logger,
+		machineID:         ResolveMachineID("", cfg.Name, cfg.Isolation),
+		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
 	}
 
 	d.runner = NewRunner(registry, cfg.Sandbox, cfg.AllowedRoots, RunnerCallbacks{
 		OnTaskStatus: func(p protocol.TaskStatusPayload) {
+			if protocol.IsTerminalTaskStatus(p.Status) {
+				// Final statuses go through the persistent outbox so they survive a
+				// disconnect and are re-sent after the next worker.hello.
+				d.outbox.add(p)
+				return
+			}
 			d.sendJSON(protocol.MsgTaskStatus, p)
 		},
 		OnTaskEvent: func(p protocol.TaskEventPayload) {
@@ -86,13 +104,41 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		OnPtyFrame: func(frameType byte, taskID string, data []byte) {
 			frame, err := protocol.EncodeFrame(frameType, taskID, data)
 			if err != nil {
+				logger.Warn("dropping PTY frame: encode failed", "task_id", taskID, "frame_type", frameType, "err", err)
 				return
 			}
-			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame})
+			// Snapshots are control traffic (never dropped); live data may be dropped.
+			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame, droppable: frameType == protocol.FramePtyData})
 		},
 	}, logger)
 
+	d.discovery = NewSessionDiscovery("", d.runner.IsManagedPID, func(p protocol.ExternalSessionPayload) {
+		d.sendJSON(protocol.MsgExternalSession, p)
+	})
+
 	return d
+}
+
+// SetAllowSandboxShell opts a --sandbox worker in to the unrestricted shell driver.
+func (d *Daemon) SetAllowSandboxShell(allow bool) {
+	d.runner.SetAllowSandboxShell(allow)
+}
+
+// advertisedAgents lists installed drivers that this worker will actually accept tasks for.
+func (d *Daemon) advertisedAgents() []string {
+	installed := d.registry.DetectInstalled(d.cfg.EnableMockDriver)
+	out := make([]string, 0, len(installed))
+	for _, a := range installed {
+		if d.runner.AgentAllowed(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// MachineID returns the persisted per-installation UUID sent in worker.hello.
+func (d *Daemon) MachineID() string {
+	return d.machineID
 }
 
 // WorkerID returns the stable ID for this worker daemon.
@@ -103,6 +149,31 @@ func (d *Daemon) WorkerID() string {
 // Runner returns the underlying task runner (useful for testing).
 func (d *Daemon) Runner() *Runner {
 	return d.runner
+}
+
+// ErrFleetTokenRequired is returned by Run when the hub requires a fleet token and none is
+// configured: retrying cannot succeed until the configuration changes.
+var ErrFleetTokenRequired = errors.New("hub requires a fleet token: set --token or KONSERT_FLEET_TOKEN (or fleet_token in the worker config); only a hub started with --no-auth accepts workers without one")
+
+// authError reports that the hub refused the WebSocket upgrade (HTTP 401/403).
+type authError struct {
+	status   int
+	tokenSet bool
+	err      error
+}
+
+func (e *authError) Error() string {
+	if !e.tokenSet {
+		return fmt.Sprintf("hub rejected the connection (HTTP %d): %v", e.status, ErrFleetTokenRequired)
+	}
+	return fmt.Sprintf("hub rejected the fleet token (HTTP %d): check --token / KONSERT_FLEET_TOKEN against the hub's fleet token", e.status)
+}
+
+func (e *authError) Unwrap() error {
+	if !e.tokenSet {
+		return ErrFleetTokenRequired
+	}
+	return e.err
 }
 
 // Run runs the reconnect loop until ctx is canceled.
@@ -117,20 +188,43 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		connectedAt := time.Now()
+		d.helloAt = time.Time{}
 		err := d.connectAndServe(ctx)
 		if ctx.Err() != nil {
 			d.runner.ShutdownAll()
 			return ctx.Err()
 		}
-		if websocket.CloseStatus(err) == websocket.StatusCode(protocol.WSCloseWorkerRemoved) {
+		// Only an operator removal (4001) stops the daemon. Every other close, including a
+		// normal 1000 (superseded connection) and 1013 (try again later: another live
+		// connection holds this identity), reconnects with backoff.
+		switch websocket.CloseStatus(err) {
+		case websocket.StatusCode(protocol.WSCloseWorkerRemoved):
 			d.logger.Info("machine was removed from fleet by controller; stopping daemon", "worker_id", d.cfg.WorkerID)
 			d.runner.ShutdownAll()
 			return nil
+		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
+			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
 		}
 
-		// Reset backoff if we stayed connected for > 10 seconds.
-		if time.Since(connectedAt) > 10*time.Second {
+		var aerr *authError
+		if errors.As(err, &aerr) {
+			if !aerr.tokenSet {
+				// No token configured: retrying cannot succeed. Exit with a clear error
+				// instead of looping.
+				d.logger.Error(aerr.Error())
+				d.runner.ShutdownAll()
+				return ErrFleetTokenRequired
+			}
+			// A wrong token may be fixed on the hub side (rotation): keep retrying, but
+			// only at the slowest backoff and with an explicit error.
+			d.logger.Error(aerr.Error(), "retry_in", maxBackoff)
+			backoff = maxBackoff
+		}
+
+		// Reset backoff only after a session that got past worker.hello and lasted > 10 s.
+		// The timestamp is taken after hello, so a slow or failing 15 s dial never counts
+		// as a long session.
+		if !d.helloAt.IsZero() && time.Since(d.helloAt) > 10*time.Second {
 			backoff = time.Second
 		}
 
@@ -159,11 +253,14 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	}
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
-	conn, _, err := websocket.Dial(dialCtx, d.cfg.ControllerURL, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(dialCtx, d.cfg.ControllerURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
 	dialCancel()
 	if err != nil {
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			return &authError{status: resp.StatusCode, tokenSet: d.cfg.FleetToken != "", err: err}
+		}
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}
 	conn.SetReadLimit(20 * 1024 * 1024)
@@ -173,15 +270,15 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 
-	sendCh := make(chan outboundMsg, 512)
+	queues := newConnQueues()
 	d.sendMu.Lock()
-	d.sendCh = sendCh
+	d.queues = queues
 	d.sendMu.Unlock()
 
 	defer func() {
 		d.sendMu.Lock()
-		if d.sendCh == sendCh {
-			d.sendCh = nil
+		if d.queues == queues {
+			d.queues = nil
 		}
 		d.sendMu.Unlock()
 	}()
@@ -201,10 +298,11 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			Arch:           runtime.GOARCH,
 			Isolation:      d.cfg.Isolation,
 			PermissionMode: permMode,
-			Agents:         d.registry.DetectInstalled(d.cfg.EnableMockDriver),
+			Agents:         d.advertisedAgents(),
 			Tags:           d.cfg.Tags,
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,
+			MachineID:      d.machineID,
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
 	}
@@ -215,6 +313,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	if err := conn.Write(connCtx, websocket.MessageText, helloBytes); err != nil {
 		return fmt.Errorf("write worker.hello: %w", err)
 	}
+	d.helloAt = time.Now()
 	d.logger.Info("connected to controller",
 		"url", d.cfg.ControllerURL,
 		"worker_id", d.cfg.WorkerID,
@@ -223,25 +322,17 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		"active_tasks", len(hello.ActiveTasks),
 	)
 
-	// Writer goroutine
-	writeErrCh := make(chan error, 1)
+	// Writer goroutine. It starts after worker.hello has been written, so pending final
+	// statuses from the outbox are always delivered after hello.
 	go func() {
-		for {
-			select {
-			case <-connCtx.Done():
-				writeErrCh <- connCtx.Err()
-				return
-			case msg := <-sendCh:
-				wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
-				err := conn.Write(wCtx, msg.msgType, msg.data)
-				wCancel()
-				if err != nil {
-					writeErrCh <- err
-					connCancel()
-					return
-				}
-			}
+		if err := d.writeLoop(connCtx, queues, func(msg outboundMsg) error {
+			wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
+			defer wCancel()
+			return conn.Write(wCtx, msg.msgType, msg.data)
+		}); err != nil && connCtx.Err() == nil {
+			d.logger.Warn("write to controller failed", "err", err)
 		}
+		connCancel()
 	}()
 
 	// Adaptive delta-throttled heartbeat goroutine (faster when active, gentle when idle).
@@ -303,12 +394,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	}()
 
 	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
-	go func() {
-		disc := NewSessionDiscovery("", nil, func(p protocol.ExternalSessionPayload) {
-			d.sendJSON(protocol.MsgExternalSession, p)
-		})
-		disc.Run(connCtx)
-	}()
+	go d.discovery.Run(connCtx)
 
 	// Read loop
 	for {
@@ -350,8 +436,14 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.logger.Warn("decode task.start failed", "err", err)
 			return
 		}
-		if err := d.runner.StartTask(daemonCtx, p); err != nil {
-			d.logger.Error("start task failed", "task_id", p.TaskID, "err", err)
+		// Validation and reservation happen here, in message order; git worktree creation and
+		// the PTY spawn run in a goroutine so the read loop keeps serving stdin, cancel,
+		// resize and WebSocket pings during a slow checkout.
+		taskID := p.TaskID
+		if err := d.runner.StartTaskAsync(daemonCtx, p, func(err error) {
+			d.logger.Error("start task failed", "task_id", taskID, "err", err)
+		}); err != nil {
+			d.logger.Error("start task rejected", "task_id", taskID, "err", err)
 		}
 
 	case protocol.MsgTaskCancel:
@@ -683,22 +775,63 @@ func (d *Daemon) sendJSONWithID(msgType, id string, payload any) {
 	d.enqueue(outboundMsg{msgType: websocket.MessageText, data: raw})
 }
 
+// enqueue hands msg to the current connection's queues. It never blocks. While
+// disconnected, messages are discarded: final task statuses do not pass through here (they
+// live in the outbox), live state is re-sent in worker.hello, and request results are
+// meaningless on a new connection.
 func (d *Daemon) enqueue(msg outboundMsg) {
 	d.sendMu.RLock()
-	ch := d.sendCh
+	q := d.queues
 	d.sendMu.RUnlock()
-	if ch == nil {
+	if q == nil {
 		return
 	}
-	select {
-	case ch <- msg:
-	default:
-		// If outbound queue is full, drop live PTY frame rather than stalling worker.
-		if msg.msgType == websocket.MessageText {
-			// Best-effort block briefly for control messages.
-			select {
-			case ch <- msg:
-			case <-time.After(100 * time.Millisecond):
+	q.push(msg)
+}
+
+// writeLoop drains queues in priority order until ctx ends or write fails:
+// control messages first, then pending outbox statuses, then live PTY data.
+func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outboundMsg) error) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if msg, ok := q.popControl(); ok {
+			if err := write(msg); err != nil {
+				return err
+			}
+			continue
+		}
+		if entries := d.outbox.pending(); len(entries) > 0 {
+			for _, e := range entries {
+				raw, err := protocol.NewEnvelope(protocol.MsgTaskStatus, "", e.Status)
+				if err != nil {
+					d.outbox.remove(e.Seq)
+					continue
+				}
+				if err := write(outboundMsg{msgType: websocket.MessageText, data: raw}); err != nil {
+					return err
+				}
+				d.outbox.remove(e.Seq)
+			}
+			continue
+		}
+		select {
+		case msg := <-q.pty:
+			if err := write(msg); err != nil {
+				return err
+			}
+			continue
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-q.signal:
+		case <-d.outbox.signal:
+		case msg := <-q.pty:
+			if err := write(msg); err != nil {
+				return err
 			}
 		}
 	}

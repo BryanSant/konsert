@@ -50,6 +50,11 @@ const (
 	// WSCloseWorkerRemoved is sent by the controller when an operator removes a machine
 	// from the fleet so konsertd exits cleanly instead of auto-reconnecting.
 	WSCloseWorkerRemoved = 4001
+
+	// WSCloseTryAgainLater (RFC 6455 1013) is sent by the controller to a new worker
+	// connection while another live connection holds the same identity. konsertd
+	// reconnects with backoff; only WSCloseWorkerRemoved makes it exit.
+	WSCloseTryAgainLater = 1013
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.

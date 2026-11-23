@@ -21,6 +21,8 @@ type PtyProcess interface {
 	Terminate() error
 	Wait() (int, error)
 	Close() error
+	// Pid returns the OS process ID of the PTY's main child process.
+	Pid() int
 }
 
 // StartPty spawns a command inside a platform-native PTY/ConPTY.

@@ -37,12 +37,12 @@ func TestDriverPermissionFlags(t *testing.T) {
 
 	grok := &GrokDriver{}
 	grokFull := grok.BuildCommand(LaunchOptions{Prompt: "fix tests", Mode: "oneshot", PermissionMode: protocol.PermissionFullAccess})
-	if !slices.Contains(grokFull.Args, "--yes") {
-		t.Fatalf("expected grok full_access to include --yes, got %v", grokFull.Args)
+	if !slices.Contains(grokFull.Args, "--always-approve") {
+		t.Fatalf("expected grok full_access to include --always-approve, got %v", grokFull.Args)
 	}
 	grokSand := grok.BuildCommand(LaunchOptions{Prompt: "fix tests", Mode: "oneshot", PermissionMode: protocol.PermissionSandboxed})
-	if slices.Contains(grokSand.Args, "--yes") {
-		t.Fatalf("expected grok sandboxed to omit --yes, got %v", grokSand.Args)
+	if slices.Contains(grokSand.Args, "--always-approve") {
+		t.Fatalf("expected grok sandboxed to omit --always-approve, got %v", grokSand.Args)
 	}
 }
 
