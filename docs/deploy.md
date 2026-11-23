@@ -28,6 +28,12 @@ database (`--tokens-file` to change). To choose your own:
 konsert token generate   # prints a random token; run once per token
 ```
 
+The orchestrator's LLM API key (optional; agent subscriptions don't need one) is stored
+encrypted in the database. The master key is `konsert-secret.key` next to the database
+(mode 0600, created on first start; `secret_key_file` / `KONSERT_SECRET_KEY_FILE` to move
+it), or supply it directly as base64 in `KONSERT_SECRET_KEY`. Back the key file up together
+with the database: without it a saved API key cannot be decrypted and must be re-entered.
+
 Authentication is never silently off: `--no-auth` is for isolated local development and
 binds to `127.0.0.1` by default.
 

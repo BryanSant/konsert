@@ -20,7 +20,11 @@ type ControllerConfig struct {
 	MCPToken   string `yaml:"mcp_token"`
 	// TokensFile is where auto-generated admin/fleet tokens are persisted (0600) when
 	// none are configured. Empty means "konsert-tokens.yaml" next to DBPath.
-	TokensFile            string `yaml:"tokens_file"`
+	TokensFile string `yaml:"tokens_file"`
+	// SecretKeyFile holds the master key that encrypts secrets (the LLM API key) in the
+	// database. Empty means "konsert-secret.key" next to DBPath. KONSERT_SECRET_KEY
+	// (base64 of 32 bytes) supplies the key directly instead.
+	SecretKeyFile         string `yaml:"secret_key_file"`
 	NoAuth                bool   `yaml:"no_auth"`
 	TrustTailscaleHeaders bool   `yaml:"trust_tailscale_headers"`
 	EnableMCPHTTP         bool   `yaml:"enable_mcp_http"`
@@ -145,6 +149,9 @@ func applyControllerEnv(cfg *ControllerConfig) {
 	}
 	if v := os.Getenv("KONSERT_TOKENS_FILE"); v != "" {
 		cfg.TokensFile = v
+	}
+	if v := os.Getenv("KONSERT_SECRET_KEY_FILE"); v != "" {
+		cfg.SecretKeyFile = v
 	}
 	if v := os.Getenv("KONSERT_PUBLIC_URL"); v != "" {
 		cfg.PublicURL = v

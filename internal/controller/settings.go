@@ -80,7 +80,11 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		keyOrURLChange = true
 		v := strings.TrimSpace(*u.LLMAPIKey)
 		next.APIKey = v
-		updates["llm_api_key"] = v
+		sealed, err := s.secrets.Seal(v)
+		if err != nil {
+			return fmt.Errorf("encrypt API key: %w", err)
+		}
+		updates["llm_api_key"] = sealed
 	}
 	if keyOrURLChange && !admin {
 		return errAdminScopeRequired

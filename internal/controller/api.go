@@ -19,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/secrets"
 	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/worker"
@@ -44,6 +45,8 @@ type Server struct {
 	originPatterns []string
 	loginLimiter   *auth.LoginLimiter
 	inflight       inflightTracker
+	// secrets encrypts the LLM API key before it is stored in the database.
+	secrets *secrets.Box
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -54,9 +57,11 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	// Apply persisted settings from SQLite over startup defaults if present.
 	// Saved values that fail validation (e.g. a provider typo written by an older
 	// build) are ignored so the controller never silently sends the key elsewhere.
+	box := loadSecretBox(cfg, logger)
 	if saved, err := st.GetAllSettings(context.Background()); err == nil {
+		migratePlaintextSecrets(st, box, saved, logger)
 		merged := cfg.Orchestrator
-		applySavedOrchestratorSettings(&merged, saved)
+		applySavedOrchestratorSettings(&merged, saved, box, logger)
 		if err := validateOrchestratorConfig(merged); err != nil {
 			logger.Error("ignoring invalid saved orchestrator settings; using startup config", "err", err)
 		} else {
@@ -89,6 +94,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 
 		originPatterns: buildOriginPatterns(cfg),
 		loginLimiter:   auth.NewLoginLimiter(),
+		secrets:        box,
 	}
 	s.registerRoutes()
 	s.handler = s.guard(s.mux)
@@ -574,7 +580,7 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, usage)
 }
 
-func applySavedOrchestratorSettings(orch *config.OrchestratorConfig, saved map[string]string) {
+func applySavedOrchestratorSettings(orch *config.OrchestratorConfig, saved map[string]string, box *secrets.Box, logger *slog.Logger) {
 	if v := strings.TrimSpace(saved["llm_provider"]); v != "" {
 		orch.Provider = v
 	}
@@ -585,7 +591,12 @@ func applySavedOrchestratorSettings(orch *config.OrchestratorConfig, saved map[s
 		orch.BaseURL = strings.TrimSpace(v)
 	}
 	if v := strings.TrimSpace(saved["llm_api_key"]); v != "" {
-		orch.APIKey = v
+		key, err := box.Open(v)
+		if err != nil {
+			logger.Error("cannot decrypt the saved LLM API key; re-enter it in Settings or restore the secret key file", "err", err)
+		} else {
+			orch.APIKey = key
+		}
 	}
 }
 

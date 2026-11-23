@@ -9,6 +9,8 @@
 *.db
 *.db-shm
 *.db-wal
+konsert-secret.key
+konsert-tokens.yaml
 .konsert-worktrees/
 
 # Frontend build & deps
