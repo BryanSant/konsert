@@ -48,9 +48,15 @@ type Daemon struct {
 	// delivered after reconnect.
 	discovery *SessionDiscovery
 
+	// wake holds the host Keep Awake inhibitor requested by the hub (host.wakelock).
+	wake *WakeLockManager
+
 	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
 	FactsInterval     time.Duration
+	// WakeLockGrace is how long a host wake lock outlives a lost hub connection
+	// (DefaultWakeLockGrace when zero).
+	WakeLockGrace time.Duration
 }
 
 // NewDaemon constructs a worker daemon from WorkerConfig.
@@ -116,7 +122,22 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		d.sendJSON(protocol.MsgExternalSession, p)
 	})
 
+	d.wake = NewWakeLockManager(nil, logger, func(st protocol.HostWakeLockState) {
+		d.sendJSON(protocol.MsgHostWakeLockState, st)
+	})
+
 	return d
+}
+
+// WakeLock returns the host wake lock manager (useful for testing).
+func (d *Daemon) WakeLock() *WakeLockManager {
+	return d.wake
+}
+
+// shutdown stops every task and drops the host wake lock; Run calls it on every exit path.
+func (d *Daemon) shutdown() {
+	d.runner.ShutdownAll()
+	d.wake.Shutdown()
 }
 
 // SetAllowSandboxShell opts a --sandbox worker in to the unrestricted shell driver.
@@ -184,14 +205,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	for {
 		if ctx.Err() != nil {
-			d.runner.ShutdownAll()
+			d.shutdown()
 			return ctx.Err()
 		}
 
 		d.helloAt = time.Time{}
 		err := d.connectAndServe(ctx)
 		if ctx.Err() != nil {
-			d.runner.ShutdownAll()
+			d.shutdown()
 			return ctx.Err()
 		}
 		// Only an operator removal (4001) stops the daemon. Every other close, including a
@@ -200,7 +221,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		switch websocket.CloseStatus(err) {
 		case websocket.StatusCode(protocol.WSCloseWorkerRemoved):
 			d.logger.Info("machine was removed from fleet by controller; stopping daemon", "worker_id", d.cfg.WorkerID)
-			d.runner.ShutdownAll()
+			d.shutdown()
 			return nil
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
 			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
@@ -212,7 +233,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 				// No token configured: retrying cannot succeed. Exit with a clear error
 				// instead of looping.
 				d.logger.Error(aerr.Error())
-				d.runner.ShutdownAll()
+				d.shutdown()
 				return ErrFleetTokenRequired
 			}
 			// A wrong token may be fixed on the hub side (rotation): keep retrying, but
@@ -228,13 +249,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 			backoff = time.Second
 		}
 
+		// Keep a host wake lock through short outages; drop it if the hub stays away.
+		d.wake.Disconnected(d.WakeLockGrace)
+
 		jitter := time.Duration(rand.Int64N(int64(backoff/4 + 1)))
 		sleepDur := backoff + jitter
 		d.logger.Warn("disconnected from controller; reconnecting", "err", err, "backoff", sleepDur)
 
 		select {
 		case <-ctx.Done():
-			d.runner.ShutdownAll()
+			d.shutdown()
 			return ctx.Err()
 		case <-time.After(sleepDur):
 		}
@@ -314,6 +338,10 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		return fmt.Errorf("write worker.hello: %w", err)
 	}
 	d.helloAt = time.Now()
+	// Report the host wake lock state right after hello so the hub knows it after every
+	// reconnect (the writer below sends queued control messages after hello).
+	d.wake.Connected()
+	d.sendJSON(protocol.MsgHostWakeLockState, d.wake.State())
 	d.logger.Info("connected to controller",
 		"url", d.cfg.ControllerURL,
 		"worker_id", d.cfg.WorkerID,
@@ -563,6 +591,19 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.sendJSONWithID(protocol.MsgWorktreeScanResult, reqID, d.handleWorktreeScan(req))
 		}(env.ID, p)
 
+	case protocol.MsgHostWakeLock:
+		p, err := protocol.DecodePayload[protocol.HostWakeLockPayload](env)
+		if err != nil {
+			d.logger.Warn("decode host.wakelock failed", "err", err)
+			return
+		}
+		// Set reports changes through onChange. Answer explicitly as well so the hub
+		// always gets a reply, even when nothing changed (idempotent request).
+		before := d.wake.State()
+		st := d.wake.Set(p.Enabled, p.Reason)
+		if wakeStateEqual(before, st) {
+			d.sendJSON(protocol.MsgHostWakeLockState, st)
+		}
 	case protocol.MsgFileUpload:
 		p, err := protocol.DecodePayload[protocol.FileUploadRequest](env)
 		if err != nil {
