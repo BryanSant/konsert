@@ -379,7 +379,7 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 	p := protocol.FleetUpdatePayload{Kind: kind}
 	switch kind {
 	case "worker":
-		p.Worker = item
+		p.Worker = h.withWakeLock(item)
 	case "task":
 		p.Task = item
 	case "event":

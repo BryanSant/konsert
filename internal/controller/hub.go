@@ -64,6 +64,9 @@ type Hub struct {
 	rpcWaiters    map[string]chan protocol.Envelope
 	chatSessions  map[string]*chatSession // per-session turn serialization
 
+	// wake holds desired and reported host wake lock (Keep Awake) state.
+	wake hostWakeLocks
+
 	orch *orchestrator.Service
 
 	// Hub lifetime: ctx is canceled by Shutdown; wg tracks background goroutines

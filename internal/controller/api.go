@@ -119,6 +119,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.handleDeleteWorker))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.handleGetWorkerFacts))
+	s.registerWakeLockRoutes()
 	s.mux.Handle("GET /api/orchestrator/memory", s.requireBrowserAuth(s.handleListMemory))
 	s.mux.Handle("POST /api/orchestrator/memory", s.requireBrowserAuth(s.handleUpsertMemory))
 	s.mux.Handle("DELETE /api/orchestrator/memory", s.requireBrowserAuth(s.handleDeleteMemory))
