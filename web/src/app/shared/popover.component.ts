@@ -41,7 +41,7 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
  *
  * Keyboard: ArrowDown/ArrowUp on the trigger open it; inside a menu the arrows, Home and
  * End move between items, Enter/Space activate (native buttons), Escape closes and returns
- * focus to the trigger, Tab closes. A click outside closes it. Activating a menu item
+ * focus to the trigger, Tab closes a menu (a dialog keeps Tab for its own controls). A click outside closes it. Activating a menu item
  * closes the menu (unless `closeOnSelect` is false).
  */
 @Component({
@@ -173,7 +173,7 @@ export class PopoverComponent implements OnDestroy {
       this.close(true);
       return;
     }
-    if (ev.key === 'Tab') {
+    if (ev.key === 'Tab' && this.role() !== 'dialog') {
       this.close(false);
       return;
     }

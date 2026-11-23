@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, output, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -6,10 +6,8 @@ import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
-import { ORCHESTRATOR_DEFAULT_MODELS, defaultOrchestratorModel } from '../core/models/konsert.models';
-
-/** Defaults shipped by older hubs; treated like "unset" when switching provider. */
-const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5-pro'];
+import { AgentAccountsStore } from '../core/state/agent-accounts.store';
+import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
 
 @Component({
   selector: 'app-settings-modal',
@@ -21,82 +19,13 @@ const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="settings-title">Settings</h3>
           <p class="text-[12px] text-[#8e9098]">
-            Changes persist in SQLite and hot-reload the Orchestrator immediately.
+            Saved on the hub and applied right away.
           </p>
         </div>
         <button type="button" (click)="close.emit()" aria-label="Esc: close dialog" class="ks-kbd cursor-pointer hover:text-[#ececed]">Esc</button>
       </div>
 
       <form (ngSubmit)="save()" class="space-y-4 text-[12px]">
-        <!-- Orchestrator LLM Section -->
-        <div class="rounded-lg border border-[#26282e] bg-[#131417] p-3.5 space-y-3">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
-            Orchestrator LLM Provider
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label for="settings-modal-provider" class="block text-[11px] text-[#8e9098] mb-1">Provider</label>
-              <select id="settings-modal-provider"
-                name="provider"
-                [ngModel]="provider()"
-                (ngModelChange)="onProviderChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
-              >
-                <option value="openai">OpenAI / Compatible</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="gemini">Google Gemini</option>
-              </select>
-            </div>
-
-            <div>
-              <label for="settings-modal-model" class="block text-[11px] text-[#8e9098] mb-1">Model</label>
-              <input id="settings-modal-model"
-                type="text"
-                name="model"
-                [ngModel]="model()"
-                (ngModelChange)="model.set($event)"
-                [placeholder]="defaultModelFor(provider()) || 'model name'"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label for="settings-modal-custom-base-url-optional" class="block text-[11px] text-[#8e9098] mb-1">Custom Base URL (optional — OpenRouter, Ollama, vLLM)</label>
-            <input id="settings-modal-custom-base-url-optional"
-              type="text"
-              name="baseUrl"
-              [ngModel]="baseUrl()"
-              (ngModelChange)="baseUrl.set($event)"
-              placeholder="https://api.openai.com/v1 or http://127.0.0.1:11434/v1"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
-            />
-          </div>
-
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <label for="settings-modal-api-key" class="text-[11px] text-[#8e9098]">API Key</label>
-              @if (apiKeySet()) {
-                <span class="inline-flex items-center gap-2 text-[10px]">
-                  <span class="text-[#69b879]">● Configured</span>
-                  <button type="button" (click)="clearKey()" class="text-[#8e9098] hover:text-[#f09595] underline cursor-pointer">
-                    Clear
-                  </button>
-                </span>
-              }
-            </div>
-            <input id="settings-modal-api-key"
-              type="password"
-              name="apiKey"
-              [ngModel]="apiKey()"
-              (ngModelChange)="apiKey.set($event)"
-              [placeholder]="apiKeySet() ? '•••••••••••••••• (enter new key to replace)' : 'sk-...'"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
-            />
-          </div>
-        </div>
-
         <!-- Session, Terminal & Fleet Defaults -->
         <div class="rounded-lg border border-[#26282e] bg-[#131417] p-3.5 space-y-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
@@ -105,34 +34,55 @@ const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label for="settings-modal-default-chat-agent-optio" class="block text-[11px] text-[#8e9098] mb-1">Default Chat Agent (optional)</label>
-              <select id="settings-modal-default-chat-agent-optio"
-                name="defaultAgent"
-                [ngModel]="defaultAgent()"
-                (ngModelChange)="defaultAgent.set($event)"
+              <label for="settings-modal-default-account" class="block text-[11px] text-[#8e9098] mb-1">Default agent account</label>
+              <select id="settings-modal-default-account"
+                name="defaultAccount"
+                [ngModel]="defaultAccountKey()"
+                (ngModelChange)="onAccountChange($event)"
                 class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
               >
-                <option value="">Auto (last used → detected)</option>
-                <option value="agy">agy (Antigravity)</option>
-                <option value="claude">claude (Claude Code)</option>
-                <option value="codex">codex (OpenAI Codex)</option>
-                <option value="grok">grok (Grok CLI)</option>
-                <option value="mock">mock</option>
+                <option value="">Auto (last used)</option>
+                @for (o of accountOptions(); track o.key) {
+                  <option [value]="o.key">{{ o.label }}</option>
+                }
               </select>
             </div>
 
             <div>
-              <label for="settings-modal-default-chat-model-optio" class="block text-[11px] text-[#8e9098] mb-1">Default Chat Model (optional)</label>
-              <input id="settings-modal-default-chat-model-optio"
-                type="text"
+              <label for="settings-modal-default-model" class="block text-[11px] text-[#8e9098] mb-1">Default model</label>
+              <select id="settings-modal-default-model"
                 name="defaultModel"
                 [ngModel]="defaultModel()"
-                (ngModelChange)="defaultModel.set($event)"
-                placeholder="Auto (last used → guess)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
-              />
+                (ngModelChange)="onModelChange($event)"
+                [disabled]="modelOptions().length === 0"
+                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] disabled:opacity-50"
+              >
+                <option value="">Account default</option>
+                @for (m of modelOptions(); track m.id) {
+                  <option [value]="m.id">{{ m.display_name }}</option>
+                }
+              </select>
             </div>
           </div>
+
+          @if (effortOptions().length > 0) {
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="settings-modal-default-effort" class="block text-[11px] text-[#8e9098] mb-1">Default effort</label>
+                <select id="settings-modal-default-effort"
+                  name="defaultEffort"
+                  [ngModel]="defaultEffort()"
+                  (ngModelChange)="defaultEffort.set($event)"
+                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                >
+                  <option value="">Model default</option>
+                  @for (e of effortOptions(); track e.id) {
+                    <option [value]="e.id">{{ e.label }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+          }
 
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -174,6 +124,81 @@ const LEGACY_DEFAULT_MODELS = ['gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.5
           </div>
         </div>
 
+        <!-- Orchestrator LLM Section -->
+        <details class="rounded-lg bg-[#131417] group" [open]="apiKeySet()">
+          <summary class="cursor-pointer list-none px-3.5 py-3 text-[12px] text-[#a1a3ab] hover:text-[#ececed] flex items-center justify-between">
+            <span><span class="font-semibold">Advanced:</span> API-key orchestrator (optional)</span>
+            <span class="text-[10.5px] text-[#86888f]">{{ apiKeySet() ? 'Configured' : 'Not needed for subscription agents' }}</span>
+          </summary>
+          <div class="px-3.5 pb-3.5 space-y-3">
+          <p class="text-[11.5px] text-[#8e9098]">
+            Chats run on your signed-in agent CLIs by default. Configure a provider API key only if you want the API-key orchestrator as an extra backend.
+          </p>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="settings-modal-provider" class="block text-[11px] text-[#8e9098] mb-1">Provider</label>
+              <select id="settings-modal-provider"
+                name="provider"
+                [ngModel]="provider()"
+                (ngModelChange)="onProviderChange($event)"
+                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+              >
+                <option value="openai">OpenAI / Compatible</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="gemini">Google Gemini</option>
+              </select>
+            </div>
+
+            <div>
+              <label for="settings-modal-model" class="block text-[11px] text-[#8e9098] mb-1">Model</label>
+              <input id="settings-modal-model"
+                type="text"
+                name="model"
+                [ngModel]="model()"
+                (ngModelChange)="model.set($event)"
+                placeholder="model id (required)"
+                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label for="settings-modal-custom-base-url-optional" class="block text-[11px] text-[#8e9098] mb-1">Custom Base URL (optional — OpenRouter, Ollama, vLLM)</label>
+            <input id="settings-modal-custom-base-url-optional"
+              type="text"
+              name="baseUrl"
+              [ngModel]="baseUrl()"
+              (ngModelChange)="baseUrl.set($event)"
+              placeholder="https://api.openai.com/v1 or http://127.0.0.1:11434/v1"
+              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+            />
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="settings-modal-api-key" class="text-[11px] text-[#8e9098]">API Key</label>
+              @if (apiKeySet()) {
+                <span class="inline-flex items-center gap-2 text-[10px]">
+                  <span class="text-[#69b879]">● Configured</span>
+                  <button type="button" (click)="clearKey()" class="text-[#8e9098] hover:text-[#f09595] underline cursor-pointer">
+                    Clear
+                  </button>
+                </span>
+              }
+            </div>
+            <input id="settings-modal-api-key"
+              type="password"
+              name="apiKey"
+              [ngModel]="apiKey()"
+              (ngModelChange)="apiKey.set($event)"
+              [placeholder]="apiKeySet() ? '•••••••••••••••• (enter new key to replace)' : 'sk-...'"
+              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+            />
+          </div>
+        </div>
+        </details>
+
         @if (error()) {
           <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[#f09595]">
             {{ error() }}
@@ -212,15 +237,42 @@ export class SettingsModalComponent implements OnInit {
   private readonly fleet = inject(FleetStore);
   private readonly auth = inject(AuthService);
   private readonly notifications = inject(NotificationService);
+  private readonly agentAccounts = inject(AgentAccountsStore);
 
   readonly provider = signal('openai');
-  readonly model = signal<string>(ORCHESTRATOR_DEFAULT_MODELS.openai);
+  readonly model = signal<string>('');
   readonly baseUrl = signal('');
   readonly apiKey = signal('');
   readonly apiKeySet = signal(false);
   readonly clearApiKey = signal(false);
   readonly defaultAgent = signal('');
+  readonly defaultAccountId = signal('');
   readonly defaultModel = signal('');
+  readonly defaultEffort = signal('');
+
+  /** Accounts from capabilities, one entry per agent/account id across machines. */
+  readonly accountOptions = computed(() => {
+    const seen = new Map<string, { key: string; label: string; agent: string; id: string }>();
+    for (const { workerId, account } of this.agentAccounts.all()) {
+      const key = `${account.agent}:${account.id}`;
+      if (seen.has(key) || account.chat_supported === false) continue;
+      const host = this.fleet.workersById()[workerId]?.name;
+      seen.set(key, { key, label: `${account.label}${host ? ' · ' + host : ''}`, agent: account.agent, id: account.id });
+    }
+    return [...seen.values()];
+  });
+  readonly defaultAccountKey = computed(() =>
+    this.defaultAccountId() ? `${this.defaultAgent()}:${this.defaultAccountId()}` : '',
+  );
+  private readonly selectedAccount = computed(() => {
+    const id = this.defaultAccountId();
+    if (!id) return null;
+    return this.agentAccounts.all().find((r) => r.account.id === id && r.account.agent === this.defaultAgent())?.account ?? null;
+  });
+  readonly modelOptions = computed(() => this.selectedAccount()?.models ?? []);
+  readonly effortOptions = computed(() =>
+    effortsFor(findModel(this.selectedAccount(), this.defaultModel()) ?? defaultModel(this.selectedAccount())),
+  );
   readonly defaultPerm = signal<PermissionMode>('full_access');
   readonly fontSize = signal(13);
   readonly notifySound = signal(true);
@@ -239,7 +291,9 @@ export class SettingsModalComponent implements OnInit {
       this.baseUrl.set(s.llm_base_url || '');
       this.apiKeySet.set(!!s.llm_api_key_set);
       this.defaultAgent.set(s.default_agent || '');
+      this.defaultAccountId.set(s.default_account_id || '');
       this.defaultModel.set(s.default_model || '');
+      this.defaultEffort.set(s.default_effort || '');
       this.defaultPerm.set(s.default_permission_mode || 'full_access');
       this.fontSize.set(s.terminal_font_size || 13);
       this.notifySound.set(!!s.notify_sound);
@@ -251,15 +305,19 @@ export class SettingsModalComponent implements OnInit {
 
   onProviderChange(next: string): void {
     this.provider.set(next);
-    // Swap the model only if it is empty or still some provider's default (current or legacy).
-    const known = [...Object.values(ORCHESTRATOR_DEFAULT_MODELS), ...LEGACY_DEFAULT_MODELS];
-    if (!this.model().trim() || known.includes(this.model())) {
-      this.model.set(defaultOrchestratorModel(next));
-    }
   }
 
-  defaultModelFor(provider: string): string {
-    return defaultOrchestratorModel(provider);
+  onAccountChange(key: string): void {
+    const opt = this.accountOptions().find((o) => o.key === key);
+    this.defaultAgent.set(opt?.agent ?? '');
+    this.defaultAccountId.set(opt?.id ?? '');
+    if (!this.modelOptions().some((m) => m.id === this.defaultModel())) this.defaultModel.set('');
+    this.defaultEffort.set('');
+  }
+
+  onModelChange(id: string): void {
+    this.defaultModel.set(id);
+    if (!this.effortOptions().some((e) => e.id === this.defaultEffort())) this.defaultEffort.set('');
   }
 
   onToggleDesktop(enabled: boolean): void {
@@ -287,7 +345,9 @@ export class SettingsModalComponent implements OnInit {
         llm_api_key: this.apiKey().trim() || undefined,
         clear_api_key: this.clearApiKey(),
         default_agent: this.defaultAgent().trim(),
+        default_account_id: this.defaultAccountId(),
         default_model: this.defaultModel().trim(),
+        default_effort: this.defaultEffort(),
         default_permission_mode: this.defaultPerm(),
         terminal_font_size: this.fontSize(),
         notify_sound: this.notifySound(),

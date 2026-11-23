@@ -5,7 +5,8 @@ import { KonsertSocketService } from '../core/services/konsert-socket.service';
 import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
-import { OrchestratorChatComponent } from '../features/orchestrator/orchestrator-chat.component';
+import { ChatViewComponent } from '../features/chat/chat-view.component';
+import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
 import { XtermPaneComponent } from '../features/terminal/xterm-pane.component';
 import { IconComponent } from '../shared/icon.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
@@ -34,7 +35,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
     FloatingScratchComponent,
     MachineDetailModalComponent,
     SettingsModalComponent,
-    OrchestratorChatComponent,
+    ChatViewComponent,
+    ReloginDialogComponent,
     XtermPaneComponent,
     CommandPaletteComponent,
     AddMachineModalComponent,
@@ -193,10 +195,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
               [style.width]="isPrimary && splitActive ? 'calc(' + (tabs.splitRatio() * 100) + '% - 2px)' : null"
             >
               @if (tab.id === orchestratorTabId) {
-                <app-orchestrator-chat
-                  (openNewChat)="openSessionModal('chat', null)"
-                  (openNewTerminal)="openSessionModal('terminal', null)"
-                />
+                <app-chat-view (openNewTerminal)="openSessionModal('terminal', null)" />
               } @else if (tab.taskId) {
                 <!-- xterm + addons load as their own chunk, only once a terminal tab exists. -->
                 @defer (on immediate) {
@@ -293,6 +292,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
       }
 
       <!-- Settings Modal (KON-0Q95Z) -->
+      <ks-relogin-dialog />
+
       @if (settingsOpen()) {
         <app-settings-modal (close)="settingsOpen.set(false)" />
       }
