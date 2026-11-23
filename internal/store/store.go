@@ -14,8 +14,8 @@ var (
 )
 
 const (
-	DefaultWorkspaceID = ids.DefaultWorkspace
-	DefaultProjectID   = ids.DefaultProject
+	DefaultWorkspaceID = ids.DefaultWorkspaceID
+	DefaultProjectID   = ids.DefaultProjectID
 )
 
 type PermissionMode string
@@ -27,6 +27,7 @@ const (
 
 type Worker struct {
 	ID             string            `json:"id"`
+	SID            string            `json:"sid"`
 	Name           string            `json:"name"`
 	HostGroup      string            `json:"host_group"`
 	OS             string            `json:"os"`
@@ -56,6 +57,7 @@ type MemoryEntry struct {
 
 type Space struct {
 	ID        string    `json:"id"`
+	SID       string    `json:"sid"`
 	WorkerID  string    `json:"worker_id"`
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
@@ -66,6 +68,7 @@ type Space struct {
 // Workspace is the top-level abstract "Space" in Konsert's Space > Project > Repo > Worktree taxonomy.
 type Workspace struct {
 	ID        string    `json:"id"`
+	SID       string    `json:"sid"`
 	Name      string    `json:"name"`
 	IsDefault bool      `json:"is_default"`
 	CreatedAt time.Time `json:"created_at"`
@@ -74,6 +77,7 @@ type Workspace struct {
 // Project groups one or more Repos (supporting multi-repo projects across machines) inside a Workspace.
 type Project struct {
 	ID          string    `json:"id"`
+	SID         string    `json:"sid"`
 	WorkspaceID string    `json:"workspace_id"`
 	Name        string    `json:"name"`
 	IsDefault   bool      `json:"is_default"`
@@ -83,6 +87,7 @@ type Project struct {
 // Repo represents a repository or working folder on a specific machine belonging to a Project.
 type Repo struct {
 	ID        string    `json:"id"`
+	SID       string    `json:"sid"`
 	ProjectID string    `json:"project_id"`
 	WorkerID  string    `json:"worker_id"`
 	Name      string    `json:"name"`
@@ -94,6 +99,7 @@ type Repo struct {
 // Worktree represents a branch checkout or git worktree within a Repo.
 type Worktree struct {
 	ID        string    `json:"id"`
+	SID       string    `json:"sid"`
 	RepoID    string    `json:"repo_id"`
 	Branch    string    `json:"branch,omitempty"`
 	Path      string    `json:"path"`
@@ -111,6 +117,7 @@ type TaxonomySnapshot struct {
 
 type Task struct {
 	ID             string         `json:"id"`
+	SID            string         `json:"sid"`
 	ExternalID     string         `json:"external_id,omitempty"` // worker's key for a discovered session
 	WorkerID       string         `json:"worker_id"`
 	SpaceID        string         `json:"space_id,omitempty"`
@@ -167,7 +174,9 @@ type AuditEvent struct {
 	Source    string    `json:"source,omitempty"` // "rest" | "ws" | "mcp" | "orchestrator" | "cli" | "legacy"
 	Action    string    `json:"action"`           // e.g. "task.steer", "task.cancel", "task.take_control"
 	WorkerID  string    `json:"worker_id,omitempty"`
+	WorkerSID string    `json:"worker_sid,omitempty"`
 	TaskID    string    `json:"task_id,omitempty"`
+	TaskSID   string    `json:"task_sid,omitempty"`
 	Message   string    `json:"message,omitempty"`
 	MetaJSON  string    `json:"meta_json,omitempty"`
 }
@@ -195,6 +204,7 @@ const (
 
 type ChatSession struct {
 	ID        string    `json:"id"`
+	SID       string    `json:"sid"`
 	Title     string    `json:"title"`
 	Provider  string    `json:"provider"`
 	Model     string    `json:"model"`
@@ -281,8 +291,16 @@ type UsageSummary struct {
 }
 
 type Store interface {
-	// NewID mints a unique user-facing ID of the given kind (see internal/ids).
-	NewID(ctx context.Context, kind ids.Kind) (string, error)
+	// NewSID mints a unique short ID (sid) of the given kind (see internal/ids). Create*
+	// methods mint one themselves when the record's SID is empty; callers that need the sid
+	// up front mint it here.
+	NewSID(ctx context.Context, kind ids.Kind) (string, error)
+	// ResolveID returns the id of the kind's record named by ref (its id or its sid), or
+	// ErrNotFound.
+	ResolveID(ctx context.Context, kind ids.Kind, ref string) (string, error)
+
+	// UpsertWorker registers or refreshes a worker by id; its sid is minted on first sight
+	// (when w.SID is empty) and never changes after.
 
 	UpsertWorker(ctx context.Context, w Worker) error
 	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
@@ -292,7 +310,6 @@ type Store interface {
 	GetWorker(ctx context.Context, id string) (Worker, error)
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error
-	DeduplicateWorkers(ctx context.Context) ([]string, error)
 	MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error)
 
 	CreateSpace(ctx context.Context, sp Space) error
@@ -323,9 +340,11 @@ type Store interface {
 	ListWorktrees(ctx context.Context, repoID string) ([]Worktree, error)
 	DeleteWorktree(ctx context.Context, id string) error
 
+	// Create* insert a record; an empty ID gets a new UUIDv7 and an empty SID a fresh sid.
 	CreateTask(ctx context.Context, t Task) error
 	// UpsertExternalTask creates or updates the discovered session keyed by (WorkerID,
-	// ExternalID) and returns its task ID (minted on first sight; t.ID is ignored).
+	// ExternalID) and returns its task id (id and sid minted on first sight; t.ID and
+	// t.SID are ignored).
 	UpsertExternalTask(ctx context.Context, t Task) (string, error)
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
 	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error
@@ -337,10 +356,6 @@ type Store interface {
 	GetTaskStartSpec(ctx context.Context, taskID string) (TaskStartSpec, error)
 	ClaimQueuedTask(ctx context.Context, taskID, workerID string) (bool, error)
 	RequeueTask(ctx context.Context, taskID, summary string, keepWorker bool) (bool, error)
-
-	// Stable konsertd machine identity (WorkerInfo.MachineID).
-	SetWorkerMachineID(ctx context.Context, workerID, machineID string) error
-	ListWorkerMachineIDs(ctx context.Context) (map[string]string, error)
 
 	AppendEvent(ctx context.Context, e TaskEvent) (int64, error)
 	ListEvents(ctx context.Context, taskID string, afterID int64, limit int) ([]TaskEvent, error)

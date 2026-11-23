@@ -1332,7 +1332,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	<-done
 }
 
-func TestWorkerDedupAndCleanRemoval(t *testing.T) {
+func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1368,10 +1368,10 @@ func TestWorkerDedupAndCleanRemoval(t *testing.T) {
 	}()
 	waitForWorkerOnline(t, srv.Service(), "w-devbox-1")
 
-	// 2. Rerun konsertd on the same machine with a different ephemeral ID -> must reconcile, NOT add a redundant worker!
+	// 2. A second konsertd with the same identity (same state dir) -> must not add a worker.
 	wCfg2 := config.DefaultWorkerConfig()
 	wCfg2.ControllerURL = wsURL
-	wCfg2.WorkerID = "w-devbox-ephemeral-2"
+	wCfg2.WorkerID = "w-devbox-1"
 	wCfg2.Name = "devbox"
 	wCfg2.HostGroup = "devbox"
 	wCfg2.Isolation = "host"
@@ -1421,11 +1421,15 @@ func TestWorkerDedupAndCleanRemoval(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// 3. DELETE /api/workers/w-devbox-1 while d2 is actively running -> d2 must exit cleanly and NOT reconnect!
-	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workers/w-devbox-1", nil)
+	// 3. DELETE /api/workers/<sid> while d2 is actively running -> d2 must exit cleanly and NOT reconnect!
+	sid := fs.Workers[0].SID
+	if !ids.Valid(ids.Machine, sid) {
+		t.Fatalf("worker sid %q is not an m- sid", sid)
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workers/"+sid, nil)
 	delResp, err := http.DefaultClient.Do(delReq)
 	if err != nil || delResp.StatusCode != http.StatusOK {
-		t.Fatalf("DELETE /api/workers/w-devbox-1 failed: resp=%v err=%v", delResp, err)
+		t.Fatalf("DELETE /api/workers/%s failed: resp=%v err=%v", sid, delResp, err)
 	}
 	_ = delResp.Body.Close()
 
@@ -1530,8 +1534,8 @@ func externalTask(ctx context.Context, st *sqlite.SQLiteStore, workerID, externa
 	}
 	for _, t := range tasks {
 		if t.ExternalID == externalID {
-			if !ids.Valid(ids.Task, t.ID) {
-				return t, fmt.Errorf("external task id %q is not a TASK id", t.ID)
+			if !ids.IsUUIDv7(t.ID) || !ids.Valid(ids.Task, t.SID) {
+				return t, fmt.Errorf("external task id %q / sid %q: want a UUIDv7 and a t- sid", t.ID, t.SID)
 			}
 			return t, nil
 		}

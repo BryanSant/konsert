@@ -37,8 +37,11 @@ func TestNewFormatAndParse(t *testing.T) {
 			t.Errorf("Parse(%q) accepted", bad)
 		}
 	}
-	if !Valid(Workspace, DefaultWorkspace) || !Valid(Project, DefaultProject) {
-		t.Fatalf("defaults invalid: %s %s", DefaultWorkspace, DefaultProject)
+	if !Valid(Workspace, DefaultWorkspaceSID) || !Valid(Project, DefaultProjectSID) {
+		t.Fatalf("default sids invalid: %s %s", DefaultWorkspaceSID, DefaultProjectSID)
+	}
+	if !IsUUIDv7(DefaultWorkspaceID) || !IsUUIDv7(DefaultProjectID) || DefaultWorkspaceID == DefaultProjectID {
+		t.Fatalf("default ids are not distinct UUIDv7s: %s %s", DefaultWorkspaceID, DefaultProjectID)
 	}
 }
 
@@ -62,12 +65,5 @@ func TestLowEntropy(t *testing.T) {
 		if got := lowEntropy(s); got != want {
 			t.Errorf("lowEntropy(%q) = %v, want %v", s, got, want)
 		}
-	}
-}
-
-func TestHashIsStableAndValid(t *testing.T) {
-	a, b := Hash(Machine, "host|linux"), Hash(Machine, "host|linux")
-	if a != b || !Valid(Machine, a) || a == Hash(Machine, "other") {
-		t.Fatalf("Hash: %q %q", a, b)
 	}
 }

@@ -68,8 +68,8 @@ func (cs *chatServer) createChat(t *testing.T, body map[string]any) store.ChatSe
 	}
 	var s store.ChatSession
 	_ = json.Unmarshal(raw, &s)
-	if !ids.Valid(ids.Chat, s.ID) {
-		t.Fatalf("chat id %q is not a CHAT id", s.ID)
+	if !ids.IsUUIDv7(s.ID) || !ids.Valid(ids.Chat, s.SID) {
+		t.Fatalf("chat id %q / sid %q: want a UUIDv7 and a c- sid", s.ID, s.SID)
 	}
 	return s
 }

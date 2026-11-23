@@ -2,6 +2,7 @@ package worker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -170,6 +171,12 @@ func (r *Runner) beginStart(parentCtx context.Context, req protocol.TaskStartPay
 		r.failTask(req.TaskID, "", fmt.Sprintf("invalid task id: %v", err))
 		return nil, err
 	}
+	if req.SID != "" {
+		if err := protocol.ValidateTaskID(req.SID); err != nil {
+			r.failTask(req.TaskID, "", fmt.Sprintf("invalid task sid: %v", err))
+			return nil, err
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_, running := r.tasks[req.TaskID]
@@ -264,7 +271,8 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	)
 	if repoRoot, isGit := gitutil.IsGitRepo(setupCtx, effectiveDir); isGit {
 		if req.Branch != "" && req.UseWorktree {
-			info, wtErr := createWorktreeFn(setupCtx, repoRoot, req.TaskID, req.Branch)
+			// The directory is user-visible, so it is named after the short sid when known.
+			info, wtErr := createWorktreeFn(setupCtx, repoRoot, cmp.Or(req.SID, req.TaskID), req.Branch)
 			if wtErr != nil {
 				r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("git worktree setup failed: %v", wtErr))
 				return wtErr

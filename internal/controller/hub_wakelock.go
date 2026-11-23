@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
@@ -249,7 +250,7 @@ type WorkerWakeLockStatusID struct {
 func (s *Server) registerWakeLockRoutes() {
 	s.mux.Handle("GET /api/wakelock", s.requireBrowserAuth(s.handleGetWakeLock))
 	s.mux.Handle("POST /api/wakelock", s.requireBrowserAuth(s.handleSetFleetWakeLock))
-	s.mux.Handle("POST /api/workers/{id}/wakelock", s.requireBrowserAuth(s.handleSetWorkerWakeLock))
+	s.mux.Handle("POST /api/workers/{id}/wakelock", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerWakeLock)))
 }
 
 func (s *Server) wakeLockStatus(ctx context.Context) (WakeLockStatus, error) {

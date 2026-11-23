@@ -59,16 +59,34 @@ func (s *FleetService) GetTaxonomy(ctx context.Context) (store.TaxonomySnapshot,
 	return s.store.GetTaxonomy(ctx)
 }
 
+// taxonomyKinds maps manage_taxonomy kinds to id kinds.
+var taxonomyKinds = map[string]ids.Kind{
+	"workspace": ids.Workspace,
+	"project":   ids.Project,
+	"repo":      ids.Repo,
+	"worktree":  ids.Worktree,
+}
+
 func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInput) (any, error) {
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
+	// Every ref accepts an id or a sid.
+	if k, ok := taxonomyKinds[kind]; ok {
+		req.ID = resolveRef(ctx, s.store, k, req.ID)
+	}
+	resolveRefs(ctx, s.store, map[ids.Kind][]*string{
+		ids.Workspace: {&req.WorkspaceID},
+		ids.Project:   {&req.ProjectID},
+		ids.Machine:   {&req.WorkerID},
+		ids.Repo:      {&req.RepoID},
+	})
 	switch action + ":" + kind {
 	case "create:workspace":
-		id, err := s.store.NewID(ctx, ids.Workspace)
+		sid, err := s.store.NewSID(ctx, ids.Workspace)
 		if err != nil {
 			return nil, err
 		}
-		ws := store.Workspace{ID: id, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
+		ws := store.Workspace{ID: ids.UUID(), SID: sid, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
 		if ws.Name == "" {
 			return nil, fmt.Errorf("name is required")
 		}
@@ -84,11 +102,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("workspace_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:project":
-		id, err := s.store.NewID(ctx, ids.Project)
+		sid, err := s.store.NewSID(ctx, ids.Project)
 		if err != nil {
 			return nil, err
 		}
-		p := store.Project{ID: id, WorkspaceID: req.WorkspaceID, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
+		p := store.Project{ID: ids.UUID(), SID: sid, WorkspaceID: req.WorkspaceID, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
 		if p.Name == "" {
 			return nil, fmt.Errorf("name is required")
 		}
@@ -107,11 +125,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("project_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:repo":
-		id, err := s.store.NewID(ctx, ids.Repo)
+		sid, err := s.store.NewSID(ctx, ids.Repo)
 		if err != nil {
 			return nil, err
 		}
-		r := store.Repo{ID: id, ProjectID: req.ProjectID, WorkerID: req.WorkerID, Name: strings.TrimSpace(req.Name), Path: strings.TrimSpace(req.Path), CreatedAt: time.Now().UTC()}
+		r := store.Repo{ID: ids.UUID(), SID: sid, ProjectID: req.ProjectID, WorkerID: req.WorkerID, Name: strings.TrimSpace(req.Name), Path: strings.TrimSpace(req.Path), CreatedAt: time.Now().UTC()}
 		if r.ProjectID == "" {
 			r.ProjectID = store.DefaultProjectID
 		}
@@ -133,11 +151,11 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 		s.hub.broadcastFleetUpdate("repo_deleted", req.ID)
 		return map[string]any{"ok": true, "id": req.ID}, nil
 	case "create:worktree":
-		id, err := s.store.NewID(ctx, ids.Worktree)
+		sid, err := s.store.NewSID(ctx, ids.Worktree)
 		if err != nil {
 			return nil, err
 		}
-		wt := store.Worktree{ID: id, RepoID: req.RepoID, Branch: req.Branch, Path: req.Path, CreatedAt: time.Now().UTC()}
+		wt := store.Worktree{ID: ids.UUID(), SID: sid, RepoID: req.RepoID, Branch: req.Branch, Path: req.Path, CreatedAt: time.Now().UTC()}
 		if wt.RepoID == "" {
 			return nil, fmt.Errorf("repo_id is required")
 		}
@@ -158,7 +176,7 @@ func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInp
 }
 
 func (s *FleetService) ListTaskEvents(ctx context.Context, taskID string, afterID int64) ([]store.TaskEvent, error) {
-	return s.store.ListEvents(ctx, taskID, afterID, 50)
+	return s.store.ListEvents(ctx, resolveRef(ctx, s.store, ids.Task, taskID), afterID, 50)
 }
 
 func (s *FleetService) GetSettingsMap(ctx context.Context) (map[string]any, error) {
@@ -219,28 +237,28 @@ type emptyInput struct{}
 
 type listTasksInput struct {
 	StatusFilter string `json:"status_filter,omitempty" jsonschema:"Filter by task status (queued, running, waiting_input, completed, failed, canceled)"`
-	WorkerID     string `json:"worker_id,omitempty" jsonschema:"Filter by worker ID"`
+	WorkerID     string `json:"worker_id,omitempty" jsonschema:"Filter by worker id or sid (m-…)"`
 	Limit        int    `json:"limit,omitzero" jsonschema:"Maximum tasks to return (default 50)"`
 }
 
 type getTaskResultInput struct {
-	TaskID         string `json:"task_id" jsonschema:"Task ID to inspect"`
+	TaskID         string `json:"task_id" jsonschema:"Task id or sid (t-…) to inspect"`
 	Wait           bool   `json:"wait,omitzero" jsonschema:"Block until task reaches a terminal state while emitting concise milestone progress notifications (default false)"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitzero" jsonschema:"Maximum seconds to wait when wait=true (default 300)"`
 }
 
 type steerTaskInput struct {
-	TaskID        string `json:"task_id" jsonschema:"Running or waiting_input task ID"`
+	TaskID        string `json:"task_id" jsonschema:"Running or waiting_input task id or sid (t-…)"`
 	InputText     string `json:"input_text" jsonschema:"Text to send to the agent PTY stdin"`
 	AppendNewline *bool  `json:"append_newline,omitzero" jsonschema:"Append trailing newline (default true)"`
 }
 
 type cancelTaskInput struct {
-	TaskID string `json:"task_id" jsonschema:"Task ID to cancel"`
+	TaskID string `json:"task_id" jsonschema:"Task id or sid (t-…) to cancel"`
 }
 
 type inspectFactsInput struct {
-	WorkerID string `json:"worker_id,omitempty" jsonschema:"Optional worker ID or name; omit for all machines"`
+	WorkerID string `json:"worker_id,omitempty" jsonschema:"Optional worker id, sid (m-…) or name; omit for all machines"`
 }
 
 type updateSettingsInput struct {
@@ -312,16 +330,17 @@ func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Se
 		}
 		type row struct {
 			WorkerID   string                 `json:"worker_id"`
+			WorkerSID  string                 `json:"worker_sid"`
 			WorkerName string                 `json:"worker_name"`
 			Status     string                 `json:"status"`
 			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
 		}
 		out := []row{}
 		for _, w := range fs.Workers {
-			if in.WorkerID != "" && w.ID != in.WorkerID && !strings.EqualFold(w.Name, in.WorkerID) {
+			if in.WorkerID != "" && w.ID != in.WorkerID && w.SID != in.WorkerID && !strings.EqualFold(w.Name, in.WorkerID) {
 				continue
 			}
-			out = append(out, row{WorkerID: w.ID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
+			out = append(out, row{WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
 		}
 		return jsonToolResult(map[string]any{"machines": out})
 	})

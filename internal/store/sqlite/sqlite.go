@@ -77,12 +77,6 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	// Automatically collapse any legacy duplicate machine rows (migrating their spaces, repos, and tasks).
-	if _, err := st.DeduplicateWorkers(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
 	return st, nil
 }
 
@@ -142,10 +136,20 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 	if w.FactsUpdatedAt != nil {
 		factsUpdated = formatTime(*w.FactsUpdatedAt)
 	}
+	if w.SID == "" {
+		// Keep the sid of a known machine; mint one the first time it is seen.
+		err := s.db.QueryRowContext(ctx, `SELECT sid FROM workers WHERE id = ?`, w.ID).Scan(&w.SID)
+		if errors.Is(err, sql.ErrNoRows) {
+			w.SID, err = s.NewSID(ctx, ids.Machine)
+		}
+		if err != nil {
+			return err
+		}
+	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO workers (id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workers (id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			host_group = excluded.host_group,
@@ -161,7 +165,7 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 			facts_json = CASE WHEN excluded.facts_json != '' THEN excluded.facts_json ELSE workers.facts_json END,
 			facts_updated_at = COALESCE(excluded.facts_updated_at, workers.facts_updated_at),
 			version = excluded.version
-	`, w.ID, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode),
+	`, w.ID, w.SID, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode),
 		string(agentsJSON), string(tagsJSON), w.MaxConcurrent, w.Status, formatTime(w.LastSeenAt), w.FactsJSON, factsUpdated, w.Version)
 	return err
 }
@@ -207,7 +211,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 		factsUpdated sql.NullString
 	)
 	if err := scanner.Scan(
-		&w.ID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
+		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -235,7 +239,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 
 func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
+		SELECT id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
 		FROM workers WHERE id = ?
 	`, id)
 	return scanWorker(row)
@@ -243,7 +247,7 @@ func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, e
 
 func (s *SQLiteStore) ListWorkers(ctx context.Context) ([]store.Worker, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
+		SELECT id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
 		FROM workers ORDER BY host_group ASC, name ASC
 	`)
 	if err != nil {
@@ -309,119 +313,6 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
-// DeduplicateWorkers collapses any duplicate worker rows representing the same machine
-// (matching name, host_group, os, arch, isolation), migrating all spaces, repos, tasks,
-// and subscription quotas to the canonical online/most-recently-seen row.
-func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) {
-	workers, err := s.ListWorkers(ctx)
-	if err != nil || len(workers) < 2 {
-		return nil, err
-	}
-
-	type machineKey struct {
-		name      string
-		hostGroup string
-		os        string
-		arch      string
-		isolation string
-	}
-	// Rows that recorded a stable konsertd machine UUID are grouped by it, so two
-	// hosts sharing a hostname are never merged; legacy rows fall back to the tuple.
-	machineIDs, err := s.ListWorkerMachineIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	groups := make(map[machineKey][]store.Worker)
-	for _, w := range workers {
-		if mid := machineIDs[w.ID]; mid != "" {
-			k := machineKey{name: "machine-id:" + mid}
-			groups[k] = append(groups[k], w)
-			continue
-		}
-		k := machineKey{
-			name:      strings.ToLower(strings.TrimSpace(w.Name)),
-			hostGroup: strings.ToLower(strings.TrimSpace(w.HostGroup)),
-			os:        strings.ToLower(strings.TrimSpace(w.OS)),
-			arch:      strings.ToLower(strings.TrimSpace(w.Arch)),
-			isolation: strings.ToLower(strings.TrimSpace(w.Isolation)),
-		}
-		groups[k] = append(groups[k], w)
-	}
-
-	var removedIDs []string
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	for _, grp := range groups {
-		if len(grp) < 2 {
-			continue
-		}
-		// Choose canonical winner: online beats offline, then most recent LastSeenAt.
-		winner := grp[0]
-		for _, cand := range grp[1:] {
-			winnerOnline := winner.Status == "online"
-			candOnline := cand.Status == "online"
-			if candOnline && !winnerOnline {
-				winner = cand
-			} else if candOnline == winnerOnline && cand.LastSeenAt.After(winner.LastSeenAt) {
-				winner = cand
-			}
-		}
-
-		for _, w := range grp {
-			if w.ID == winner.ID {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
-				_ = tx.Rollback()
-				return nil, err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE spaces SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
-				_ = tx.Rollback()
-				return nil, err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE repos SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
-				_ = tx.Rollback()
-				return nil, err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE subscription_quotas SET worker_id = ? WHERE worker_id = ?`, winner.ID, w.ID); err != nil {
-				_ = tx.Rollback()
-				return nil, err
-			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM workers WHERE id = ?`, w.ID); err != nil {
-				_ = tx.Rollback()
-				return nil, err
-			}
-			removedIDs = append(removedIDs, w.ID)
-		}
-	}
-	if len(removedIDs) > 0 {
-		// Remove any exact duplicate saved spaces on the same worker/path created across
-		// duplicate worker rows, first repointing tasks at the surviving space.
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE tasks SET space_id = (
-				SELECT k.id FROM spaces d JOIN spaces k
-				  ON k.worker_id = d.worker_id AND k.path = d.path
-				 AND k.rowid = (SELECT MIN(rowid) FROM spaces m WHERE m.worker_id = d.worker_id AND m.path = d.path)
-				WHERE d.id = tasks.space_id
-			)
-			WHERE space_id IN (SELECT id FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path))
-		`); err != nil {
-			_ = tx.Rollback()
-			return nil, err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE rowid NOT IN (SELECT MIN(rowid) FROM spaces GROUP BY worker_id, path)`); err != nil {
-			_ = tx.Rollback()
-			return nil, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return removedIDs, nil
-}
-
 // MarkStaleWorkersOffline flips every online worker whose last heartbeat is older
 // than cutoff to offline and returns exactly the IDs it changed. It is a single
 // atomic UPDATE ... RETURNING, so a heartbeat that lands concurrently can never
@@ -454,10 +345,13 @@ func (s *SQLiteStore) CreateSpace(ctx context.Context, sp store.Space) error {
 	if sp.CreatedAt.IsZero() {
 		sp.CreatedAt = time.Now().UTC()
 	}
+	if err := s.assignIDs(ctx, ids.Space, &sp.ID, &sp.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO spaces (id, worker_id, name, path, branch, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, sp.ID, sp.WorkerID, sp.Name, sp.Path, sp.Branch, formatTime(sp.CreatedAt))
+		INSERT INTO spaces (id, sid, worker_id, name, path, branch, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, sp.ID, sp.SID, sp.WorkerID, sp.Name, sp.Path, sp.Branch, formatTime(sp.CreatedAt))
 	return err
 }
 
@@ -465,9 +359,9 @@ func (s *SQLiteStore) GetSpace(ctx context.Context, id string) (store.Space, err
 	var sp store.Space
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, worker_id, name, path, branch, created_at
+		SELECT id, sid, worker_id, name, path, branch, created_at
 		FROM spaces WHERE id = ?
-	`, id).Scan(&sp.ID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt)
+	`, id).Scan(&sp.ID, &sp.SID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Space{}, store.ErrNotFound
 	}
@@ -485,12 +379,12 @@ func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.
 	)
 	if workerID != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, worker_id, name, path, branch, created_at
+			SELECT id, sid, worker_id, name, path, branch, created_at
 			FROM spaces WHERE worker_id = ? ORDER BY created_at ASC
 		`, workerID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, worker_id, name, path, branch, created_at
+			SELECT id, sid, worker_id, name, path, branch, created_at
 			FROM spaces ORDER BY created_at ASC
 		`)
 	}
@@ -503,7 +397,7 @@ func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.
 	for rows.Next() {
 		var sp store.Space
 		var createdAt string
-		if err := rows.Scan(&sp.ID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.SID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt); err != nil {
 			return nil, err
 		}
 		sp.CreatedAt = parseTime(createdAt)
@@ -564,6 +458,9 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 	if t.ProjectID == "" {
 		t.ProjectID = store.DefaultProjectID
 	}
+	if err := s.assignIDs(ctx, ids.Task, &t.ID, &t.SID); err != nil {
+		return err
+	}
 
 	var workerID any
 	if t.WorkerID != "" {
@@ -579,12 +476,12 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			id, sid, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, t.ID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, t.ID, t.SID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		formatTime(t.CreatedAt), startedAt, completedAt)
@@ -596,9 +493,10 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 	if t.WorkerID == "" || t.ExternalID == "" {
 		return "", fmt.Errorf("external task needs worker_id and external_id")
 	}
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE worker_id = ? AND external_id = ?`, t.WorkerID, t.ExternalID).Scan(&t.ID)
+	t.ID, t.SID = "", ""
+	err := s.db.QueryRowContext(ctx, `SELECT id, sid FROM tasks WHERE worker_id = ? AND external_id = ?`, t.WorkerID, t.ExternalID).Scan(&t.ID, &t.SID)
 	if errors.Is(err, sql.ErrNoRows) {
-		t.ID, err = s.NewID(ctx, ids.Task)
+		err = s.assignIDs(ctx, ids.Task, &t.ID, &t.SID)
 	}
 	if err != nil {
 		return "", err
@@ -635,11 +533,11 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			workspace_id = excluded.workspace_id,
 			project_id = excluded.project_id,
@@ -652,7 +550,7 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 			summary = CASE WHEN excluded.summary != '' THEN excluded.summary ELSE tasks.summary END,
 			git_summary_json = CASE WHEN excluded.git_summary_json != '' THEN excluded.git_summary_json ELSE tasks.git_summary_json END,
 			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END
-	`, t.ID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+	`, t.ID, t.SID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		formatTime(t.CreatedAt), startedAt, completedAt)
@@ -724,7 +622,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		completedAt sql.NullString
 	)
 	if err := scanner.Scan(
-		&t.ID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
+		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&createdAt, &startedAt, &completedAt,
@@ -754,7 +652,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
@@ -779,7 +677,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 	}
 
 	query := `
-		SELECT id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
@@ -851,7 +749,7 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, taskID string, afterID int
 }
 
 // chatSessionCols is the column list scanned by scanChatSession.
-const chatSessionCols = `id, title, provider, model, created_at, updated_at,
+const chatSessionCols = `id, sid, title, provider, model, created_at, updated_at,
 	backend, worker_id, agent, account_id, effort, approval_mode, cwd,
 	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash`
 
@@ -859,7 +757,7 @@ func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession
 	var cs store.ChatSession
 	var cAt, uAt string
 	var fleet int
-	if err := scanner.Scan(&cs.ID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
+	if err := scanner.Scan(&cs.ID, &cs.SID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
 		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
 		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash); err != nil {
 		return store.ChatSession{}, err
@@ -888,10 +786,13 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 	if cs.Backend == "" {
 		cs.Backend = store.ChatBackendAgent
 	}
+	if err := s.assignIDs(ctx, ids.Chat, &cs.ID, &cs.SID); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO chat_sessions (`+chatSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, cs.ID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, cs.ID, cs.SID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode, cs.Cwd,
 		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash)
 	return err
@@ -1106,7 +1007,7 @@ func (s *SQLiteStore) UpsertSubscriptionQuota(ctx context.Context, q store.Subsc
 		q.Source = "probe"
 	}
 	if q.ID == "" {
-		q.ID = q.Provider + ":" + q.WindowLabel
+		q.ID = ids.UUID() // an existing (provider, window_label) row keeps its id
 	}
 	var resetAt any
 	if q.ResetAt != nil {
@@ -1199,7 +1100,7 @@ func (s *SQLiteStore) UpsertMemory(ctx context.Context, m store.MemoryEntry) err
 		m.Scope = "fleet"
 	}
 	if m.ID == "" {
-		m.ID = m.Scope + "::" + m.Key
+		m.ID = ids.UUID() // an existing (scope, key) row keeps its id
 	}
 	if m.MetaJSON == "" {
 		m.MetaJSON = "{}"

@@ -5,16 +5,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/google/uuid"
 )
 
 func TestResolveStableWorkerIDPersistsAcrossRestarts(t *testing.T) {
 	dir := t.TempDir()
 
 	id1 := ResolveStableWorkerID(dir, "my-box", "my-box", "host")
-	id2 := ResolveStableWorkerID(dir, "my-box", "my-box", "host")
-	if id1 == "" || id1 != id2 {
+	if !ids.IsUUIDv7(id1) {
+		t.Fatalf("worker id %q is not a UUIDv7", id1)
+	}
+	if id2 := ResolveStableWorkerID(dir, "my-box", "my-box", "host"); id1 != id2 {
 		t.Fatalf("expected identical persisted worker ID across restarts, got %q vs %q", id1, id2)
 	}
 
@@ -27,10 +32,10 @@ func TestResolveStableWorkerIDPersistsAcrossRestarts(t *testing.T) {
 		t.Fatalf("expected persisted container ID to remain stable, got %q vs %q", ctrID, ctrID2)
 	}
 
-	// Verify file permissions are restrictive
+	// One identity file per daemon (no separate machine-id file).
 	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) < 2 {
-		t.Fatalf("expected persisted ID files in %s, got %v err=%v", dir, entries, err)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("expected exactly two identity files in %s, got %v err=%v", dir, entries, err)
 	}
 	info, err := os.Stat(filepath.Join(dir, entries[0].Name()))
 	if err != nil {
@@ -41,17 +46,67 @@ func TestResolveStableWorkerIDPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
-func TestResolveStableWorkerIDIsMachineIDAndReplacesOlderIDs(t *testing.T) {
+// A state dir copied into a cloned VM (different OS machine-id) gets a fresh UUIDv7.
+func TestResolveStableWorkerIDRegeneratesOnOSHashChange(t *testing.T) {
+	dir := t.TempDir()
+	osID := filepath.Join(t.TempDir(), "machine-id")
+	orig := osMachineIDPaths
+	osMachineIDPaths = []string{osID}
+	t.Cleanup(func() { osMachineIDPaths = orig })
+
+	if err := os.WriteFile(osID, []byte("aaaa\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := ResolveStableWorkerID(dir, "", "", "host")
+	if err := os.WriteFile(osID, []byte("bbbb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cloned := ResolveStableWorkerID(dir, "", "", "host")
+	if cloned == first || !ids.IsUUIDv7(cloned) {
+		t.Fatalf("worker id must be a fresh UUIDv7 when the OS machine identity changes: %q then %q", first, cloned)
+	}
+	if again := ResolveStableWorkerID(dir, "", "", "host"); again != cloned {
+		t.Fatal("regenerated worker id not persisted")
+	}
+}
+
+// Anything that is not a UUIDv7 identity record is replaced.
+func TestResolveStableWorkerIDReplacesInvalidFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, workerIDFilename("", "host"))
-	if err := os.WriteFile(path, []byte("75cca373-29b6-4692-840b-bd942267949f\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("m-7qk3m\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	id := ResolveStableWorkerID(dir, "", "", "host")
-	if !ids.Valid(ids.Machine, id) {
-		t.Fatalf("worker id %q is not an m- id", id)
+	if !ids.IsUUIDv7(id) {
+		t.Fatalf("worker id %q is not a UUIDv7", id)
 	}
 	if again := ResolveStableWorkerID(dir, "", "", "host"); again != id {
 		t.Fatalf("replacement id not persisted: %q then %q", id, again)
+	}
+}
+
+func TestDeterministicWorkerIDIsStableUUID(t *testing.T) {
+	a := deterministicWorkerID("box", "grp", "host")
+	u, err := uuid.Parse(a)
+	if err != nil || u.Version() != 8 || u.Variant() != uuid.RFC4122 {
+		t.Fatalf("fallback id %q is not a v8 RFC 9562 UUID (err=%v)", a, err)
+	}
+	if b := deterministicWorkerID("box", "grp", "host"); b != a {
+		t.Fatalf("fallback id not deterministic: %q vs %q", a, b)
+	}
+}
+
+func TestHelloCarriesWorkerID(t *testing.T) {
+	hub := newFakeHub(t)
+	d, _ := startTestDaemon(t, hub, nil)
+	c := hub.accept(t)
+	env := c.waitFor(t, 10*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
+	hello, err := protocol.DecodePayload[protocol.WorkerHelloPayload](env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hello.Worker.ID == "" || hello.Worker.ID != d.WorkerID() {
+		t.Fatalf("hello id = %q, daemon = %q", hello.Worker.ID, d.WorkerID())
 	}
 }

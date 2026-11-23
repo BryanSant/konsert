@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -82,51 +81,6 @@ func TestDeleteSpaceClearsTaskReference(t *testing.T) {
 	if err := st.DeleteSpace(ctx, "sp1"); err != store.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
-}
-
-func TestDeduplicateWorkersRepointsTasksFromDuplicateSpaces(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "dedup.db")
-	st, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	for _, w := range []store.Worker{
-		{ID: "old", Status: "offline", LastSeenAt: now.Add(-time.Hour)},
-		{ID: "new", Status: "online", LastSeenAt: now},
-	} {
-		w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation = "mac", "mac", "darwin", "arm64", "host"
-		if err := st.UpsertWorker(ctx, w); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// The same folder saved on both duplicate rows; the task points at the copy
-	// that will be removed after both collapse onto the winner.
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp-new", WorkerID: "new", Name: "jk", Path: "/jk", CreatedAt: now.Add(-2 * time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp-old", WorkerID: "old", Name: "jk", Path: "/jk", CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateTask(ctx, store.Task{ID: "t", WorkerID: "old", SpaceID: "sp-old", Agent: "claude", Workdir: "/jk", Prompt: "p"}); err != nil {
-		t.Fatal(err)
-	}
-
-	removed, err := st.DeduplicateWorkers(ctx)
-	if err != nil || len(removed) != 1 || removed[0] != "old" {
-		t.Fatalf("dedup removed=%v err=%v", removed, err)
-	}
-	mustNoDanglingTaskRefs(t, st)
-	spaces, _ := st.ListSpaces(ctx, "")
-	if len(spaces) != 1 {
-		t.Fatalf("expected 1 surviving space, got %+v", spaces)
-	}
-	got, _ := st.GetTask(ctx, "t")
-	if got.WorkerID != "new" || got.SpaceID != spaces[0].ID {
-		t.Fatalf("task not repointed: %+v (surviving space %s)", got, spaces[0].ID)
-	}
-	_ = st.Close()
 }
 
 func TestAppendChatMessageIsAtomic(t *testing.T) {

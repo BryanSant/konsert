@@ -184,6 +184,7 @@ type WorkerFactsPayload struct {
 
 // WorkerInfo describes a worker node during registration.
 type WorkerInfo struct {
+	// ID is konsertd's persistent UUIDv7 identity: the hub's workers.id.
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	HostGroup      string            `json:"host_group"`
@@ -195,9 +196,6 @@ type WorkerInfo struct {
 	Tags           map[string]string `json:"tags"`
 	MaxConcurrent  int               `json:"max_concurrent"`
 	Facts          *MachineFacts     `json:"facts,omitzero"`
-	// MachineID is a stable per-installation UUID persisted by konsertd; the hub
-	// prefers it over the name/host tuple for identity matching.
-	MachineID string `json:"machine_id,omitempty"`
 	// Version is konsertd's build version (ldflags main.version). Empty or "dev"
 	// means unknown and never counts as a mismatch with the hub.
 	Version string `json:"version,omitempty"`
@@ -286,7 +284,10 @@ type UsageSummary struct {
 }
 
 type TaskStartPayload struct {
-	TaskID         string `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// SID is the task's short user-facing ID (t-…); the worker names the task's git
+	// worktree directory after it (.konsert-worktrees/<sid>). The protocol keys on TaskID.
+	SID            string `json:"sid,omitempty"`
 	Agent          string `json:"agent"`
 	Model          string `json:"model,omitempty"`
 	SessionKind    string `json:"session_kind,omitempty"`

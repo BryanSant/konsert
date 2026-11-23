@@ -2,17 +2,22 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 	"time"
 )
 
 // ErrIncompatibleSchema means the database was created by an older pre-1.0 schema. Pre-1.0
-// there are no upgrade paths: delete the database and start fresh.
+// there are no upgrade paths: delete the database and start fresh. Each applied migration
+// records the SHA-256 of its file, so editing 001_schema.sql in place also refuses
+// databases created by the previous version of it.
 var ErrIncompatibleSchema = errors.New("database was created by an older, incompatible Konsert schema (pre-1.0 databases are not upgraded): delete it and restart")
 
 //go:embed migrations/*.sql
@@ -22,7 +27,8 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			name TEXT PRIMARY KEY,
-			applied_at TEXT NOT NULL
+			applied_at TEXT NOT NULL,
+			checksum TEXT NOT NULL DEFAULT ''
 		)
 	`); err != nil {
 		return fmt.Errorf("create schema_migrations table: %w", err)
@@ -43,27 +49,37 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 
 	// Pre-1.0 the schema is squashed into one migration and old databases are not upgraded.
 	// A database that recorded a migration we no longer ship predates the current schema.
-	known := map[string]bool{}
+	// So does one whose recorded checksum differs from the file we ship (the schema was
+	// edited in place), or whose schema_migrations predates checksums.
+	sums := map[string]string{}
 	for _, f := range files {
-		known[f] = true
+		content, err := fs.ReadFile(migrationsFS, "migrations/"+f)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", f, err)
+		}
+		sum := sha256.Sum256(content)
+		sums[f] = hex.EncodeToString(sum[:])
 	}
-	rows, err := db.QueryContext(ctx, `SELECT name FROM schema_migrations`)
+	rows, err := db.QueryContext(ctx, `SELECT name, checksum FROM schema_migrations`)
 	if err != nil {
+		if strings.Contains(err.Error(), "no such column") {
+			return ErrIncompatibleSchema
+		}
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
-	var stale []string
+	stale := false
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, sum string
+		if err := rows.Scan(&name, &sum); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("read schema_migrations: %w", err)
 		}
-		if !known[name] {
-			stale = append(stale, name)
+		if want, ok := sums[name]; !ok || sum != want {
+			stale = true
 		}
 	}
 	_ = rows.Close()
-	if len(stale) > 0 {
+	if stale {
 		return ErrIncompatibleSchema
 	}
 
@@ -91,8 +107,8 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
-			name, formatTime(time.Now()),
+			`INSERT INTO schema_migrations (name, applied_at, checksum) VALUES (?, ?, ?)`,
+			name, formatTime(time.Now()), sums[name],
 		); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", name, err)

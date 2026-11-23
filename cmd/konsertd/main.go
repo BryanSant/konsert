@@ -145,7 +145,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
 	cmd.Flags().StringVar(&controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
 	cmd.Flags().StringVar(&fleetToken, "token", "", "Pre-shared fleet token for /ws/worker (env KONSERT_FLEET_TOKEN); required unless the hub runs --no-auth")
-	cmd.Flags().StringVar(&workerID, "id", "", "Stable worker ID (defaults to persisted ~/.konsert/worker-id)")
+	cmd.Flags().StringVar(&workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
 	cmd.Flags().StringVar(&name, "name", "", "Worker display name (defaults to hostname)")
 	cmd.Flags().StringVar(&hostGroup, "host-group", "", "Physical host group name (defaults to name)")
 	cmd.Flags().StringVar(&isolation, "isolation", "", "Isolation tier: host, container, or vm")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -226,7 +227,7 @@ func newStatusCmd() *cobra.Command {
 					mismatches++
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s/%s\t%s\t%s\t%v\t%d/%d\t%s\t%s\n",
-					wk.ID, wk.Name, wk.HostGroup, wk.OS, wk.Arch, wk.Isolation, wk.PermissionMode,
+					cmp.Or(wk.SID, wk.ID), wk.Name, wk.HostGroup, wk.OS, wk.Arch, wk.Isolation, wk.PermissionMode,
 					wk.Agents, wk.ActiveTasks, wk.MaxConcurrent, wk.Status,
 					workerVersionLabel(res.ControllerVersion, wk.Version))
 			}
@@ -293,7 +294,7 @@ func newDispatchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoPath, "repo", ".", "Repository / working directory path on worker")
 	cmd.Flags().StringVar(&branch, "branch", "", "Optional git branch (creates isolated worktree)")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Task prompt")
-	cmd.Flags().StringVar(&workerID, "worker", "", "Target worker ID")
+	cmd.Flags().StringVar(&workerID, "worker", "", "Target worker (id or m- sid)")
 	cmd.Flags().StringVar(&hostGroup, "host-group", "", "Target host group")
 	cmd.Flags().StringVar(&mode, "mode", "oneshot", "Execution mode (oneshot|interactive)")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for task completion and print structured result")
@@ -304,6 +305,7 @@ func newDispatchCmd() *cobra.Command {
 func newTasksCmd() *cobra.Command {
 	var url, token, statusFilter, workerID string
 	var limit int
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "tasks",
 		Short: "List recent and active fleet tasks",
@@ -313,11 +315,14 @@ func newTasksCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if asJSON {
+				return writeJSONOut(os.Stdout, tasks)
+			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 			fmt.Fprintln(w, "TASK_ID\tWORKER\tAGENT\tSTATUS\tBRANCH\tELAPSED\tLAST_MILESTONE")
 			for _, t := range tasks {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%ds\t%s\n",
-					t.TaskID, t.WorkerID, t.Agent, t.Status, t.Branch, t.ElapsedSeconds, t.LastMilestone)
+					cmp.Or(t.TaskSID, t.TaskID), cmp.Or(t.WorkerSID, t.WorkerID), t.Agent, t.Status, t.Branch, t.ElapsedSeconds, t.LastMilestone)
 			}
 			return w.Flush()
 		},
@@ -325,7 +330,8 @@ func newTasksCmd() *cobra.Command {
 	cmd.Flags().StringVar(&url, "url", "", "Konsert controller HTTP URL")
 	cmd.Flags().StringVar(&token, "token", "", "Admin bearer token")
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status")
-	cmd.Flags().StringVar(&workerID, "worker", "", "Filter by worker ID")
+	cmd.Flags().StringVar(&workerID, "worker", "", "Filter by worker (id or m- sid)")
 	cmd.Flags().IntVar(&limit, "limit", 50, "Maximum tasks to display")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output raw JSON (ids and sids)")
 	return cmd
 }
