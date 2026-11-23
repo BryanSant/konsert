@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 )
@@ -131,10 +134,13 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.handleCancelTask))
 	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.handleTaskEvents))
 
-	// Orchestrator Chat REST API
+	// Orchestrator Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chat/sessions", s.requireBrowserAuth(s.handleCreateChatSession))
+	s.mux.Handle("PATCH /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleRenameChatSession))
+	s.mux.Handle("DELETE /api/chat/sessions/{id}", s.requireBrowserAuth(s.handleDeleteChatSession))
 	s.mux.Handle("GET /api/chat/sessions/{id}/messages", s.requireBrowserAuth(s.handleListChatMessages))
+	s.mux.Handle("POST /api/attachments", s.requireBrowserAuth(s.handleUploadAttachment))
 
 	// WebSocket endpoints
 	s.mux.HandleFunc("GET /ws/worker", s.handleWorkerWS)
@@ -927,6 +933,177 @@ func (s *Server) handleListChatMessages(w http.ResponseWriter, r *http.Request) 
 		msgs = []store.ChatMessage{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+}
+
+func (s *Server) handleRenameChatSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
+		return
+	}
+	if err := s.store.RenameChatSession(r.Context(), id, title); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat session not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	cs, err := s.store.GetChatSession(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "title": title})
+		return
+	}
+	writeJSON(w, http.StatusOK, cs)
+}
+
+func (s *Server) handleDeleteChatSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteChatSession(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat session not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
+	var (
+		workerID   string
+		sessionID  string
+		filename   string
+		dataBase64 string
+		rawBytes   []byte
+	)
+
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if err := r.ParseMultipartForm(worker.MaxAttachmentBytes + 1024*1024); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart upload: " + err.Error()})
+			return
+		}
+		workerID = strings.TrimSpace(r.FormValue("worker_id"))
+		sessionID = strings.TrimSpace(r.FormValue("session_id"))
+		file, hdr, err := r.FormFile("file")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file field"})
+			return
+		}
+		defer file.Close()
+		limited := io.LimitReader(file, worker.MaxAttachmentBytes+1)
+		rawBytes, err = io.ReadAll(limited)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if len(rawBytes) > worker.MaxAttachmentBytes {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "file exceeds 12 MiB limit"})
+			return
+		}
+		filename = hdr.Filename
+		dataBase64 = base64.StdEncoding.EncodeToString(rawBytes)
+	} else {
+		var body struct {
+			WorkerID   string `json:"worker_id"`
+			SessionID  string `json:"session_id"`
+			Filename   string `json:"filename"`
+			DataBase64 string `json:"data_base64"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 20*1024*1024)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		workerID = strings.TrimSpace(body.WorkerID)
+		sessionID = strings.TrimSpace(body.SessionID)
+		filename = strings.TrimSpace(body.Filename)
+		dataBase64 = strings.TrimSpace(body.DataBase64)
+		var err error
+		rawBytes, err = base64.StdEncoding.DecodeString(dataBase64)
+		if err != nil || len(rawBytes) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid or empty base64 file data"})
+			return
+		}
+		if len(rawBytes) > worker.MaxAttachmentBytes {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "file exceeds 12 MiB limit"})
+			return
+		}
+	}
+
+	// Resolve target worker (explicit -> localhost -> first online worker).
+	if workerID == "" {
+		workers, _ := s.store.ListWorkers(r.Context())
+		for _, wk := range workers {
+			if wk.Status == "online" && s.hub.IsWorkerConnected(wk.ID) &&
+				(strings.EqualFold(wk.Name, "localhost") || strings.EqualFold(wk.HostGroup, "localhost") || wk.Tags["local"] == "true") {
+				workerID = wk.ID
+				break
+			}
+		}
+		if workerID == "" {
+			for _, wk := range workers {
+				if wk.Status == "online" && s.hub.IsWorkerConnected(wk.ID) {
+					workerID = wk.ID
+					break
+				}
+			}
+		}
+	}
+
+	if workerID != "" && s.hub.IsWorkerConnected(workerID) {
+		rpcCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		env, err := s.hub.RequestWorker(rpcCtx, workerID, protocol.MsgFileUpload, protocol.FileUploadRequest{
+			SessionID:  sessionID,
+			Filename:   filename,
+			DataBase64: dataBase64,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		res, err := protocol.DecodePayload[protocol.FileUploadResult](env)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if !res.OK {
+			writeJSON(w, http.StatusBadRequest, res)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"ok":          true,
+			"worker_id":   workerID,
+			"remote_path": res.RemotePath,
+			"filename":    res.Filename,
+			"size":        res.Size,
+		})
+		return
+	}
+
+	// Local controller fallback when no worker daemon is currently connected.
+	savedPath, err := worker.SaveScratchAttachment("", sessionID, filename, rawBytes)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"ok":          true,
+		"worker_id":   "controller-local",
+		"remote_path": savedPath,
+		"filename":    worker.SanitizeAttachmentFilename(filename),
+		"size":        int64(len(rawBytes)),
+	})
 }
 
 func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {

@@ -35,6 +35,30 @@ export class OrchestratorStore {
     await this.selectSession(created.id);
   }
 
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    const clean = title.trim();
+    if (!clean) return;
+    const updated = await this.api.renameChatSession(sessionId, clean);
+    this.sessions.update((list) =>
+      list.map((s) => (s.id === sessionId ? { ...s, title: updated.title || clean } : s))
+    );
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.api.deleteChatSession(sessionId);
+    const remaining = this.sessions().filter((s) => s.id !== sessionId);
+    if (remaining.length === 0) {
+      const created = await this.api.createChatSession('Default Orchestrator');
+      this.sessions.set([created]);
+      await this.selectSession(created.id);
+      return;
+    }
+    this.sessions.set(remaining);
+    if (this.activeSessionId() === sessionId) {
+      await this.selectSession(remaining[0].id);
+    }
+  }
+
   async selectSession(sessionId: string): Promise<void> {
     this.activeSessionId.set(sessionId);
     this.streamingBuffer.set('');

@@ -21,6 +21,7 @@ import {
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
 import { TelemetryStore } from '../state/telemetry.store';
+import { NotificationService } from './notification.service';
 
 export type ConnectionState = 'connected' | 'connecting' | 'disconnected';
 type PtyListener = (ev: PtyFrameEvent) => void;
@@ -30,6 +31,7 @@ export class KonsertSocketService {
   private readonly fleetStore = inject(FleetStore);
   private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
+  private readonly notifications = inject(NotificationService);
 
   readonly state = signal<ConnectionState>('disconnected');
 
@@ -132,7 +134,10 @@ export class KonsertSocketService {
         if (p.kind === 'worker' && p.worker) {
           this.fleetStore.upsertWorker(p.worker);
         } else if (p.kind === 'task' && p.task) {
+          const prev = this.fleetStore.tasksById()[p.task.id];
+          const workerName = this.fleetStore.workersById()[p.task.worker_id]?.name || p.task.worker_id;
           this.fleetStore.upsertTask(p.task);
+          this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
         } else if (p.kind === 'event' && p.event) {
           this.telemetryStore.appendEvent(p.event);
         } else if (p.kind === 'space' && p.space) {

@@ -19,6 +19,10 @@ export class TabsStore {
   readonly activeTabId = signal<string>(ORCHESTRATOR_TAB_ID);
   readonly activeSpaceId = signal<string | null>(null);
 
+  // Side-by-side split terminal pane state
+  readonly splitTabId = signal<string | null>(null);
+  readonly splitRatio = signal<number>(0.5);
+
   // Floating Scratch Workspace state (persists remote PTY even while minimized)
   readonly scratchOpen = signal(false);
   readonly scratchTaskId = signal<string | null>(null);
@@ -26,6 +30,12 @@ export class TabsStore {
   readonly activeTab = computed(() => {
     const id = this.activeTabId();
     return this.openTabs().find((t) => t.id === id) ?? this.openTabs()[0];
+  });
+
+  readonly splitTab = computed(() => {
+    const id = this.splitTabId();
+    if (!id || id === this.activeTabId()) return undefined;
+    return this.openTabs().find((t) => t.id === id);
   });
 
   /** Tabs displayed in the center strip: scoped to active Space when one is selected, otherwise all open tabs. */
@@ -92,8 +102,15 @@ export class TabsStore {
     if (tab) {
       if (tab.id === ORCHESTRATOR_TAB_ID) {
         this.activeSpaceId.set(null);
+        this.splitTabId.set(null);
       } else if (tab.spaceId) {
         this.activeSpaceId.set(tab.spaceId);
+      }
+      if (this.splitTabId() === id) {
+        const prevActive = this.activeTabId();
+        this.activeTabId.set(id);
+        this.splitTabId.set(prevActive !== ORCHESTRATOR_TAB_ID && prevActive !== id ? prevActive : null);
+        return;
       }
       this.activeTabId.set(id);
     }
@@ -108,10 +125,53 @@ export class TabsStore {
     const next = current.filter((t) => t.id !== id);
     this.openTabs.set(next);
 
-    if (this.activeTabId() === id) {
-      const fallback = next[Math.max(0, idx - 1)] ?? next[0];
-      this.activeTabId.set(fallback.id);
+    if (this.splitTabId() === id) {
+      this.splitTabId.set(null);
     }
+    if (this.activeTabId() === id) {
+      if (this.splitTabId()) {
+        const promoted = this.splitTabId()!;
+        this.splitTabId.set(null);
+        this.activeTabId.set(promoted);
+      } else {
+        const fallback = next[Math.max(0, idx - 1)] ?? next[0];
+        this.activeTabId.set(fallback.id);
+      }
+    }
+  }
+
+  /**
+   * Toggles side-by-side split view with another terminal tab.
+   * Returns true if split is now active or cleanly closed; returns false if no second terminal tab exists to pair with.
+   */
+  toggleSplit(candidateTabId?: string): boolean {
+    const active = this.activeTabId();
+    if (this.splitTabId() && (!candidateTabId || candidateTabId === this.splitTabId())) {
+      this.splitTabId.set(null);
+      return true;
+    }
+    const terminals = this.openTabs().filter((t) => t.kind === 'terminal' && t.id !== active);
+    const chosen = candidateTabId
+      ? this.openTabs().find((t) => t.id === candidateTabId && t.kind === 'terminal' && t.id !== active)
+      : terminals[0];
+    if (!chosen) {
+      return false;
+    }
+    if (active === ORCHESTRATOR_TAB_ID && terminals.length >= 2) {
+      this.activeTabId.set(terminals[0].id);
+      this.splitTabId.set(terminals[1].id);
+      return true;
+    }
+    this.splitTabId.set(chosen.id);
+    return true;
+  }
+
+  closeSplit(): void {
+    this.splitTabId.set(null);
+  }
+
+  setSplitRatio(ratio: number): void {
+    this.splitRatio.set(Math.min(0.75, Math.max(0.25, ratio)));
   }
 
   toggleInteractiveMode(tabId: string): void {

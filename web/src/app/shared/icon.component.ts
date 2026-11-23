@@ -210,6 +210,44 @@ import { Component, input } from '@angular/core';
           <path d="M3 4.5h10M6 4.5V3.3c0-.44.36-.8.8-.8h2.4c.44 0 .8.36.8.8v1.2M4.5 4.5l.6 8.2c.04.45.42.8.87.8h4.06c.45 0 .83-.35.87-.8l.6-8.2" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       }
+      @case ('paperclip') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M11.6 5.2 6.4 10.4a1.6 1.6 0 0 1-2.26-2.26l5.8-5.8a2.7 2.7 0 1 1 3.82 3.82l-6 6a3.8 3.8 0 0 1-5.38-5.38l5.1-5.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      }
+      @case ('edit') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M11.2 2.8a1.4 1.4 0 0 1 2 2L5.6 12.4 2.5 13.5l1.1-3.1 7.6-7.6Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+      }
+      @case ('split') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <rect x="2" y="2.5" width="12" height="11" rx="1.8" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M8 2.5v11" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+      }
+      @case ('workspace') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M2.5 5.2 8 2.2l5.5 3-5.5 3-5.5-3ZM2.5 8.3 8 11.3l5.5-3M2.5 11.1 8 14.1l5.5-3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      }
+      @case ('project') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <rect x="2.2" y="2.5" width="11.6" height="11" rx="2" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M2.2 6h11.6M6.5 6v7.5" stroke="currentColor" stroke-width="1.25"/>
+        </svg>
+      }
+      @case ('repo') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M3.5 2.5h8.2a1.3 1.3 0 0 1 1.3 1.3v8.4a1.3 1.3 0 0 1-1.3 1.3H3.5V2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+          <path d="M6 2.5v11" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      }
+      @case ('bell') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <path d="M4.2 10.8V7a3.8 3.8 0 0 1 7.6 0v3.8l1.2 1.4H3l1.2-1.4ZM6.6 12.4a1.4 1.4 0 0 0 2.8 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      }
       @default {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/>

@@ -718,6 +718,42 @@ func (s *SQLiteStore) ListChatSessions(ctx context.Context, limit int) ([]store.
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) RenameChatSession(ctx context.Context, id, title string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?
+	`, strings.TrimSpace(title), formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) DeleteChatSession(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_messages WHERE session_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM chat_sessions WHERE id = ?`, id)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		_ = tx.Rollback()
+		return store.ErrNotFound
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) AppendChatMessage(ctx context.Context, m store.ChatMessage) (int64, error) {
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now().UTC()

@@ -44,6 +44,8 @@ const (
 	MsgFSListResult       = "fs.list.result"
 	MsgWorktreeScan       = "git.worktree.scan"
 	MsgWorktreeScanResult = "git.worktree.scan.result"
+	MsgFileUpload         = "file.upload"
+	MsgFileUploadResult   = "file.upload.result"
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
@@ -448,6 +450,20 @@ type WorktreeScanResult struct {
 	RootPath string              `json:"root_path"`
 	Matches  []WorktreeScanMatch `json:"matches"`
 	Error    string              `json:"error,omitempty"`
+}
+
+type FileUploadRequest struct {
+	SessionID  string `json:"session_id,omitempty"`
+	Filename   string `json:"filename"`
+	DataBase64 string `json:"data_base64"`
+}
+
+type FileUploadResult struct {
+	OK         bool   `json:"ok"`
+	RemotePath string `json:"remote_path,omitempty"`
+	Filename   string `json:"filename,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // IsTerminalTaskStatus reports whether a task status is final.

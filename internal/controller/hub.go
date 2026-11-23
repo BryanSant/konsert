@@ -227,7 +227,7 @@ func (h *Hub) DisconnectWorker(workerID string) {
 
 // ServeWorkerConn handles a single authenticated konsertd WebSocket connection until disconnect.
 func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
-	conn.SetReadLimit(4 * 1024 * 1024)
+	conn.SetReadLimit(20 * 1024 * 1024)
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

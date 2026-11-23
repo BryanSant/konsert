@@ -1,9 +1,10 @@
-import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PermissionMode, SSHHost, SessionKind, Space, Worker } from '../core/models/konsert.models';
+import { PermissionMode, Repo, SSHHost, SessionKind, Space, Worker, Worktree } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
+import { NotificationService } from '../core/services/notification.service';
 import { FleetStore, basenamePath, guessModelForAgent } from '../core/state/fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { OrchestratorChatComponent } from '../features/orchestrator/orchestrator-chat.component';
@@ -18,7 +19,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
 
 interface PaletteItem {
   id: string;
-  section: 'sessions' | 'machines' | 'actions';
+  section: 'sessions' | 'taxonomy' | 'machines' | 'actions';
   label: string;
   sublabel?: string;
   icon: string;
@@ -96,13 +97,14 @@ interface PaletteItem {
 
           @for (tab of tabs.visibleTabs(); track tab.id) {
             <div
-              (click)="tabs.selectTab(tab.id)"
+              (click)="selectTab(tab.id)"
               class="group flex items-center gap-1.5 px-2.5 py-1 text-[12px] rounded-md cursor-pointer shrink-0 transition-all duration-150"
-              [class.bg-[#24262d]]="tabs.activeTabId() === tab.id"
+              [class.bg-[#24262d]]="tabs.activeTabId() === tab.id || tabs.splitTabId() === tab.id"
               [class.text-[#f4f4f5]]="tabs.activeTabId() === tab.id"
-              [class.text-[#8e9098]]="tabs.activeTabId() !== tab.id"
-              [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== tab.id"
-              [class.hover:text-[#d4d4d8]]="tabs.activeTabId() !== tab.id"
+              [class.text-[#b4b6be]]="tabs.splitTabId() === tab.id && tabs.activeTabId() !== tab.id"
+              [class.text-[#8e9098]]="tabs.activeTabId() !== tab.id && tabs.splitTabId() !== tab.id"
+              [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== tab.id && tabs.splitTabId() !== tab.id"
+              [class.hover:text-[#d4d4d8]]="tabs.activeTabId() !== tab.id && tabs.splitTabId() !== tab.id"
             >
               @if (tab.kind === 'orchestrator') {
                 <app-icon name="orchestrator" [size]="12" class="text-[#60a5fa]" />
@@ -110,6 +112,12 @@ interface PaletteItem {
                 <app-icon [name]="tab.agent || 'shell'" [size]="12" />
               }
               <span class="max-w-[150px] truncate">{{ tab.title }}</span>
+              @if (notifications.isUnread(tab.id) && tabs.activeTabId() !== tab.id) {
+                <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" title="Attention needed"></span>
+              }
+              @if (tabs.splitTabId() === tab.id) {
+                <span class="rounded bg-[#1a1c22] border border-[#32353f] px-1 text-[9px] font-mono-ide text-[#8e9098]">split</span>
+              }
               @if (!tab.pinned) {
                 <button
                   type="button"
@@ -130,6 +138,22 @@ interface PaletteItem {
           >
             <app-icon name="plus" [size]="14" />
           </button>
+
+          @if (tabs.activeTab()?.kind === 'terminal' || tabs.splitTabId()) {
+            <button
+              type="button"
+              (click)="toggleSplitPane()"
+              [title]="tabs.splitTabId() ? 'Close split pane (⌘\\)' : 'Split terminal side-by-side (⌘\\)'"
+              class="hidden md:inline-flex rounded-md p-1 active:scale-95 transition cursor-pointer shrink-0"
+              [class.bg-[#24262d]]="!!tabs.splitTabId()"
+              [class.text-[#ececed]]="!!tabs.splitTabId()"
+              [class.text-[#787a82]]="!tabs.splitTabId()"
+              [class.hover:text-[#ececed]]="!tabs.splitTabId()"
+              [class.hover:bg-[#23252b]]="!tabs.splitTabId()"
+            >
+              <app-icon name="split" [size]="14" />
+            </button>
+          }
         </div>
 
         <!-- Right Orca-style Inspector Tab Icons & Collapse Toggle -->
@@ -207,6 +231,7 @@ interface PaletteItem {
             <app-fleet-sidebar
               (openNewSpace)="openNewSpaceModal($event)"
               (spaceSelected)="handleSpaceSelected($event)"
+              (worktreeSelected)="handleWorktreeSelected($event)"
               (openAddMachine)="openAddMachineModal()"
               (openSettings)="settingsOpen.set(true)"
             />
@@ -221,6 +246,7 @@ interface PaletteItem {
                 (taskSelected)="mobileFleetOpen.set(false)"
                 (openNewSpace)="mobileFleetOpen.set(false); openNewSpaceModal($event)"
                 (spaceSelected)="mobileFleetOpen.set(false); handleSpaceSelected($event)"
+                (worktreeSelected)="mobileFleetOpen.set(false); handleWorktreeSelected($event)"
                 (openAddMachine)="mobileFleetOpen.set(false); openAddMachineModal()"
                 (openSettings)="mobileFleetOpen.set(false); settingsOpen.set(true)"
               />
@@ -229,19 +255,46 @@ interface PaletteItem {
           </div>
         }
 
-        <!-- Center Active Pane Container -->
-        <main class="flex-1 min-w-0 h-full relative overflow-hidden bg-[#111214]">
+        <!-- Center Active Pane Container (Supports Side-by-Side Split Terminal Panes!) -->
+        <main #mainPane class="flex-1 min-w-0 h-full relative overflow-hidden bg-[#111214]">
+          @let splitActive = isSplitVisible();
           @for (tab of tabs.openTabs(); track tab.id) {
-            <div class="absolute inset-0" [class.hidden]="tabs.activeTabId() !== tab.id">
+            @let isPrimary = tabs.activeTabId() === tab.id;
+            @let isSecondary = splitActive && tabs.splitTabId() === tab.id;
+            <div
+              class="absolute top-0 bottom-0"
+              [class.hidden]="!isPrimary && !isSecondary"
+              [style.left]="isSecondary ? 'calc(' + (tabs.splitRatio() * 100) + '% + 2px)' : '0'"
+              [style.right]="isPrimary && splitActive ? 'auto' : '0'"
+              [style.width]="isPrimary && splitActive ? 'calc(' + (tabs.splitRatio() * 100) + '% - 2px)' : null"
+            >
               @if (tab.id === orchestratorTabId) {
                 <app-orchestrator-chat
                   (openNewChat)="openSessionModal('chat', null)"
                   (openNewTerminal)="openSessionModal('terminal', null)"
                 />
               } @else if (tab.taskId) {
-                <app-xterm-pane [taskId]="tab.taskId" [visible]="tabs.activeTabId() === tab.id" />
+                <app-xterm-pane [taskId]="tab.taskId" [visible]="isPrimary || isSecondary" />
               }
             </div>
+          }
+
+          @if (splitActive) {
+            <!-- Draggable Vertical Split Divider -->
+            <div
+              (pointerdown)="startSplitDrag($event)"
+              title="Drag to resize split panes"
+              class="absolute top-0 bottom-0 w-1 -ml-0.5 z-20 bg-[#26282e] hover:bg-[#4a668a] transition-colors cursor-col-resize"
+              [style.left.%]="tabs.splitRatio() * 100"
+            ></div>
+            <button
+              type="button"
+              (click)="tabs.closeSplit()"
+              title="Close split pane (⌘\)"
+              class="absolute top-1.5 right-2 z-20 rounded bg-[#1b1c20]/90 border border-[#2d3039] hover:bg-[#272a33] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+            >
+              <app-icon name="close" [size]="11" />
+            </button>
           }
         </main>
 
@@ -747,7 +800,7 @@ interface PaletteItem {
                   [ngModel]="commandQuery()"
                   (ngModelChange)="onPaletteQuery($event)"
                   (keydown)="onPaletteKeydown($event)"
-                  placeholder="Search sessions, machines, tasks, and actions..."
+                  placeholder="Search spaces, projects, repos, worktrees, machines, sessions..."
                   autofocus
                   class="flex-1 bg-transparent text-[13px] text-[#ececed] placeholder-[#686a72] focus:outline-none"
                 />
@@ -792,6 +845,38 @@ interface PaletteItem {
                           </span>
                         }
                       </div>
+                    </button>
+                  }
+                </div>
+              }
+
+              @if (paletteTaxonomy().length > 0) {
+                <div class="space-y-0.5">
+                  <div class="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#686a72]">
+                    Spaces, Projects, Repos &amp; Worktrees
+                  </div>
+                  @for (item of paletteTaxonomy(); track item.id) {
+                    <button
+                      type="button"
+                      (mouseenter)="paletteIndex.set(item.flatIndex)"
+                      (click)="runCommand(item.action)"
+                      class="w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors duration-100 cursor-pointer"
+                      [class.bg-[#2c2e36]]="paletteIndex() === item.flatIndex"
+                      [class.text-[#f4f4f5]]="paletteIndex() === item.flatIndex"
+                      [class.text-[#c8cad0]]="paletteIndex() !== item.flatIndex"
+                    >
+                      <div class="flex items-center gap-2.5 min-w-0">
+                        <app-icon [name]="item.icon" [size]="13" class="text-[#8e9098]" />
+                        <span class="font-medium truncate">{{ item.label }}</span>
+                        @if (item.sublabel) {
+                          <span class="text-[11px] text-[#787a82] truncate">{{ item.sublabel }}</span>
+                        }
+                      </div>
+                      @if (item.pill) {
+                        <span class="rounded border border-[#343640] bg-[#1a1b20] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab] shrink-0">
+                          {{ item.pill }}
+                        </span>
+                      }
                     </button>
                   }
                 </div>
@@ -873,12 +958,15 @@ interface PaletteItem {
   `,
 })
 export class AppShellComponent implements OnInit, OnDestroy {
+  @ViewChild('mainPane') mainPane?: ElementRef<HTMLElement>;
+
   readonly orchestratorTabId = ORCHESTRATOR_TAB_ID;
 
   readonly auth = inject(AuthService);
   readonly fleet = inject(FleetStore);
   readonly tabs = inject(TabsStore);
   readonly socket = inject(KonsertSocketService);
+  readonly notifications = inject(NotificationService);
   private readonly api = inject(ApiClientService);
 
   readonly leftOpen = signal(true);
@@ -891,6 +979,8 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly dispatchModalOpen = signal(false);
   readonly sessionKind = signal<SessionKind>('chat');
   readonly dispatchSpaceId = signal<string | null>(null);
+  readonly dispatchRepoId = signal<string | null>(null);
+  readonly dispatchWorktreeId = signal<string | null>(null);
   readonly dispatchAgent = signal('claude');
   readonly dispatchModel = signal('');
   readonly dispatchWorkerId = signal('');
@@ -993,6 +1083,65 @@ export class AppShellComponent implements OnInit, OnDestroy {
       });
     }
 
+    // 1b. Taxonomy: Workspaces (Spaces), Projects, Repos, Worktrees
+    const wsById = new Map(this.fleet.workspaces().map((ws) => [ws.id, ws]));
+    const projById = new Map(this.fleet.projects().map((p) => [p.id, p]));
+    const repoById = new Map(this.fleet.repos().map((r) => [r.id, r]));
+
+    for (const ws of this.fleet.workspaces()) {
+      items.push({
+        id: `tax-ws-${ws.id}`,
+        section: 'taxonomy',
+        label: ws.name,
+        sublabel: ws.is_default ? 'Default Space' : 'Space',
+        icon: 'workspace',
+        pill: 'Space',
+        action: () => {
+          this.leftOpen.set(true);
+        },
+      });
+    }
+    for (const proj of this.fleet.projects()) {
+      const wsName = wsById.get(proj.workspace_id)?.name || 'Default';
+      items.push({
+        id: `tax-proj-${proj.id}`,
+        section: 'taxonomy',
+        label: proj.name,
+        sublabel: wsName,
+        icon: 'project',
+        pill: 'Project',
+        action: () => {
+          this.leftOpen.set(true);
+        },
+      });
+    }
+    for (const repo of this.fleet.repos()) {
+      const projName = projById.get(repo.project_id)?.name || 'Default';
+      const wkName = this.fleet.workersById()[repo.worker_id]?.name || repo.worker_id;
+      items.push({
+        id: `tax-repo-${repo.id}`,
+        section: 'taxonomy',
+        label: repo.name,
+        sublabel: `${projName} · ${repo.path}`,
+        icon: 'repo',
+        pill: wkName,
+        action: () => this.handleWorktreeSelected({ repo, worktree: null }),
+      });
+    }
+    for (const wt of this.fleet.worktrees()) {
+      const repo = repoById.get(wt.repo_id);
+      if (!repo) continue;
+      items.push({
+        id: `tax-wt-${wt.id}`,
+        section: 'taxonomy',
+        label: `${repo.name} · ${wt.branch || basenamePath(wt.path)}`,
+        sublabel: wt.path,
+        icon: 'git-branch',
+        pill: wt.is_primary ? 'primary' : 'worktree',
+        action: () => this.handleWorktreeSelected({ repo, worktree: wt }),
+      });
+    }
+
     // 2. Machines
     for (const w of this.fleet.workers()) {
       items.push({
@@ -1024,6 +1173,14 @@ export class AppShellComponent implements OnInit, OnDestroy {
         icon: 'shell',
         pill: 'Term',
         action: () => this.openSessionModal('terminal', null),
+      },
+      {
+        id: 'act-split',
+        label: 'Toggle Side-by-Side Split Terminal',
+        section: 'actions',
+        icon: 'split',
+        pill: '⌘\\',
+        action: () => this.toggleSplitPane(),
       },
       {
         id: 'act-scratch',
@@ -1085,6 +1242,9 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly paletteSessions = computed(() =>
     this.filteredCommands().filter((i) => i.section === 'sessions')
   );
+  readonly paletteTaxonomy = computed(() =>
+    this.filteredCommands().filter((i) => i.section === 'taxonomy')
+  );
   readonly paletteMachines = computed(() =>
     this.filteredCommands().filter((i) => i.section === 'machines')
   );
@@ -1092,16 +1252,51 @@ export class AppShellComponent implements OnInit, OnDestroy {
     this.filteredCommands().filter((i) => i.section === 'actions')
   );
 
+  readonly isSplitVisible = computed(() => {
+    const active = this.tabs.activeTab();
+    const split = this.tabs.splitTab();
+    return !!split && active?.kind === 'terminal' && split.kind === 'terminal';
+  });
+
   @HostListener('window:keydown', ['$event'])
   onKeyDown(ev: KeyboardEvent): void {
     const meta = ev.metaKey || ev.ctrlKey;
     if (meta && (ev.key.toLowerCase() === 'k' || (ev.shiftKey && ev.key.toLowerCase() === 'p'))) {
       ev.preventDefault();
       this.openCommandPalette();
-    } else if (meta && ev.key.toLowerCase() === 'j') {
+      return;
+    }
+    if (meta && ev.key.toLowerCase() === 'j') {
       ev.preventDefault();
       this.tabs.toggleScratch();
-    } else if (ev.key === 'Escape') {
+      return;
+    }
+    // Cmd+1-9, Cmd+W, Cmd+\ use metaKey (never Ctrl) so interactive PTY Ctrl+W / Ctrl+\ never clash.
+    if (ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+      if (ev.key >= '1' && ev.key <= '9') {
+        const idx = Number(ev.key) - 1;
+        const visible = this.tabs.visibleTabs();
+        if (visible[idx]) {
+          ev.preventDefault();
+          this.selectTab(visible[idx].id);
+        }
+        return;
+      }
+      if (ev.key.toLowerCase() === 'w') {
+        const active = this.tabs.activeTab();
+        if (active && !active.pinned) {
+          ev.preventDefault();
+          this.tabs.closeTab(active.id);
+        }
+        return;
+      }
+      if (ev.key === '\\') {
+        ev.preventDefault();
+        void this.toggleSplitPane();
+        return;
+      }
+    }
+    if (ev.key === 'Escape') {
       this.commandPaletteOpen.set(false);
       this.addMachineOpen.set(false);
       this.dispatchModalOpen.set(false);
@@ -1127,6 +1322,72 @@ export class AppShellComponent implements OnInit, OnDestroy {
       this.inspectorPanel.set(panel);
       this.rightOpen.set(true);
     }
+  }
+
+  selectTab(id: string): void {
+    this.tabs.selectTab(id);
+    this.notifications.markRead(id);
+  }
+
+  async toggleSplitPane(): Promise<void> {
+    if (this.tabs.toggleSplit()) {
+      return;
+    }
+    // No second terminal tab open yet — spawn a quick shell in the active context and pair it side-by-side!
+    const active = this.tabs.activeTab();
+    const activeTask = active?.taskId ? this.fleet.tasksById()[active.taskId] : undefined;
+    const workerId = active?.workerId || activeTask?.worker_id || this.fleet.resolveSessionDefaults().machine_id;
+    const repoPath = activeTask?.effective_dir || activeTask?.workdir || this.activeSpace()?.path || '~';
+    if (!workerId) return;
+    try {
+      const res = await this.api.createSession({
+        worker_selector: { worker_id: workerId },
+        space_id: active?.spaceId || undefined,
+        session_kind: 'terminal',
+        agent: 'shell',
+        repo_path: repoPath,
+        mode: 'interactive',
+        origin: 'direct',
+        permission_mode: this.fleet.settings().default_permission_mode,
+      });
+      await this.fleet.refresh();
+      const newTask = this.fleet.tasksById()[res.task_id];
+      const w = this.fleet.workersById()[workerId];
+      if (newTask) {
+        this.tabs.openTaskTab(newTask, w?.name, false);
+        this.tabs.toggleSplit(newTask.id);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  startSplitDrag(ev: PointerEvent): void {
+    const container = this.mainPane?.nativeElement;
+    if (!container) return;
+    ev.preventDefault();
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const onMove = (moveEv: PointerEvent) => {
+      const ratio = (moveEv.clientX - rect.left) / rect.width;
+      this.tabs.setSplitRatio(ratio);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  handleWorktreeSelected(ev: { repo: Repo; worktree: Worktree | null }): void {
+    const worker = this.fleet.workersById()[ev.repo.worker_id] ?? null;
+    this.openSessionModal('chat', worker, null);
+    this.dispatchRepoId.set(ev.repo.id);
+    this.dispatchWorktreeId.set(ev.worktree?.id || null);
+    this.dispatchRepo.set(ev.worktree?.path || ev.repo.path || '~');
+    this.dispatchBranch.set(ev.worktree?.branch || '');
   }
 
   openCommandPalette(): void {
@@ -1268,6 +1529,8 @@ export class AppShellComponent implements OnInit, OnDestroy {
     this.dispatchError.set('');
     this.sessionKind.set(kind);
     this.dispatchSpaceId.set(space?.id || null);
+    this.dispatchRepoId.set(null);
+    this.dispatchWorktreeId.set(null);
     this.dispatchPerm.set(this.fleet.settings().default_permission_mode || 'full_access');
     this.dispatchRepo.set(space?.path || '~');
     this.dispatchBranch.set(space?.branch || '');
@@ -1325,6 +1588,8 @@ export class AppShellComponent implements OnInit, OnDestroy {
       const res = await this.api.createSession({
         worker_selector: this.dispatchWorkerId() ? { worker_id: this.dispatchWorkerId() } : undefined,
         space_id: this.dispatchSpaceId() || undefined,
+        repo_id: this.dispatchRepoId() || undefined,
+        worktree_id: this.dispatchWorktreeId() || undefined,
         session_kind: this.sessionKind(),
         agent: isChat ? this.dispatchAgent() : 'shell',
         model: isChat ? this.dispatchModel().trim() || undefined : undefined,

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -161,8 +162,9 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}
-	conn.SetReadLimit(4 * 1024 * 1024)
+	conn.SetReadLimit(20 * 1024 * 1024)
 	defer conn.Close(websocket.StatusNormalClosure, "shutdown")
+	go PruneScratchAttachments("", AttachmentTTL)
 
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
@@ -464,6 +466,32 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		go func(reqID string, req protocol.WorktreeScanRequest) {
 			d.sendJSONWithID(protocol.MsgWorktreeScanResult, reqID, d.handleWorktreeScan(req))
 		}(env.ID, p)
+
+	case protocol.MsgFileUpload:
+		p, err := protocol.DecodePayload[protocol.FileUploadRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.FileUploadRequest) {
+			d.sendJSONWithID(protocol.MsgFileUploadResult, reqID, d.handleFileUpload(req))
+		}(env.ID, p)
+	}
+}
+
+func (d *Daemon) handleFileUpload(req protocol.FileUploadRequest) protocol.FileUploadResult {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(req.DataBase64))
+	if err != nil {
+		return protocol.FileUploadResult{OK: false, Error: "invalid base64 payload"}
+	}
+	savedPath, err := SaveScratchAttachment("", req.SessionID, req.Filename, raw)
+	if err != nil {
+		return protocol.FileUploadResult{OK: false, Error: err.Error()}
+	}
+	return protocol.FileUploadResult{
+		OK:         true,
+		RemotePath: savedPath,
+		Filename:   SanitizeAttachmentFilename(req.Filename),
+		Size:       int64(len(raw)),
 	}
 }
 

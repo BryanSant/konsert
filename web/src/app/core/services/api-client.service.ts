@@ -103,6 +103,46 @@ export class ApiClientService {
     return this.request(`/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`);
   }
 
+  renameChatSession(sessionId: string, title: string): Promise<ChatSession> {
+    return this.request(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  deleteChatSession(sessionId: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async uploadAttachment(
+    file: File,
+    opts?: { workerId?: string; sessionId?: string }
+  ): Promise<{ ok: boolean; worker_id: string; remote_path: string; filename: string; size: number }> {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    if (opts?.workerId) fd.append('worker_id', opts.workerId);
+    if (opts?.sessionId) fd.append('session_id', opts.sessionId);
+
+    const res = await fetch('/api/attachments', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: fd,
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error) errMsg = body.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(errMsg);
+    }
+    return (await res.json()) as { ok: boolean; worker_id: string; remote_path: string; filename: string; size: number };
+  }
+
   listSpaces(workerId = ''): Promise<{ spaces: Space[] }> {
     const q = workerId ? `?worker_id=${encodeURIComponent(workerId)}` : '';
     return this.request(`/api/spaces${q}`);

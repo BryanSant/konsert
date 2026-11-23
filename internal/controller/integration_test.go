@@ -1210,3 +1210,92 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 		t.Fatalf("HTTP /mcp inspect_machine_facts failed: %v res=%+v", err, factsRes)
 	}
 }
+
+func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "chat-attach.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Connect worker daemon so POST /api/attachments routes over worker RPC to OS scratch dir.
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-att-1"
+	wCfg.Name = "localhost"
+	wCfg.EnableMockDriver = true
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-att-1")
+
+	// 1. Create -> Rename -> Delete chat session
+	createResp, err := http.Post(ts.URL+"/api/chat/sessions", "application/json", strings.NewReader(`{"title":"Initial"}`))
+	if err != nil || createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/chat/sessions failed: resp=%v err=%v", createResp, err)
+	}
+	var cs store.ChatSession
+	_ = json.NewDecoder(createResp.Body).Decode(&cs)
+	_ = createResp.Body.Close()
+
+	patchReq, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/chat/sessions/"+cs.ID, strings.NewReader(`{"title":"Renamed Thread"}`))
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(patchReq)
+	if err != nil || patchResp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH /api/chat/sessions failed: resp=%v err=%v", patchResp, err)
+	}
+	var renamed store.ChatSession
+	_ = json.NewDecoder(patchResp.Body).Decode(&renamed)
+	_ = patchResp.Body.Close()
+	if renamed.Title != "Renamed Thread" {
+		t.Fatalf("expected Renamed Thread, got %q", renamed.Title)
+	}
+
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/chat/sessions/"+cs.ID, nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil || delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE /api/chat/sessions failed: resp=%v err=%v", delResp, err)
+	}
+	_ = delResp.Body.Close()
+
+	// 2. Upload local attachment -> forwarded via MsgFileUpload RPC to konsertd OS scratch dir
+	attachBody := `{"worker_id":"w-att-1","session_id":"sess-1","filename":"trace.log","data_base64":"aGVsbG8ga29uc2VydAo="}`
+	attResp, err := http.Post(ts.URL+"/api/attachments", "application/json", strings.NewReader(attachBody))
+	if err != nil || attResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/attachments failed: resp=%v err=%v", attResp, err)
+	}
+	var attOut struct {
+		OK         bool   `json:"ok"`
+		WorkerID   string `json:"worker_id"`
+		RemotePath string `json:"remote_path"`
+		Filename   string `json:"filename"`
+		Size       int64  `json:"size"`
+	}
+	_ = json.NewDecoder(attResp.Body).Decode(&attOut)
+	_ = attResp.Body.Close()
+	if !attOut.OK || attOut.WorkerID != "w-att-1" || attOut.RemotePath == "" || attOut.Size != 14 {
+		t.Fatalf("unexpected attachment upload response: %+v", attOut)
+	}
+	content, err := os.ReadFile(attOut.RemotePath)
+	if err != nil || string(content) != "hello konsert\n" {
+		t.Fatalf("expected uploaded file at %q with content, got %q err=%v", attOut.RemotePath, string(content), err)
+	}
+	_ = os.Remove(attOut.RemotePath)
+
+	cancel()
+	<-done
+}

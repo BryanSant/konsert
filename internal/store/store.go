@@ -245,6 +245,8 @@ type Store interface {
 	CreateChatSession(ctx context.Context, s ChatSession) error
 	GetChatSession(ctx context.Context, id string) (ChatSession, error)
 	ListChatSessions(ctx context.Context, limit int) ([]ChatSession, error)
+	RenameChatSession(ctx context.Context, id, title string) error
+	DeleteChatSession(ctx context.Context, id string) error
 	AppendChatMessage(ctx context.Context, m ChatMessage) (int64, error)
 	ListChatMessages(ctx context.Context, sessionID string) ([]ChatMessage, error)
 

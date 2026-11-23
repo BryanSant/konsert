@@ -1,6 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
+import {
+  extractTaskIdsFromToolPayload,
+  parseUserMessageWithAttachments,
+} from '../../features/orchestrator/orchestrator-chat.component';
+import { parseMarkdown } from '../../shared/markdown-view.component';
 import { Task, Worker } from '../models/konsert.models';
+import { NotificationService } from '../services/notification.service';
 import { FleetStore } from './fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from './tabs.store';
 
@@ -231,5 +237,70 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     expect(fleet.projects().length).toBe(0);
     expect(fleet.repos().length).toBe(0);
     expect(fleet.worktrees().length).toBe(0);
+  });
+
+  it('manages side-by-side split panes, unread notifications, markdown, and attachments', () => {
+    TestBed.configureTestingModule({});
+    const tabs = TestBed.inject(TabsStore);
+    const notif = TestBed.inject(NotificationService);
+    const fleet = TestBed.inject(FleetStore);
+
+    const t1: Task = {
+      id: 'task-split-1',
+      worker_id: 'w1',
+      agent: 'claude',
+      workdir: '/repo',
+      effective_dir: '/repo',
+      branch: 'main',
+      mode: 'interactive',
+      origin: 'direct',
+      permission_mode: 'full_access',
+      orphan_policy: 'fail',
+      prompt: '',
+      status: 'running',
+      summary: '',
+      created_at: new Date().toISOString(),
+    };
+    const t2: Task = { ...t1, id: 'task-split-2', agent: 'shell' };
+
+    tabs.openTaskTab(t1, 'box1', true);
+    expect(tabs.toggleSplit()).toBe(false); // only 1 terminal tab open
+    tabs.openTaskTab(t2, 'box1', false);
+    expect(tabs.toggleSplit()).toBe(true);
+    expect(tabs.splitTabId()).toBe('task-split-2');
+
+    tabs.setSplitRatio(0.95);
+    expect(tabs.splitRatio()).toBe(0.75);
+    tabs.setSplitRatio(0.1);
+    expect(tabs.splitRatio()).toBe(0.25);
+
+    // Closing primary tab promotes split tab
+    tabs.closeTab('task-split-1');
+    expect(tabs.activeTabId()).toBe('task-split-2');
+    expect(tabs.splitTabId()).toBeNull();
+
+    // Unread notification tracking for waiting_input on non-active tab
+    fleet.settings.update((s) => ({ ...s, notify_sound: false, notify_desktop: false }));
+    notif.notifyTaskTransition('running', { ...t1, status: 'waiting_input' }, 'box1');
+    expect(notif.isUnread('task-split-1')).toBe(true);
+    notif.markRead('task-split-1');
+    expect(notif.isUnread('task-split-1')).toBe(false);
+
+    // Markdown parser
+    const blocks = parseMarkdown('# Summary\n\n- Check `main.go`\n\n```go\nfmt.Println("ok")\n```');
+    expect(blocks.map((b) => b.kind)).toEqual(['h1', 'ul', 'code']);
+    expect(blocks[2].lang).toBe('go');
+
+    // Attachment parser & tool card task_id extraction
+    const parsedMsg = parseUserMessageWithAttachments(
+      'Please inspect this log\n\n[Attached files on host]\n- /var/tmp/konsert-attachments/sess1-1700000000-abcd1234-error.log'
+    );
+    expect(parsedMsg.text).toBe('Please inspect this log');
+    expect(parsedMsg.files).toEqual(['error.log']);
+
+    const ids = extractTaskIdsFromToolPayload(
+      JSON.stringify({ tasks: [{ task_id: 'task-aaa111' }, { id: 'task-bbb222', agent: 'claude' }] })
+    );
+    expect(ids).toEqual(['task-aaa111', 'task-bbb222']);
   });
 });

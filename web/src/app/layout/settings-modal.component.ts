@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
+import { NotificationService } from '../core/services/notification.service';
 import { FleetStore } from '../core/state/fleet.store';
 
 @Component({
@@ -166,7 +167,7 @@ import { FleetStore } from '../core/state/fleet.store';
                 <span>Subtle sound alerts</span>
               </label>
               <label class="inline-flex items-center gap-2 text-[#d4d4d8] cursor-pointer">
-                <input type="checkbox" name="notifyDesktop" [ngModel]="notifyDesktop()" (ngModelChange)="notifyDesktop.set($event)" class="accent-[#4a668a]" />
+                <input type="checkbox" name="notifyDesktop" [ngModel]="notifyDesktop()" (ngModelChange)="onToggleDesktop($event)" class="accent-[#4a668a]" />
                 <span>Desktop notifications</span>
               </label>
             </div>
@@ -210,6 +211,7 @@ export class SettingsModalComponent implements OnInit {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
   private readonly auth = inject(AuthService);
+  private readonly notifications = inject(NotificationService);
 
   readonly provider = signal('openai');
   readonly model = signal('gpt-4o');
@@ -253,6 +255,13 @@ export class SettingsModalComponent implements OnInit {
       if (next === 'anthropic') this.model.set('claude-sonnet-4-20250514');
       else if (next === 'gemini') this.model.set('gemini-2.5-pro');
       else this.model.set('gpt-4o');
+    }
+  }
+
+  onToggleDesktop(enabled: boolean): void {
+    this.notifyDesktop.set(enabled);
+    if (enabled) {
+      void this.notifications.requestDesktopPermission();
     }
   }
 
