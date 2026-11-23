@@ -15,11 +15,11 @@ type TelemetryThrottle struct {
 	IdleInterval   time.Duration // gentler cadence when idle (default 30s)
 	MaxSilent      time.Duration // forced keepalive ceiling (default 60s)
 
-	lastSentAt    time.Time
-	lastTaskIDs   []string
-	lastMetrics   *protocol.WorkerMetrics
-	sentCount     int
-	skippedCount  int
+	lastSentAt   time.Time
+	lastTaskIDs  []string
+	lastMetrics  *protocol.WorkerMetrics
+	sentCount    int
+	skippedCount int
 }
 
 func NewTelemetryThrottle(baseActive time.Duration) *TelemetryThrottle {

@@ -92,6 +92,10 @@ func attachProcessToJobObject(pid uint32) windows.Handle {
 	return job
 }
 
+func (p *windowsPtyProcess) Pid() int {
+	return p.cpty.Pid()
+}
+
 func (p *windowsPtyProcess) Read(b []byte) (int, error) {
 	return p.cpty.Read(b)
 }

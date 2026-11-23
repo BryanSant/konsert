@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -24,10 +26,35 @@ type usageCounter struct {
 
 // ClaudeDriver runs Anthropic's Claude Code CLI (`claude`).
 // In default full_access mode, it passes `--dangerously-skip-permissions`.
+//
+// Each launch gets a fresh `--session-id <uuid>`, and telemetry tails only that session's
+// ~/.claude/projects/<dir>/<uuid>.jsonl, so concurrent tasks (or the user's own session) in
+// the same directory never mix usage or summaries.
 type ClaudeDriver struct {
-	mu           sync.Mutex
-	lastSummary  map[string]string
-	seenUsage    map[string]map[string]usageCounter // taskID -> model -> last reported cumulative totals
+	mu          sync.Mutex
+	lastSummary map[string]string
+	seenUsage   map[string]map[string]usageCounter // taskID -> model -> last reported cumulative totals
+	sessions    map[string]string                  // taskID -> claude session UUID
+}
+
+// sessionFor returns the Claude session UUID assigned to taskID ("" if none).
+func (d *ClaudeDriver) sessionFor(taskID string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.sessions[taskID]
+}
+
+func (d *ClaudeDriver) newSession(taskID string) string {
+	id := uuid.NewString()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.sessions == nil {
+		d.sessions = make(map[string]string)
+	}
+	if taskID != "" {
+		d.sessions[taskID] = id
+	}
+	return id
 }
 
 func (d *ClaudeDriver) Name() string { return "claude" }
@@ -48,12 +75,15 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if m := strings.TrimSpace(opts.Model); m != "" {
 		args = append(args, "--model", m)
 	}
+	args = append(args, "--session-id", d.newSession(opts.TaskID))
+	// "--" terminates option parsing so a prompt that begins with '-' (for example
+	// "--dangerously-skip-permissions") can never be interpreted as a CLI flag.
 	if opts.Mode == "interactive" {
 		if strings.TrimSpace(opts.Prompt) != "" {
-			args = append(args, opts.Prompt)
+			args = append(args, "--", opts.Prompt)
 		}
 	} else {
-		args = append(args, "-p", opts.Prompt)
+		args = append(args, "-p", "--", opts.Prompt)
 	}
 	return LaunchSpec{
 		Binary: bin,
@@ -121,6 +151,7 @@ func (d *ClaudeDriver) getAndClearState(taskID string) string {
 	if d.seenUsage != nil {
 		delete(d.seenUsage, taskID)
 	}
+	delete(d.sessions, taskID)
 	return s
 }
 
@@ -155,16 +186,20 @@ func (d *ClaudeDriver) computeUsageDelta(taskID, model string, cumIn, cumOut int
 }
 
 func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit func(TelemetryEvent)) {
-	startTime := time.Now().Add(-3 * time.Second)
 	projectDirs := claudeCandidateProjectDirs(opts.Workdir)
+	sessionID := d.sessionFor(opts.TaskID)
 
 	offsets := make(map[string]int64)
 	ticker := time.NewTicker(600 * time.Millisecond)
 	defer ticker.Stop()
 
 	pollAll := func() {
+		if sessionID == "" {
+			return // no session of our own to tail; never read other sessions' logs
+		}
 		for _, dir := range projectDirs {
-			d.pollJSONLDir(opts.TaskID, dir, startTime, offsets, emit)
+			path := filepath.Join(dir, sessionID+".jsonl")
+			offsets[path] = d.pollJSONLFile(opts.TaskID, path, offsets[path], emit)
 		}
 	}
 
@@ -221,44 +256,33 @@ type claudeContentBlock struct {
 	Input map[string]any `json:"input"`
 }
 
-func (d *ClaudeDriver) pollJSONLDir(taskID, dir string, since time.Time, offsets map[string]int64, emit func(TelemetryEvent)) {
-	entries, err := os.ReadDir(dir)
+// pollJSONLFile parses complete lines appended to path since offset and returns the new
+// offset. The offset only advances past a trailing '\n': a record that is still being
+// written is re-read in full on the next poll instead of being lost or split.
+func (d *ClaudeDriver) pollJSONLFile(taskID, path string, offset int64, emit func(TelemetryEvent)) int64 {
+	f, err := os.Open(path)
 	if err != nil {
-		return
+		return offset
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
+	defer f.Close()
+	if info, err := f.Stat(); err != nil || info.Size() < offset {
+		offset = 0 // truncated or replaced
+	}
+	if offset > 0 {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return offset
 		}
-		fullPath := filepath.Join(dir, entry.Name())
-		info, err := entry.Info()
-		if err != nil || info.ModTime().Before(since) {
-			continue
+	}
+	reader := bufio.NewReader(f)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 && line[len(line)-1] == '\n' {
+			offset += int64(len(line))
+			d.parseJSONLLine(taskID, line, emit)
 		}
-		f, err := os.Open(fullPath)
 		if err != nil {
-			continue
+			return offset
 		}
-		offset := offsets[fullPath]
-		if offset > 0 {
-			if _, err := f.Seek(offset, io.SeekStart); err != nil {
-				_ = f.Close()
-				continue
-			}
-		}
-		reader := bufio.NewReader(f)
-		for {
-			line, err := reader.ReadBytes('\n')
-			if len(line) > 0 {
-				offset += int64(len(line))
-				d.parseJSONLLine(taskID, line, emit)
-			}
-			if err != nil {
-				break
-			}
-		}
-		offsets[fullPath] = offset
-		_ = f.Close()
 	}
 }
 

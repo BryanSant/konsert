@@ -44,7 +44,8 @@ func (d *CodexDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 		args = append(args, "--model", m)
 	}
 	if p := strings.TrimSpace(opts.Prompt); p != "" {
-		args = append(args, p)
+		// "--" stops option parsing so a prompt beginning with '-' stays a prompt.
+		args = append(args, "--", p)
 	}
 
 	return LaunchSpec{

@@ -16,19 +16,21 @@ const (
 	AttachmentTTL      = 24 * time.Hour
 )
 
-// ResolveScratchDir returns the OS-appropriate scratch directory for chat file attachments:
-//   - macOS:   /private/var/tmp/konsert-attachments (falls back to os.TempDir())
-//   - Linux:   /var/tmp/konsert-attachments (falls back to os.TempDir())
-//   - Windows: %TEMP%\konsert-attachments
+// ResolveScratchDir returns the OS-appropriate, per-user scratch directory for chat file
+// attachments (the shared /var/tmp would let another user pre-create the directory and have
+// pruning delete their files, or read ours):
+//   - macOS:   /private/var/tmp/konsert-attachments-<uid> (falls back to os.TempDir())
+//   - Linux:   /var/tmp/konsert-attachments-<uid> (falls back to os.TempDir())
+//   - Windows: %TEMP%\konsert-attachments (%TEMP% is already per-user)
 func ResolveScratchDir(goos string) string {
 	if goos == "" {
 		goos = runtime.GOOS
 	}
 	switch goos {
 	case "darwin":
-		return "/private/var/tmp/konsert-attachments"
+		return "/private/var/tmp/" + scratchDirName()
 	case "linux":
-		return "/var/tmp/konsert-attachments"
+		return "/var/tmp/" + scratchDirName()
 	case "windows":
 		return filepath.Join(os.TempDir(), "konsert-attachments")
 	default:
@@ -87,10 +89,11 @@ func SaveScratchAttachment(baseDir, sessionID, filename string, data []byte) (st
 	if dir == "" {
 		dir = ResolveScratchDir(runtime.GOOS)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		// Fallback to os.TempDir() if /private/var/tmp or /var/tmp is read-only (e.g. restricted container).
-		fallback := filepath.Join(os.TempDir(), "konsert-attachments")
-		if fErr := os.MkdirAll(fallback, 0o700); fErr != nil {
+	if err := ensurePrivateDir(dir); err != nil {
+		// Fallback to os.TempDir() if /private/var/tmp or /var/tmp is read-only (e.g. restricted
+		// container) or the directory there is not ours.
+		fallback := filepath.Join(os.TempDir(), scratchDirName())
+		if fErr := ensurePrivateDir(fallback); fErr != nil {
 			return "", fmt.Errorf("create scratch dir: %w", err)
 		}
 		dir = fallback
@@ -129,13 +132,16 @@ func PruneScratchAttachments(baseDir string, maxAge time.Duration) {
 	if dir == "" {
 		dir = ResolveScratchDir(runtime.GOOS)
 	}
+	if err := checkPrivateDir(dir); err != nil {
+		return // never prune a directory we do not own
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	cutoff := time.Now().Add(-maxAge)
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.Type().IsRegular() {
 			continue
 		}
 		info, err := entry.Info()
@@ -146,4 +152,33 @@ func PruneScratchAttachments(baseDir string, maxAge time.Duration) {
 			_ = os.Remove(filepath.Join(dir, entry.Name()))
 		}
 	}
+}
+
+// ensurePrivateDir creates dir (0700) if needed and verifies it is safe to use.
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return checkPrivateDir(dir)
+}
+
+// checkPrivateDir verifies dir is a real directory (not a symlink) owned by the current user,
+// tightening its permissions to 0700 if they are broader.
+func checkPrivateDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	if !ownedByCurrentUser(info) {
+		return fmt.Errorf("%s is not owned by the current user", dir)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return fmt.Errorf("restrict %s: %w", dir, err)
+		}
+	}
+	return nil
 }

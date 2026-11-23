@@ -51,6 +51,7 @@ func newRunCmd() *cobra.Command {
 		hostGroup        string
 		isolation        string
 		sandbox          bool
+		sandboxShell     bool
 		allowedRoots     []string
 		tags             []string
 		maxConcurrent    int
@@ -102,8 +103,22 @@ func newRunCmd() *cobra.Command {
 				}
 			}
 
+			if err := cfg.Validate(); err != nil {
+				return fmt.Errorf("invalid worker config: %w", err)
+			}
+
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			if cfg.FleetToken == "" {
+				logger.Warn("no fleet token configured (--token / KONSERT_FLEET_TOKEN); only a hub started with --no-auth will accept this worker")
+			}
 			daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
+			if !cmd.Flags().Changed("sandbox-allow-shell") {
+				sandboxShell = envBool("KONSERTD_SANDBOX_ALLOW_SHELL")
+			}
+			if cfg.Sandbox && sandboxShell {
+				logger.Warn("sandboxed worker opted in to the unrestricted shell driver (--sandbox-allow-shell)")
+			}
+			daemon.SetAllowSandboxShell(sandboxShell)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
@@ -118,18 +133,28 @@ func newRunCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
 	cmd.Flags().StringVar(&controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
-	cmd.Flags().StringVar(&fleetToken, "token", "", "Pre-shared fleet authentication token")
+	cmd.Flags().StringVar(&fleetToken, "token", "", "Pre-shared fleet token for /ws/worker (env KONSERT_FLEET_TOKEN); required unless the hub runs --no-auth")
 	cmd.Flags().StringVar(&workerID, "id", "", "Stable worker ID (defaults to persisted ~/.konsert/worker-id)")
 	cmd.Flags().StringVar(&name, "name", "", "Worker display name (defaults to hostname)")
 	cmd.Flags().StringVar(&hostGroup, "host-group", "", "Physical host group name (defaults to name)")
 	cmd.Flags().StringVar(&isolation, "isolation", "", "Isolation tier: host, container, or vm")
 	cmd.Flags().BoolVar(&sandbox, "sandbox", false, "Opt-in sandboxed mode (disables YOLO/skip-permissions flags)")
+	cmd.Flags().BoolVar(&sandboxShell, "sandbox-allow-shell", false, "With --sandbox, still accept the unrestricted shell driver (env KONSERTD_SANDBOX_ALLOW_SHELL=1)")
 	cmd.Flags().StringSliceVar(&allowedRoots, "allowed-roots", nil, "Opt-in comma-separated list of allowed workdir roots")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Worker tags in key=value format (repeatable)")
 	cmd.Flags().IntVar(&maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
 	cmd.Flags().BoolVar(&enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
 
 	return cmd
+}
+
+// envBool reports whether the named environment variable is set to a truthy value.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -320,21 +345,31 @@ func newDaemonMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run a local stdio MCP server bridge for coding agents on this machine to drive Konsert",
+		Long: `Run a local stdio MCP server bridge for coding agents on this machine to drive Konsert.
+
+The bridge calls the hub's /api endpoints, which require the hub's ADMIN token
+(the fleet token only authorizes worker connections on /ws/worker and is never
+used here).
+
+Hub URL:   --controller, else $KONSERT_URL, else the worker config's controller_url
+           (ws:// -> http://, trailing /ws/worker removed).
+Token:     --token, else $KONSERT_ADMIN_TOKEN. With neither set, requests are sent
+           unauthenticated, which only works against a hub started with --no-auth.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.LoadWorkerConfig(configPath)
 			if err != nil {
 				return err
 			}
-			base := cfg.ControllerURL
+			var flagURL, flagToken *string
 			if cmd.Flags().Changed("controller") {
-				base = controllerURL
+				flagURL = &controllerURL
 			}
-			base = strings.Replace(base, "ws://", "http://", 1)
-			base = strings.Replace(base, "wss://", "https://", 1)
-			base = strings.TrimSuffix(base, "/ws/worker")
-			tok := cfg.FleetToken
 			if cmd.Flags().Changed("token") {
-				tok = token
+				flagToken = &token
+			}
+			base, tok := resolveMCPBridge(cfg, flagURL, flagToken, os.Getenv)
+			if tok == "" {
+				fmt.Fprintln(os.Stderr, "konsertd mcp: no admin token (--token or KONSERT_ADMIN_TOKEN); calls will fail unless the hub runs with --no-auth")
 			}
 			client := controller.NewRemoteFleetClient(base, tok)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -343,7 +378,35 @@ func newDaemonMCPCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
-	cmd.Flags().StringVar(&controllerURL, "controller", "http://127.0.0.1:8420", "Konsert controller HTTP/WS URL")
-	cmd.Flags().StringVar(&token, "token", "", "Konsert MCP/Admin auth token")
+	cmd.Flags().StringVar(&controllerURL, "controller", "", "Konsert hub URL (default $KONSERT_URL, else the worker config controller_url)")
+	cmd.Flags().StringVar(&token, "token", "", "Konsert hub ADMIN token for /api calls (default $KONSERT_ADMIN_TOKEN; the fleet token is not accepted there)")
 	return cmd
+}
+
+// resolveMCPBridge picks the hub base URL and bearer token for `konsertd mcp`. The token is
+// the hub's admin token (flag, then KONSERT_ADMIN_TOKEN); the worker's fleet token is never
+// used because the hub's /api rejects it.
+func resolveMCPBridge(cfg config.WorkerConfig, flagURL, flagToken *string, getenv func(string) string) (base, token string) {
+	switch {
+	case flagURL != nil && strings.TrimSpace(*flagURL) != "":
+		base = *flagURL
+	case strings.TrimSpace(getenv("KONSERT_URL")) != "":
+		base = getenv("KONSERT_URL")
+	default:
+		base = cfg.ControllerURL
+	}
+	base = strings.TrimSpace(base)
+	base = strings.Replace(base, "ws://", "http://", 1)
+	base = strings.Replace(base, "wss://", "https://", 1)
+	base = strings.TrimSuffix(strings.TrimSuffix(base, "/"), "/ws/worker")
+	if base == "" {
+		base = "http://127.0.0.1:8420"
+	}
+
+	if flagToken != nil {
+		token = strings.TrimSpace(*flagToken)
+	} else {
+		token = strings.TrimSpace(getenv("KONSERT_ADMIN_TOKEN"))
+	}
+	return base, token
 }
