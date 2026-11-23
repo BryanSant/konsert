@@ -26,7 +26,12 @@ export interface ElicitationAnswer {
     @let el = item().elicitation;
     @if (linked(); as q) {
       <!-- A Konsert question: the same card as the Questions panel (stays until answered). -->
-      <ks-question-card [question]="q" [compact]="true" />
+      <div [attr.data-elicitation-kind]="el.kind" [attr.data-elicitation-state]="item().state" class="space-y-2">
+        @if (el.tool_call) {
+          <ks-tool-call-card [call]="el.tool_call" />
+        }
+        <ks-question-card [question]="q" [compact]="true" />
+      </div>
     } @else if (item().state === 'resolved' || item().state === 'expired') {
       <div class="flex items-center gap-2 px-1 text-[11.5px] text-[var(--ks-text-muted)]" [attr.data-elicitation-state]="item().state">
         <app-icon [name]="icon()" [size]="12" />

@@ -79,7 +79,11 @@ export class QuestionsStore {
 
   // --- panel and selection ---
 
+  /** The question the panel was opened on (a chat card, a link), if any. */
+  readonly openedOn = signal<string | null>(null);
+
   open(id?: string): void {
+    this.openedOn.set(id ?? null);
     this.panelOpen.set(true);
     this.startClock();
     if (id) this.select(id);

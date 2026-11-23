@@ -190,7 +190,7 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
             <app-icon name="question" [size]="12" />
             Ask about this
           </button>
-          @if (q.status === 'open' && !q.orchestrator) {
+          @if (q.status === 'open') {
             <button type="button" class="ks-btn ks-btn-sm" data-testid="question-delegate" [disabled]="store.isBusy(q.id)" (click)="store.delegate(q)" ksTooltip="The orchestrator decides and tells you why; you can override it (o)">
               <app-icon name="orchestrator" [size]="12" />
               Let the orchestrator decide

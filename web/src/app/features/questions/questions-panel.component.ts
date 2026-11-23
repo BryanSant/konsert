@@ -156,7 +156,7 @@ export class QuestionsPanelComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.doc.addEventListener('keydown', this.onKey);
     // Opened on a specific question (from a chat card or a notification): show it.
-    if (this.store.selectedId() && this.isPhone()) this.mobileView.set('question');
+    if (this.store.openedOn() && this.isPhone()) this.mobileView.set('question');
   }
 
   ngOnDestroy(): void {
@@ -211,7 +211,7 @@ export class QuestionsPanelComponent implements OnInit, OnDestroy {
         }
         return;
       case 'delegate':
-        if (q && q.status === 'open' && !q.orchestrator) {
+        if (q && q.status === 'open') {
           ev.preventDefault();
           void this.store.delegate(q);
         }
