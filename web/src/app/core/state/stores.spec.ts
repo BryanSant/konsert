@@ -302,5 +302,43 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
       JSON.stringify({ tasks: [{ task_id: 'task-aaa111' }, { id: 'task-bbb222', agent: 'claude' }] })
     );
     expect(ids).toEqual(['task-aaa111', 'task-bbb222']);
+
+    // Deduplicates external sessions & separates Idle vs Working without spinning idle agents
+    const now = new Date().toISOString();
+    fleet.upsertTask({
+      ...t1,
+      id: 'ext-w1-old',
+      agent: 'claude',
+      workdir: '/src/konsert',
+      effective_dir: '/src/konsert',
+      origin: 'external',
+      status: 'failed',
+      summary: 'worker went offline while task was active',
+      created_at: now,
+    });
+    fleet.upsertTask({
+      ...t1,
+      id: 'ext-w1-pid-1',
+      agent: 'claude',
+      workdir: '/src/konsert',
+      effective_dir: '/src/konsert',
+      origin: 'external',
+      status: 'idle',
+      created_at: now,
+    });
+    fleet.upsertTask({
+      ...t1,
+      id: 'ext-w1-pid-2',
+      agent: 'claude',
+      workdir: '/src/konsert',
+      effective_dir: '/src/konsert',
+      origin: 'external',
+      status: 'completed',
+      created_at: now,
+    });
+    const claudeEntries = fleet.agentsRoster().filter((i) => i.task.agent === 'claude' && i.task.workdir === '/src/konsert');
+    expect(claudeEntries.length).toBe(1);
+    expect(claudeEntries[0].stateGroup).toBe('idle');
+    expect(claudeEntries[0].isActive).toBe(false);
   });
 });

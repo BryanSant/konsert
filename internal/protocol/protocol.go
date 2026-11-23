@@ -65,6 +65,7 @@ const (
 	TaskStatusQueued       = "queued"
 	TaskStatusAssigned     = "assigned"
 	TaskStatusRunning      = "running"
+	TaskStatusIdle         = "idle"
 	TaskStatusWaitingInput = "waiting_input"
 	TaskStatusCompleted    = "completed"
 	TaskStatusFailed       = "failed"

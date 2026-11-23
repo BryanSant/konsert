@@ -80,8 +80,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		waiters:            make(map[string][]chan store.Task),
 		rpcWaiters:         make(map[string]chan protocol.Envelope),
 		pendingStart:       make(map[string]protocol.TaskStartPayload),
-		StaleWorkerTimeout: 30 * time.Second,
-		ReapInterval:       10 * time.Second,
+		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
+		ReapInterval:       15 * time.Second,
 	}
 }
 
@@ -166,6 +166,14 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 	}
 	for _, t := range tasks {
 		if protocol.IsTerminalTaskStatus(t.Status) || t.Status == protocol.TaskStatusQueued {
+			continue
+		}
+		// Passively discovered external sessions should never turn red ("failed") on daemon disconnect.
+		if t.Origin == protocol.TaskOriginExternal {
+			_ = h.store.UpdateTaskStatus(ctx, t.ID, protocol.TaskStatusCompleted, "external session detached", "", nil)
+			if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
+				h.broadcastFleetUpdate("task", updated)
+			}
 			continue
 		}
 		if t.OrphanPolicy == protocol.OrphanPolicyRequeue {
@@ -318,6 +326,9 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		prevConn = prev
 	}
 	h.workers[wModel.ID] = wc
+	for _, at := range hello.ActiveTasks {
+		h.taskWorker[at.TaskID] = wModel.ID
+	}
 	h.mu.Unlock()
 	if prevConn != nil {
 		_ = prevConn.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "superseded by newer konsertd connection")
@@ -331,7 +342,6 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		wc.mu.Unlock()
 
 		h.mu.Lock()
-		h.taskWorker[at.TaskID] = wModel.ID
 		hasSubs := len(h.ptySubs[at.TaskID]) > 0
 		h.mu.Unlock()
 
@@ -348,6 +358,16 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		}
 		if hasSubs {
 			h.sendWorkerJSON(wc, protocol.MsgPtySubscribe, protocol.PtySubscribePayload{TaskID: at.TaskID})
+		}
+	}
+
+	// Clean up stale non-terminal external sessions from prior daemon lifetimes;
+	// SessionDiscovery immediately re-reports any still-running external agents right after worker.hello.
+	if prevTasks, err := h.store.ListTasks(ctx, "", wModel.ID, 200); err == nil {
+		for _, pt := range prevTasks {
+			if pt.Origin == protocol.TaskOriginExternal && !protocol.IsTerminalTaskStatus(pt.Status) {
+				_ = h.store.UpdateTaskStatus(ctx, pt.ID, protocol.TaskStatusCompleted, "session ended before reconnect", "", nil)
+			}
 		}
 	}
 
@@ -1156,8 +1176,12 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 
 func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p protocol.ExternalSessionPayload) {
 	wsID, projID, repoID, wtID := h.matchTaxonomyByPath(ctx, workerID, p.Cwd)
-	status := protocol.TaskStatusRunning
+	status := protocol.TaskStatusIdle
 	switch strings.ToLower(strings.TrimSpace(p.Status)) {
+	case "working", "running":
+		status = protocol.TaskStatusRunning
+	case "idle":
+		status = protocol.TaskStatusIdle
 	case "needs_you", "waiting_input":
 		status = protocol.TaskStatusWaitingInput
 	case "done", "completed":

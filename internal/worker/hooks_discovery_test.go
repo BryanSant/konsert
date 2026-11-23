@@ -72,6 +72,20 @@ func TestHookEventDiscoveryAndQuotaCollection(t *testing.T) {
 		t.Fatalf("unexpected hook discovery emission: %+v", emitted)
 	}
 
+	// Stop hook transitions an open interactive session to "idle" (not spinning, not exited)
+	if err := RecordHookEvent(home, HookEvent{
+		SessionID: "ext-agy-1",
+		Agent:     "agy",
+		Event:     "Stop",
+		Cwd:       "/srv/app1",
+	}); err != nil {
+		t.Fatalf("RecordHookEvent Stop failed: %v", err)
+	}
+	disc.PollHookEvents(context.Background())
+	if len(emitted) != 2 || emitted[1].Status != "idle" {
+		t.Fatalf("expected Stop hook to emit idle status, got %+v", emitted)
+	}
+
 	// Verify subscription quota probe reads ~/.konsert/quotas.json
 	qPath := filepath.Join(home, ".konsert", "quotas.json")
 	qData := `{"quotas":[{"provider":"codex","label":"Codex","window_label":"5h","used_percent":21},{"provider":"agy","label":"Antigravity","window_label":"8h","used_percent":15}]}`

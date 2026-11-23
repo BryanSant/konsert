@@ -6,6 +6,7 @@ export type TaskStatus =
   | 'queued'
   | 'assigned'
   | 'running'
+  | 'idle'
   | 'waiting_input'
   | 'completed'
   | 'failed'

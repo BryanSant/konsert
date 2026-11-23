@@ -481,41 +481,93 @@ import { IconComponent } from '../shared/icon.component';
               No active or recent agents yet. Open a Space or ask the Orchestrator to start a session.
             </div>
           } @else {
-            @if (activeRosterCount() > 0) {
+            @if (workingRoster().length > 0) {
               <div class="px-1.5 pt-0.5 pb-1 text-[10px] text-[#686a72]">
-                Running {{ activeRosterCount() }}
+                Working {{ workingRoster().length }}
               </div>
-            }
-            @for (item of filteredRoster(); track item.task.id) {
-              <button
-                type="button"
-                (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
-                class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer"
-                [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
-                [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
-              >
-                <div class="flex items-center gap-2 min-w-0">
-                  <app-icon [name]="item.task.agent" [size]="13" />
-                  <span class="text-[12px] text-[#e4e4e7] truncate">{{ item.label }}</span>
-                  @if (notifications.isUnread(item.task.id)) {
-                    <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" title="Unread update"></span>
-                  }
-                </div>
+              @for (item of workingRoster(); track item.task.id) {
+                <button
+                  type="button"
+                  (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer"
+                  [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
+                  [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <app-icon [name]="item.task.agent" [size]="13" />
+                    <span class="text-[12px] text-[#e4e4e7] truncate">{{ item.label }}</span>
+                    @if (notifications.isUnread(item.task.id)) {
+                      <span class="h-1.5 w-1.5 rounded-full bg-[#d9a043] shrink-0" title="Unread update"></span>
+                    }
+                  </div>
 
-                <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
-                  <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
-                  <span>{{ elapsedLabel(item.task) }}</span>
-                  @if (item.task.status === 'running' || item.task.status === 'assigned') {
-                    <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
-                  } @else if (item.task.status === 'waiting_input') {
-                    <span class="h-2 w-2 rounded-full bg-[#d9a043]" title="Needs you"></span>
-                  } @else if (item.task.status === 'failed') {
-                    <span class="h-2 w-2 rounded-full bg-[#e05d5d]"></span>
-                  } @else {
-                    <span class="h-2 w-2 rounded-full border border-[#5e6068]"></span>
-                  }
-                </div>
-              </button>
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                    <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
+                    <span>{{ elapsedLabel(item.task) }}</span>
+                    @if (item.task.status === 'waiting_input') {
+                      <span class="h-2 w-2 rounded-full bg-[#d9a043]" title="Needs you"></span>
+                    } @else {
+                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin" title="Working"></span>
+                    }
+                  </div>
+                </button>
+              }
+            }
+
+            @if (idleRoster().length > 0) {
+              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#686a72]">
+                Idle {{ idleRoster().length }}
+              </div>
+              @for (item of idleRoster(); track item.task.id) {
+                <button
+                  type="button"
+                  (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer"
+                  [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
+                  [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <app-icon [name]="item.task.agent" [size]="13" />
+                    <span class="text-[12px] text-[#d4d4d8] truncate">{{ item.label }}</span>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                    <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
+                    <span>{{ elapsedLabel(item.task) }}</span>
+                    <span class="h-2 w-2 rounded-full border border-[#5e6068]" title="Idle"></span>
+                  </div>
+                </button>
+              }
+            }
+
+            @if (recentRoster().length > 0) {
+              <div class="px-1.5 pt-1.5 pb-1 text-[10px] text-[#686a72]">
+                Recent
+              </div>
+              @for (item of recentRoster(); track item.task.id) {
+                <button
+                  type="button"
+                  (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer opacity-75 hover:opacity-100"
+                  [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
+                  [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <app-icon [name]="item.task.agent" [size]="13" />
+                    <span class="text-[12px] text-[#b4b6be] truncate">{{ item.label }}</span>
+                  </div>
+
+                  <div class="flex items-center gap-1.5 shrink-0 text-[10px] font-mono-ide text-[#686a72]">
+                    <span class="max-w-[68px] truncate">{{ item.workerName }}</span>
+                    <span>{{ elapsedLabel(item.task) }}</span>
+                    @if (item.task.status === 'failed') {
+                      <span class="h-2 w-2 rounded-full bg-[#e05d5d]" title="Failed"></span>
+                    } @else {
+                      <span class="h-2 w-2 rounded-full border border-[#484a52]" title="Completed"></span>
+                    }
+                  </div>
+                </button>
+              }
             }
           }
         </div>
@@ -647,8 +699,16 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
     );
   });
 
-  readonly activeRosterCount = computed(() =>
-    this.filteredRoster().filter((i) => i.isActive).length
+  readonly workingRoster = computed(() =>
+    this.filteredRoster().filter((i) => i.stateGroup === 'working')
+  );
+
+  readonly idleRoster = computed(() =>
+    this.filteredRoster().filter((i) => i.stateGroup === 'idle')
+  );
+
+  readonly recentRoster = computed(() =>
+    this.filteredRoster().filter((i) => i.stateGroup === 'recent')
   );
 
   ngOnInit(): void {

@@ -42,6 +42,7 @@ export interface AgentRosterItem {
   workerName: string;
   label: string;
   isActive: boolean;
+  stateGroup: 'working' | 'idle' | 'recent';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -158,25 +159,58 @@ export class FleetStore {
       .sort((a, b) => a.hostGroup.localeCompare(b.hostGroup));
   });
 
-  /** Herdr-style live Agents roster across all hosts (coding agents only, excluding plain shells). */
+  /** Herdr-style live Agents roster across all hosts (coding agents only, deduplicated & grouped Working / Idle / Recent). */
   readonly agentsRoster = computed<AgentRosterItem[]>(() => {
     const wMap = this.workersById();
-    return this.tasks()
-      .filter((t) => t.origin !== 'scratch' && t.agent !== 'shell')
+    const rank = (status: string): number => {
+      if (status === 'waiting_input') return 0;
+      if (status === 'running' || status === 'assigned') return 1;
+      if (status === 'idle') return 2;
+      return 3;
+    };
+
+    const filtered = this.tasks().filter((t) => {
+      if (t.origin === 'scratch' || t.agent === 'shell') return false;
+      // Hide legacy orphaned external rows previously marked failed on stale worker disconnect.
+      if (t.origin === 'external' && t.status === 'failed' && (t.summary || '').includes('worker went offline')) {
+        return false;
+      }
+      return true;
+    });
+
+    // Deduplicate external sessions by (worker_id, agent, dir) so restarts/re-scans never create double sets.
+    const sorted = [...filtered].sort((a, b) => {
+      const ra = rank(a.status);
+      const rb = rank(b.status);
+      if (ra !== rb) return ra - rb;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    const seenExternal = new Set<string>();
+    const deduped: Task[] = [];
+    for (const t of sorted) {
+      if (t.origin === 'external') {
+        const key = `${t.worker_id}|${t.agent}|${(t.effective_dir || t.workdir || '').replace(/[\\/]+$/, '')}`;
+        if (seenExternal.has(key)) continue;
+        seenExternal.add(key);
+      }
+      deduped.push(t);
+    }
+
+    return deduped
       .map((t) => {
-        const isActive = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned';
+        const isWorking = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned';
+        const isIdle = t.status === 'idle';
+        const stateGroup: AgentRosterItem['stateGroup'] = isWorking ? 'working' : isIdle ? 'idle' : 'recent';
         const dirName = basenamePath(t.effective_dir || t.workdir);
         const label = t.branch ? `${dirName} · ${t.branch}` : dirName || t.agent;
         return {
           task: t,
           workerName: wMap[t.worker_id]?.name || t.worker_id || 'queued',
           label,
-          isActive,
+          isActive: isWorking,
+          stateGroup,
         };
-      })
-      .sort((a, b) => {
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-        return new Date(b.task.created_at).getTime() - new Date(a.task.created_at).getTime();
       })
       .slice(0, 20);
   });
