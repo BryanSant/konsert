@@ -1,5 +1,10 @@
 name: Release
 
+# Before pushing a v* tag: CI must be green and the manual pre-release walkthrough
+# (docs/walkthrough.md: real agent CLIs, no API key) must be run and signed off in the
+# release ticket or PR. See "Releasing" in README.md. This workflow cannot check it, so the
+# person tagging is responsible.
+
 on:
   push:
     tags:

@@ -125,6 +125,17 @@ Service templates are provided under `deploy/`:
 - `deploy/quadlet/konsertd.container` (Podman Quadlet)
 - `deploy/launchd/dev.konsert.konsertd.plist` (macOS launchd)
 
+## Releasing
+
+Before pushing a `v*` tag (which triggers `.github/workflows/release.yml`):
+
+1. CI is green on the commit you will tag, including the Playwright e2e job (it runs the
+   subscription-only chat flow against the mock engine with no API key).
+2. Run the manual **[pre-release walkthrough](docs/walkthrough.md)** against the real agent
+   CLIs on a real machine with no API key, and record the sign-off in the release ticket or
+   PR. A failed required step blocks the release.
+3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](./LICENSE).
