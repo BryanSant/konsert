@@ -23,8 +23,10 @@ func (e *countingEngine) Probe(_ context.Context, a Account) protocol.AgentAccou
 	if e.block != nil {
 		<-e.block
 	}
+	// CheckedAt is left zero so Capabilities stamps it with its (possibly fake) clock;
+	// a wall-clock stamp made TestCapabilitiesUsageOverlay depend on the real date.
 	return protocol.AgentAccount{ID: "ignored", Auth: protocol.AgentAuthStatus{State: protocol.AuthOK}, Usage: e.usage,
-		Models: []protocol.AgentModel{{ID: "m1", DisplayName: "M1"}}, CheckedAt: time.Now().UTC()}
+		Models: []protocol.AgentModel{{ID: "m1", DisplayName: "M1"}}}
 }
 func (e *countingEngine) Open(context.Context, Account, protocol.AgentChatOpen, Emit) (Session, error) {
 	return nil, nil
@@ -157,6 +159,7 @@ func TestCapabilitiesUsageOverlay(t *testing.T) {
 	}
 
 	// A non-exhausted observation newer than the probe is shown; older ones are not.
+	clock.Advance(time.Second)
 	caps.NoteRateLimit("claude", protocol.AgentRateLimit{Window: "five_hour", UsedPercent: 30, State: "ok"})
 	if u := caps.Cached().Accounts[0].Usage; len(u) != 2 {
 		t.Fatalf("usage = %+v", u)
