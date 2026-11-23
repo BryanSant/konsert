@@ -20,7 +20,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
       }
 
       <!-- Left: Connection + Usage Summary (Orca style) -->
-      <div class="flex items-center gap-3 min-w-0">
+      <div class="relative z-30 flex items-center gap-3 min-w-0">
         <span class="inline-flex items-center gap-1.5 shrink-0">
           <span
             class="h-1.5 w-1.5 rounded-full"
@@ -68,7 +68,7 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
       </div>
 
       <!-- Right: Keep Awake, Resources, Ports, Hosts, Commands (Orca + Herdr) -->
-      <div class="flex items-center gap-1 shrink-0">
+      <div class="relative z-30 flex items-center gap-1 shrink-0">
         <!-- Keep Awake (Built-in Caffeine) -->
         <button
           type="button"

@@ -36,6 +36,9 @@ test:
 test-race:
 	go test -race ./...
 
+test-e2e: all
+	cd web && npm run test:e2e
+
 dev-controller:
 	go run ./cmd/konsert serve --no-auth --listen :8420
 
