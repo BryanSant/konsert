@@ -97,6 +97,7 @@ export class KonsertSocketService {
       void this.fleetStore.refresh();
       if (isReconnect) {
         void this.orchestratorStore.onReconnected();
+        void this.telemetryStore.onReconnected();
       }
       // Re-subscribe any open terminal panes after reconnect.
       for (const taskId of this.ptyListeners.keys()) {
