@@ -1,260 +1,150 @@
-# Product Requirements Document: Konsert (`konsert.dev` / `konsert.app`)
+# Product Requirements Document: Konsert
 
 | Field | Value |
 | :--- | :--- |
 | **License** | Apache License 2.0 |
-| **Version** | 1.0 (MVP Specification) |
-| **Target Stack** | Go 1.24+ (`konsert`, `konsertd`), SQLite (`modernc.org/sqlite`, swappable `Store` interface), Angular 22+ (Zoneless Signals PWA, Tailwind CSS v4), `@xterm/xterm`, MCP (Model Context Protocol) |
-| **Target Audience** | Homelab builders, distributed engineering teams, and power users running multi-node autonomous coding fleets across physical hosts, VMs, and containers |
+| **Status** | Pre-alpha. Backward compatibility is an anti-goal until 1.0. |
+| **Stack** | Go 1.27 (`konsert` hub, `konsertd` daemon), SQLite (swappable `Store`), Angular 22 zoneless PWA, MCP |
+| **Audience** | Homelab builders and power users running coding agents on their own subscriptions across several machines, VMs and containers |
 
 ---
 
-## 1. Executive Summary & Problem Statement
+## 1. Problem
 
-Autonomous multi-agent coding workflows rely on a central **orchestrator** (e.g., an LLM session via MCP or Konsert's built-in Orchestrator Chat) delegating parallel tasks across multiple physical machines, VMs, and isolated Podman/Docker containers.
+People who use coding agents seriously end up with agent work scattered across machines: a desktop, a mini PC, a Mac, WSL, containers. Some of it is started by an orchestrator, some by hand in a terminal or a desktop app. Nobody can answer simple questions:
 
-Today, observing what worker nodes are doing forces users into one of two bad workflows:
-1. Manually SSH-ing or `podman exec`-ing into scattered hosts and tmux sessions.
-2. Asking the orchestrator LLM to poll and summarize raw worker terminal logs—burning input/output tokens and polluting the orchestrator's context window with noisy ANSI escape sequences and build output.
+- What agent work is running right now, on which machine, doing what, and how much of the machine is it using?
+- What else is loading that machine that isn't agent work?
+- Where should the next piece of work go, given what each machine can do, what's already there, and what's already running?
 
-**Konsert** is a single-binary, self-hosted distributed agent control plane that cleanly decouples **LLM orchestration** from **human observability**:
+Konsert is a self-hosted control plane that answers those questions and acts on the answers.
 
-- **Orchestrators** dispatch tasks, query fleet capacity, steer running agents, and retrieve concise, structured completion payloads (exit code, git diff summary, final agent summary) via MCP or REST/CLI—**never ingesting raw worker stdout**.
-- **Humans** get a unified, responsive IDE-style PWA ("single pane of glass") across desktop, tablet, and mobile to monitor all fleet nodes, inspect structured progress milestones, and attach to live **Read-Only** (or **Interactive Takeover**) PTY sessions on demand.
+## 2. Purpose: two pillars
 
----
+1. **Total visibility.** Every agent session on every connected machine is known: who started it (Konsert or the user directly), which agent and account, what it's doing, which processes belong to it, what resources it uses. Load that isn't agent work is known too, so it can't be blamed on an agent or ignored.
+2. **Intelligent scheduling.** Work goes to the machine best able to finish it. Hard requirements (OS, tools, SDKs, logins, hardware) are always honoured. Placement improves as Konsert learns the size and shape of each kind of work, and work migrates to a better machine when it outgrows its current one.
 
-## 2. Goals & Non-Goals (MVP Scope)
+Visibility comes first: scheduling without it over- or under-commits machines.
 
-### 2.1 MVP Goals
-- Single-binary controller (`konsert`) with embedded Angular 22 PWA (`//go:embed`) and zero external database dependencies (SQLite WAL mode out of the box).
-- Cross-platform worker daemon (`konsertd`) for Linux, macOS, Windows, and Podman/Docker containers using **outbound-only** WebSocket connections.
-- Pluggable `AgentDriver` abstraction shipping with `claude`, `agy`, and `grok` drivers (plus a deterministic `mock` driver for CI/testing).
-- **Full-Access ("YOLO") execution by default** for trusted homelab/VM/container fleets, with explicit **opt-in sandboxing** for restricted hosts.
-- Built-in **Orchestrator Chat Tab** powered by direct LLM API tool-calling (OpenAI-compatible, Anthropic, Gemini) wired directly to Konsert's fleet control plane, alongside an **MCP Server** (stdio + Streamable HTTP/SSE) for external orchestrators.
-- Zero-waste on-demand PTY streaming: worker nodes buffer locally (512 KB ring buffer) and stream PTY bytes only while a human has that session open.
+## 3. Principles
 
-### 2.2 Explicit Non-Goals (Post-MVP)
-- Multi-tenant SaaS / organization RBAC (MVP targets single-operator or trusted-team homelab/LAN/Tailscale deployments).
-- Hosted cloud relay service (users connect over Tailscale, LAN, or their own reverse proxy / HTTPS endpoint).
-- Production PostgreSQL 18 driver implementation (MVP defines the swappable `Store` interface and implements SQLite; PostgreSQL is a Phase 5+ drop-in).
-- Built-in code editor / file browser (Konsert focuses on orchestration, telemetry, and terminal observability).
+- **Hub and spoke, no peer-to-peer.** The hub (`konsert`) commands; daemons (`konsertd`) connect outbound, wait passively for work and report what they see. Daemons never talk to each other. Anything that must move between machines (code, context) goes through the hub or through a git remote both can reach.
+- **Bring your own subscriptions.** Agents run on the user's logged-in CLI subscriptions; API keys are optional. Subscription limits are a fleet resource the scheduler must respect.
+- **Facts and memory in Konsert, judgment in the orchestrator, guardrails in Konsert.** Konsert collects facts, keeps history and enforces operator policy. The orchestrator agent makes placement and migration judgments through MCP, with that history at hand so restarts and context limits don't erase what was learned. Konsert also works without an orchestrator: a built-in deterministic scheduler places work by rules.
+- **Two tiers of control.** *Operator policy* (caps, reservations, allowed work) is hard: neither the scheduler nor the orchestrator can exceed it. *Placement* (which eligible machine) is soft: the scheduler proposes, the orchestrator may override within policy.
+- **Heavy data stays at the edge.** Daemons keep raw terminal output, transcripts and per-process samples locally and send them only when someone looks (as with today's on-demand PTY streaming). The hub stores events, summaries, aggregates and history.
+- **Same user, own data.** The daemon runs as the same user as the agents and reads that user's agent data to provide visibility. That's not a privacy boundary, but data still leaves the machine only as needed (see edge principle) and access to the hub is authenticated.
+- **Opinionated over configurable** where it simplifies: one recommended isolation and enforcement setup per OS, with escape hatches.
 
----
+## 4. Topology
 
-## 3. System Topology & Deployment Model
-
-```mermaid
-flowchart LR
-    subgraph Clients["Human & External Orchestrators"]
-        PWA["Desktop / Tablet / Mobile PWA\n(Angular 22 + xterm.js)"]
-        ExtLLM["External Master LLM\n(MCP stdio / Streamable HTTP)"]
-    end
-
-    subgraph Hub["Central Controller (konsert)"]
-        API["REST + Browser WS + Embedded PWA"]
-        Orch["Built-in Orchestrator Chat\n(Direct LLM API + Tool Loop)"]
-        MCP["MCP Server"]
-        Scheduler["Fleet Hub & Scheduler"]
-        DB[("SQLite WAL\n(Swappable Store)")]
-    end
-
-    subgraph Fleet["Distributed Worker Fleet (Outbound WSS / Tailscale)"]
-        W1["konsertd\n(fedora-main / host)"]
-        W2["konsertd\n(fedora-main / podman-1)"]
-        W3["konsertd\n(mac-studio / darwin)"]
-        W4["konsertd\n(win-box-1 / ConPTY)"]
-    end
-
-    PWA <-->|"HTTPS / WSS"| API
-    ExtLLM <-->|"MCP"| MCP
-    API <--> Scheduler
-    Orch <--> Scheduler
-    MCP <--> Scheduler
-    Scheduler <--> DB
-    W1 <-->|"Outbound WSS"| Scheduler
-    W2 <-->|"Outbound WSS"| Scheduler
-    W3 <-->|"Outbound WSS"| Scheduler
-    W4 <-->|"Outbound WSS"| Scheduler
+```
+ Browser PWA ─┐                 ┌─ konsertd (Linux host)      ─ agents, processes
+ Orchestrator ├─ konsert (hub) ─┼─ konsertd (Windows host)    ─ agents, processes
+ agent (MCP) ─┘  scheduler,     ├─ konsertd (macOS host)      ─ agents, processes
+                 store, MCP     └─ konsertd (container / WSL) ─ agents, processes
 ```
 
-### 3.1 Binary Roles
-1. **`konsert` (Central Controller / Hub):**
-   - Runs on a primary host accessible over Tailscale or LAN/HTTPS.
-   - Serves the embedded Angular 22 PWA (`//go:embed`), REST API, Browser WebSocket endpoint, Worker WebSocket endpoint, and MCP Server (stdio and Streamable HTTP/SSE).
-   - Runs the built-in Orchestrator Chat backend (direct LLM API client with server-side tool execution).
-   - Persists workers, tasks, structured events, and orchestrator chat history in SQLite (WAL mode) behind a swappable Go `Store` interface.
-2. **`konsertd` (Cross-Platform Worker Daemon):**
-   - Runs natively on Linux (`amd64`/`arm64`), macOS (`arm64`/`amd64`), Windows (`amd64`), and inside Podman/Docker containers.
-   - Initiates an **outbound** authenticated WebSocket connection (`wss://` or `ws://` over Tailscale) to `konsert`, eliminating NAT, WSL2 bridge, and container port-forwarding issues.
-   - Detects installed agent CLIs, manages PTY/ConPTY sessions, maintains a local 512 KB ring buffer per session, scrapes agent-specific structured telemetry, and handles git worktree isolation and diff summarization.
+- **Hub:** REST + WebSocket API, embedded PWA, MCP server, scheduler, policy, SQLite store, setup and daemon lifecycle (starts local and SSH-managed daemons; see §5.1).
+- **Daemon:** one per machine identity (host, container, VM). Runs agent sessions for the hub, observes sessions it didn't start, samples processes and machine load, enforces resource envelopes, reports facts.
 
----
+## 5. Functional requirements
 
-## 4. Core User Journeys
+Status markers: **[have]** exists today, **[partial]** exists but incomplete, **[gap]** missing.
 
-1. **Automated Parallel Dispatch (Orchestrator-Driven):**
-   - User asks the built-in Orchestrator Chat (or an external MCP-connected LLM) to implement three independent features across repos.
-   - Orchestrator calls `fleet_status()` to inspect idle workers and available drivers, then calls `dispatch_task()` for each task.
-   - Orchestrator monitors progress via `list_tasks()` or awaits completion via `get_task_result(task_id, wait=true)`, receiving only structured exit codes, git diff stats, and final summaries.
-2. **Zero-Friction Live Observation (Human PWA):**
-   - User sees three active tasks light up in the left Fleet Explorer under `fedora-main` (2 Podman workers) and `mac-studio`.
-   - User clicks a worker task to open a Read-Only `@xterm/xterm` tab. `konsertd` immediately replays its 512 KB ring buffer and begins streaming live PTY frames.
-   - User inspects structured milestones (files edited, commands run) in the Telemetry Drawer without interrupting the agent.
-3. **Interactive Takeover:**
-   - A task enters `waiting_input` or hits a tricky local environment issue.
-   - User clicks **"Take Control / Interactive"** in the terminal tab header, types directly into the remote PTY (or sends a follow-up prompt), resolves the issue, and toggles back to Read-Only.
-4. **Mobile Check-In & Steering:**
-   - Away from desk, user opens the installed Konsert PWA on their phone (`< 768px` layout).
-   - User opens the slide-over Fleet drawer, checks task status, and sends a steering instruction through the Orchestrator Chat tab or `steer_task`.
-5. **Controller Restart Resilience:**
-   - Operator upgrades or restarts `konsert`. Running `konsertd` daemons keep their active PTY processes alive, reconnect with exponential backoff, and re-register their in-flight tasks so no agent work is lost.
+### 5.1 Fleet and machines
 
----
+- **[have]** Machines register with a persistent UUIDv7 identity (regenerated if the state is cloned onto another machine; fingerprint from `/etc/machine-id`, `IOPlatformUUID` or `MachineGuid`) and a short `m-` sid.
+- **[have]** First-run setup: the PWA opens Add Machine with "This machine" first; the hub installs or attaches a local daemon, or bootstraps one over SSH (Linux, macOS, Windows without a console window). On restart the hub restarts hub-managed daemons that haven't reconnected.
+- **[partial]** Machine facts: OS, CPU, RAM, disk, virtualization, a fixed list of tool versions, agent logins. **[gap]** GPU (model, VRAM, CUDA/Metal), architecture as a scheduling constraint, extensible capability probes (Android SDK, Xcode, CUDA, emulators, custom scripts), operator-declared capabilities and labels per machine.
+- **[gap]** Machine role: `dedicated` (agent work welcome) vs `interactive` (someone uses this machine; keep load light, avoid when the user is active) vs `control-only`.
 
-## 5. Functional Requirements
+### 5.2 Sessions: managed and observed
 
-### 5.1 Fleet & Worker Management
-- **Auto-Registration & Metadata:** On connect, `konsertd` authenticates with a pre-shared fleet token and registers:
-  - `id` (stable UUID or operator-defined slug)
-  - `name` (display name / hostname)
-  - `host_group` (e.g., `fedora-main`, `win-box-1` — used to nest Podman/Docker containers or VMs under their physical host)
-  - `os` (`linux`, `darwin`, `windows`) and `arch` (`amd64`, `arm64`)
-  - `isolation` (`vm`, `container`, `host`)
-  - `permission_mode` (`full_access` default, or `sandboxed` when opted-in)
-  - `agents` (detected binaries, e.g., `["claude", "agy", "grok"]`)
-  - `tags` (arbitrary key/value metadata, e.g., `{"env": "podman", "gpu": "rtx4090"}`)
-  - `max_concurrent` (maximum simultaneous tasks on this worker)
-- **Heartbeats & Health:**
-  - `konsertd` sends heartbeats every `10s` (including active task count and optional host load).
-  - `konsert` marks a worker `offline` after `30s` of missed heartbeats.
-  - **Orphan Policy:** Configurable per task (`orphan_policy`: `fail` default, or `requeue`). When a worker reconnects after a transient drop, any still-running tasks reported in its `worker.hello` handshake are re-adopted instead of failed.
+A *session* is one agent conversation or run. Every session has an origin: **managed** (started by Konsert; Hub↔Daemon↔Agent) or **observed** (started by the user directly in a CLI, IDE or desktop app, and detected by the daemon).
 
-### 5.2 Execution Trust Model: Full-Access ("YOLO") Default & Opt-In Sandboxing
-Konsert is built for homelab and professional distributed fleets where worker nodes are typically VMs, containers, or dedicated dev machines with known risk boundaries. **Bubble-wrapping is opt-in, never forced by default:**
+- **[have]** Managed sessions: chat engines for claude, codex, grok, agy, copilot, cursor with streaming, elicitation (permission, question, auth), status, usage limits and failure classification; terminal sessions.
+- **[partial]** Observed sessions: hook events (claude and a notify shim) and a process scan of four CLIs (claude, agy, codex, grok), with status guessed from CPU usage.
+- **[gap]** Observed-session sources for every supported agent, in order of preference:
+  1. Structured session stores the agent writes anyway (claude `~/.claude/projects/*.jsonl`, codex `~/.codex/sessions`, grok, cursor-agent and copilot session state): give prompt/turn boundaries, tool calls, files touched, model, tokens and real status (working, waiting for input, done).
+  2. Agent hooks where offered.
+  3. Process scan as a fallback (existence, cwd, CPU).
+  Desktop and IDE agents (Claude Desktop, Codex app, Cursor, Copilot in VS Code) count when they write a detectable session store.
+- **[gap]** Observed sessions appear in the same views as managed ones (read-only transcript built from normalized events), with the same status model, so a user sees *all* agent work in one place.
+- **[gap]** Full transcripts stay on the machine and are fetched on demand; the hub stores normalized events and summaries.
 
-- **Default Mode (`full_access` / YOLO):**
-  - `konsertd` places **no filesystem root restrictions** on `workdir` unless explicitly configured.
-  - Every `AgentDriver` launches its underlying CLI with full-access / skip-permissions / auto-approve flags enabled by default (e.g., `claude --dangerously-skip-permissions`, and the equivalent full-access flags for `agy` and `grok`).
-  - Agents can run shell commands, edit files, install packages, and commit git changes without stalling on interactive confirmation prompts.
-- **Opt-In Sandboxed Mode (`sandboxed`):**
-  - Operators who run `konsertd` on a sensitive host can opt into restrictions via CLI flags or config:
-    - `--sandbox` (or `permission_mode: sandboxed`): Disables agent YOLO/skip-permissions flags so the agent respects its normal permission prompts (which can be answered via Interactive Takeover or `steer_task`).
-    - `--allowed-roots /path/a,/path/b`: Restricts task `workdir` (resolved via symlink-safe `filepath.EvalSymlinks`) to the specified root directories.
-  - Individual tasks may also request `permission_mode: "sandboxed"` to downgrade permissions for a single run, while a `sandboxed` worker refuses `full_access` escalation.
-- **UI Visibility:** Each worker in the Fleet Explorer displays its isolation tier (`VM`, `Container`, `Host`) and permission posture (`Full Access` vs `Sandboxed`).
+### 5.3 Processes and machine load
 
-### 5.3 Multi-Agent Execution Engine (`AgentDriver`)
-- **Pluggable Driver Interface:** Konsert never hardcodes vendor-specific CLI flags or log formats into the core daemon.
-- **MVP Drivers:**
-  1. **`claude` (Claude Code CLI):** Spawns in PTY with `--dangerously-skip-permissions` (in default `full_access` mode), tails `~/.claude/projects/<encoded-workdir>/*.jsonl` for structured tool calls, file edits, token usage, and final assistant summary.
-  2. **`agy` (Google Antigravity CLI):** Spawns in PTY with full-access default, parses structured status/milestone output and extracts final summary.
-  3. **`grok` (Grok CLI):** Spawns in PTY with auto-approve/full-access default, captures exit status and extracts final summary.
-  4. **`mock` (Built-in Test Driver):** Deterministic scripted driver emitting synthetic PTY frames and telemetry events for CI and local UI development without LLM credentials.
-- **Extensible Registry:** Adding `codex`, `muse`, `copilot`, or `cursor-agent` requires implementing `AgentDriver` and calling `drivers.Register(...)`.
+- **[have]** Host-wide CPU, memory, swap, disk and load average on the heartbeat (latest sample only, in memory).
+- **[gap]** Process attribution: each session owns a process tree (managed: its process group or job object; observed: the agent process and descendants, including build tools and test runners it spawned). Per-session CPU, memory (current and peak), process count. Long-lived helpers an agent leaves behind (Gradle daemons, dev servers) stay attributed until they exit.
+- **[gap]** Load accounting per machine: `agent load` (sum of sessions) vs `other load` (the user and the system), with the top non-agent processes. "User active" signal (input idle time) on interactive machines.
+- **[gap]** Metric history: downsampled per-machine and per-session series kept for a configurable retention, so work shape can be learned and questions like "what was this host doing at 3am" answered.
 
-### 5.4 Git Worktree Isolation & Diff Extraction
-- When `dispatch_task` specifies a non-empty `branch`:
-  - By default (`use_worktree: true`), `konsertd` creates an isolated git worktree at `<repo_path>/.konsert-worktrees/<task_id>` checked out to `branch` (creating the branch if it does not exist), allowing multiple concurrent tasks on the same worker and repository without file collisions.
-  - When `branch` is empty (or `use_worktree: false`), the task runs directly in `repo_path`.
-- On task completion, `konsertd` captures:
-  - `git status --short`
-  - `git diff --stat` (against the task's starting commit SHA)
-  - Newly created commits (`git log --oneline <base_sha>..HEAD`)
-  - These structured git summaries are attached to the task result without dumping raw patches into the orchestrator's context.
+### 5.4 Work model and classification
 
-### 5.5 Task Lifecycle & State Machine
+- **[have]** Tasks with agent, model, account, approval mode, effort, repo/worktree, prompt, and a selector (worker, name, host group, OS, virtualization, required tool versions, required auth, min RAM, min free disk, tags).
+- **[gap]** *Work key*: a stable identity for "the same kind of work" across runs (project + repo + branch/worktree + optional kind such as `build`, `test`, `ml-train`, `review`). History, profiles and placement rules attach to work keys.
+- **[gap]** *Requirements* (hard): OS, architecture, tools and SDKs with versions, GPU, logins/accounts, minimum resources. Declared by the dispatcher or inherited from the work key's profile.
+- **[gap]** *Work profile* (learned): duration, peak memory, CPU-seconds, disk, success rate, common failure categories, per machine class. Starts unknown; updated from outcomes.
+- **[gap]** Outcome record per attempt: machine, account, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, disk full, missing tool, agent error, cancelled), resource peaks, tokens and cost where known, git result.
 
-```mermaid
-stateDiagram-v2
-    [*] --> queued
-    queued --> assigned : Scheduler selects worker
-    queued --> canceled : cancel_task()
-    assigned --> running : Worker starts PTY
-    assigned --> failed : Worker launch error / offline
-    running --> waiting_input : Driver detects prompt / input wait
-    waiting_input --> running : steer_task() or Interactive stdin
-    running --> completed : Process exits 0
-    running --> failed : Process exits non-zero / timeout / orphan fail
-    running --> canceled : cancel_task() (SIGINT -> SIGTERM -> SIGKILL)
-    waiting_input --> canceled : cancel_task()
-    completed --> [*]
-    failed --> [*]
-    canceled --> [*]
-```
+### 5.5 Scheduling and placement
 
-- **Execution Modes (`mode`):**
-  - `oneshot` (default): Runs the prompt to completion and exits, returning exit code, git diff summary, and final summary.
-  - `interactive`: Starts a persistent session that remains open after initial completion so the orchestrator (`steer_task`) or human (Take Control) can issue follow-up turns until explicitly canceled or exited.
-- **Timeouts & Cancellation:**
-  - Optional `timeout_seconds` per task (default: `3600` / 1 hour, `0` = unlimited).
-  - `cancel_task` sends `SIGINT` to the PTY process group (Unix `PGID`) or Windows Job Object, escalating to `SIGTERM` after 5s and `SIGKILL` / terminate after 10s.
+- **[have]** Eligibility filters (selector, agent installed, account logged in, sandbox posture) and ranking by slot utilization, free disk, recency. Queue with atomic claim; requeue on worker loss for tasks with `orphan_policy: requeue`.
+- **[gap]** Capacity model: each running session reserves resources (from its profile, or a default class: small/medium/large); a machine's headroom = capacity − policy reservations − agent reservations − observed other load. Slots remain as a simple cap.
+- **[gap]** Subscription-aware placement: prefer machine/account pairs with remaining quota; avoid exhausted accounts until reset; spread across accounts of the same vendor.
+- **[gap]** Locality: know which machines have a checkout of each repo (path, branch, freshness) and prefer them; avoid cloning onto a new machine unless the preferred ones are saturated.
+- **[gap]** Placement rules: prefer/require/avoid a machine or machine class for a scope (project, repo, branch, work key), with provenance (user, orchestrator, learned), evidence and optional expiry.
+- **[gap]** Placement log: for each decision, the candidates, why others were rejected, scores, the choice and who decided (scheduler, orchestrator pin, user). Exposed as "explain placement" (also as a dry run before dispatch).
+- **[gap]** Initial behaviour for unknown work: rotate across eligible machines, weighted by headroom; refine as profiles fill in.
+- **[gap]** Queue: priority and per-project concurrency limits; FIFO otherwise. No preemption before 1.0.
 
-### 5.6 Orchestrator Interfaces
+### 5.6 Retry and migration
 
-#### 5.6.1 Built-in Orchestrator Chat Tab (Direct LLM API)
-- First-class chat interface in the PWA backed by a server-side `OrchestratorService` inside `konsert`.
-- Connects directly to user-configured LLM APIs via a provider adapter:
-  - **OpenAI-compatible** (covers OpenAI, OpenRouter, xAI/Grok, Ollama, vLLM, LiteLLM)
-  - **Anthropic Messages API**
-  - **Google Gemini API**
-- Runs a native server-side tool-calling loop invoking the exact same internal fleet service methods exposed by MCP (`fleet_status`, `dispatch_task`, `list_tasks`, `get_task_result`, `steer_task`, `cancel_task`).
-- Streams assistant tokens and structured tool-call/result cards over the browser WebSocket and persists conversations in SQLite (`chat_sessions`, `chat_messages`).
-- Never injects raw PTY stdout into the model context.
+- **[gap]** Attempts: a task can have several attempts; requeue creates a new attempt instead of overwriting history.
+- **[gap]** Failure-driven retry policy: on classified failures (OOM, disk full, timeout) the scheduler or orchestrator may retry on a larger machine; on usage limits, on another account; on auth, never (ask the user).
+- **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a hub-relayed git bundle; plus a handoff note (previous summary, failure, relevant context) given to the new session.
+- **[gap]** Learned pins: after a migration succeeds where the original failed, record a placement rule for that work key (provenance `learned`, with the evidence) so future work goes straight to the right machine class.
 
-#### 5.6.2 MCP Tool Surface (`konsert mcp`)
-Exposed over both **stdio** (for local desktop/CLI orchestrators) and **Streamable HTTP / SSE** (for remote orchestrators):
+### 5.7 Policy and enforcement
 
-| Tool | Arguments | Returns (Concise Structured JSON) |
-| :--- | :--- | :--- |
-| `fleet_status` | *(none)* | List of workers (`id`, `name`, `host_group`, `os`, `arch`, `isolation`, `permission_mode`, `agents`, `tags`, `status`, `active_tasks`, `max_concurrent`) and active task count |
-| `dispatch_task` | `worker_selector` (object: `worker_id`, `host_group`, `os`, `tags`), `agent`, `repo_path`, `branch?`, `use_worktree?`, `prompt`, `mode?` (`oneshot`\|`interactive`), `permission_mode?`, `timeout_seconds?` | `{ task_id, worker_id, status, workdir_effective }` |
-| `list_tasks` | `status_filter?`, `worker_id?`, `limit?` (default 50) | Array of `{ task_id, worker_id, agent, status, branch, elapsed_seconds, last_milestone }` |
-| `get_task_result` | `task_id`, `wait?` (bool, default `false`), `timeout_seconds?` (default `300`) | `{ task_id, status, exit_code, duration_seconds, summary, git_summary: { base_sha, head_sha, commits, diff_stat, dirty_files }, recent_milestones }` |
-| `steer_task` | `task_id`, `input_text`, `append_newline?` (default `true`) | `{ ok, task_id, status }` |
-| `cancel_task` | `task_id` | `{ ok, task_id, status }` |
+- **[partial]** Sandbox posture (refuses full-access modes), allowed workdir roots, per-task timeout, process-group / job-object cleanup.
+- **[gap]** Operator policy per machine (and per machine class): max concurrent managed sessions, max load average, minimum free RAM, CPU/RAM reserved for the user, quiet hours, allowed work classes, role (§5.1). Enforced twice: by the hub at admission and by the daemon at start (the daemon refuses work that violates its policy even if the hub is wrong or bypassed).
+- **[gap]** Resource envelopes for managed sessions, native per OS by default:
+  - **Linux:** systemd user scope (`systemd-run --user --scope`, cgroup v2) with `MemoryMax`, `CPUQuota`, `TasksMax`; plain rlimits where systemd isn't available.
+  - **Windows:** Job Object limits (job memory, CPU rate control, active process count) on the job konsertd already creates.
+  - **macOS:** no cgroups; scheduling priority (`taskpolicy`/nice) plus monitoring with enforced kill on sustained over-limit memory.
+  - **Optional container tier:** rootless Podman per session or per project, for Linux workloads that need hard isolation or reproducible toolchains. Requires mounting the agent's login state; not available for agents whose logins live in a macOS keychain.
+- **[gap]** Observed sessions can't be capped; they're counted against headroom instead.
+- **[gap]** Policy is read-only over MCP. Changes happen in the UI or CLI and are audited.
 
-#### 5.6.3 CLI Commands
-- `konsert serve` — Starts the controller hub, web UI, REST/WS API, and optional HTTP MCP endpoint.
-- `konsert mcp` — Runs the stdio MCP bridge (talking to local SQLite or remote `konsert` HTTP API).
-- `konsert token generate` — Generates secure fleet and UI auth tokens.
-- `konsert status` / `konsert dispatch` / `konsert tasks` — Lightweight CLI wrappers over the controller REST API.
-- `konsertd run` — Starts the worker daemon and connects outbound to `konsert`.
-- `konsertd doctor` — Verifies detected agent CLIs, git availability, PTY support, and connectivity to `konsert`.
+### 5.8 Orchestrator integration
 
-### 5.7 Human Observability UI (Angular 22+ Zoneless Signals PWA)
-- **Visual Direction:** Dark-mode IDE aesthetic inspired by VS Code, Herdr, and Orca; crisp monospace telemetry, high-contrast status indicators, zero clutter.
-- **3-Zone Desktop Layout (`>= 768px`):**
-  1. **Left Rail & Fleet Explorer:** Collapsible tree grouping workers under `host_group` (physical host → nested Podman/VM workers). Each node displays live status dot (`idle`, `running`, `waiting_input`, `error`, `offline`), isolation/permission badge (`Full Access` / `Sandboxed`), active agent badge (`claude`, `agy`, `grok`), and live elapsed timer.
-  2. **Center Multi-Tab Workspace:**
-     - Persistent pinned **Orchestrator Chat** tab.
-     - Dynamic **Worker Session Tabs** rendered with `@xterm/xterm` (`FitAddon`, `WebglAddon` with canvas fallback, `WebLinksAddon`).
-     - **Per-Tab View Mode:** Defaults to **Read-Only** (blocks accidental keyboard input; shows lock indicator) with an explicit **"Take Control / Interactive"** toggle button that enables stdin forwarding and visually highlights the active border.
-     - Tab header shows worker name, agent, branch, status pill, quick **Cancel**, and **Scroll to Bottom** controls.
-  3. **Right / Bottom Telemetry Drawer (collapsible):** Structured timeline of `TaskEvent` milestones (`tool_call`, `file_edit`, `milestone`, `error`, `exit`), git branch/diff summary, and task metadata.
-- **Responsive Mobile & Tablet PWA (`< 768px`):**
-  - Installable Web App Manifest (`manifest.webmanifest`) + Angular Service Worker (`@angular/service-worker`) for offline shell caching and fast home-screen launch.
-  - Fleet Explorer collapses into a swipeable/toggleable slide-over drawer.
-  - Compact top tab switcher between Orchestrator Chat and open worker sessions.
-  - Touch-friendly quick action bar above mobile keyboard when Interactive mode is enabled (`Ctrl+C`, `Esc`, `Tab`, `Enter`).
+- **[have]** The orchestrator runs as an agent chat on a subscription, with per-chat MCP fleet tools: fleet status, machine facts, dispatch, list/get/steer/cancel tasks, fan-out, git and directory inspection, memory, taxonomy.
+- **[gap]** Scheduling tools: fleet snapshot with headroom, running sessions (managed and observed), quotas and policies; explain placement (dry run); work profiles and history per work key; task attempts and failure categories; set/clear placement rules; requeue or migrate a task to a machine or class.
+- **[gap]** A shipped *Konsert scheduler skill* for orchestrator agents: how to read the snapshot, when to trust the built-in scheduler, how to respond to failure categories, when to migrate, and how to record learned rules. Konsert owns the facts and memory; the skill owns the playbook.
+- **[gap]** Notifications to the orchestrator when work it dispatched fails, stalls, needs input or completes, so it can react without polling.
 
----
+### 5.9 Human interface (PWA)
 
-## 6. Non-Functional Requirements
+- **[have]** Fleet tree, chats with agents, terminal tabs, telemetry, usage footer, approval/model/effort pickers, first-run setup, mobile layout.
+- **[gap]** Activity view of *all* sessions (managed and observed) per machine with their resource use, plus "other load".
+- **[gap]** Machine detail: capacity vs headroom, policy, envelopes, recent history.
+- **[gap]** Placement explanations on tasks; work-key profile and history pages; migration timeline.
+- **[gap]** Deep links using sids (`/tasks/t-xxxxx`, `/machines/m-xxxxx`, `/chats/c-xxxxx`).
 
-### 6.1 Security & Access Control
-- **Worker Auth:** `Authorization: Bearer <fleet_token>` on outbound WebSocket upgrade. Constant-time token comparison.
-- **Browser PWA Auth:** Configurable admin token/passphrase login issuing an `HttpOnly; SameSite=Strict` signed session cookie. Supports trusted reverse-proxy / Tailscale identity header bypass (`--trust-tailscale-headers`) for zero-friction Tailscale Serve deployments, and `--no-auth` for isolated local-only testing.
-- **MCP HTTP Auth:** Bearer token authentication on Streamable HTTP/SSE endpoints.
-- **Audit Events:** Interactive takeover enable/disable and `steer_task` invocations are logged as `TaskEvent` records (`kind: "control"`) for visibility.
+## 6. Non-functional requirements
 
-### 6.2 Performance & Bandwidth
-- **Zero Idle PTY Traffic:** While `subscriber_count == 0`, `konsertd` writes PTY output only to its local 512 KB circular buffer—zero bytes sent to `konsert`.
-- **Fast Attach:** Ring buffer snapshot replay completes in `< 200ms` over LAN/Tailscale.
-- **Backpressure Protection:** Browser WebSocket send queues are bounded; slow/stalled browser clients are dropped/disconnected rather than blocking the worker PTY or other viewers.
+- **Security:** fleet token for daemons, authenticated browser sessions (or trusted Tailscale identity), bearer tokens for MCP, secrets encrypted at rest, real email addresses never written into repos. Daemons never accept inbound connections.
+- **Overhead:** observation must be cheap: daemon CPU < 1% average on an idle machine; incremental tailing of session stores; sampling intervals adaptive (faster while work runs).
+- **Scale target:** 20 machines, 200 concurrent sessions, 1 year of downsampled history in SQLite.
+- **Reliability:** hub restarts don't stop work; daemons re-adopt managed sessions; observed sessions are re-discovered.
+- **Platforms:** Linux (amd64, arm64), macOS (arm64), Windows (amd64), Linux containers and WSL.
 
-### 6.3 Reliability & Cross-Platform Support
-- **Worker Reconnect:** Exponential backoff with jitter (`1s` → `30s` cap) on WebSocket disconnect.
-- **Process Cleanup:** Clean process-group teardown on `cancel_task` and daemon shutdown (`SIGTERM`), preventing zombie agent subprocesses.
-- **SQLite Durability:** `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;` with single-writer connection tuning to prevent `SQLITE_BUSY`.
-- **Supported Platforms:** Linux (`amd64`, `arm64`), macOS (`arm64`, `amd64`), Windows (`amd64` ConPTY), Podman/Docker Linux containers.
+## 7. Non-goals (pre-1.0)
+
+- Peer-to-peer between daemons.
+- Live migration of running processes.
+- Multi-tenant SaaS, RBAC beyond a single operator or trusted team.
+- Preemption of running work.
+- Kubernetes or Nomad integration.

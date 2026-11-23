@@ -1,6 +1,8 @@
 # Konsert Technical Implementation Plan
 
-This document is the engineering blueprint for implementing **Konsert** as specified in [prd.md](./prd.md). It is structured so coding agents or human engineers can execute Phase 1 through Phase 4 incrementally with clear interfaces, wire protocols, database migrations, and verification gates.
+This document is the engineering blueprint for **Konsert** as specified in [prd.md](./prd.md).
+
+> **Status (2026-11-23).** Sections 1–7 are the original MVP blueprint. Phases 1–4 are built, but the code has moved on: subscription-first agent chat ([design/agent-chat.md](./design/agent-chat.md)), UUIDv7 `id` + short `sid` on every record, a single squashed schema (`internal/store/sqlite/migrations/001_schema.sql`), `encoding/json/v2`, hub-managed daemons. Where sections 1–7 disagree with the code, the code wins. **Section 8 is the forward roadmap** for the two pillars in the PRD: total visibility and intelligent scheduling.
 
 ---
 
@@ -478,34 +480,78 @@ Matches `worker_selector` against online workers where `active_tasks < max_concu
 
 ---
 
-## 8. Phased Delivery Roadmap & Acceptance Criteria
+## 8. Roadmap: Visibility and Scheduling
 
-### Phase 1 — Daemon, Protocol & PTY Core
-- **Deliverables:** `go.mod`, `internal/protocol`, `internal/worker/{pty_unix.go,pty_windows.go,ringbuf.go,daemon.go,runner.go}`, `internal/gitutil`, `internal/worker/drivers/{driver.go,mock.go,claude.go,agy.go,grok.go}`, `cmd/konsertd`.
-- **Exit Criteria:**
-  - `konsertd doctor` detects installed CLIs (`claude`, `agy`, `grok`) and prints permission posture (`full_access` default).
-  - Unit tests pass for `RingBuffer` wrap-around/snapshot, binary frame codec, `gitutil` worktree lifecycle, and PTY spawn/resize/PGID-cancel using `mock` driver.
-  - Cross-compilation succeeds for `linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`.
+Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler and MCP; PWA; telemetry and packaging) are done, as are the subscription-first chat work and first-run setup. The phases below close the gaps marked **[gap]** in the PRD. They are ordered by dependency: scheduling decisions need visibility data, migration needs attempts and history, and the orchestrator skill needs the tools from every earlier phase. Each phase is one `ka` epic.
 
-### Phase 2 — Controller, SQLite WAL, Scheduler, MCP & Orchestrator API
-- **Deliverables:** `internal/store/{store.go,sqlite/*}`, `internal/auth`, `internal/controller/{hub.go,scheduler.go,service.go,api.go,mcp.go}`, `internal/orchestrator/{backend.go,openai.go,anthropic.go,gemini.go}`, `cmd/konsert`.
-- **Exit Criteria:**
-  - End-to-end Go integration test: start `konsert` + `konsertd` (with `mock` driver), dispatch task via MCP `dispatch_task`, await `get_task_result(wait=true)`, verify structured summary & git diff without PTY streaming.
-  - Reconnect test: restart `konsert` while `konsertd` runs a task; verify task re-adoption via `worker.hello`.
-  - Auth tests: verify fleet token enforcement, browser cookie auth, and opt-in `--allowed-roots` enforcement.
+### Phase 5: Observed sessions (Visibility I)
 
-### Phase 3 — Angular 22 Zoneless Signals PWA
-- **Deliverables:** `web/` Angular 22 app with Tailwind v4 dark theme, Fleet Explorer tree, multi-tab `@xterm/xterm` workspace (Read-Only default + Interactive Takeover toggle), Telemetry Drawer, Orchestrator Chat tab, mobile `< 768px` drawer & quick-key bar, `manifest.webmanifest`, `//go:embed` integration into `cmd/konsert`.
-- **Exit Criteria:**
-  - `npm run build` embeds cleanly into a single `konsert` binary.
-  - Live demo with `mock` driver: open tab → instant 512 KB replay + live ANSI stream; close tab → worker stops streaming; toggle Take Control → stdin reaches PTY; resize window → PTY dimensions update.
-  - Mobile viewport (`390x844`) verified usable for Fleet drawer, Orchestrator Chat, and terminal viewing.
+Goal: every agent session on a machine shows up, whoever started it.
 
-### Phase 4 — Live Agent Telemetry Scrapers, Hardening & Packaging
-- **Deliverables:** Full `claude` JSONL transcript watcher, `agy` & `grok` structured milestone/summary parsers, `deploy/` templates (systemd, Podman Quadlet, launchd), `.goreleaser.yaml`, `Makefile`, `README.md`.
-- **Exit Criteria:**
-  - Live smoke tests against real `claude`, `agy`, and `grok` CLIs verifying full-access default execution, structured telemetry milestones, and clean final summaries.
-  - `goreleaser check` and `make build-all` produce clean release artifacts for Linux, macOS, and Windows.
+- `internal/worker/observe/`: a `Source` interface per agent (`Discover`, `Tail(session) <-chan protocol.AgentChatEvent`). Sources read the session stores agents already write:
+  - claude: `~/.claude/projects/<encoded cwd>/*.jsonl` (and every `CLAUDE_CONFIG_DIR` account, e.g. `~/.claude2`);
+  - codex: `~/.codex/sessions/**/rollout-*.jsonl`;
+  - grok, cursor-agent, copilot, agy: their session/state stores (see [research/agent-cli-capabilities.md](./research/agent-cli-capabilities.md); add what's missing).
+  Each source maps records to the normalized `AgentChatEvent` stream the chat engines already use, so the UI renders observed sessions with the same components.
+- Hooks stay as a low-latency status signal; the process scan becomes a fallback and gains cursor-agent, copilot and the desktop apps.
+- Status from session records (turn started/ended, waiting for permission), not CPU.
+- Hub: observed sessions are `tasks` rows with `origin=external` (exists); add `agent_session_id`, account, model, and an event log. The hub stores normalized events with size caps; full transcripts are fetched from the daemon on demand.
+- PWA: read-only session view; an "All activity" list per machine.
+- Exit: start a session by hand in each of the six CLIs on macOS, Linux and Windows; each appears within 5 s with correct status transitions and tool calls. Daemon CPU stays under 1% idle.
+
+### Phase 6: Processes and load (Visibility II)
+
+- Daemon process sampler (per OS: `/proc` on Linux, `libproc`/`ps` on macOS, Toolhelp/`NtQuerySystemInformation` on Windows): per-process CPU and RSS every 5 s while work runs, 30 s idle.
+- Attribution: managed sessions by process group / job object; observed sessions by descendant tree of the agent process, keeping orphaned descendants attributed by start-time lineage until they exit.
+- Machine load split into agent load and other load, with top non-agent processes; input-idle time on interactive machines (macOS `IOHIDSystem` idle, Windows `GetLastInputInfo`, Linux logind `IdleHint`).
+- Store: `metric_samples` (machine and session, downsampled 1 min / 1 h, retention settings), session peaks on the task row.
+- Exit: a build started by an agent is attributed to it; a build started by hand counts as other load; history survives hub restarts.
+
+### Phase 7: Facts, work keys and outcomes
+
+- Extensible capability probes: built-in list plus probes declared in daemon config (command + version regex, or path exists), GPU detection (NVIDIA `nvidia-smi`, Apple Silicon GPU cores and unified memory, AMD), architecture in the selector, operator labels per machine, machine role (`dedicated` / `interactive` / `control-only`).
+- `work_key` on tasks (derived from project, repo, branch/worktree, kind; overridable by the dispatcher) and requirement fields on dispatch.
+- `task_attempts` table: one row per attempt with machine, account, queue wait, duration, exit, failure category, resource peaks, tokens/cost; requeue creates a new attempt.
+- Failure classifier on the daemon (OOM: exit 137/SIGKILL with kernel OOM evidence, Windows job memory limit; disk full; timeout; missing tool) feeding the attempt's failure category; agent-reported categories (auth, usage limit) from the chat engines.
+- `work_profiles` maintained from attempts per (work_key, machine class).
+- Exit: profiles fill in after a few runs; `get_work_profile` returns them.
+
+### Phase 8: Policy and enforcement
+
+- Machine policy (hub-owned, pushed to the daemon): max managed sessions, max load average, min free RAM, reserved CPU/RAM, quiet hours, allowed work classes, role. Hub admission check plus daemon-side refusal.
+- Resource envelopes per OS: Linux systemd user scopes (cgroup v2) with rlimit fallback; Windows Job Object limits on the existing job; macOS priority plus monitored kill. Envelope size from the work profile or a default class.
+- Optional rootless Podman tier for Linux work (`isolation: container` per project): image, mounts for repo and agent login state, envelope via Podman flags.
+- Policy read-only over MCP; edits in UI/CLI, audited.
+- Exit: a memory-hungry test job is capped on Linux and Windows and killed (classified OOM) when it exceeds its envelope; an interactive machine with an active user receives no new heavy work.
+
+### Phase 9: Placement
+
+- Capacity model: headroom = capacity − reservations − running envelopes − observed other load.
+- Scorer: hard filters (requirements, policy, logins) then a weighted score (headroom fit for the expected profile, locality, account quota, placement rules, spread). Unknown work rotates across eligible machines weighted by headroom.
+- Repo locality: daemons report checkouts (repo remote URL + path + branch + last fetch) found under configured roots; `checkouts` table (many machines per repo).
+- Subscription-aware choice of machine and account pair; spread across same-vendor accounts.
+- `placement_rules` (scope, prefer/require/avoid, target machine or class, provenance, evidence, expiry) and `placement_log` (candidates, rejections, scores, decision, decider).
+- MCP/REST: `explain_placement` (dry run), placement explanation on every task.
+- Exit: scenario tests: Windows-only work never lands elsewhere; repo work prefers machines with a checkout until they're saturated; exhausted account is avoided until reset; rules override scores but never policy.
+
+### Phase 10: Retry and migration
+
+- Retry policy by failure category (bigger machine for OOM/disk/timeout; another account for usage limit; never for auth).
+- Migration: stop on A; transfer via push to the shared remote when available, otherwise a hub-relayed `git bundle` (daemon A → hub → daemon B); start on B with a handoff note (previous summary, failure, files changed).
+- Learned rules: a migration that succeeds after a classified failure writes a `learned` placement rule for the work key with the evidence.
+- Exit: an ML-style job that OOMs on a small machine is migrated to a larger one, succeeds, and the next dispatch of that work key goes straight to the larger class.
+
+### Phase 11: Orchestrator scheduling
+
+- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, plus event notifications to the orchestrator chat for failure, stall, needs-input and completion of work it dispatched.
+- Ship the Konsert scheduler skill (installed for the orchestrator agent): reading the snapshot, trusting vs overriding the built-in scheduler, responding to failure categories, migrating, recording rules.
+- Evaluation suite: scripted fleets (mock engine with synthetic resource profiles) and scenarios the orchestrator must handle; track decisions over versions.
+- Exit: the orchestrator handles the OOM → migrate → pin scenario and a usage-limit → switch-account scenario end to end, and its learned rules survive a hub restart and a fresh orchestrator context.
+
+### Cross-cutting
+
+- Deep links in the PWA by sid (`/tasks/t-…`, `/machines/m-…`, `/chats/c-…`).
+- Each phase adds a hands-on walkthrough to [walkthrough.md](./walkthrough.md) on macOS, Linux and Windows.
 
 ---
 
