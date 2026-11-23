@@ -34,6 +34,12 @@ type Daemon struct {
 	sendMu sync.RWMutex
 	queues *connQueues // nil while disconnected
 
+	// lastFacts caches the most recent machine facts so a reconnect can send
+	// worker.hello immediately instead of re-running every probe first (slow on
+	// Windows, where timed-out probe processes are not killed promptly).
+	factsMu   sync.Mutex
+	lastFacts *protocol.MachineFacts
+
 	// machineID is the persisted per-installation UUID sent as WorkerInfo.MachineID.
 	machineID string
 
@@ -296,7 +302,10 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	if d.cfg.Sandbox {
 		permMode = protocol.PermissionSandboxed
 	}
-	initialFacts := CollectMachineFacts(connCtx)
+	initialFacts, cached := d.cachedFacts()
+	if !cached {
+		initialFacts = d.refreshFacts(connCtx)
+	}
 	hello := protocol.WorkerHelloPayload{
 		Worker: protocol.WorkerInfo{
 			ID:             d.cfg.WorkerID,
@@ -343,6 +352,16 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 		connCancel()
 	}()
+
+	// hello carried cached facts; send fresh ones as soon as they are collected.
+	if cached {
+		go func() {
+			facts := d.refreshFacts(connCtx)
+			if connCtx.Err() == nil {
+				d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
+			}
+		}()
+	}
 
 	// Adaptive delta-throttled heartbeat goroutine (faster when active, gentle when idle).
 	go func() {
@@ -393,7 +412,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			case <-connCtx.Done():
 				return
 			case <-ticker.C:
-				facts := CollectMachineFacts(connCtx)
+				facts := d.refreshFacts(connCtx)
 				d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
 				if qs := CollectSubscriptionQuotas(connCtx, "", d.cfg.WorkerID); len(qs) > 0 {
 					d.sendJSON(protocol.MsgWorkerQuotas, protocol.WorkerQuotasPayload{Quotas: qs})
@@ -844,4 +863,23 @@ func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outbou
 			}
 		}
 	}
+}
+
+// cachedFacts returns the last collected machine facts, if any.
+func (d *Daemon) cachedFacts() (protocol.MachineFacts, bool) {
+	d.factsMu.Lock()
+	defer d.factsMu.Unlock()
+	if d.lastFacts == nil {
+		return protocol.MachineFacts{}, false
+	}
+	return *d.lastFacts, true
+}
+
+// refreshFacts collects machine facts and caches them for the next reconnect.
+func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
+	f := CollectMachineFacts(ctx)
+	d.factsMu.Lock()
+	d.lastFacts = &f
+	d.factsMu.Unlock()
+	return f
 }

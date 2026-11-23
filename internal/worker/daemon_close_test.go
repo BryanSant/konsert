@@ -28,7 +28,7 @@ func TestDaemonCloseCodePolicy(t *testing.T) {
 
 	for _, code := range []websocket.StatusCode{protocol.WSCloseTryAgainLater, websocket.StatusNormalClosure} {
 		c := hub.accept(t)
-		c.waitFor(t, 10*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
+		c.waitFor(t, 30*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
 		_ = c.conn.Close(code, "test")
 		select {
 		case err := <-runErr:
@@ -38,7 +38,7 @@ func TestDaemonCloseCodePolicy(t *testing.T) {
 	}
 
 	c := hub.accept(t)
-	c.waitFor(t, 10*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
+	c.waitFor(t, 30*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
 	_ = c.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "removed")
 	select {
 	case err := <-runErr:
