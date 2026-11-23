@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -138,7 +139,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	}
 	select {
 	case snap := <-snapCh:
-		if !strings.Contains(string(snap), "konsert-mock") {
+		if !strings.Contains(string(snap), "konsert-mock") && !strings.Contains(string(snap), "[MOCK:") {
 			t.Fatalf("unexpected snapshot content: %q", string(snap))
 		}
 	case <-time.After(3 * time.Second):
@@ -148,7 +149,12 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	if err := runner2.ResizePty(taskID2, 100, 40); err != nil {
 		t.Fatalf("ResizePty failed: %v", err)
 	}
-	if err := runner2.SteerTask(taskID2, "exit", true); err != nil {
+	steer, nl := "exit", true
+	if runtime.GOOS == "windows" {
+		// ConPTY submits a line on CR; a bare LF does not end `set /p` input.
+		steer, nl = "exit\r", false
+	}
+	if err := runner2.SteerTask(taskID2, steer, nl); err != nil {
 		t.Fatalf("SteerTask failed: %v", err)
 	}
 

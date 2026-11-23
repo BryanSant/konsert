@@ -1,10 +1,9 @@
 package worker
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -277,40 +276,43 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		})
 	}()
 
-	// Read PTY bytes until EOF.
-	pr, pw := io.Pipe()
+	// Wait for the main process in its own goroutine. Completion is driven by process exit,
+	// not PTY EOF: a background child (e.g. `nohup devserver &`) can hold the TTY open
+	// forever, and ConPTY output often never reaches EOF until ClosePseudoConsole.
+	var (
+		exitCode int
+		waitErr  error
+	)
+	waitDone := make(chan struct{})
 	go func() {
-		defer close(lineCh)
-		scanner := bufio.NewScanner(pr)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			select {
-			case lineCh <- scanner.Text():
-			default:
-				// Drop noisy line rather than blocking PTY reads.
-			}
-		}
+		exitCode, waitErr = rt.pty.Wait()
+		close(waitDone)
 	}()
 
-	buf := make([]byte, 16*1024)
-	for {
-		n, err := rt.pty.Read(buf)
-		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			_, _ = rt.ring.Write(chunk)
-			_, _ = pw.Write(chunk)
-			if rt.streamActive.Load() && r.callbacks.OnPtyFrame != nil {
-				r.callbacks.OnPtyFrame(protocol.FramePtyData, rt.id, chunk)
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		defer close(lineCh)
+		r.pumpPtyOutput(rt, lineCh)
+	}()
+
+	select {
+	case <-readDone:
+		<-waitDone
+	case <-waitDone:
+		// Drain whatever output the process left behind, then close the PTY so a
+		// lingering reader (or an un-EOF'd ConPTY) cannot keep the task alive.
+		select {
+		case <-readDone:
+		case <-time.After(ptyDrainGrace):
+			_ = rt.pty.Close()
+			select {
+			case <-readDone:
+			case <-time.After(2 * time.Second):
+				r.logger.Warn("pty reader did not stop after close; abandoning it", "task_id", rt.id)
 			}
 		}
-		if err != nil {
-			break
-		}
 	}
-	_ = pw.Close()
-
-	exitCode, waitErr := rt.pty.Wait()
 	close(stopWatch)
 
 	// Allow telemetry watcher a brief window to flush remaining lines.
@@ -367,6 +369,95 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		Summary:      summary,
 		GitSummary:   gitSummary,
 	})
+}
+
+// ptyDrainGrace is how long the supervisor keeps reading PTY output after the main process
+// exits before it closes the PTY to unblock the reader.
+const ptyDrainGrace = 500 * time.Millisecond
+
+// maxTelemetryLine caps the bytes buffered for a single unterminated output line.
+const maxTelemetryLine = 1024 * 1024
+
+// pumpPtyOutput reads PTY bytes until EOF/close, teeing them into the ring buffer, the live
+// stream, and (line-split, non-blocking) the telemetry channel. It never blocks on telemetry:
+// an over-long line is truncated to maxTelemetryLine and the remainder discarded.
+func (r *Runner) pumpPtyOutput(rt *runningTask, lineCh chan<- string) {
+	ls := lineSplitter{max: maxTelemetryLine}
+	emit := func(line string) {
+		select {
+		case lineCh <- line:
+		default:
+			// Drop noisy line rather than blocking PTY reads.
+		}
+	}
+	buf := make([]byte, 16*1024)
+	for {
+		n, err := rt.pty.Read(buf)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			_, _ = rt.ring.Write(chunk)
+			ls.feed(chunk, emit)
+			if rt.streamActive.Load() && r.callbacks.OnPtyFrame != nil {
+				r.callbacks.OnPtyFrame(protocol.FramePtyData, rt.id, chunk)
+			}
+		}
+		if err != nil {
+			ls.flush(emit)
+			return
+		}
+	}
+}
+
+// lineSplitter turns a byte stream into lines (without the trailing "\n" or "\r\n"),
+// bounding the memory held for a line that has no newline.
+type lineSplitter struct {
+	max       int
+	pending   []byte
+	truncated bool
+}
+
+func (l *lineSplitter) feed(chunk []byte, emit func(string)) {
+	for len(chunk) > 0 {
+		i := bytes.IndexByte(chunk, '\n')
+		if i < 0 {
+			l.appendBounded(chunk, emit)
+			return
+		}
+		l.appendBounded(chunk[:i], emit)
+		l.endLine(emit)
+		chunk = chunk[i+1:]
+	}
+}
+
+func (l *lineSplitter) appendBounded(b []byte, emit func(string)) {
+	if l.truncated {
+		return // discarding the rest of an over-long line
+	}
+	if room := l.max - len(l.pending); len(b) > room {
+		l.pending = append(l.pending, b[:room]...)
+		emit(string(l.pending))
+		l.pending = l.pending[:0]
+		l.truncated = true
+		return
+	}
+	l.pending = append(l.pending, b...)
+}
+
+func (l *lineSplitter) endLine(emit func(string)) {
+	if !l.truncated {
+		emit(string(bytes.TrimSuffix(l.pending, []byte{'\r'})))
+	}
+	l.pending = l.pending[:0]
+	l.truncated = false
+}
+
+func (l *lineSplitter) flush(emit func(string)) {
+	if len(l.pending) > 0 && !l.truncated {
+		emit(string(bytes.TrimSuffix(l.pending, []byte{'\r'})))
+	}
+	l.pending = nil
+	l.truncated = false
 }
 
 // SubscribePty turns on live streaming for taskID and immediately emits a 0x01 snapshot frame.

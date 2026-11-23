@@ -65,7 +65,7 @@ func (d *MockDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 			lines = append(lines, "set /p USER_IN=")
 			lines = append(lines, "echo [MOCK:MILESTONE] Received input: %USER_IN%")
 		}
-		lines = append(lines, "echo [MOCK:SUMMARY] Mock task completed successfully")
+		lines = append(lines, "echo [MOCK:SUMMARY] Mock agent finished cleanly")
 		if exitCode != "" {
 			lines = append(lines, "exit /b "+exitCode)
 		}

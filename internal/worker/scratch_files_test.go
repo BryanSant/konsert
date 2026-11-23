@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func TestSaveAndPruneScratchAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat saved attachment failed: %v", err)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("expected restrictive 0600 permissions, got %o", info.Mode().Perm())
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {

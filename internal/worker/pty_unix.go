@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 type unixPtyProcess struct {
@@ -46,9 +47,39 @@ func startPlatformPty(_ context.Context, opts PtyStartOptions) (PtyProcess, erro
 
 	return &unixPtyProcess{
 		cmd:  cmd,
-		ptmx: ptmx,
+		ptmx: pollablePtmx(ptmx),
 		pgid: cmd.Process.Pid,
 	}, nil
+}
+
+// pollablePtmx returns a non-blocking, runtime-poller-backed copy of the PTY master so a
+// concurrent Close unblocks a pending Read. That lets the supervisor finish a task once the
+// main process has exited even while a background child still holds the TTY open. If the
+// conversion fails the original (blocking) file is returned unchanged.
+func pollablePtmx(ptmx *os.File) *os.File {
+	fd, err := syscall.Dup(int(ptmx.Fd()))
+	if err != nil {
+		return ptmx
+	}
+	syscall.CloseOnExec(fd)
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		_ = syscall.Close(fd)
+		return ptmx
+	}
+	nf := os.NewFile(uintptr(fd), ptmx.Name())
+	if nf == nil {
+		_ = syscall.Close(fd)
+		return ptmx
+	}
+	_ = ptmx.Close()
+	return nf
+}
+
+func (p *unixPtyProcess) Pid() int {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
 }
 
 func (p *unixPtyProcess) Read(b []byte) (int, error) {
@@ -63,10 +94,19 @@ func (p *unixPtyProcess) Resize(cols, rows uint16) error {
 	if cols == 0 || rows == 0 {
 		return nil
 	}
-	return pty.Setsize(p.ptmx, &pty.Winsize{
-		Cols: cols,
-		Rows: rows,
-	})
+	// Use SyscallConn rather than pty.Setsize: Setsize calls File.Fd(), which would put the
+	// master back into blocking mode and stop Close from unblocking a pending Read.
+	sc, err := p.ptmx.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ioErr error
+	if err := sc.Control(func(fd uintptr) {
+		ioErr = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{Row: rows, Col: cols})
+	}); err != nil {
+		return err
+	}
+	return ioErr
 }
 
 func (p *unixPtyProcess) Interrupt() error {
