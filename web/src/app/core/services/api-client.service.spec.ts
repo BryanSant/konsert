@@ -78,6 +78,44 @@ describe('ApiClientService', () => {
     expect((err as ApiError).status).toBe(409);
   });
 
+  it('turns 429 into a retry hint honouring Retry-After', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'too many failed login attempts; try again later' }), {
+        status: 429,
+        headers: { 'Retry-After': '42' },
+      }),
+    );
+    await expect(api.login('x')).rejects.toThrow('Too many attempts, try again in 42s.');
+  });
+
+  it('explains CSRF-guard and size rejections', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { error: 'cross-site request rejected' }));
+    await expect(api.cancelTask('t')).rejects.toThrow(/cross-site request rejected.*Reload/);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(415, { error: 'Content-Type must be application/json' }),
+    );
+    await expect(api.cancelTask('t')).rejects.toThrow(/request format/);
+    fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'file exceeds 12 MiB limit' }));
+    await expect(api.uploadAttachment(new File(['x'], 'a'))).rejects.toThrow(
+      'Too large: file exceeds 12 MiB limit.',
+    );
+  });
+
+  it('returns the 409 host-key result from a non-streaming SSH bootstrap', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, {
+        ok: false,
+        target: 'box',
+        stage: 'host_key_confirmation',
+        host_key_confirmation_required: true,
+        host_keys: [{ type: 'ssh-ed25519', fingerprint: 'SHA256:abc' }],
+      }),
+    );
+    const res = await api.bootstrapSSH({ target: 'box', controller_url: 'ws://h/ws/worker' });
+    expect(res.host_key_confirmation_required).toBe(true);
+    expect(res.host_keys?.[0].fingerprint).toBe('SHA256:abc');
+  });
+
   it('falls back to "HTTP <status>" for non-JSON errors', async () => {
     fetchMock.mockResolvedValueOnce(new Response('<html>bad gateway</html>', { status: 502 }));
     await expect(api.getFleet()).rejects.toThrow('HTTP 502');

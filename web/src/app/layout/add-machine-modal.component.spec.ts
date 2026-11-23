@@ -88,6 +88,66 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     expect(cmp.sshStatusMsg()).toBe('');
   });
 
+  it('asks the operator to verify an unknown host key, then retries with accept_host_key', async () => {
+    const fixture = await create();
+    const cmp = fixture.componentInstance;
+    fetchMock.mockImplementationOnce(async () =>
+      sseResponse([
+        {
+          type: 'done',
+          result: {
+            ok: false,
+            target: 'box',
+            stage: 'host_key_confirmation',
+            host_key_confirmation_required: true,
+            host_keys: [{ type: 'ssh-ed25519', fingerprint: 'SHA256:abc' }],
+          },
+        },
+      ]),
+    );
+    await cmp.bootstrapSSHHost('box');
+    expect(cmp.hostKeyPrompt()?.keys[0].fingerprint).toBe('SHA256:abc');
+    expect(cmp.sshErrorMsg()).toBe('');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('SHA256:abc');
+
+    fetchMock.mockImplementationOnce(async () =>
+      sseResponse([{ type: 'done', result: { ok: true, target: 'box', message: 'ready' } }]),
+    );
+    await cmp.confirmHostKey({ type: 'ssh-ed25519', fingerprint: 'SHA256:abc' });
+    const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body).toMatchObject({ target: 'box', accept_host_key: 'SHA256:abc' });
+    expect(body.controller_url).toMatch(/^wss?:\/\/.+\/ws\/worker$/);
+    expect(cmp.hostKeyPrompt()).toBeNull();
+    expect(cmp.sshStatusMsg()).toBe('ready');
+  });
+
+  it('flags a changed host key prominently', async () => {
+    const fixture = await create();
+    const cmp = fixture.componentInstance;
+    fetchMock.mockImplementationOnce(async () =>
+      sseResponse([
+        {
+          type: 'done',
+          result: {
+            ok: false,
+            target: 'box',
+            stage: 'connecting',
+            error:
+              'SSH host key for box has CHANGED (possible man-in-the-middle). Refusing to continue',
+          },
+        },
+      ]),
+    );
+    await cmp.bootstrapSSHHost('box');
+    expect(cmp.hostKeyChanged()).toBe(true);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'possible man-in-the-middle',
+    );
+  });
+
   it('aborts an in-flight bootstrap when the modal is destroyed', async () => {
     const fixture = await create();
     const cmp = fixture.componentInstance;

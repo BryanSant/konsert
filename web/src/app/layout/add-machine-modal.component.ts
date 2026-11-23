@@ -9,7 +9,13 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { SSHHost, Worker } from '../core/models/konsert.models';
+import {
+  SSHBootstrapResult,
+  SSHHost,
+  SSHHostKey,
+  SSH_STAGE_HOST_KEY_CONFIRMATION,
+  Worker,
+} from '../core/models/konsert.models';
 import { ApiClientService, SSHBootstrapEvent } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { IconComponent } from '../shared/icon.component';
@@ -22,6 +28,14 @@ export function workerMatchesHost(w: Worker, host: SSHHost): boolean {
     w.name.toLowerCase() === alias ||
     w.host_group.toLowerCase() === alias ||
     (!!host.hostname && w.name.toLowerCase() === host.hostname.toLowerCase())
+  );
+}
+
+function needsHostKeyConfirmation(r: SSHBootstrapResult): boolean {
+  return (
+    !r.ok &&
+    (!!r.host_key_confirmation_required || r.stage === SSH_STAGE_HOST_KEY_CONFIRMATION) &&
+    (r.host_keys?.length ?? 0) > 0
   );
 }
 
@@ -144,10 +158,58 @@ function isAbort(err: unknown): boolean {
           {{ sshStatusMsg() }}
         </div>
       }
-      @if (sshErrorMsg()) {
-        <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[11.5px] text-[#f09595] break-words">
-          {{ sshErrorMsg() }}
+      @if (hostKeyPrompt(); as prompt) {
+        <div
+          role="alertdialog"
+          aria-labelledby="ks-hostkey-title"
+          aria-describedby="ks-hostkey-desc"
+          class="rounded-lg border border-[#d9a043]/40 bg-[#d9a043]/10 px-3 py-3 space-y-2.5 text-[11.5px] text-[#e8c88a]"
+        >
+          <div id="ks-hostkey-title" class="text-[12.5px] font-semibold text-[#f4d9a4]">
+            Verify the host key for {{ prompt.target }}
+          </div>
+          <p id="ks-hostkey-desc" class="leading-relaxed">
+            Konsert has never connected to this machine. Before trusting it, check that a fingerprint
+            below matches the one on the machine itself (for example
+            <code class="font-mono-ide text-[#f4d9a4]">ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>).
+            If it does not match, do not continue.
+          </p>
+          <ul class="space-y-1.5">
+            @for (key of prompt.keys; track key.fingerprint) {
+              <li class="flex items-center justify-between gap-2 rounded-md border border-[#3a3428] bg-[#15140f] px-2.5 py-1.5">
+                <div class="min-w-0">
+                  <div class="text-[10.5px] text-[#a79a7e]">{{ key.type }}</div>
+                  <code class="font-mono-ide text-[11px] text-[#f4f4f5] break-all">{{ key.fingerprint }}</code>
+                </div>
+                <button
+                  type="button"
+                  (click)="confirmHostKey(key)"
+                  [attr.aria-label]="'Fingerprint matches; trust ' + key.type + ' key and continue'"
+                  class="shrink-0 rounded-md border border-[#d9a043]/50 bg-[#2a2416] hover:bg-[#3a3120] px-2.5 py-1 text-[11px] font-medium text-[#f4d9a4] transition cursor-pointer"
+                >
+                  It matches, trust it
+                </button>
+              </li>
+            }
+          </ul>
+          <div class="flex justify-end">
+            <button type="button" (click)="hostKeyPrompt.set(null)" class="rounded-md px-2.5 py-1 text-[11px] text-[#a1a3ab] hover:text-[#ececed] cursor-pointer">
+              Cancel
+            </button>
+          </div>
         </div>
+      }
+      @if (sshErrorMsg()) {
+        @if (hostKeyChanged()) {
+          <div role="alert" class="rounded-lg border-2 border-[#e05d5d] bg-[#e05d5d]/15 px-3 py-2.5 text-[12px] text-[#ffb4b4] break-words space-y-1">
+            <div class="text-[13px] font-semibold text-[#ffd0d0]">Host key changed: possible man-in-the-middle</div>
+            <div>{{ sshErrorMsg() }}</div>
+          </div>
+        } @else {
+          <div role="alert" class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[11.5px] text-[#f09595] break-words">
+            {{ sshErrorMsg() }}
+          </div>
+        }
       }
 
       <!-- Collapsible manual konsertd command for containers / Windows / no-SSH hosts -->
@@ -214,6 +276,10 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   readonly sandbox = signal(false);
   readonly enableMock = signal(false);
   readonly copiedCmd = signal(false);
+  /** Unknown host key awaiting the operator's fingerprint confirmation. */
+  readonly hostKeyPrompt = signal<{ target: string; keys: SSHHostKey[] } | null>(null);
+  /** The hub refuses changed host keys outright; flag that error prominently. */
+  readonly hostKeyChanged = computed(() => /host key .* has changed/i.test(this.sshErrorMsg()));
 
   /** Aborts an in-flight bootstrap stream when the modal closes. */
   private bootstrapAbort: AbortController | null = null;
@@ -251,9 +317,10 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     }
   }
 
-  async bootstrapSSHHost(target: string): Promise<void> {
+  async bootstrapSSHHost(target: string, acceptHostKey?: string): Promise<void> {
     const clean = target.trim();
     if (!clean || this.bootstrappingTarget()) return;
+    this.hostKeyPrompt.set(null);
     this.bootstrappingTarget.set(clean);
     this.sshStageLabel.set('Connecting');
     this.sshStageDetail.set(`Reaching ${clean} over SSH...`);
@@ -268,9 +335,14 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
           controller_url: workerControllerUrl(),
           sandbox: this.sandbox(),
           enable_mock: this.enableMock(),
+          accept_host_key: acceptHostKey || undefined,
         },
         { signal: abort.signal, onEvent: (ev) => this.onBootstrapEvent(ev) },
       );
+      if (needsHostKeyConfirmation(result)) {
+        this.hostKeyPrompt.set({ target: clean, keys: result.host_keys ?? [] });
+        return;
+      }
       if (!result.ok) {
         const prefix = result.stage ? `[${result.stage}] ` : '';
         this.sshErrorMsg.set(`${prefix}${result.error || `Failed to add ${clean}`}`);
@@ -292,6 +364,13 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Operator confirmed a fingerprint: retry the same bootstrap trusting that key. */
+  async confirmHostKey(key: SSHHostKey): Promise<void> {
+    const prompt = this.hostKeyPrompt();
+    if (!prompt) return;
+    await this.bootstrapSSHHost(prompt.target, key.fingerprint);
+  }
+
   /** Handles one streamed bootstrap frame. Extend here for new interactive steps. */
   private onBootstrapEvent(ev: SSHBootstrapEvent): void {
     switch (ev.type) {
@@ -311,7 +390,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     const target = this.customSshTarget().trim();
     if (!target) return;
     await this.bootstrapSSHHost(target);
-    if (!this.sshErrorMsg()) {
+    if (!this.sshErrorMsg() && !this.hostKeyPrompt()) {
       this.customSshTarget.set('');
     }
   }

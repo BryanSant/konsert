@@ -203,7 +203,19 @@ export interface SSHBootstrapResult {
   service_mode?: string;
   message?: string;
   error?: string;
+  /** Set (with host_keys) when the host key is unknown; resubmit with accept_host_key. */
+  host_key_confirmation_required?: boolean;
+  host_keys?: SSHHostKey[];
 }
+
+/** An SSH host key offered by a target, in OpenSSH SHA256 fingerprint form. */
+export interface SSHHostKey {
+  type: string;
+  fingerprint: string;
+}
+
+/** Bootstrap stage reported when an unknown host key needs operator confirmation. */
+export const SSH_STAGE_HOST_KEY_CONFIRMATION = 'host_key_confirmation';
 
 export interface AppSettings {
   llm_provider: string;

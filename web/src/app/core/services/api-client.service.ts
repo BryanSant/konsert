@@ -47,6 +47,8 @@ export interface SSHBootstrapRequest {
   controller_url?: string;
   sandbox?: boolean;
   enable_mock?: boolean;
+  /** SHA256 fingerprint the operator confirmed after a host_key_confirmation result. */
+  accept_host_key?: string;
 }
 
 /** Frames streamed by POST /api/ssh/bootstrap?stream=1. Unknown types are passed through. */
@@ -116,7 +118,11 @@ export class ApiClientService {
    * Content-Type for every state-changing request (bodiless ones get `{}`), 401
    * session-expiry detection and ApiError mapping for non-2xx responses.
    */
-  private async send(path: string, init: RequestInit = {}, opts: { json?: boolean } = {}): Promise<Response> {
+  private async send(
+    path: string,
+    init: RequestInit = {},
+    opts: { json?: boolean; acceptStatuses?: number[] } = {},
+  ): Promise<Response> {
     const method = (init.method ?? 'GET').toUpperCase();
     const headers = new Headers(init.headers);
     headers.set(KONSERT_REQUEST_HEADER, '1');
@@ -128,11 +134,11 @@ export class ApiClientService {
       }
     }
     const res = await fetch(path, { ...init, method, headers, body, credentials: 'same-origin' });
-    if (!res.ok) {
+    if (!res.ok && !opts.acceptStatuses?.includes(res.status)) {
       if (res.status === 401 && !AUTH_EXEMPT_PATHS.includes(path.split('?')[0])) {
         this.unauthorizedHandler?.();
       }
-      throw new ApiError(await readErrorMessage(res), res.status);
+      throw new ApiError(friendlyErrorMessage(res, await readErrorMessage(res)), res.status);
     }
     return res;
   }
@@ -313,12 +319,17 @@ export class ApiClientService {
    * response when the hub does not stream. Abort via `opts.signal`.
    */
   async bootstrapSSH(req: SSHBootstrapRequest, opts: SSHBootstrapOptions = {}): Promise<SSHBootstrapResult> {
-    const res = await this.send('/api/ssh/bootstrap?stream=1', {
-      method: 'POST',
-      headers: { Accept: 'text/event-stream' },
-      body: JSON.stringify(req),
-      signal: opts.signal,
-    });
+    const res = await this.send(
+      '/api/ssh/bootstrap?stream=1',
+      {
+        method: 'POST',
+        headers: { Accept: 'text/event-stream' },
+        body: JSON.stringify(req),
+        signal: opts.signal,
+      },
+      // Non-streaming hubs answer an unknown host key with 409 + the result body.
+      { acceptStatuses: [409] },
+    );
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('text/event-stream') || !res.body) {
       return (await res.json()) as SSHBootstrapResult;
@@ -405,6 +416,29 @@ export class ApiClientService {
 
   deleteWorktree(id: string): Promise<{ ok: boolean; id: string }> {
     return this.request(`/api/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+}
+
+/**
+ * Maps hub statuses that have a well-known cause to an actionable message; the
+ * server's own text is kept where it adds detail.
+ */
+export function friendlyErrorMessage(res: Response, serverMsg: string): string {
+  switch (res.status) {
+    case 429: {
+      const retry = Number.parseInt(res.headers.get('Retry-After') || '', 10);
+      return Number.isFinite(retry) && retry > 0
+        ? `Too many attempts, try again in ${retry}s.`
+        : 'Too many attempts, try again shortly.';
+    }
+    case 403:
+      return `The hub rejected this request as cross-site (${serverMsg}). Reload Konsert from the hub's own address and try again.`;
+    case 415:
+      return `The hub rejected the request format (${serverMsg}). Reload Konsert to pick up the latest version.`;
+    case 413:
+      return serverMsg.startsWith('HTTP ') ? 'That upload is too large for the hub.' : `Too large: ${serverMsg}.`;
+    default:
+      return serverMsg;
   }
 }
 
