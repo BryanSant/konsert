@@ -20,15 +20,22 @@ type HookInstallReport struct {
 
 // HookEvent is written atomically by `konsertd hook-event` (or notify.sh) to ~/.konsert/hook-events.jsonl.
 type HookEvent struct {
-	SessionID string    `json:"session_id"`
-	Agent     string    `json:"agent"`
-	Event     string    `json:"event"` // "PreToolUse" | "PostToolUse" | "Notification" | "Stop" | "working" | "needs_you" | "done" | "fail"
-	Cwd       string    `json:"cwd,omitempty"`
-	FilePath  string    `json:"file_path,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	Message   string    `json:"message,omitempty"`
+	SessionID string `json:"session_id"`
+	Agent     string `json:"agent"`
+	Event     string `json:"event"` // "PreToolUse" | "PostToolUse" | "Notification" | "Stop" | "working" | "needs_you" | "done" | "fail"
+	Cwd       string `json:"cwd,omitempty"`
+	FilePath  string `json:"file_path,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Message   string `json:"message,omitempty"`
+	// TaskID is set when the hook fired inside a konsertd-managed task (KONSERT_TASK_ID).
+	TaskID    string    `json:"task_id,omitempty"`
 	Timestamp time.Time `json:"ts"`
 }
+
+// ManagedTaskEnv is set in the environment of every konsertd-managed task process. Global
+// agent hooks (installed by install-hooks) see it and do not report the managed task as an
+// external session: the task already reports through its own PTY/telemetry pipeline.
+const ManagedTaskEnv = "KONSERT_TASK_ID"
 
 // HookEventsPath returns the local JSONL inbox path where agent hooks append real-time telemetry.
 func HookEventsPath(homeDir string) string {
@@ -39,7 +46,16 @@ func HookEventsPath(homeDir string) string {
 }
 
 // RecordHookEvent appends a single HookEvent JSON line to ~/.konsert/hook-events.jsonl cleanly.
+//
+// Events from inside a konsertd-managed task (ev.TaskID or $KONSERT_TASK_ID set) are not
+// recorded, so a managed agent never shows up a second time as an external session.
 func RecordHookEvent(homeDir string, ev HookEvent) error {
+	if ev.TaskID == "" {
+		ev.TaskID = strings.TrimSpace(os.Getenv(ManagedTaskEnv))
+	}
+	if ev.TaskID != "" {
+		return nil
+	}
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = time.Now().UTC()
 	}

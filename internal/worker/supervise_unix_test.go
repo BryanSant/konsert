@@ -4,6 +4,8 @@ package worker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -120,5 +122,45 @@ func TestLineSplitterBoundsLongLines(t *testing.T) {
 	want := []string{"ab", "cdef", "xxxxxxxx", "short"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Managed tasks expose their PID (so discovery skips them) and carry KONSERT_TASK_ID.
+func TestRunnerManagedPIDAndTaskEnv(t *testing.T) {
+	rec := newStatusRecorder()
+	runner := NewRunner(scriptRegistry(), false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
+	workdir := t.TempDir()
+	const id = "12121212-0000-0000-0000-000000000001"
+	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
+		TaskID:  id,
+		Agent:   "script",
+		Workdir: workdir,
+		Prompt:  `printf %s "$KONSERT_TASK_ID" > tid.txt; sleep 30`,
+		Mode:    protocol.TaskModeOneshot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runner.ShutdownAll)
+
+	runner.mu.RLock()
+	pid := runner.tasks[id].pty.Pid()
+	runner.mu.RUnlock()
+	if pid <= 0 || !runner.IsManagedPID(pid) {
+		t.Fatalf("expected task pid %d to be managed", pid)
+	}
+	if runner.IsManagedPID(os.Getpid()) {
+		t.Fatal("unrelated pid reported as managed")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		raw, _ := os.ReadFile(filepath.Join(workdir, "tid.txt"))
+		if string(raw) == id {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("KONSERT_TASK_ID not set in task env (got %q)", raw)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

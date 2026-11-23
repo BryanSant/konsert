@@ -108,6 +108,21 @@ func (r *Runner) ActiveTasks() []protocol.ActiveTaskInfo {
 	return out
 }
 
+// IsManagedPID reports whether pid is the main process of a task this runner started.
+func (r *Runner) IsManagedPID(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, rt := range r.tasks {
+		if rt.pty != nil && rt.pty.Pid() == pid {
+			return true
+		}
+	}
+	return false
+}
+
 // ActiveTaskIDs returns IDs of currently running tasks for heartbeats.
 func (r *Runner) ActiveTaskIDs() []string {
 	r.mu.RLock()
@@ -294,11 +309,12 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		taskCtx, cancel = context.WithCancel(parentCtx)
 	}
 
+	env := append(append([]string(nil), spec.Env...), ManagedTaskEnv+"="+req.TaskID)
 	proc, err := StartPty(taskCtx, PtyStartOptions{
 		Binary: spec.Binary,
 		Args:   spec.Args,
 		Dir:    effectiveDir,
-		Env:    spec.Env,
+		Env:    env,
 		Cols:   req.Cols,
 		Rows:   req.Rows,
 	})

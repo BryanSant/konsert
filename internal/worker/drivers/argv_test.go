@@ -67,8 +67,10 @@ func TestDriverArgvPromptStartingWithDash(t *testing.T) {
 }
 
 func TestClaudeAndCodexArgvExact(t *testing.T) {
-	claude := (&ClaudeDriver{}).BuildCommand(LaunchOptions{Prompt: "-p", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionSandboxed})
-	if want := []string{"-p", "--", "-p"}; !slices.Equal(claude.Args, want) {
+	cd := &ClaudeDriver{}
+	claude := cd.BuildCommand(LaunchOptions{TaskID: "t-argv", Prompt: "-p", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionSandboxed})
+	sid := cd.sessionFor("t-argv")
+	if want := []string{"--session-id", sid, "-p", "--", "-p"}; sid == "" || !slices.Equal(claude.Args, want) {
 		t.Fatalf("claude argv = %q, want %q", claude.Args, want)
 	}
 	codex := (&CodexDriver{}).BuildCommand(LaunchOptions{Prompt: "--help", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionSandboxed})

@@ -36,6 +36,10 @@ type Daemon struct {
 	// outbox keeps final task statuses until written to a hub connection (persisted).
 	outbox *statusOutbox
 
+	// discovery outlives connections so hook events written while disconnected are
+	// delivered after reconnect.
+	discovery *SessionDiscovery
+
 	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
 	FactsInterval     time.Duration
@@ -98,6 +102,10 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame, droppable: frameType == protocol.FramePtyData})
 		},
 	}, logger)
+
+	d.discovery = NewSessionDiscovery("", d.runner.IsManagedPID, func(p protocol.ExternalSessionPayload) {
+		d.sendJSON(protocol.MsgExternalSession, p)
+	})
 
 	return d
 }
@@ -319,12 +327,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	}()
 
 	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
-	go func() {
-		disc := NewSessionDiscovery("", nil, func(p protocol.ExternalSessionPayload) {
-			d.sendJSON(protocol.MsgExternalSession, p)
-		})
-		disc.Run(connCtx)
-	}()
+	go d.discovery.Run(connCtx)
 
 	// Read loop
 	for {
