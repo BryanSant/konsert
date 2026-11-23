@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv("KONSERT_STATE_DIR", dir)
+	os.Setenv("KONSERT_ATTACHMENTS_DIR", dir+"/attachments")
 	// Daemons under test report stub facts instead of probing the host.
 	collectFacts = func(context.Context) protocol.MachineFacts {
 		return protocol.MachineFacts{OSName: runtime.GOOS, CPUCores: runtime.NumCPU(), CollectedAt: time.Now().UTC()}

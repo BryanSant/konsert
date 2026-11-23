@@ -87,7 +87,7 @@ func SaveScratchAttachment(baseDir, sessionID, filename string, data []byte) (st
 
 	dir := strings.TrimSpace(baseDir)
 	if dir == "" {
-		dir = ResolveScratchDir(runtime.GOOS)
+		dir = attachmentsDir()
 	}
 	if err := ensurePrivateDir(dir); err != nil {
 		// Fallback to os.TempDir() if /private/var/tmp or /var/tmp is read-only (e.g. restricted
@@ -130,7 +130,7 @@ func PruneScratchAttachments(baseDir string, maxAge time.Duration) {
 	}
 	dir := strings.TrimSpace(baseDir)
 	if dir == "" {
-		dir = ResolveScratchDir(runtime.GOOS)
+		dir = attachmentsDir()
 	}
 	if err := checkPrivateDir(dir); err != nil {
 		return // never prune a directory we do not own
@@ -181,4 +181,15 @@ func checkPrivateDir(dir string) error {
 		}
 	}
 	return nil
+}
+
+// AttachmentsDirEnv overrides the attachments directory (tests, side-by-side daemons).
+const AttachmentsDirEnv = "KONSERT_ATTACHMENTS_DIR"
+
+// attachmentsDir is $KONSERT_ATTACHMENTS_DIR, else the per-OS scratch directory.
+func attachmentsDir() string {
+	if v := strings.TrimSpace(os.Getenv(AttachmentsDirEnv)); v != "" {
+		return v
+	}
+	return ResolveScratchDir(runtime.GOOS)
 }
