@@ -50,7 +50,8 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
 
     // Switch to Machines view and verify connected worker e2e-box appears
     await sidebar.getByRole('button', { name: 'Machines' }).click();
-    await expect(sidebar.getByRole('button', { name: env.workerName, exact: true })).toBeVisible();
+    // The name may carry an isolation badge ("e2e-box ctr" when the suite runs in a container).
+    await expect(sidebar.getByRole('button', { name: new RegExp(`^${env.workerName}( \\w+)?$`) })).toBeVisible();
 
     if (isMobile) {
       // Close mobile drawer before dispatching task
