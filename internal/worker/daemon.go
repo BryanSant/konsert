@@ -33,6 +33,9 @@ type Daemon struct {
 	sendMu sync.RWMutex
 	queues *connQueues // nil while disconnected
 
+	// machineID is the persisted per-installation UUID sent as WorkerInfo.MachineID.
+	machineID string
+
 	// outbox keeps final task statuses until written to a hub connection (persisted).
 	outbox *statusOutbox
 
@@ -78,6 +81,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg:               cfg,
 		registry:          registry,
 		logger:            logger,
+		machineID:         ResolveMachineID("", cfg.Name, cfg.Isolation),
 		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
@@ -129,6 +133,11 @@ func (d *Daemon) advertisedAgents() []string {
 		}
 	}
 	return out
+}
+
+// MachineID returns the persisted per-installation UUID sent in worker.hello.
+func (d *Daemon) MachineID() string {
+	return d.machineID
 }
 
 // WorkerID returns the stable ID for this worker daemon.
@@ -249,6 +258,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			Tags:           d.cfg.Tags,
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,
+			MachineID:      d.machineID,
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
 	}
