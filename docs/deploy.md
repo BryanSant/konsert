@@ -10,6 +10,11 @@ This guide covers a production-style homelab deployment:
 
 Templates referenced below live in [`deploy/`](../deploy).
 
+> **Releases:** every release tag requires the manual
+> [pre-release walkthrough](walkthrough.md) against real agent CLIs with no API key (see
+> "Releasing" in the [README](../README.md#releasing)). It doubles as an acceptance check
+> after upgrading your own deployment.
+
 ## 1. Tokens
 
 The controller uses three bearer tokens:

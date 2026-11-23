@@ -119,9 +119,12 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./cmd/konsertd
 
   e2e:
+    # Includes the subscription-only chat flow (web/e2e/subscription-chat.spec.ts): the mock
+    # agent engine, no API key anywhere (global-setup strips provider keys from the env).
     name: Playwright E2E (Desktop & Mobile PWA)
     needs: web
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -152,6 +155,14 @@ jobs:
       - name: Run Playwright E2E tests
         working-directory: web
         run: npm run test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: web/test-results/
+          retention-days: 7
 
   container:
     name: Multi-Arch konsertd Containerfile Build

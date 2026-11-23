@@ -36,6 +36,21 @@ async function waitFor(predicate: () => Promise<boolean>, timeoutMs: number, lab
   throw new Error(`Timed out waiting for ${label}`);
 }
 
+/**
+ * The e2e stack must prove the subscription-first promise: nothing may work because an API
+ * key happens to be in the developer's or CI runner's environment. Strip every provider key
+ * and orchestrator LLM override before spawning konsert and konsertd.
+ */
+const API_KEY_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GENAI_|XAI_|GROK_|MISTRAL_|COHERE_|OPENROUTER_|KONSERT_LLM_|CLAUDE_CODE_OAUTH_TOKEN$|CURSOR_API_KEY$|GH_TOKEN$|GITHUB_TOKEN$|COPILOT_)/;
+
+export function subscriptionOnlyEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!API_KEY_ENV.test(k)) env[k] = v;
+  }
+  return { ...env, ...extra };
+}
+
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const konsertBin = path.join(repoRoot, 'bin', 'konsert');
@@ -74,7 +89,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: subscriptionOnlyEnv(),
     }
   );
   procs.push(controller);
@@ -107,8 +122,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Keep worker/machine IDs and the status outbox out of the developer's ~/.konsert.
-      env: { ...process.env, KONSERT_STATE_DIR: path.join(tmpDir, 'state') },
+      // Keep worker/machine IDs and the status outbox out of the developer's ~/.konsert, and
+      // never run (or read the logins of) the host's real agent CLIs: only mock accounts.
+      env: subscriptionOnlyEnv({
+        KONSERT_STATE_DIR: path.join(tmpDir, 'state'),
+        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+      }),
     }
   );
   procs.push(worker);
