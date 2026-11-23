@@ -4,7 +4,6 @@ import { ApiClientService } from '../../core/services/api-client.service';
 import { KonsertSocketService } from '../../core/services/konsert-socket.service';
 import { Task } from '../../core/models/konsert.models';
 import { FleetStore } from '../../core/state/fleet.store';
-import { TabsStore } from '../../core/state/tabs.store';
 import { XtermPaneComponent, clampFontSize } from './xterm-pane.component';
 
 class NoopResizeObserver {
@@ -91,8 +90,6 @@ describe('XtermPaneComponent', () => {
   });
 
   it('reports Take Control toggles to the hub for the audit log', async () => {
-    const tabs = TestBed.inject(TabsStore);
-    tabs.openTaskTab({ id: 't1', worker_id: 'w1', agent: 'claude', origin: 'orchestrator', status: 'running', workdir: '/r', created_at: '' } as Task, 'w1');
     const fixture = await create('t1');
     const cmp = fixture.componentInstance;
     expect(cmp.interactiveMode()).toBe(false);

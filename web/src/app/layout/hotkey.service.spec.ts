@@ -8,19 +8,19 @@ function key(init: KeyboardEventInit): KeyboardEvent {
 }
 
 describe('resolveHotkey', () => {
-  it('maps palette, scratch and tab shortcuts', () => {
+  it('maps palette and tab shortcuts', () => {
     expect(resolveHotkey(key({ key: 'k', metaKey: true }))).toEqual({ kind: 'palette' });
     expect(resolveHotkey(key({ key: 'K', ctrlKey: true }))).toEqual({ kind: 'palette' });
     expect(resolveHotkey(key({ key: 'P', metaKey: true, shiftKey: true }))).toEqual({
       kind: 'palette',
     });
-    expect(resolveHotkey(key({ key: 'j', ctrlKey: true }))).toEqual({ kind: 'scratch' });
+    expect(resolveHotkey(key({ key: 'j', ctrlKey: true }))).toBeNull();
     expect(resolveHotkey(key({ key: '3', metaKey: true }))).toEqual({
       kind: 'select-tab',
       index: 2,
     });
     expect(resolveHotkey(key({ key: 'w', metaKey: true }))).toEqual({ kind: 'close-tab' });
-    expect(resolveHotkey(key({ key: '\\', metaKey: true }))).toEqual({ kind: 'toggle-split' });
+    expect(resolveHotkey(key({ key: '\\', metaKey: true }))).toBeNull();
     expect(resolveHotkey(key({ key: 'Escape' }))).toEqual({ kind: 'escape' });
   });
 

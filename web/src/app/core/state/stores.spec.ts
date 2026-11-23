@@ -6,19 +6,15 @@ import {
 } from '../../features/chat/legacy-adapter';
 import { parseMarkdown } from '../../shared/markdown-view.component';
 import { Task, Worker } from '../models/konsert.models';
-import { NotificationService } from '../services/notification.service';
 import { FleetStore } from './fleet.store';
-import { ORCHESTRATOR_TAB_ID, TabsStore } from './tabs.store';
 
-describe('FleetStore and TabsStore (Zoneless Signals)', () => {
-  // TabsStore restores its layout from localStorage; start every test from a clean slate
-  // (other specs in the same worker may have persisted tabs).
+describe('FleetStore (Zoneless Signals)', () => {
   beforeEach(() => {
     localStorage.clear();
     TestBed.resetTestingModule();
   });
 
-  it('groups workers by host_group, aggregates listening ports, and builds live agent roster', () => {
+  it('tracks workers and tasks, and removing a worker drops its spaces', () => {
     TestBed.configureTestingModule({});
     const fleet = TestBed.inject(FleetStore);
 
@@ -72,7 +68,6 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     };
     fleet.upsertTask(task);
 
-    // Plain shell sessions must NOT appear in the lower-left Agents roster
     const shellTask: Task = {
       ...task,
       id: 'task-shell-1',
@@ -82,12 +77,7 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     fleet.upsertTask(shellTask);
 
     expect(fleet.onlineWorkersCount()).toBe(1);
-    expect(fleet.activeTasksCount()).toBe(2);
-    expect(fleet.listeningPorts().length).toBe(1);
-    expect(fleet.listeningPorts()[0].port).toBe(8420);
-    expect(fleet.agentsRoster().length).toBe(1);
-    expect(fleet.agentsRoster()[0].task.agent).toBe('claude');
-    expect(fleet.agentsRoster()[0].workerName).toBe('bocabox');
+    expect(Object.keys(fleet.tasksById())).toHaveLength(2);
 
     // removeWorker removes worker and its spaces
     fleet.upsertSpace({
@@ -101,89 +91,6 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     fleet.removeWorker('w1');
     expect(fleet.workersById()['w1']).toBeUndefined();
     expect(fleet.spaces().length).toBe(0);
-  });
-
-  it('defaults Orchestrated tabs to Read-Only and Direct sessions to Interactive', () => {
-    TestBed.configureTestingModule({});
-    const tabs = TestBed.inject(TabsStore);
-
-    expect(tabs.activeTabId()).toBe(ORCHESTRATOR_TAB_ID);
-    tabs.closeTab(ORCHESTRATOR_TAB_ID);
-    expect(tabs.openTabs().length).toBe(1);
-
-    const orchTask: Task = {
-      id: 'task-orch',
-      sid: 'task-orch-sid',
-      worker_id: 'w1',
-      agent: 'agy',
-      workdir: '/repo',
-      effective_dir: '/repo',
-      branch: '',
-      mode: 'oneshot',
-      origin: 'orchestrator',
-      permission_mode: 'full_access',
-      orphan_policy: 'fail',
-      prompt: 'hello',
-      status: 'running',
-      summary: '',
-      created_at: new Date().toISOString(),
-    };
-    tabs.openTaskTab(orchTask, 'mac-studio');
-    expect(tabs.activeTab()?.interactiveMode).toBe(false);
-
-    const directTask: Task = {
-      ...orchTask,
-      id: 'task-direct',
-      agent: 'shell',
-      mode: 'interactive',
-      origin: 'direct',
-    };
-    tabs.openTaskTab(directTask, 'mac-studio');
-    expect(tabs.activeTab()?.interactiveMode).toBe(true);
-
-    tabs.closeTab('task-direct');
-    expect(tabs.activeTabId()).toBe('task-orch');
-  });
-
-  it('scopes visible tabs to active Space when multiple tabs share a Space', () => {
-    TestBed.configureTestingModule({});
-    const fleet = TestBed.inject(FleetStore);
-    const tabs = TestBed.inject(TabsStore);
-
-    const space = {
-      id: 'sp-1',
-      sid: 's-1-sid',
-      worker_id: 'w1',
-      name: 'konsert',
-      path: '/home/dev/konsert',
-      created_at: new Date().toISOString(),
-    };
-    fleet.upsertSpace(space);
-
-    const shellTask: Task = {
-      id: 't-shell',
-      sid: 't-shell-sid',
-      worker_id: 'w1',
-      space_id: 'sp-1',
-      agent: 'shell',
-      workdir: '/home/dev/konsert',
-      effective_dir: '/home/dev/konsert',
-      branch: '',
-      mode: 'interactive',
-      origin: 'direct',
-      permission_mode: 'full_access',
-      orphan_policy: 'fail',
-      prompt: '',
-      status: 'running',
-      summary: '',
-      created_at: new Date().toISOString(),
-    };
-    const claudeTask: Task = { ...shellTask, id: 't-claude', agent: 'claude' };
-
-    tabs.selectSpace(space, [shellTask, claudeTask], 'bocabox');
-    expect(tabs.activeSpaceId()).toBe('sp-1');
-    expect(tabs.visibleTabs().length).toBe(3); // Orchestrator + shell + claude
-    expect(tabs.activeTabId()).toBe('t-shell');
   });
 
   it('resolves unified Chat Session Machine/Agent/Model via default -> last used -> guess cascade', () => {
@@ -254,60 +161,11 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     expect(fleet.worktrees().length).toBe(0);
   });
 
-  it('manages side-by-side split panes, unread notifications, markdown, and attachments', () => {
-    TestBed.configureTestingModule({});
-    const tabs = TestBed.inject(TabsStore);
-    const notif = TestBed.inject(NotificationService);
-    const fleet = TestBed.inject(FleetStore);
-
-    const t1: Task = {
-      id: 'task-split-1',
-      sid: 'task-split-1-sid',
-      worker_id: 'w1',
-      agent: 'claude',
-      workdir: '/repo',
-      effective_dir: '/repo',
-      branch: 'main',
-      mode: 'interactive',
-      origin: 'direct',
-      permission_mode: 'full_access',
-      orphan_policy: 'fail',
-      prompt: '',
-      status: 'running',
-      summary: '',
-      created_at: new Date().toISOString(),
-    };
-    const t2: Task = { ...t1, id: 'task-split-2', agent: 'shell' };
-
-    tabs.openTaskTab(t1, 'box1', true);
-    expect(tabs.toggleSplit()).toBe(false); // only 1 terminal tab open
-    tabs.openTaskTab(t2, 'box1', false);
-    expect(tabs.toggleSplit()).toBe(true);
-    expect(tabs.splitTabId()).toBe('task-split-2');
-
-    tabs.setSplitRatio(0.95);
-    expect(tabs.splitRatio()).toBe(0.75);
-    tabs.setSplitRatio(0.1);
-    expect(tabs.splitRatio()).toBe(0.25);
-
-    // Closing primary tab promotes split tab
-    tabs.closeTab('task-split-1');
-    expect(tabs.activeTabId()).toBe('task-split-2');
-    expect(tabs.splitTabId()).toBeNull();
-
-    // Unread notification tracking for waiting_input on non-active tab
-    fleet.settings.update((s) => ({ ...s, notify_sound: false, notify_desktop: false }));
-    notif.notifyTaskTransition('running', { ...t1, status: 'waiting_input' }, 'box1');
-    expect(notif.isUnread('task-split-1')).toBe(true);
-    notif.markRead('task-split-1');
-    expect(notif.isUnread('task-split-1')).toBe(false);
-
-    // Markdown parser
+  it('parses markdown, attachments and tool card task ids', () => {
     const blocks = parseMarkdown('# Summary\n\n- Check `main.go`\n\n```go\nfmt.Println("ok")\n```');
     expect(blocks.map((b) => b.kind)).toEqual(['h1', 'ul', 'code']);
     expect(blocks[2].lang).toBe('go');
 
-    // Attachment parser & tool card task_id extraction
     const parsedMsg = parseUserMessageWithAttachments(
       'Please inspect this log\n\n[Attached files on host]\n- /var/tmp/konsert-attachments/sess1-1700000000-abcd1234-error.log'
     );
@@ -318,43 +176,5 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
       JSON.stringify({ tasks: [{ task_id: 'task-aaa111' }, { id: 'task-bbb222', agent: 'claude' }] })
     );
     expect(ids).toEqual(['task-aaa111', 'task-bbb222']);
-
-    // Deduplicates external sessions & separates Idle vs Working without spinning idle agents
-    const now = new Date().toISOString();
-    fleet.upsertTask({
-      ...t1,
-      id: 'ext-w1-old',
-      agent: 'claude',
-      workdir: '/src/konsert',
-      effective_dir: '/src/konsert',
-      origin: 'external',
-      status: 'failed',
-      summary: 'worker went offline while task was active',
-      created_at: now,
-    });
-    fleet.upsertTask({
-      ...t1,
-      id: 'ext-w1-pid-1',
-      agent: 'claude',
-      workdir: '/src/konsert',
-      effective_dir: '/src/konsert',
-      origin: 'external',
-      status: 'idle',
-      created_at: now,
-    });
-    fleet.upsertTask({
-      ...t1,
-      id: 'ext-w1-pid-2',
-      agent: 'claude',
-      workdir: '/src/konsert',
-      effective_dir: '/src/konsert',
-      origin: 'external',
-      status: 'completed',
-      created_at: now,
-    });
-    const claudeEntries = fleet.agentsRoster().filter((i) => i.task.agent === 'claude' && i.task.workdir === '/src/konsert');
-    expect(claudeEntries.length).toBe(1);
-    expect(claudeEntries[0].stateGroup).toBe('idle');
-    expect(claudeEntries[0].isActive).toBe(false);
   });
 });

@@ -55,12 +55,6 @@ const modeRoutes: Route[] = [
 
 export const routes: Routes = [
   {
-    // The previous IDE-style layout, kept reachable until it is removed (KON-2KTY4).
-    path: 'classic',
-    title: 'Konsert (classic)',
-    loadComponent: () => import('./layout/app-shell.component').then((m) => m.AppShellComponent),
-  },
-  {
     path: '',
     loadComponent: () => import('./modes/workspace-root.component').then((m) => m.WorkspaceRootComponent),
     children: [

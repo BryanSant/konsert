@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 import { HeatHistory } from '../../core/models/activity.models';
 import { Worker } from '../../core/models/konsert.models';
 import { ApiClientService } from '../../core/services/api-client.service';
+import { isVersionMismatch } from '../../core/models/version';
 import { taskTitle } from '../../core/state/activity-logic';
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
@@ -16,6 +17,8 @@ import { SPINNER_LABEL_COLORS, SPINNER_WORDS, heatTextColor, spinnerMachine } fr
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ModeUiStore } from '../mode-ui.store';
 import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, describeStrip, heatStrip, machineRows, queueReasons, stripTicks } from './fleet-logic';
+
+const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
 /**
  * 3 Fleet, machines first (signed-off design): each row is a machine (heat avatar, name,
@@ -55,12 +58,29 @@ import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, 
           }
         </div>
         <ks-spinner-legend class="ml-1" />
+        @if (wakeCapable()) {
+          <button
+            type="button"
+            class="ks-btn ks-btn-sm ks-btn-soft ml-1"
+            data-testid="keep-awake-all"
+            [attr.aria-pressed]="allAwake()"
+            [class.text-[#e6b763]]="allAwake()"
+            (click)="setWakeAll(!allAwake())"
+            ksTooltip="Keep every machine awake (caffeinate on macOS, systemd-inhibit on Linux, the Windows execution state), including machines that connect later"
+          >
+            <app-icon name="coffee" [size]="12" />
+            {{ allAwake() ? 'All awake' : 'Keep all awake' }}
+          </button>
+        }
         <button type="button" class="ks-btn ks-btn-sm ks-btn-soft ml-1" data-testid="fleet-add-machine" (click)="ui.addMachineOpen.set(true)">
           <app-icon name="plus" [size]="12" />
           Add machine
         </button>
       </div>
 
+      @if (wakeError()) {
+        <p role="alert" class="m-0 rounded-[var(--ks-radius-md)] bg-[var(--ks-red-soft)] px-3 py-2 text-[12px] text-[#f3a5a5]">{{ wakeError() }}</p>
+      }
       @if (rows().length === 0) {
         <p class="text-[12.5px] text-[var(--ks-text-muted)]" data-testid="fleet-machines">No machines yet. Add this machine or one over SSH to start.</p>
       } @else {
@@ -82,6 +102,9 @@ import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, 
                       <button type="button" class="ks-focusable rounded-sm text-left" [attr.aria-current]="selectedSid() === r.w.sid ? 'true' : null" (click)="select(r.w)">{{ r.w.name }}</button>
                     </h3>
                     <span class="ks-badge" [attr.data-badge]="r.badge">{{ r.badge }}</span>
+                    @if (versionMismatch(r.w); as note) {
+                      <span class="ks-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [ksTooltip]="note">VERSION</span>
+                    }
                   </div>
                   <div class="text-[12px] text-[var(--ks-text-secondary)] truncate">{{ r.spec }}</div>
                   <div class="text-[12px]" [style.color]="heatColor(r)" data-testid="machine-heat">{{ r.heatText }}</div>
@@ -95,6 +118,23 @@ import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, 
                       } @else {
                         <button type="button" class="ks-btn ks-btn-sm" [disabled]="control.isBusy(r.w.id) || !r.running" (click)="control.workerBulk(r.w.id, 'suspend-all')" ksTooltip="Freeze every session on this machine (nothing is lost)">Suspend</button>
                       }
+                    }
+                    @if (r.w.status === 'online' && r.w.wake_lock?.supported) {
+                      <button
+                        type="button"
+                        class="ks-btn ks-btn-sm"
+                        [attr.aria-pressed]="wakeOn(r.w)"
+                        [attr.data-testid]="'keep-awake-' + r.w.sid"
+                        [class.text-[#e6b763]]="wakeOn(r.w)"
+                        (click)="setWake(r.w, !wakeOn(r.w))"
+                        [ksTooltip]="wakeTip(r.w)"
+                      >
+                        <app-icon name="coffee" [size]="11" />
+                        {{ wakeOn(r.w) ? (r.w.wake_lock?.active ? 'Awake' : 'Waking…') : 'Keep awake' }}
+                      </button>
+                    }
+                    @if (r.w.launch_state === 'failed') {
+                      <button type="button" class="ks-btn ks-btn-sm" (click)="fleet.retryStart(r.w.id)" [ksTooltip]="'Start konsertd on ' + r.w.name + ' again'">Retry start</button>
                     }
                     <button type="button" class="ks-btn ks-btn-sm" [attr.data-testid]="'machine-details-' + r.w.sid" (click)="ui.inspectedWorkerId.set(r.w.id)">Details</button>
                   </div>
@@ -287,6 +327,11 @@ import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, 
     .ks-badge[data-badge='STARTING'] {
       background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0 4px, transparent 4px 8px);
     }
+    .ks-badge[data-badge='VERSION'] {
+      color: #e9c27f;
+      background: transparent;
+      box-shadow: inset 0 0 0 1px rgba(224, 168, 76, 0.5);
+    }
     .ks-badge[data-badge='IDLE'] {
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -296,7 +341,7 @@ import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, 
 export class FleetModeComponent {
   readonly ui = inject(ModeUiStore);
   readonly control = inject(ControlStore);
-  private readonly fleet = inject(FleetStore);
+  readonly fleet = inject(FleetStore);
   private readonly work = inject(WorkStore);
   private readonly api = inject(ApiClientService);
   private readonly router = inject(Router);
@@ -310,6 +355,12 @@ export class FleetModeComponent {
   private readonly rangeTitle = computed(() => HEAT_RANGES.find((r) => r.id === this.range())!.title);
   private readonly now = signal(Date.now());
   readonly history = signal<HeatHistory | null>(null);
+  readonly wakeError = signal('');
+  readonly wakeCapable = computed(() => this.fleet.workers().some((w) => w.status === 'online' && w.wake_lock?.supported));
+  readonly allAwake = computed(() => {
+    const able = this.fleet.workers().filter((w) => w.status === 'online' && w.wake_lock?.supported);
+    return able.length > 0 && able.every((w) => this.wakeOn(w));
+  });
 
   readonly rows = computed(() =>
     machineRows({
@@ -366,6 +417,40 @@ export class FleetModeComponent {
     } catch {
       // No history (older hub, offline): the strip shows "no data".
       if (this.range() === r) this.history.set(null);
+    }
+  }
+
+  versionMismatch(w: Worker): string {
+    const hub = this.fleet.controllerVersion();
+    return isVersionMismatch(hub, w.version) ? `Version mismatch: ${w.name} runs konsertd ${w.version}, hub is ${hub}` : '';
+  }
+
+  wakeOn(w: Worker): boolean {
+    return w.wake_lock?.desired ?? !!w.wake_lock?.active;
+  }
+
+  wakeTip(w: Worker): string {
+    const wl = w.wake_lock;
+    if (wl?.active) return `${w.name} is kept awake${wl.method ? ` (${wl.method})` : ''}; press to let it sleep`;
+    if (this.wakeOn(w)) return wl?.error ? `Couldn't keep ${w.name} awake: ${wl.error}` : `Asking ${w.name} to stay awake…`;
+    return `Keep ${w.name} from sleeping while you're away`;
+  }
+
+  async setWake(w: Worker, on: boolean): Promise<void> {
+    this.wakeError.set('');
+    try {
+      await this.api.setWorkerWakeLock(w.id, on, WAKE_REASON);
+    } catch (e) {
+      this.wakeError.set(`Could not update ${w.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async setWakeAll(on: boolean): Promise<void> {
+    this.wakeError.set('');
+    try {
+      await this.api.setFleetWakeLock(on, WAKE_REASON);
+    } catch (e) {
+      this.wakeError.set(`Could not ${on ? 'enable' : 'disable'} Keep awake: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

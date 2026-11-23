@@ -154,26 +154,6 @@ html, body {
   }
 }
 
-@keyframes ks-panel-fade {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes ks-slide-left {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
 @keyframes ks-slide-up {
   from {
     transform: translateY(100%);
@@ -234,14 +214,6 @@ dialog.ks-dialog::backdrop {
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.44), 0 0 0 1px rgba(255, 255, 255, 0.06);
   animation: ks-popover-up 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.ks-panel-enter {
-  animation: ks-panel-fade 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.ks-drawer-left {
-  animation: ks-slide-left 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ks-drawer-bottom {
@@ -635,8 +607,6 @@ select.ks-field option {
   .ks-backdrop,
   .ks-modal,
   .ks-popover,
-  .ks-panel-enter,
-  .ks-drawer-left,
   .ks-drawer-bottom {
     animation: none !important;
     transition: none !important;

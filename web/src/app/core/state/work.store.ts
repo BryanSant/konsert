@@ -6,7 +6,7 @@ import { ControlStore } from './control.store';
 import { FleetStore } from './fleet.store';
 import { OrchestratorStore } from './orchestrator.store';
 import { QuestionsStore } from './questions.store';
-import { TabsStore } from './tabs.store';
+import { TakenControlStore } from './taken-control.store';
 import { AgentChatStore } from './agent-chat.store';
 import { SPINNER_WORDS, SpinnerMachine, SpinnerState, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
 import { ProjectGroup, WorkColumn, WorkItem, buildWorkItems, groupByProject } from './work-logic';
@@ -52,7 +52,7 @@ export class WorkStore {
   private readonly agentChat = inject(AgentChatStore);
   private readonly questions = inject(QuestionsStore);
   private readonly control = inject(ControlStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly taken = inject(TakenControlStore);
   private readonly activity = inject(ActivityStore);
 
   // --- live-work view model (activity, narration; feat/activity-data) ---
@@ -112,8 +112,7 @@ export class WorkStore {
   readonly items = computed<WorkItem[]>(() => {
     const transcripts = this.agentChat.transcripts();
     // Re-evaluate when Take Control changes.
-    this.tabs.takenControl();
-    this.tabs.openTabs();
+    this.taken.takenControl();
     const narrated = this.itemsByKey();
     const built = buildWorkItems({
       tasks: this.fleet.tasks(),
@@ -123,7 +122,7 @@ export class WorkStore {
       repos: this.fleet.repos(),
       questions: this.questions.all(),
       holds: this.control.holds(),
-      interactive: (id) => this.tabs.isInteractive(id),
+      interactive: (id) => this.taken.isInteractive(id),
       reviewed: this.review().decided,
       chatStatus: (id) => transcripts[id]?.status,
       chatNow: (id) => transcripts[id]?.subtitle ?? '',

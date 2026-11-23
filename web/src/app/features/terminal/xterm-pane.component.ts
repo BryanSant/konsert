@@ -19,7 +19,7 @@ import { FRAME_PTY_DATA, FRAME_PTY_SNAPSHOT } from '../../core/models/konsert.mo
 import { ApiClientService } from '../../core/services/api-client.service';
 import { KonsertSocketService } from '../../core/services/konsert-socket.service';
 import { FleetStore } from '../../core/state/fleet.store';
-import { TabsStore } from '../../core/state/tabs.store';
+import { TakenControlStore } from '../../core/state/taken-control.store';
 import { IconComponent } from '../../shared/icon.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { causeLine } from '../../core/models/control.models';
@@ -171,7 +171,7 @@ export class XtermPaneComponent implements OnDestroy {
   private readonly socket = inject(KonsertSocketService);
   private readonly api = inject(ApiClientService);
   private readonly fleetStore = inject(FleetStore);
-  private readonly tabsStore = inject(TabsStore);
+  private readonly tabsStore = inject(TakenControlStore);
 
   private readonly termHost = viewChild<ElementRef<HTMLDivElement>>('termHost');
 

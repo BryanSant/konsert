@@ -43,6 +43,10 @@ const VIEW_KEY = 'konsert.work.view';
       </div>
       <span class="ks-kbd" aria-hidden="true">⌘B</span>
       <span class="ml-auto hidden md:inline text-[var(--ks-text-secondary)]">Konsert moves the cards; you review and decide.</span>
+      <button type="button" class="ks-btn ks-btn-sm" data-testid="open-projects" (click)="ui.projectsOpen.set(true)">
+        <app-icon name="project" [size]="12" />
+        Projects
+      </button>
       <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" data-testid="new-task" (click)="ui.newSession('chat')">
         <app-icon name="plus" [size]="12" />
         New task

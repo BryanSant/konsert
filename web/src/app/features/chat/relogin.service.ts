@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { AgentRelogin } from '../../core/models/agent-chat.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore } from '../../core/state/fleet.store';
-import { TabsStore } from '../../core/state/tabs.store';
+import { SessionNavService } from '../../core/services/session-nav.service';
 
 /** What the footer alert / chip asks the shell to show (the auth help dialog). */
 export interface ReloginRequest {
@@ -17,7 +17,7 @@ export interface ReloginRequest {
 export class ReloginService {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly nav = inject(SessionNavService);
 
   /** Set to open the auth help dialog (footer alert, account chip). */
   readonly request = signal<ReloginRequest | null>(null);
@@ -53,7 +53,7 @@ export class ReloginService {
     });
     await this.fleet.refresh();
     const task = this.fleet.tasksById()[res.task_id];
-    if (task) this.tabs.openTaskTab(task, this.fleet.workersById()[workerId]?.name, true);
+    if (task) this.nav.openTask(task);
     // The terminal tab now shows the sign-in flow; don't leave the dialog covering it.
     this.request.set(null);
   }

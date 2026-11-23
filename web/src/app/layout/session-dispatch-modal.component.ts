@@ -4,7 +4,6 @@ import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../c
 import { ApiClientService } from '../core/services/api-client.service';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
-import { TabsStore } from '../core/state/tabs.store';
 import { ChatComposerComponent, ComposerSubmit } from '../features/chat/composer/chat-composer.component';
 import { ComposerSelection, emptySelection, findModel, normalizeSelection, pickDefaultAccount } from '../features/chat/composer/composer-logic';
 import { ContextBarComponent, ContextChange } from '../features/chat/composer/context-bar.component';
@@ -157,7 +156,6 @@ export interface SessionDispatchRequest {
 })
 export class SessionDispatchModalComponent implements OnInit {
   private readonly api = inject(ApiClientService);
-  private readonly tabs = inject(TabsStore);
   private readonly relogin = inject(ReloginService);
   readonly fleet = inject(FleetStore);
   readonly agentAccounts = inject(AgentAccountsStore);
@@ -315,8 +313,6 @@ export class SessionDispatchModalComponent implements OnInit {
       await Promise.all([this.fleet.refresh(), this.fleet.loadSettings()]);
       const task = this.fleet.tasksById()[res.task_id];
       if (task) {
-        const w = this.fleet.workersById()[task.worker_id];
-        this.tabs.openTaskTab(task, w?.name);
         this.started.emit(task.id);
       }
       this.composer()?.clear();

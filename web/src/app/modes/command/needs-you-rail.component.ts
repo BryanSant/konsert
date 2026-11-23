@@ -67,6 +67,7 @@ import { ModeUiStore } from '../mode-ui.store';
 
         <div class="pt-4 px-1">
           <ks-your-actions [limit]="6" />
+          <button type="button" class="ks-btn ks-btn-sm mt-1 text-[var(--ks-blue)]" data-testid="open-audit" (click)="ui.auditOpen.set(true)">Full audit log</button>
         </div>
       }
     </div>

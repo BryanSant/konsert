@@ -4,7 +4,7 @@ import { AuditEvent, AuditListResponse, AuditQuery, Task, Worker } from '../core
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuditStore } from '../core/state/audit.store';
 import { FleetStore } from '../core/state/fleet.store';
-import { TabsStore } from '../core/state/tabs.store';
+import { SessionNavService } from '../core/services/session-nav.service';
 import { AUDIT_PAGE_SIZE, AuditLogComponent, mergeAudit } from './audit-log.component';
 
 function ev(id: number, over: Partial<AuditEvent> = {}): AuditEvent {
@@ -24,12 +24,14 @@ function ev(id: number, over: Partial<AuditEvent> = {}): AuditEvent {
 describe('AuditLogComponent', () => {
   let listAudit: ReturnType<typeof vi.fn>;
   let responses: AuditListResponse[];
+  let openTask: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     responses = [];
+    openTask = vi.fn();
     listAudit = vi.fn(async (_q: AuditQuery) => responses.shift() ?? { events: [] });
     TestBed.configureTestingModule({
-      providers: [{ provide: ApiClientService, useValue: { listAudit } }],
+      providers: [{ provide: ApiClientService, useValue: { listAudit } }, { provide: SessionNavService, useValue: { openTask } }],
     });
     const fleet = TestBed.inject(FleetStore);
     fleet.workers.set([
@@ -157,10 +159,8 @@ describe('AuditLogComponent', () => {
     const old = ev(1, { task_id: 'old-task-xyz', task_sid: 't-0ldtk' });
     responses.push({ events: [ev(2), old] });
     const { cmp, root } = await setup();
-    const tabs = TestBed.inject(TabsStore);
-
     (rows(root)[0].querySelector('button') as HTMLButtonElement).click();
-    expect(tabs.activeTabId()).toBe('t1');
+    expect(openTask).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }));
 
     // The task link shows the sid; filtering to an unloaded task uses the sid too.
     expect(rows(root)[1].textContent).toContain('t-0ldtk');

@@ -4,12 +4,14 @@ import { Worker } from '../core/models/konsert.models';
 import { isVersionMismatch, normalizeVersion } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
-import { FleetSidebarComponent } from './fleet-sidebar.component';
+import { provideRouter } from '@angular/router';
+import { FleetModeComponent } from '../modes/fleet/fleet-mode.component';
 import { MachineDetailModalComponent } from './machine-detail-modal.component';
 
 function worker(id: string, version?: string): Worker {
   return {
     id,
+    sid: `m-${id}`,
     name: `node-${id}`,
     host_group: 'lab',
     os: 'linux',
@@ -49,21 +51,21 @@ describe('worker version UI', () => {
       providers: [
         {
           provide: ApiClientService,
-          useValue: { setUnauthorizedHandler: vi.fn(), deleteWorker: vi.fn() },
+          useValue: { setUnauthorizedHandler: vi.fn(), deleteWorker: vi.fn(), getHeatHistory: vi.fn(async () => { throw new Error('none'); }) },
         },
+        provideRouter([]),
       ],
     });
   });
 
   afterEach(() => TestBed.resetTestingModule());
 
-  describe('FleetSidebarComponent machines list', () => {
+  describe('Fleet machine rows', () => {
     function render(hubVersion: string, workers: Worker[]) {
       const fleet = TestBed.inject(FleetStore);
       fleet.controllerVersion.set(hubVersion);
       fleet.workers.set(workers);
-      const fixture = TestBed.createComponent(FleetSidebarComponent);
-      fixture.componentInstance.navMode.set('machines');
+      const fixture = TestBed.createComponent(FleetModeComponent);
       fixture.detectChanges();
       return fixture.nativeElement as HTMLElement;
     }

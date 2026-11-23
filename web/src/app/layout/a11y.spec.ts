@@ -1,13 +1,11 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Task } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
-import { FleetStore } from '../core/state/fleet.store';
-import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
+import { provideRouter } from '@angular/router';
+import { FleetModeComponent } from '../modes/fleet/fleet-mode.component';
+import { ModePaletteComponent } from '../modes/mode-palette.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
-import { CommandPaletteComponent } from './command-palette.component';
-import { TabStripComponent } from './tab-strip.component';
 
 @Component({
   standalone: true,
@@ -29,14 +27,16 @@ class HostComponent {
 
 describe('accessibility', () => {
   beforeEach(() => {
-    // TabsStore restores tabs from localStorage; other specs in this worker may have left some.
     localStorage.clear();
     vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => {
       fn(0);
       return 0;
     });
     TestBed.configureTestingModule({
-      providers: [{ provide: ApiClientService, useValue: { setUnauthorizedHandler: vi.fn() } }],
+      providers: [
+        provideRouter([]),
+        { provide: ApiClientService, useValue: { setUnauthorizedHandler: vi.fn(), getHeatHistory: vi.fn(async () => { throw new Error('none'); }) } },
+      ],
     });
   });
 
@@ -72,9 +72,10 @@ describe('accessibility', () => {
     });
   });
 
-  describe('CommandPaletteComponent', () => {
+  describe('ModePaletteComponent', () => {
     it('exposes combobox/listbox semantics and tracks the active option', async () => {
-      const fixture = TestBed.createComponent(CommandPaletteComponent);
+      const fixture = TestBed.createComponent(ModePaletteComponent);
+      document.body.appendChild(fixture.nativeElement);
       fixture.detectChanges();
       await fixture.whenStable();
       const root = fixture.nativeElement as HTMLElement;
@@ -93,43 +94,24 @@ describe('accessibility', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'End' }));
       fixture.detectChanges();
       expect(input.getAttribute('aria-activedescendant')).toBe(options[options.length - 1].id);
+      fixture.nativeElement.remove();
     });
   });
 
-  describe('TabStripComponent', () => {
-    it('is a tablist with roving tabindex and arrow-key navigation', async () => {
-      const fleet = TestBed.inject(FleetStore);
-      const tabs = TestBed.inject(TabsStore);
-      const task = {
-        id: 't1',
-        worker_id: 'w1',
-        agent: 'shell',
-        status: 'running',
-        created_at: new Date().toISOString(),
-      } as Task;
-      fleet.upsertTask(task);
-      tabs.openTaskTab(task, 'w1', false);
-
-      const fixture = TestBed.createComponent(TabStripComponent);
+  describe('Fleet heat range', () => {
+    it('is a labelled radiogroup with one checked option', async () => {
+      const fixture = TestBed.createComponent(FleetModeComponent);
       fixture.detectChanges();
       await fixture.whenStable();
       const root = fixture.nativeElement as HTMLElement;
-      const tabEls = Array.from(root.querySelectorAll<HTMLElement>('[role="tab"]'));
-      expect(root.querySelector('[role="tablist"]')).not.toBeNull();
-      expect(tabEls.length).toBe(2);
-      expect(tabEls[0].getAttribute('aria-selected')).toBe('true');
-      expect(tabEls[0].tabIndex).toBe(0);
-      expect(tabEls[1].tabIndex).toBe(-1);
-
-      tabEls[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      const group = root.querySelector('[role="radiogroup"]') as HTMLElement;
+      expect(group.getAttribute('aria-labelledby')).toBeTruthy();
+      const radios = Array.from(group.querySelectorAll('[role="radio"]'));
+      expect(radios.map((r) => r.textContent?.trim())).toEqual(['12h', '24h', '3d', '1w']);
+      expect(radios.filter((r) => r.getAttribute('aria-checked') === 'true').map((r) => r.textContent?.trim())).toEqual(['12h']);
+      (radios[2] as HTMLButtonElement).click();
       fixture.detectChanges();
-      expect(tabs.activeTabId()).toBe('t1');
-      expect(tabEls[1].getAttribute('aria-selected')).toBe('true');
-
-      tabEls[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
-      fixture.detectChanges();
-      expect(tabs.openTabs().some((t) => t.id === 't1')).toBe(false);
-      expect(tabs.activeTabId()).toBe(ORCHESTRATOR_TAB_ID);
+      expect(radios[2].getAttribute('aria-checked')).toBe('true');
     });
   });
 });

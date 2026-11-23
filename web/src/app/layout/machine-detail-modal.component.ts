@@ -3,7 +3,6 @@ import { Worker } from '../core/models/konsert.models';
 import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
-import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
@@ -228,6 +227,17 @@ import { YourActionsComponent } from '../features/control/your-actions.component
         </div>
       }
 
+      @if (worker().metrics?.listening_ports?.length) {
+        <div class="rounded-lg bg-[#141518] p-3 space-y-1.5 text-[11.5px]" data-testid="machine-ports">
+          <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Listening ports</span>
+          <ul class="m-0 p-0 list-none flex flex-wrap gap-1.5 font-mono-ide">
+            @for (p of worker().metrics!.listening_ports!; track p.port + (p.address ?? '')) {
+              <li class="rounded bg-white/[0.05] px-1.5 py-0.5 text-[#d4d4d8]">{{ p.port }}@if (p.process) {<span class="text-[#86888f]"> {{ p.process }}</span>}</li>
+            }
+          </ul>
+        </div>
+      }
+
       <!-- Cached Machine Facts -->
       @if (worker().facts; as f) {
         <div class="rounded-lg bg-[#141518] p-3 space-y-2 text-[11.5px]">
@@ -373,7 +383,6 @@ export class MachineDetailModalComponent {
 
   private readonly api = inject(ApiClientService);
   readonly fleet = inject(FleetStore);
-  private readonly tabs = inject(TabsStore);
   readonly control = inject(ControlStore);
 
   readonly confirmRemove = signal(false);
@@ -463,13 +472,8 @@ export class MachineDetailModalComponent {
     this.removing.set(true);
     this.removeError.set('');
     try {
-      const workerSpaces = this.fleet.spaces().filter((s) => s.worker_id === w.id);
       await this.api.deleteWorker(w.id);
       this.fleet.removeWorker(w.id);
-      const curSpace = this.tabs.activeSpaceId();
-      if (curSpace && workerSpaces.some((s) => s.id === curSpace)) {
-        this.tabs.activeSpaceId.set(null);
-      }
       this.removed.emit(w.id);
       this.close.emit();
     } catch (err) {

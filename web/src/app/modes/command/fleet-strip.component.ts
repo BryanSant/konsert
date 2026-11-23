@@ -1,21 +1,23 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { accountHealth, bindingWindow, formatResetTime, usedPercent } from '../../core/models/agent-usage';
-import { AgentAccountsStore } from '../../core/state/agent-accounts.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { machineLoadLabel, occupiesSlot } from '../../core/state/work-logic';
+import { FooterUsageComponent } from '../../layout/footer-usage.component';
 import { HeatAvatarComponent } from '../../shared/activity-spinner.component';
 import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
 
-/** Command's bottom strip: each machine's heat and load and each subscription's quota, at a glance. */
+/**
+ * Command's bottom strip: each machine's heat and load (its heat avatar, slots, heat %),
+ * and each subscription's usage (the usage popover has the windows and sign-in).
+ */
 @Component({
   selector: 'ks-fleet-strip',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HeatAvatarComponent],
+  imports: [RouterLink, HeatAvatarComponent, FooterUsageComponent],
   host: { class: 'hidden md:block shrink-0' },
   template: `
-    <footer class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 text-[12px] text-[var(--ks-text-secondary)] bg-[var(--ks-bg-chrome)] border-t border-[var(--ks-hairline)]" aria-label="Fleet and quota" data-testid="fleet-strip">
+    <footer class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[12px] text-[var(--ks-text-secondary)] bg-[var(--ks-bg-chrome)] border-t border-[var(--ks-hairline)]" aria-label="Fleet and quota" data-testid="fleet-strip">
       @if (machines().length === 0) {
         <span class="text-[var(--ks-text-muted)]">No machines yet</span>
       }
@@ -30,15 +32,12 @@ import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
         >
       }
       <span class="flex-1"></span>
-      @for (q of quotas(); track q.key) {
-        <span [class.text-[var(--ks-amber)]]="q.warn" [class.text-[var(--ks-text-muted)]]="q.out" data-testid="quota">{{ q.text }}</span>
-      }
+      <ks-footer-usage />
     </footer>
   `,
 })
 export class FleetStripComponent {
   private readonly fleet = inject(FleetStore);
-  private readonly accounts = inject(AgentAccountsStore);
 
   readonly machines = computed(() => {
     const running = new Map<string, number>();
@@ -57,28 +56,5 @@ export class FleetStripComponent {
         heatColor: heatTextColor(h ? h.score : null),
       };
     });
-  });
-
-  readonly quotas = computed(() => {
-    const seen = new Set<string>();
-    const out: Array<{ key: string; text: string; warn: boolean; out: boolean }> = [];
-    for (const r of this.accounts.all()) {
-      const a = r.account;
-      const key = `${a.agent}:${a.label || a.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const health = accountHealth(a);
-      const label = a.label || a.id;
-      if (health === 'logged_out') {
-        out.push({ key, text: `${label} signed out`, warn: true, out: false });
-        continue;
-      }
-      const pct = usedPercent(a);
-      if (pct == null) continue;
-      const w = bindingWindow(a.usage);
-      const reset = pct >= 75 && w?.resets_at ? ` → ${formatResetTime(w.resets_at)}` : '';
-      out.push({ key, text: `${label} ${pct}%${reset}`, warn: pct >= 75, out: false });
-    }
-    return out.slice(0, 8);
   });
 }

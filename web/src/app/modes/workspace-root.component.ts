@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, untracked } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
 import { ControlStore } from '../core/state/control.store';
 import { FleetStore } from '../core/state/fleet.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { SetupStore } from '../core/state/setup.store';
-import { TabsStore } from '../core/state/tabs.store';
+import { TakenControlStore } from '../core/state/taken-control.store';
+import { SessionNavService } from '../core/services/session-nav.service';
+import { CommandTabsStore } from './command/command-tabs.store';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
 import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
 import { NeedsYouStore } from '../core/state/needs-you.store';
@@ -15,10 +17,14 @@ import { MachineDetailModalComponent } from '../layout/machine-detail-modal.comp
 import { SessionDispatchModalComponent } from '../layout/session-dispatch-modal.component';
 import { SettingsModalComponent } from '../layout/settings-modal.component';
 import { ModePaletteComponent } from './mode-palette.component';
+import { ProjectsDialogComponent } from '../features/projects/projects-dialog.component';
+import { AuditLogComponent } from '../layout/audit-log.component';
+import { ModalDialogComponent } from '../shared/modal-dialog.component';
+import { IconComponent } from '../shared/icon.component';
 import { ModeUiStore } from './mode-ui.store';
 
 /**
- * Everything authenticated outside the classic shell: starts the live connection and the
+ * Everything authenticated: starts the live connection and the
  * stores, and hosts the dialogs every mode (and the mobile inbox) can open.
  */
 @Component({
@@ -34,6 +40,10 @@ import { ModeUiStore } from './mode-ui.store';
     SessionDispatchModalComponent,
     MachineDetailModalComponent,
     ModePaletteComponent,
+    ProjectsDialogComponent,
+    AuditLogComponent,
+    ModalDialogComponent,
+    IconComponent,
   ],
   host: { class: 'block h-dvh w-screen overflow-hidden bg-[var(--ks-bg-canvas)] text-[var(--ks-text)]' },
   template: `
@@ -65,6 +75,18 @@ import { ModeUiStore } from './mode-ui.store';
         (startTerminal)="ui.inspectedWorkerId.set(null); ui.newSession('terminal', $event)"
       />
     }
+    @if (ui.projectsOpen()) {
+      <ks-projects-dialog (close)="ui.projectsOpen.set(false)" (chat)="ui.projectsOpen.set(false); ui.sessionRequest.set({ kind: 'chat', worker: fleet.workersById()[$event.repo.worker_id] ?? null, repo: $event.repo, worktree: $event.worktree })" />
+    }
+    @if (ui.auditOpen()) {
+      <app-modal-dialog label="Audit log" panelClass="w-full max-w-3xl h-[min(760px,88vh)] flex flex-col rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] overflow-hidden" (close)="ui.auditOpen.set(false)">
+        <div class="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-[var(--ks-hairline)]">
+          <h2 class="m-0 flex-1 text-[14px] font-semibold">Audit log</h2>
+          <button type="button" class="ks-icon-btn" aria-label="Close" (click)="ui.auditOpen.set(false)"><app-icon name="close" [size]="15" /></button>
+        </div>
+        <app-audit-log class="flex-1 min-h-0" />
+      </app-modal-dialog>
+    }
     @if (ui.paletteOpen()) {
       <ks-mode-palette (close)="ui.paletteOpen.set(false)" />
     }
@@ -78,7 +100,10 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
   readonly needsYou = inject(NeedsYouStore);
   private readonly control = inject(ControlStore);
   private readonly socket = inject(KonsertSocketService);
-  private readonly tabs = inject(TabsStore);
+  private readonly taken = inject(TakenControlStore);
+  private readonly commandTabs = inject(CommandTabsStore);
+  private readonly nav = inject(SessionNavService);
+  private readonly router = inject(Router);
 
   readonly inspectedWorker = computed(() => {
     const id = this.ui.inspectedWorkerId();
@@ -94,10 +119,17 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
       if (action.kind === 'escape') this.ui.paletteOpen.set(false);
       return false;
     });
-    // Shells that exit while watched close their Take Control state too.
+    // A shell that exits while watched closes its tab (and its Take Control), like a
+    // desktop terminal.
     effect(() => {
       const tasks = this.fleet.tasks();
-      untracked(() => this.tabs.closeExitedShells(tasks));
+      untracked(() => {
+        for (const id of this.taken.exitedShells(tasks)) {
+          const sid = this.fleet.tasksById()[id]?.sid ?? '';
+          this.commandTabs.close(id);
+          if (this.nav.isOpen(sid)) void this.router.navigate(['/command']);
+        }
+      });
     });
   }
 

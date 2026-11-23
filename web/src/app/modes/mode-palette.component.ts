@@ -122,7 +122,8 @@ export class ModePaletteComponent {
       act('add-machine', 'Add a machine…', 'server', () => this.ui.addMachineOpen.set(true)),
       act('settings', 'Settings', 'settings', () => this.ui.settingsOpen.set(true)),
       act('inbox', 'Needs-you inbox (phone view)', 'bell', go(['/inbox'])),
-      act('classic', 'Classic layout (until it is removed)', 'sidebar-left', go(['/classic'])),
+      act('projects', 'Projects and repos…', 'project', () => this.ui.projectsOpen.set(true)),
+      act('audit', 'Audit log', 'shield', () => this.ui.auditOpen.set(true)),
     );
     return out;
   });

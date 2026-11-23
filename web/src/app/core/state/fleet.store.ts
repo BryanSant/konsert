@@ -16,38 +16,6 @@ import { ApiClientService } from '../services/api-client.service';
 import { ActivityStore } from './activity.store';
 import { ControlStore } from './control.store';
 
-export interface WorkerNodeView {
-  worker: Worker;
-  spaces: Space[];
-  tasks: Task[];
-  activeCount: number;
-  effectiveStatus: 'running' | 'waiting_input' | 'idle' | 'offline';
-}
-
-export interface HostGroupView {
-  hostGroup: string;
-  workers: WorkerNodeView[];
-  onlineCount: number;
-  runningCount: number;
-}
-
-export interface FleetPortView {
-  workerId: string;
-  workerName: string;
-  hostGroup: string;
-  port: number;
-  process: string;
-  address: string;
-}
-
-export interface AgentRosterItem {
-  task: Task;
-  workerName: string;
-  label: string;
-  isActive: boolean;
-  stateGroup: 'working' | 'idle' | 'recent';
-}
-
 @Injectable({ providedIn: 'root' })
 export class FleetStore {
   private readonly api = inject(ApiClientService);
@@ -96,14 +64,6 @@ export class FleetStore {
   private refreshSeq = 0;
   private appliedRefreshSeq = 0;
 
-  readonly spacesById = computed(() => {
-    const map: Record<string, Space> = {};
-    for (const sp of this.spaces()) {
-      map[sp.id] = sp;
-    }
-    return map;
-  });
-
   readonly workersById = computed(() => {
     const map: Record<string, Worker> = {};
     for (const w of this.workers()) {
@@ -132,161 +92,8 @@ export class FleetStore {
     return map;
   });
 
-  readonly activeTasksCount = computed(() =>
-    this.tasks().filter((t) => t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned').length
-  );
-
   readonly onlineWorkersCount = computed(() =>
     this.workers().filter((w) => w.status === 'online').length
-  );
-
-  readonly groupedFleet = computed<HostGroupView[]>(() => {
-    const allWorkers = this.workers();
-    const allTasks = this.tasks().filter((t) => t.origin !== 'scratch');
-    const allSpaces = this.spaces();
-    const groupMap = new Map<string, WorkerNodeView[]>();
-
-    for (const w of allWorkers) {
-      const workerSpaces = allSpaces.filter((sp) => sp.worker_id === w.id);
-      const workerTasks = allTasks
-        .filter((t) => t.worker_id === w.id)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 12);
-
-      const activeTasks = workerTasks.filter(
-        (t) => t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned'
-      );
-      const hasWaiting = activeTasks.some((t) => t.status === 'waiting_input');
-      let effectiveStatus: WorkerNodeView['effectiveStatus'] = 'offline';
-      if (w.status === 'online') {
-        if (hasWaiting) effectiveStatus = 'waiting_input';
-        else if (activeTasks.length > 0) effectiveStatus = 'running';
-        else effectiveStatus = 'idle';
-      }
-
-      const node: WorkerNodeView = {
-        worker: w,
-        spaces: workerSpaces,
-        tasks: workerTasks,
-        activeCount: activeTasks.length,
-        effectiveStatus,
-      };
-
-      const hg = w.host_group || w.name || 'default';
-      const list = groupMap.get(hg) ?? [];
-      list.push(node);
-      groupMap.set(hg, list);
-    }
-
-    return Array.from(groupMap.entries())
-      .map(([hostGroup, nodes]) => ({
-        hostGroup,
-        workers: nodes.sort((a, b) => a.worker.name.localeCompare(b.worker.name)),
-        onlineCount: nodes.filter((n) => n.worker.status === 'online').length,
-        runningCount: nodes.reduce((acc, n) => acc + n.activeCount, 0),
-      }))
-      .sort((a, b) => a.hostGroup.localeCompare(b.hostGroup));
-  });
-
-  /** Herdr-style live Agents roster across all hosts (coding agents only, deduplicated & grouped Working / Idle / Recent). */
-  readonly agentsRoster = computed<AgentRosterItem[]>(() => {
-    const wMap = this.workersById();
-    const rank = (status: string): number => {
-      if (status === 'waiting_input') return 0;
-      if (status === 'running' || status === 'assigned') return 1;
-      if (status === 'idle') return 2;
-      return 3;
-    };
-
-    const filtered = this.tasks().filter((t) => {
-      if (t.origin === 'scratch' || t.agent === 'shell') return false;
-      // Hide legacy orphaned external rows previously marked failed on stale worker disconnect.
-      if (t.origin === 'external' && t.status === 'failed' && (t.summary || '').includes('worker went offline')) {
-        return false;
-      }
-      return true;
-    });
-
-    // Deduplicate external sessions by (worker_id, agent, dir) so restarts/re-scans never create double sets.
-    const sorted = [...filtered].sort((a, b) => {
-      const ra = rank(a.status);
-      const rb = rank(b.status);
-      if (ra !== rb) return ra - rb;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-
-    const seenExternal = new Set<string>();
-    const deduped: Task[] = [];
-    for (const t of sorted) {
-      if (t.origin === 'external') {
-        const key = `${t.worker_id}|${t.agent}|${(t.effective_dir || t.workdir || '').replace(/[\\/]+$/, '')}`;
-        if (seenExternal.has(key)) continue;
-        seenExternal.add(key);
-      }
-      deduped.push(t);
-    }
-
-    return deduped
-      .map((t) => {
-        const isWorking = t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned' || t.status === 'suspended';
-        const isIdle = t.status === 'idle';
-        const stateGroup: AgentRosterItem['stateGroup'] = isWorking ? 'working' : isIdle ? 'idle' : 'recent';
-        const dirName = basenamePath(t.effective_dir || t.workdir);
-        const label = t.branch ? `${dirName} · ${t.branch}` : dirName || t.agent;
-        return {
-          task: t,
-          workerName: wMap[t.worker_id]?.name || wMap[t.worker_id]?.sid || t.worker_id || 'queued',
-          label,
-          isActive: isWorking,
-          stateGroup,
-        };
-      })
-      .slice(0, 20);
-  });
-
-  /** Aggregated listening ports across all online workers for the footer Ports popover. */
-  readonly listeningPorts = computed<FleetPortView[]>(() => {
-    const out: FleetPortView[] = [];
-    for (const w of this.workers()) {
-      if (w.status !== 'online' || !w.metrics?.listening_ports) continue;
-      for (const p of w.metrics.listening_ports) {
-        out.push({
-          workerId: w.id,
-          workerName: w.name,
-          hostGroup: w.host_group,
-          port: p.port,
-          process: p.process || 'tcp',
-          address: p.address || '*',
-        });
-      }
-    }
-    return out.sort((a, b) => a.port - b.port);
-  });
-
-  /** Aggregated fleet memory & CPU summary for the Resource Manager popover. */
-  readonly resourceTotals = computed(() => {
-    let memUsedMB = 0;
-    let memTotalMB = 0;
-    let cpuSum = 0;
-    let cpuNodes = 0;
-    for (const w of this.workers()) {
-      if (w.status !== 'online' || !w.metrics) continue;
-      memUsedMB += w.metrics.mem_used_mb || 0;
-      memTotalMB += w.metrics.mem_total_mb || 0;
-      cpuSum += w.metrics.cpu_percent || 0;
-      cpuNodes++;
-    }
-    return {
-      memUsedMB,
-      memTotalMB,
-      memPercent: memTotalMB > 0 ? Math.min(100, Math.round((memUsedMB / memTotalMB) * 100)) : 0,
-      avgCpuPercent: cpuNodes > 0 ? Math.round(cpuSum / cpuNodes) : 0,
-      activePtys: this.activeTasksCount(),
-    };
-  });
-
-  readonly queuedTasks = computed(() =>
-    this.tasks().filter((t) => t.status === 'queued')
   );
 
   /** Applies a live mutation now and records it for replay if a refresh is pending. */

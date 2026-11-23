@@ -33,7 +33,6 @@ import { FleetEvent, FleetPause, Hold, UserRequest } from '../models/control.mod
 import { CHAT_PROTOCOL } from './chat-protocol';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
-import { TelemetryStore } from '../state/telemetry.store';
 import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
 
@@ -46,7 +45,6 @@ export const HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK = 3;
 @Injectable({ providedIn: 'root' })
 export class KonsertSocketService {
   private readonly fleetStore = inject(FleetStore);
-  private readonly telemetryStore = inject(TelemetryStore);
   private readonly orchestratorStore = inject(OrchestratorStore);
   private readonly auditStore = inject(AuditStore);
   private readonly controlStore = inject(ControlStore);
@@ -178,7 +176,6 @@ export class KonsertSocketService {
         void this.orchestratorStore.onReconnected();
         void this.agentChat.onReconnected();
         for (const id of this.chatWatchers.keys()) void this.agentChat.catchUp(id);
-        void this.telemetryStore.onReconnected();
         void this.controlStore.load();
         void this.questionsStore.load();
       }
@@ -267,8 +264,6 @@ export class KonsertSocketService {
           const workerName = worker?.name || worker?.sid || p.task.worker_id;
           this.fleetStore.upsertTask(p.task);
           this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
-        } else if (p.kind === 'event' && p.event) {
-          this.telemetryStore.appendEvent(p.event);
         } else if (p.kind === CHAT_PROTOCOL.fleetAccountsKind && p.worker_id) {
           this.agentAccounts.applyWorkerAccounts(p.worker_id, p.accounts ?? []);
         } else if (p.kind === CHAT_PROTOCOL.fleetChatSessionKind && p.chat_session?.id) {

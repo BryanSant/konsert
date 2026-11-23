@@ -1,16 +1,16 @@
 import { Injectable, inject } from '@angular/core';
 import { ApiClientService } from '../core/services/api-client.service';
 import { ControlStore } from '../core/state/control.store';
-import { TabsStore } from '../core/state/tabs.store';
+import { TakenControlStore } from '../core/state/taken-control.store';
 
 /**
- * Take Control / Hand back for a task's terminal outside the classic tab strip. Taking
+ * Take Control / Hand back for a task's terminal Taking
  * control routes typing to the PTY and has the hub hold the session (nothing automatic
  * touches it); handing back releases the hold and the agents are told.
  */
 @Injectable({ providedIn: 'root' })
 export class TakeControlService {
-  private readonly tabs = inject(TabsStore);
+  private readonly tabs = inject(TakenControlStore);
   private readonly api = inject(ApiClientService);
   private readonly control = inject(ControlStore);
 
