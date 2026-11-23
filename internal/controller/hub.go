@@ -198,6 +198,8 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.closed = true
 	h.mu.Unlock()
+	// Keep the in-progress heat minute across a restart.
+	h.flushHeat(ctx)
 	h.cancel()
 
 	h.mu.Lock()

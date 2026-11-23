@@ -230,6 +230,21 @@ CREATE TABLE agent_accounts (
     PRIMARY KEY (worker_id, account_id)
 );
 
+-- Machine heat history: one row per worker per 1-minute bucket (bucket_start is unix
+-- seconds, a multiple of 60) with the max and mean smoothed heat score in that minute and
+-- the dominant cause at the max. samples counts the heartbeats folded in, so a minute
+-- flushed twice (hub restart, reconnect) merges into a correct mean. Kept 8 days.
+CREATE TABLE worker_heat_samples (
+    worker_id    TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    bucket_start INTEGER NOT NULL,
+    score_max    REAL NOT NULL,
+    score_avg    REAL NOT NULL,
+    samples      INTEGER NOT NULL DEFAULT 1,
+    cause        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (worker_id, bucket_start)
+) WITHOUT ROWID;
+CREATE INDEX idx_worker_heat_samples_bucket ON worker_heat_samples(bucket_start);
+
 CREATE TABLE usage_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     provider      TEXT NOT NULL,
