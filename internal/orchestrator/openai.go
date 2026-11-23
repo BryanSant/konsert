@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,7 +120,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 			name string
 			args strings.Builder
 		})
-		tcOrder []int
+		tcOrder      []int
+		sawDone      bool
+		finishReason string
 	)
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -130,10 +133,19 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
+		if payload == "" {
 			continue
 		}
+		if payload == "[DONE]" {
+			sawDone = true
+			break
+		}
 		var chunk struct {
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    any    `json:"code"`
+			} `json:"error"`
 			Usage *struct {
 				PromptTokens     int64 `json:"prompt_tokens"`
 				CompletionTokens int64 `json:"completion_tokens"`
@@ -150,10 +162,23 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 						} `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			continue
+		}
+		if chunk.Error != nil {
+			// Providers report mid-stream failures (overload, moderation, context
+			// length) as an error chunk; surface it instead of a silent short reply.
+			msg := strings.TrimSpace(chunk.Error.Message)
+			if msg == "" {
+				msg = "unknown error"
+			}
+			if chunk.Error.Type != "" {
+				msg = chunk.Error.Type + ": " + msg
+			}
+			return Message{}, fmt.Errorf("openai stream error: %s", msg)
 		}
 		if chunk.Usage != nil {
 			inputTokens = chunk.Usage.PromptTokens
@@ -161,6 +186,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		}
 		if len(chunk.Choices) == 0 {
 			continue
+		}
+		if fr := chunk.Choices[0].FinishReason; fr != "" {
+			finishReason = fr
 		}
 		d := chunk.Choices[0].Delta
 		if d.Content != "" {
@@ -192,7 +220,12 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return Message{}, err
+		return Message{}, fmt.Errorf("openai stream: %w", err)
+	}
+	if !sawDone && finishReason == "" {
+		// The connection closed before the model finished: the reply (and any
+		// tool-call arguments) may be truncated, so do not treat it as complete.
+		return Message{}, errors.New("openai stream ended unexpectedly (no finish_reason or [DONE]); the response may be truncated")
 	}
 
 	out := Message{

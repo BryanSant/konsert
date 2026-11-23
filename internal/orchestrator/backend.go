@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,11 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
+	"github.com/google/uuid"
 )
+
+// maxTurns bounds LLM round-trips (tool-calling rounds) per user message.
+const maxTurns = 10
 
 const defaultSystemPrompt = `You are Konsert Orchestrator, coordinating an entire fleet of SSH-connected machines as one logical system.
 Token Efficiency Rules:
@@ -201,8 +206,8 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	}
 	tools := s.executor.ToolDefinitions()
 
-	const maxTurns = 10
 	var lastMsgID int64
+	finished := false
 	for turn := 0; turn < maxTurns; turn++ {
 		reply, err := prov.Complete(ctx, model, system, history, tools, func(delta string) {
 			if cb.OnDelta != nil && delta != "" {
@@ -231,24 +236,36 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			}
 		}
 
+		// Validate tool calls before anything is persisted: a call with malformed
+		// arguments must not be dropped from the assistant row while its tool
+		// result is saved (that orphan would 400 every later request).
+		invalid := sanitizeToolCalls(reply.ToolCalls)
+
 		toolJSON := ""
 		if len(reply.ToolCalls) > 0 {
-			b, _ := json.Marshal(reply.ToolCalls)
+			b, mErr := json.Marshal(reply.ToolCalls)
+			if mErr != nil {
+				return fail(fmt.Errorf("encode tool calls: %w", mErr))
+			}
 			toolJSON = string(b)
 		}
-		lastMsgID, _ = s.store.AppendChatMessage(ctx, store.ChatMessage{
+		lastMsgID, err = s.store.AppendChatMessage(ctx, store.ChatMessage{
 			SessionID: sessionID,
 			Role:      "assistant",
 			Content:   reply.Content,
 			ToolJSON:  toolJSON,
 		})
+		if err != nil {
+			return fail(fmt.Errorf("save assistant message: %w", err))
+		}
 		history = append(history, reply)
 
 		if len(reply.ToolCalls) == 0 {
+			finished = true
 			break
 		}
 
-		for _, tc := range reply.ToolCalls {
+		for i, tc := range reply.ToolCalls {
 			var parsedArgs any
 			_ = json.Unmarshal(tc.Arguments, &parsedArgs)
 
@@ -262,15 +279,27 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				})
 			}
 
-			res, execErr := s.executor.ExecuteTool(ctx, tc.Name, tc.Arguments)
 			status := "completed"
-			var resultPayload any = res
-			if execErr != nil {
+			var resultPayload any
+			if reason, bad := invalid[i]; bad {
+				// Never execute a call whose arguments we could not parse; tell the model instead.
 				status = "error"
-				resultPayload = map[string]string{"error": execErr.Error()}
+				resultPayload = map[string]string{"error": reason}
+			} else {
+				res, execErr := s.executor.ExecuteTool(ctx, tc.Name, tc.Arguments)
+				resultPayload = res
+				if execErr != nil {
+					status = "error"
+					resultPayload = map[string]string{"error": execErr.Error()}
+				}
 			}
 
-			resBytes, _ := json.Marshal(resultPayload)
+			resBytes, mErr := json.Marshal(resultPayload)
+			if mErr != nil {
+				status = "error"
+				resultPayload = map[string]string{"error": "tool result could not be encoded: " + mErr.Error()}
+				resBytes, _ = json.Marshal(resultPayload) // map[string]string always encodes
+			}
 			if cb.OnTool != nil {
 				cb.OnTool(protocol.ChatToolPayload{
 					SessionID: sessionID,
@@ -282,17 +311,22 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				})
 			}
 
-			metaBytes, _ := json.Marshal(map[string]any{
+			metaBytes, mErr := json.Marshal(map[string]any{
 				"call_id": tc.ID,
 				"name":    tc.Name,
 				"status":  status,
 			})
-			_, _ = s.store.AppendChatMessage(ctx, store.ChatMessage{
+			if mErr != nil {
+				return fail(fmt.Errorf("encode tool metadata: %w", mErr))
+			}
+			if _, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 				SessionID: sessionID,
 				Role:      "tool",
 				Content:   string(resBytes),
 				ToolJSON:  string(metaBytes),
-			})
+			}); err != nil {
+				return fail(fmt.Errorf("save tool result: %w", err))
+			}
 
 			history = append(history, Message{
 				Role:       "tool",
@@ -303,10 +337,62 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		}
 	}
 
+	if !finished {
+		// The model was still calling tools when the round limit hit: end with an
+		// explicit assistant message instead of silently stopping.
+		msg := fmt.Sprintf("I stopped after %d tool-calling rounds without reaching a final answer. Ask me to continue if you want me to keep going.", maxTurns)
+		if cb.OnDelta != nil {
+			cb.OnDelta(sessionID, msg)
+		}
+		id, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
+			SessionID: sessionID,
+			Role:      "assistant",
+			Content:   msg,
+		})
+		if err != nil {
+			return fail(fmt.Errorf("save assistant message: %w", err))
+		}
+		lastMsgID = id
+	}
+
 	if cb.OnDone != nil {
 		cb.OnDone(sessionID, lastMsgID)
 	}
 	return nil
+}
+
+// sanitizeToolCalls makes every tool call safe to persist and replay: missing
+// IDs are generated, and arguments that are not a valid JSON object are
+// replaced with {}. It returns the indexes of invalid calls with a reason that
+// is sent back to the model as the tool's error result.
+func sanitizeToolCalls(calls []ToolCall) map[int]string {
+	invalid := map[int]string{}
+	for i := range calls {
+		tc := &calls[i]
+		if strings.TrimSpace(tc.ID) == "" {
+			tc.ID = "call_" + uuid.NewString()[:12]
+		}
+		args := bytes.TrimSpace(tc.Arguments)
+		if len(args) == 0 {
+			tc.Arguments = json.RawMessage("{}")
+			continue
+		}
+		var obj map[string]any
+		if !json.Valid(args) || json.Unmarshal(args, &obj) != nil {
+			preview := string(args)
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			invalid[i] = fmt.Sprintf("invalid tool arguments: expected a JSON object, got %q; the call was not executed. Retry with valid JSON arguments.", preview)
+			tc.Arguments = json.RawMessage("{}")
+			continue
+		}
+		tc.Arguments = json.RawMessage(args)
+		if strings.TrimSpace(tc.Name) == "" {
+			invalid[i] = "tool call is missing a tool name; the call was not executed."
+		}
+	}
+	return invalid
 }
 
 // loadBoundedHistory keeps the prompt compact when threads grow long by summarizing overflow turns
@@ -365,7 +451,59 @@ func (s *Service) loadBoundedHistory(ctx context.Context, sessionID string, maxR
 		}
 		msgs = append(msgs, m)
 	}
-	return msgs, checkpoint, nil
+	return pairToolMessages(msgs), checkpoint, nil
+}
+
+// pairToolMessages enforces the provider contract that every tool result
+// directly follows the assistant message that issued its call, and every
+// issued call has a result. Anywhere in the window (not only at its start) it
+// drops tool rows with no matching preceding call, and removes calls whose
+// results are missing (e.g. a turn interrupted mid-way, or legacy rows whose
+// tool calls failed to persist). Otherwise every later request in the session
+// would be rejected with HTTP 400.
+func pairToolMessages(in []Message) []Message {
+	out := make([]Message, 0, len(in))
+	for i := 0; i < len(in); i++ {
+		m := in[i]
+		if m.Role == "tool" {
+			continue // a tool row not consumed by the assistant branch below is an orphan
+		}
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" {
+				continue // empty assistant turns are rejected by some providers
+			}
+			out = append(out, m)
+			continue
+		}
+		// Collect the contiguous run of tool results after this assistant message.
+		pending := make(map[string]bool, len(m.ToolCalls))
+		for _, tc := range m.ToolCalls {
+			pending[tc.ID] = true
+		}
+		var results []Message
+		answered := map[string]bool{}
+		j := i + 1
+		for ; j < len(in) && in[j].Role == "tool"; j++ {
+			id := in[j].ToolCallID
+			if pending[id] && !answered[id] {
+				answered[id] = true
+				results = append(results, in[j])
+			}
+		}
+		var kept []ToolCall
+		for _, tc := range m.ToolCalls {
+			if answered[tc.ID] {
+				kept = append(kept, tc)
+			}
+		}
+		m.ToolCalls = kept
+		if len(kept) > 0 || strings.TrimSpace(m.Content) != "" {
+			out = append(out, m)
+			out = append(out, results...)
+		}
+		i = j - 1
+	}
+	return out
 }
 
 func compactOverflowDigest(rows []store.ChatMessage) string {
