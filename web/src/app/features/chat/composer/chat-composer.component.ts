@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   inject,
@@ -21,6 +22,7 @@ import { ApprovalPickerComponent } from './approval-picker.component';
 import { ComposerSelection, findModel, normalizeSelection, selectModel } from './composer-logic';
 import { ContextBarComponent, ContextChange } from './context-bar.component';
 import { ModelPickerComponent } from './model-picker.component';
+import { SpeechRecognitionLike, joinDictation, speechErrorMessage, speechRecognitionCtor, transcriptOf } from './speech-dictation';
 
 export interface UploadedAttachment {
   filename: string;
@@ -34,8 +36,6 @@ export interface ComposerSubmit {
   attachments: UploadedAttachment[];
 }
 
-/** Speech-to-text is a later ticket (KON-9JWP6): the mic stays hidden until then. */
-export const SPEECH_INPUT_ENABLED = false;
 
 /**
  * The chat composer (Orca pattern): one roomy container with the prompt on top and a
@@ -54,9 +54,10 @@ export const SPEECH_INPUT_ENABLED = false;
       [class.shadow-[var(--ks-shadow-composer)]]="!dragOver()"
       [class.shadow-[0_0_0_1.5px_#6d8fbf]]="dragOver()"
       (submit)="$event.preventDefault(); submit()"
-      (dragover)="onDragOver($event)"
+      (dragover)="allowAttachments() && onDragOver($event)"
       (dragleave)="dragOver.set(false)"
       (drop)="onDrop($event)"
+      (keydown.escape)="onEscape($event)"
     >
       @if (dragOver()) {
         <div class="absolute inset-0 z-10 rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-1)]/95 flex items-center justify-center pointer-events-none">
@@ -93,6 +94,16 @@ export const SPEECH_INPUT_ENABLED = false;
       }
 
       <!-- Attachments -->
+      @if (speechError()) {
+        <div role="alert" class="flex items-center gap-2 px-4 pt-3 text-[11.5px] text-[#f3a5a5]" data-testid="speech-error">
+          <app-icon name="mic" [size]="12" />
+          <span class="flex-1">{{ speechError() }}</span>
+          <button type="button" class="ks-icon-btn ks-icon-btn-sm !w-5 !h-5" aria-label="Dismiss" (click)="speechError.set('')">
+            <app-icon name="close" [size]="10" />
+          </button>
+        </div>
+      }
+
       @if (attachments().length > 0 || uploadingCount() > 0 || uploadError()) {
         <div class="flex flex-wrap items-center gap-1.5 px-4 pt-3">
           @for (att of attachments(); track att.remotePath) {
@@ -134,9 +145,11 @@ export const SPEECH_INPUT_ENABLED = false;
 
       <!-- Control row -->
       <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2.5 pt-0.5">
-        <button type="button" class="ks-icon-btn" aria-label="Attach file" ksTooltip="Attach file" (click)="fileInput.click()">
-          <app-icon name="plus" [size]="16" />
-        </button>
+        @if (allowAttachments()) {
+          <button type="button" class="ks-icon-btn" aria-label="Attach file" ksTooltip="Attach file" (click)="fileInput.click()">
+            <app-icon name="plus" [size]="16" />
+          </button>
+        }
 
         @if (mode() === 'agent') {
           <ks-approval-picker
@@ -170,10 +183,20 @@ export const SPEECH_INPUT_ENABLED = false;
           />
         }
 
-        @if (speechEnabled) {
-          <button type="button" class="ks-icon-btn" aria-label="Dictate" ksTooltip="Dictate">
+        @if (speechSupported) {
+          <button
+            type="button"
+            class="ks-icon-btn"
+            data-testid="mic-button"
+            [class.ks-mic-recording]="dictating()"
+            [attr.aria-pressed]="dictating()"
+            [attr.aria-label]="dictating() ? 'Stop dictation' : 'Dictate'"
+            [ksTooltip]="dictating() ? 'Stop dictation (Esc cancels)' : 'Dictate'"
+            (click)="toggleDictation()"
+          >
             <app-icon name="mic" [size]="15" />
           </button>
+          <span class="ks-sr-only" role="status" aria-live="polite">{{ dictating() ? 'Listening. Press Escape to cancel.' : '' }}</span>
         }
 
         @if (busy()) {
@@ -186,8 +209,8 @@ export const SPEECH_INPUT_ENABLED = false;
             class="ks-send-btn ml-auto"
             data-testid="send-button"
             [disabled]="!canSend()"
-            aria-label="Send message"
-            [ksTooltip]="sendBlockedReason() || 'Send'"
+            [attr.aria-label]="sendLabel()"
+            [ksTooltip]="sendBlockedReason() || sendLabel()"
           >
             <app-icon name="send-up" [size]="15" />
           </button>
@@ -218,6 +241,11 @@ export class ChatComposerComponent {
   readonly sessionId = input('');
   readonly placeholder = input('Ask anything, @ to mention files, / for commands');
   readonly blockedReason = input('');
+  /** Session dispatch: an empty prompt starts an interactive session. */
+  readonly allowEmpty = input(false);
+  /** Accessible name and tooltip of the send button. */
+  readonly sendLabel = input('Send message');
+  readonly allowAttachments = input(true);
 
   readonly submitted = output<ComposerSubmit>();
   readonly stop = output<void>();
@@ -230,7 +258,13 @@ export class ChatComposerComponent {
   private readonly fleet = inject(FleetStore);
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('textarea');
 
-  readonly speechEnabled = SPEECH_INPUT_ENABLED;
+  /** Web Speech API available (hidden otherwise, e.g. Firefox or plain HTTP). */
+  readonly speechSupported = !!speechRecognitionCtor();
+  readonly dictating = signal(false);
+  readonly speechError = signal('');
+  private recognition: SpeechRecognitionLike | null = null;
+  /** The prompt before dictation started (restored on Esc). */
+  private dictationBase = '';
   readonly inputId = `ks-composer-${Math.random().toString(36).slice(2, 8)}`;
   readonly draft = signal('');
   readonly attachments = signal<UploadedAttachment[]>([]);
@@ -277,8 +311,91 @@ export class ChatComposerComponent {
   });
 
   readonly canSend = computed(
-    () => !this.sendBlockedReason() && (this.draft().trim().length > 0 || this.attachments().length > 0),
+    () =>
+      !this.sendBlockedReason() &&
+      (this.allowEmpty() || this.draft().trim().length > 0 || this.attachments().length > 0),
   );
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.recognition?.abort());
+  }
+
+  toggleDictation(): void {
+    if (this.dictating()) this.stopDictation();
+    else this.startDictation();
+  }
+
+  /** Starts dictating into the prompt; interim results show live and are replaced by finals. */
+  startDictation(): void {
+    const Ctor = speechRecognitionCtor();
+    if (!Ctor || this.recognition) return;
+    this.speechError.set('');
+    this.dictationBase = this.draft();
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US';
+    rec.onresult = (ev) => {
+      if (this.recognition !== rec) return;
+      const { final, interim } = transcriptOf(ev);
+      this.setDraftText(joinDictation(this.dictationBase, final + interim));
+    };
+    rec.onerror = (ev) => {
+      const msg = speechErrorMessage(ev.error);
+      if (msg) this.speechError.set(msg);
+    };
+    rec.onend = () => {
+      if (this.recognition === rec) this.endDictation();
+    };
+    this.recognition = rec;
+    this.dictating.set(true);
+    try {
+      rec.start();
+    } catch {
+      this.endDictation();
+      this.speechError.set('Dictation could not start.');
+    }
+  }
+
+  /** Stops listening and keeps what was dictated. */
+  stopDictation(): void {
+    const rec = this.recognition;
+    if (!rec) return;
+    // Final results for the last phrase still arrive before onend.
+    rec.stop();
+    this.dictating.set(false);
+  }
+
+  /** Esc: discards this dictation and restores the prompt as it was. */
+  cancelDictation(): void {
+    const rec = this.recognition;
+    if (!rec) return;
+    this.endDictation();
+    rec.abort();
+    this.setDraftText(this.dictationBase);
+  }
+
+  onEscape(ev: Event): void {
+    if (!this.recognition) return;
+    ev.preventDefault();
+    ev.stopPropagation(); // don't also close a surrounding dialog
+    this.cancelDictation();
+  }
+
+  private endDictation(): void {
+    this.recognition = null;
+    this.dictating.set(false);
+  }
+
+  private setDraftText(text: string): void {
+    this.draft.set(text);
+    const el = this.textarea()?.nativeElement;
+    if (el) {
+      el.value = text;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`;
+    }
+  }
 
   /** Prefills the prompt (empty-state suggestions) and focuses it. */
   setDraft(text: string): void {
@@ -341,7 +458,15 @@ export class ChatComposerComponent {
 
   submit(): void {
     if (!this.canSend() || this.busy()) return;
+    if (this.recognition) this.cancelDictationKeepText();
     this.submitted.emit({ text: this.draft().trim(), attachments: this.attachments() });
+  }
+
+  /** Sending mid-dictation keeps the text but stops listening (no late results). */
+  private cancelDictationKeepText(): void {
+    const rec = this.recognition;
+    this.endDictation();
+    rec?.abort();
   }
 
   /** Called by the parent once the message was actually handed to the hub. */

@@ -12,9 +12,11 @@ import { AgentAccount } from '../../../core/models/agent-chat.models';
 import { ApiClientService } from '../../../core/services/api-client.service';
 import { resetTooltipWarmState } from '../../../shared/tooltip.directive';
 import { ChatComposerComponent, ComposerSubmit } from './chat-composer.component';
+import { joinDictation, speechErrorMessage, transcriptOf } from './speech-dictation';
 import {
   ComposerSelection,
   approvalTone,
+  defaultApproval,
   effortsFor,
   emptySelection,
   filterModels,
@@ -24,8 +26,31 @@ import {
   selectModel,
 } from './composer-logic';
 
+const SANDBOX_REASON = 'This machine runs konsertd with --sandbox, which refuses full-access modes.';
+/** Claude on a --sandbox worker: full access is disabled with the reason. */
+function sandboxedClaude(over: Partial<AgentAccount> = {}): AgentAccount {
+  const base = claudeAccount();
+  return {
+    ...base,
+    approval_modes: base.approval_modes!.map((m) => (m.risk >= 4 ? { ...m, disabled: SANDBOX_REASON } : m)),
+    ...over,
+  };
+}
+
 describe('composer logic', () => {
   const claude = claudeAccount();
+
+  it('never auto-selects a disabled approval mode', () => {
+    const sel = { ...emptySelection(), approvalMode: 'bypassPermissions' };
+    // A carried-over full-access choice falls back to the default on a sandboxed worker.
+    expect(normalizeSelection(sel, sandboxedClaude()).approvalMode).toBe('default');
+    // Even when the account's default (or the first mode) is the disabled one.
+    const odd = sandboxedClaude({ default_approval_mode: 'bypassPermissions' });
+    expect(defaultApproval(odd)).toBe('plan');
+    const first = sandboxedClaude();
+    first.approval_modes = [...first.approval_modes!].reverse();
+    expect(defaultApproval({ ...first, default_approval_mode: '' })).toBe('auto');
+  });
 
   it('filters models by name, id and description, all terms', () => {
     const models = claude.models!;
@@ -143,7 +168,7 @@ describe('ChatComposerComponent', () => {
     expect($('[data-testid="model-trigger"]').textContent?.trim()).toBe('Sonnet 5.5 Med');
     expect($('[data-testid="account-chip"]').textContent).toContain('Claude');
     expect($('[data-testid="context-machine"]')).toBeTruthy();
-    expect($('[aria-label="Dictate"]')).toBeNull(); // speech-to-text is a later ticket
+    expect($('[aria-label="Dictate"]')).toBeNull(); // jsdom has no Web Speech API: hidden
     expect(el.textContent).not.toMatch(/gpt-/);
   });
 
@@ -263,5 +288,160 @@ describe('ChatComposerComponent', () => {
     expect($('[data-testid="send-button"]')).toBeNull();
     $<HTMLButtonElement>('[data-testid="stop-button"]').click();
     expect(host.stops).toBe(1);
+  });
+
+  it('shows disabled approval modes greyed with the reason, never selects them, and skips them with the arrows', async () => {
+    const { host, render, $, el } = await setup();
+    host.accounts.set([sandboxedClaude()]);
+    host.selection.set(normalizeSelection({ ...host.selection(), approvalMode: 'auto' }, sandboxedClaude()));
+    await render();
+    $<HTMLButtonElement>('[data-testid="approval-chip"]').click();
+    await render();
+    const full = el.querySelector<HTMLButtonElement>('[data-mode="bypassPermissions"]')!;
+    expect(full.getAttribute('aria-disabled')).toBe('true');
+    expect(full.textContent).toContain(SANDBOX_REASON);
+    const reason = full.querySelector('[data-testid="approval-disabled-reason"]')!;
+    expect(full.getAttribute('aria-describedby')).toBe(reason.id);
+    // Enabled modes are not marked.
+    expect(el.querySelector('[data-mode="auto"]')!.hasAttribute('aria-disabled')).toBe(false);
+
+    full.click();
+    await render();
+    expect(host.selection().approvalMode).toBe('auto');
+    expect(host.changes).toEqual([]);
+    // The menu stays open after clicking a disabled item.
+    expect(el.querySelector('[role="menu"]')).toBeTruthy();
+
+    // Focus starts on the checked mode; ArrowDown wraps past the disabled last item.
+    const auto = el.querySelector<HTMLButtonElement>('[data-mode="auto"]')!;
+    expect(document.activeElement).toBe(auto);
+    auto.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(el.querySelector('[data-mode="plan"]'));
+    (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(auto);
+  });
+
+  describe('speech-to-text', () => {
+    class FakeRecognition {
+      static last: FakeRecognition | null = null;
+      continuous = false;
+      interimResults = false;
+      lang = '';
+      onresult: ((ev: unknown) => void) | null = null;
+      onerror: ((ev: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      started = false;
+      stopped = false;
+      aborted = false;
+      constructor() {
+        FakeRecognition.last = this;
+      }
+      start() {
+        this.started = true;
+      }
+      stop() {
+        this.stopped = true;
+      }
+      abort() {
+        this.aborted = true;
+      }
+      /** Emits results: [text, isFinal][]. */
+      emit(parts: Array<[string, boolean]>) {
+        const results = parts.map(([t, f]) => Object.assign([{ transcript: t }], { isFinal: f }));
+        this.onresult?.({ resultIndex: 0, results });
+      }
+    }
+
+    beforeEach(() => {
+      FakeRecognition.last = null;
+      vi.stubGlobal('webkitSpeechRecognition', FakeRecognition);
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('dictates into the prompt with interim results and stops on click', async () => {
+      const { render, $ } = await setup();
+      const ta = $<HTMLTextAreaElement>('textarea');
+      ta.value = 'Please';
+      ta.dispatchEvent(new Event('input'));
+      const mic = $<HTMLButtonElement>('[data-testid="mic-button"]');
+      expect(mic.getAttribute('aria-label')).toBe('Dictate');
+      mic.click();
+      await render();
+      const rec = FakeRecognition.last!;
+      expect(rec.started).toBe(true);
+      expect(rec.continuous && rec.interimResults).toBe(true);
+      expect(mic.getAttribute('aria-pressed')).toBe('true');
+      expect(mic.getAttribute('aria-label')).toBe('Stop dictation');
+      expect(mic.classList.contains('ks-mic-recording')).toBe(true);
+      expect(document.body.textContent).toContain('Listening. Press Escape to cancel.');
+
+      rec.emit([['run the', false]]);
+      await render();
+      expect(ta.value).toBe('Please run the');
+      rec.emit([['run the tests', true], [' and fix', false]]);
+      await render();
+      expect(ta.value).toBe('Please run the tests and fix');
+
+      mic.click();
+      await render();
+      expect(rec.stopped).toBe(true);
+      rec.emit([['run the tests', true], [' and fix them', true]]);
+      rec.onend!();
+      await render();
+      expect(ta.value).toBe('Please run the tests and fix them');
+      expect(mic.getAttribute('aria-pressed')).toBe('false');
+      expect($<HTMLButtonElement>('[data-testid="send-button"]').disabled).toBe(false);
+    });
+
+    it('Esc cancels dictation and restores the prompt', async () => {
+      const { render, $, host } = await setup();
+      const ta = $<HTMLTextAreaElement>('textarea');
+      ta.value = 'Keep this';
+      ta.dispatchEvent(new Event('input'));
+      $<HTMLButtonElement>('[data-testid="mic-button"]').click();
+      await render();
+      const rec = FakeRecognition.last!;
+      rec.emit([['oops', false]]);
+      await render();
+      expect(ta.value).toBe('Keep this oops');
+      const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      ta.dispatchEvent(esc);
+      await render();
+      expect(rec.aborted).toBe(true);
+      expect(esc.defaultPrevented).toBe(true);
+      expect(ta.value).toBe('Keep this');
+      expect($('[data-testid="mic-button"]').getAttribute('aria-pressed')).toBe('false');
+      // Late events from the aborted session are ignored.
+      rec.emit([['late', true]]);
+      await render();
+      expect(ta.value).toBe('Keep this');
+      expect(host.sent).toEqual([]);
+    });
+
+    it('explains a denied microphone and lets the user dismiss it', async () => {
+      const { render, $ } = await setup();
+      $<HTMLButtonElement>('[data-testid="mic-button"]').click();
+      await render();
+      const rec = FakeRecognition.last!;
+      rec.onerror!({ error: 'not-allowed' });
+      rec.onend!();
+      await render();
+      expect($('[data-testid="speech-error"]').textContent).toContain('Microphone access is blocked');
+      expect($('[data-testid="mic-button"]').getAttribute('aria-pressed')).toBe('false');
+      $<HTMLButtonElement>('[data-testid="speech-error"] button').click();
+      await render();
+      expect($('[data-testid="speech-error"]')).toBeNull();
+    });
+
+    it('helpers join text, split final/interim and map errors', () => {
+      expect(joinDictation('', ' hello')).toBe('hello');
+      expect(joinDictation('a', 'b')).toBe('a b');
+      expect(joinDictation('a\n', 'b')).toBe('a\nb');
+      expect(joinDictation('a', '')).toBe('a');
+      const results = [Object.assign([{ transcript: 'one ' }], { isFinal: true }), Object.assign([{ transcript: 'two' }], { isFinal: false })];
+      expect(transcriptOf({ resultIndex: 1, results })).toEqual({ final: 'one ', interim: 'two' });
+      expect(speechErrorMessage('aborted')).toBe('');
+      expect(speechErrorMessage('audio-capture')).toContain('No microphone');
+    });
   });
 });

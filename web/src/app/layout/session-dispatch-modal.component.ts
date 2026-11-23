@@ -1,13 +1,17 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
+import { AgentAccount } from '../core/models/agent-chat.models';
 import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
+import { ChatComposerComponent, ComposerSubmit } from '../features/chat/composer/chat-composer.component';
+import { ComposerSelection, emptySelection, findModel, normalizeSelection, pickDefaultAccount } from '../features/chat/composer/composer-logic';
+import { ContextBarComponent, ContextChange } from '../features/chat/composer/context-bar.component';
+import { ReloginService } from '../features/chat/relogin.service';
 import { IconComponent } from '../shared/icon.component';
-import { RemoteDirPickerComponent } from '../shared/remote-dir-picker.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 /** What the session modal was opened for. */
 export interface SessionDispatchRequest {
@@ -18,349 +22,292 @@ export interface SessionDispatchRequest {
   worktree?: Worktree | null;
 }
 
-function formatSourceHint(src: string): string {
-  switch (src) {
-    case 'localhost':
-      return 'localhost';
-    case 'default':
-      return 'default';
-    case 'last_used':
-      return 'last used';
-    case 'guess':
-      return 'auto';
-    default:
-      return '';
-  }
-}
-
-/** Unified Chat Session vs Terminal modal with the Machine / Agent / Model cascade. */
-
+/**
+ * New session dialog: an agent PTY session or a shell terminal. Agent sessions reuse the
+ * chat composer (account chip, model·effort, approval mode, machine · folder context bar),
+ * so they offer the same real models, efforts and approval modes as a chat.
+ */
 @Component({
   selector: 'app-session-dispatch-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, RemoteDirPickerComponent, ModalDialogComponent],
+  imports: [IconComponent, TooltipDirective, ModalDialogComponent, ChatComposerComponent, ContextBarComponent],
   template: `
-    <app-modal-dialog label="Start a new session" panelClass="w-full max-w-2xl rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (close)="close.emit()">
-      <div class="flex items-center justify-between">
-        <div class="inline-flex rounded-lg bg-[#111214] p-0.5 border border-[#26282e] text-[12px]" role="group" aria-label="Session type">
+    <app-modal-dialog
+      labelledBy="session-dispatch-title"
+      panelClass="w-full max-w-2xl rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5"
+      (close)="close.emit()"
+    >
+      <div class="flex items-center gap-3">
+        <h2 id="session-dispatch-title" class="text-[15px] font-semibold text-[var(--ks-text)]">New session</h2>
+        <div class="inline-flex rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] p-0.5 text-[12px]" role="group" aria-label="Session type">
           <button
             type="button"
+            data-testid="dispatch-kind-chat"
             (click)="sessionKind.set('chat')"
             [attr.aria-pressed]="sessionKind() === 'chat'"
-            class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
-            [class.bg-[#262830]]="sessionKind() === 'chat'"
-            [class.text-[#ececed]]="sessionKind() === 'chat'"
-            [class.text-[#8a8c94]]="sessionKind() !== 'chat'"
+            class="rounded-[var(--ks-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
+            [class.bg-[var(--ks-surface-3)]]="sessionKind() === 'chat'"
+            [class.text-[var(--ks-text)]]="sessionKind() === 'chat'"
+            [class.text-[var(--ks-text-muted)]]="sessionKind() !== 'chat'"
           >
-            Chat Session
+            Agent session
           </button>
           <button
             type="button"
+            data-testid="dispatch-kind-terminal"
             (click)="sessionKind.set('terminal')"
             [attr.aria-pressed]="sessionKind() === 'terminal'"
-            class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
-            [class.bg-[#262830]]="sessionKind() === 'terminal'"
-            [class.text-[#ececed]]="sessionKind() === 'terminal'"
-            [class.text-[#8a8c94]]="sessionKind() !== 'terminal'"
+            class="rounded-[var(--ks-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
+            [class.bg-[var(--ks-surface-3)]]="sessionKind() === 'terminal'"
+            [class.text-[var(--ks-text)]]="sessionKind() === 'terminal'"
+            [class.text-[var(--ks-text-muted)]]="sessionKind() !== 'terminal'"
           >
             Terminal
           </button>
         </div>
-
-        <button type="button" (click)="close.emit()" aria-label="Close dialog" class="text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer">
+        <span class="flex-1"></span>
+        <button type="button" class="ks-icon-btn" aria-label="Close dialog" ksTooltip="Close" (click)="close.emit()">
           <app-icon name="close" [size]="15" />
         </button>
       </div>
 
-      <form (ngSubmit)="submit()" class="space-y-3 text-[12px]">
-        @if (sessionKind() === 'chat') {
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label for="session-dispatch-modal-machine" class="text-[11px] text-[#8e9098]">Machine</label>
-                @if (machineSourceHint()) {
-                  <span class="text-[10px] text-[#86888f]">{{ machineSourceHint() }}</span>
-                }
-              </div>
-              <select id="session-dispatch-modal-machine"
-                name="worker"
-                [ngModel]="workerId()"
-                (ngModelChange)="onMachineChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-              >
-                @if (fleet.workers().length === 0) {
-                  <option value="">localhost (no daemon connected)</option>
-                }
-                @for (w of fleet.workers(); track w.id) {
-                  <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
-                }
-              </select>
-            </div>
-
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label for="session-dispatch-modal-agent" class="text-[11px] text-[#8e9098]">Agent</label>
-                @if (agentSourceHint()) {
-                  <span class="text-[10px] text-[#86888f]">{{ agentSourceHint() }}</span>
-                }
-              </div>
-              <select id="session-dispatch-modal-agent"
-                name="agent"
-                [ngModel]="agent()"
-                (ngModelChange)="onAgentChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-              >
-                @for (a of chatAgentOptions(); track a) {
-                  <option [value]="a">{{ a }}</option>
-                }
-              </select>
-            </div>
-
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <label for="session-dispatch-modal-model" class="text-[11px] text-[#8e9098]">Model</label>
-                @if (modelSourceHint()) {
-                  <span class="text-[10px] text-[#86888f]">{{ modelSourceHint() }}</span>
-                }
-              </div>
-              <select id="session-dispatch-modal-model"
-                name="sessionModel"
-                [ngModel]="model()"
-                (ngModelChange)="onModelChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-              >
-                <option value="">Agent default</option>
-                @for (m of modelOptions(); track m.id) {
-                  <option [value]="m.id">{{ m.display_name }}</option>
-                }
-                @if (model() && !hasModel(model())) {
-                  <option [value]="model()">{{ model() }}</option>
-                }
-              </select>
-            </div>
-          </div>
+      @if (sessionKind() === 'chat') {
+        @if (accounts().length > 0) {
+          <ks-chat-composer
+            class="block"
+            data-testid="dispatch-composer"
+            [accounts]="accounts()"
+            [selection]="selection()"
+            (selectionChange)="onSelection($event)"
+            [allowEmpty]="true"
+            [allowAttachments]="false"
+            [blockedReason]="submitting() ? 'Starting…' : ''"
+            sendLabel="Start session"
+            placeholder="What should the agent do? Leave empty for an interactive session"
+            (submitted)="start($event)"
+            (refreshAccounts)="agentAccounts.refresh(selection().workerId)"
+            (showRelogin)="showRelogin($event)"
+          />
         } @else {
-          <div>
-            <label for="session-dispatch-modal-machine-2" class="block text-[11px] text-[#8e9098] mb-1">Machine</label>
-            <select id="session-dispatch-modal-machine-2"
-              name="worker"
-              [ngModel]="workerId()"
-              (ngModelChange)="onMachineChange($event)"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-            >
-              @if (fleet.workers().length === 0) {
-                <option value="">localhost (no daemon connected)</option>
-              }
-              @for (w of fleet.workers(); track w.id) {
-                <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
-              }
-            </select>
+          <!-- Machines that report no agent accounts (older konsertd): pick the CLI by name. -->
+          <div class="space-y-3">
+            <p class="text-[12px] text-[var(--ks-text-secondary)]" data-testid="dispatch-no-accounts">
+              {{ machineName() }} hasn't reported its agent accounts, so models and approval modes aren't available.
+              The agent starts with its own defaults.
+            </p>
+            <div>
+              <label for="session-dispatch-agent" class="block text-[11.5px] text-[var(--ks-text-muted)] mb-1.5">Agent</label>
+              <select
+                id="session-dispatch-agent"
+                class="w-full rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] px-3 py-2 text-[12.5px] text-[var(--ks-text)] focus:outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+                [value]="fallbackAgent()"
+                (change)="fallbackAgent.set($any($event.target).value)"
+              >
+                @for (a of fallbackAgents(); track a) {
+                  <option [value]="a" [selected]="a === fallbackAgent()">{{ a }}</option>
+                }
+              </select>
+            </div>
+            <ks-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
           </div>
         }
+      } @else {
+        <div class="space-y-1.5">
+          <div class="text-[11.5px] text-[var(--ks-text-muted)] px-1">Where to open the shell</div>
+          <ks-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
+        </div>
+      }
 
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[12px]">
         <div>
-          <label for="session-dispatch-modal-workspace-directory" class="block text-[11px] text-[#8e9098] mb-1">Workspace Directory</label>
-          <app-remote-dir-picker inputId="session-dispatch-modal-workspace-directory"
-            [workerId]="workerId()"
-            [value]="repoPath()"
-            (valueChange)="repoPath.set($event)"
-            inputName="repo"
-            placeholder="~ or /path/to/repo"
+          <label for="session-dispatch-branch" class="block text-[11.5px] text-[var(--ks-text-muted)] mb-1.5">New worktree branch (optional)</label>
+          <input
+            id="session-dispatch-branch"
+            type="text"
+            data-testid="dispatch-branch"
+            class="w-full rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] px-3 py-2 font-mono-ide text-[var(--ks-text)] placeholder-[#80828a] focus:outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+            placeholder="feat/my-branch"
+            [value]="newBranch()"
+            (input)="newBranch.set($any($event.target).value)"
           />
         </div>
+        <label class="flex items-start gap-2.5 cursor-pointer sm:pt-6">
+          <input type="checkbox" class="mt-0.5 accent-[#6d8fbf]" data-testid="dispatch-sandboxed" [checked]="sandboxed()" (change)="sandboxed.set($any($event.target).checked)" />
+          <span>
+            <span class="block text-[var(--ks-text)]">Run sandboxed</span>
+            <span class="block text-[11.5px] text-[var(--ks-text-muted)]">Restrict the session to its folder on the machine.</span>
+          </span>
+        </label>
+      </div>
 
-        @if (sessionKind() === 'chat') {
-          <div>
-            <label for="session-dispatch-modal-initial-prompt-optional" class="block text-[11px] text-[#8e9098] mb-1">Initial Prompt (optional)</label>
-            <textarea id="session-dispatch-modal-initial-prompt-optional"
-              rows="3"
-              name="prompt"
-              [ngModel]="prompt()"
-              (ngModelChange)="prompt.set($event)"
-              placeholder="Ask the agent anything, or leave blank to start an interactive session..."
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-            ></textarea>
-          </div>
-        }
+      @if (error()) {
+        <div role="alert" class="rounded-[var(--ks-radius-md)] bg-[var(--ks-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">{{ error() }}</div>
+      }
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label for="session-dispatch-modal-git-branch-optional-work" class="block text-[11px] text-[#8e9098] mb-1">Git Branch (optional worktree)</label>
-            <input id="session-dispatch-modal-git-branch-optional-work"
-              type="text"
-              name="branch"
-              [ngModel]="branch()"
-              (ngModelChange)="branch.set($event)"
-              placeholder="feat/my-branch"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-            />
-          </div>
-          <div>
-            <label for="session-dispatch-modal-permission-mode" class="block text-[11px] text-[#8e9098] mb-1">Permission Mode</label>
-            <select id="session-dispatch-modal-permission-mode"
-              name="perm"
-              [ngModel]="perm()"
-              (ngModelChange)="perm.set($event)"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
-            >
-              <option value="full_access">Full Access (Default)</option>
-              <option value="sandboxed">Sandboxed (Opt-In)</option>
-            </select>
-          </div>
-        </div>
-
-        @if (error()) {
-          <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[#f09595]">
-            {{ error() }}
-          </div>
-        }
-
-        <div class="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            (click)="close.emit()"
-            class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#a1a3ab] hover:text-[#ececed] transition cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            [disabled]="submitting() || !canSubmit()"
-            class="rounded-md bg-[#ececed] hover:bg-white active:scale-[0.98] disabled:opacity-40 px-4 py-1.5 font-medium text-[#111214] transition cursor-pointer"
-          >
-            {{ submitting() ? 'Starting...' : sessionKind() === 'chat' ? 'Start Chat' : 'Open Terminal' }}
-          </button>
-        </div>
-      </form>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="ks-btn" (click)="close.emit()">Cancel</button>
+        <button type="button" class="ks-btn ks-btn-primary" data-testid="dispatch-submit" [disabled]="submitting() || !canSubmit()" (click)="submitFromFooter()">
+          {{ submitting() ? 'Starting…' : sessionKind() === 'chat' ? 'Start session' : 'Open terminal' }}
+        </button>
+      </div>
     </app-modal-dialog>
   `,
 })
 export class SessionDispatchModalComponent implements OnInit {
   private readonly api = inject(ApiClientService);
   private readonly tabs = inject(TabsStore);
+  private readonly relogin = inject(ReloginService);
   readonly fleet = inject(FleetStore);
+  readonly agentAccounts = inject(AgentAccountsStore);
 
   readonly request = input.required<SessionDispatchRequest>();
   readonly close = output<void>();
 
+  private readonly composer = viewChild(ChatComposerComponent);
+
   readonly sessionKind = signal<SessionKind>('chat');
-  readonly spaceId = signal<string | null>(null);
-  readonly repoId = signal<string | null>(null);
-  readonly worktreeId = signal<string | null>(null);
-  readonly agent = signal('claude');
-  readonly model = signal('');
-  readonly workerId = signal('');
-  readonly perm = signal<PermissionMode>('full_access');
-  readonly repoPath = signal('~');
-  readonly branch = signal('');
-  readonly prompt = signal('');
-  readonly machineSourceHint = signal('');
-  readonly agentSourceHint = signal('');
-  readonly modelSourceHint = signal('');
+  readonly selection = signal<ComposerSelection>(emptySelection());
+  readonly newBranch = signal('');
+  readonly sandboxed = signal(false);
+  readonly fallbackAgent = signal('claude');
   readonly submitting = signal(false);
   readonly error = signal('');
 
-  readonly chatAgentOptions = computed(() => {
-    const w = this.fleet.workersById()[this.workerId()];
+  /** Agent / model the shell's session defaults suggest (settings, last used). */
+  private preferredAgent = '';
+  private preferredModel = '';
+  /** The request's context; dropped once the user picks another machine or folder. */
+  private origin = { workerId: '', cwd: '', spaceId: '', repoId: '', worktreeId: '' };
+
+  /** Every agent account on the chosen machine (PTY sessions don't need chat support). */
+  readonly accounts = computed(() => this.agentAccounts.accountsFor(this.selection().workerId));
+  readonly account = computed<AgentAccount | null>(() => this.accounts().find((a) => a.id === this.selection().accountId) ?? null);
+  readonly machineName = computed(() => this.fleet.workersById()[this.selection().workerId]?.name || 'This machine');
+
+  readonly fallbackAgents = computed(() => {
+    const w = this.fleet.workersById()[this.selection().workerId];
     const detected = (w?.agents ?? []).filter((a) => a !== 'shell');
-    const base = ['agy', 'claude', 'codex', 'grok', 'copilot', 'cursor', 'mock'];
-    return Array.from(new Set([...detected, ...base]));
+    return Array.from(new Set([...detected, 'claude', 'codex', 'grok', 'copilot', 'cursor', 'agy']));
   });
 
-  private readonly agentAccounts = inject(AgentAccountsStore);
-
-  /** The agent's default account on the chosen machine (from capabilities). */
-  readonly account = computed(() => {
-    const list = this.agentAccounts.accountsFor(this.workerId()).filter((a) => a.agent === this.agent());
-    return list.find((a) => a.is_default) ?? list[0] ?? null;
-  });
-
-  /** Real models reported by that account; empty when unknown (the agent picks). */
-  readonly modelOptions = computed(() => this.account()?.models ?? []);
-
-  hasModel(id: string): boolean {
-    return this.modelOptions().some((m) => m.id === id);
+  constructor() {
+    // Accounts arrive (or the machine changes): pick a valid account for that machine.
+    effect(() => {
+      const list = this.accounts();
+      if (list.length === 0) return;
+      untracked(() => {
+        const sel = this.selection();
+        if (list.some((a) => a.id === sel.accountId)) return;
+        this.selection.set(this.seed(sel, list));
+      });
+    });
   }
 
   ngOnInit(): void {
     const { kind, worker, space, repo, worktree } = this.request();
     this.sessionKind.set(kind);
-    this.spaceId.set(space?.id || null);
-    this.perm.set(this.fleet.settings().default_permission_mode || 'full_access');
+    this.sandboxed.set((this.fleet.settings().default_permission_mode || 'full_access') === 'sandboxed');
 
-    const explicitMachine = space?.worker_id || worker?.id || '';
-    const resolved = this.fleet.resolveSessionDefaults(explicitMachine);
-    this.workerId.set(resolved.machine_id);
-    this.machineSourceHint.set(formatSourceHint(resolved.machine_source));
-    this.agent.set(resolved.agent);
-    this.agentSourceHint.set(formatSourceHint(resolved.agent_source));
-    this.model.set(resolved.model);
-    this.modelSourceHint.set(formatSourceHint(resolved.model_source));
+    const resolved = this.fleet.resolveSessionDefaults(space?.worker_id || worker?.id || '');
+    this.preferredAgent = resolved.agent;
+    this.preferredModel = resolved.model;
+    if (resolved.agent) this.fallbackAgent.set(resolved.agent);
 
-    if (repo) {
-      this.repoId.set(repo.id);
-      this.worktreeId.set(worktree?.id || null);
-      this.repoPath.set(worktree?.path || repo.path || '~');
-      this.branch.set(worktree?.branch || '');
-    } else {
-      this.repoPath.set(space?.path || '~');
-      this.branch.set(space?.branch || '');
-    }
+    const cwd = (repo ? worktree?.path || repo.path : space?.path) || '~';
+    const branch = (repo ? worktree?.branch : space?.branch) || '';
+    this.origin = {
+      workerId: resolved.machine_id,
+      cwd,
+      spaceId: space?.id || '',
+      repoId: repo?.id || '',
+      worktreeId: repo ? worktree?.id || '' : '',
+    };
+    this.selection.set(this.seed({ ...emptySelection(), workerId: resolved.machine_id, cwd, branch }, this.accounts()));
   }
 
-  onMachineChange(workerId: string): void {
-    this.workerId.set(workerId);
-    this.machineSourceHint.set('');
-    const resolved = this.fleet.resolveSessionDefaults(workerId);
-    if (this.agentSourceHint() !== '') {
-      this.agent.set(resolved.agent);
-      this.agentSourceHint.set(formatSourceHint(resolved.agent_source));
-    }
+  private seed(sel: ComposerSelection, accounts: AgentAccount[]): ComposerSelection {
+    if (accounts.length === 0) return sel;
+    const account = pickDefaultAccount(accounts, { agent: this.preferredAgent });
+    const withModel = findModel(account, this.preferredModel) ? { ...sel, model: this.preferredModel } : sel;
+    return normalizeSelection(withModel, account);
   }
 
-  onAgentChange(agent: string): void {
-    this.agent.set(agent);
-    this.agentSourceHint.set('');
-    // A model chosen for another agent does not carry over: use the new agent's default.
-    if (this.model() && !this.hasModel(this.model())) {
-      this.model.set('');
-      this.modelSourceHint.set('');
+  onSelection(next: ComposerSelection): void {
+    const prev = this.selection();
+    if (next.workerId !== prev.workerId) {
+      // Another machine: its own accounts (keep the agent if it has it there).
+      const account = this.account();
+      if (account) this.preferredAgent = account.agent;
+      this.selection.set(this.seed({ ...next, accountId: '' }, this.agentAccounts.accountsFor(next.workerId)));
+      return;
     }
+    this.selection.set(next);
   }
 
-  onModelChange(model: string): void {
-    this.model.set(model);
-    this.modelSourceHint.set('');
+  onContext(c: ContextChange): void {
+    const s = this.selection();
+    this.onSelection({
+      ...s,
+      workerId: c.workerId ?? s.workerId,
+      cwd: c.cwd ?? s.cwd,
+      branch: c.branch ?? (c.cwd !== undefined ? '' : s.branch),
+    });
+  }
+
+  showRelogin(a: AgentAccount): void {
+    this.relogin.show({ workerId: this.selection().workerId, accountId: a.id, label: a.label, relogin: a.auth?.relogin });
   }
 
   canSubmit(): boolean {
-    if (!this.repoPath().trim()) return false;
-    if (this.sessionKind() === 'chat' && !this.agent().trim()) return false;
+    if (!this.selection().cwd.trim()) return false;
+    if (this.sessionKind() === 'chat') {
+      if (this.accounts().length === 0) return !!this.fallbackAgent();
+      const a = this.account();
+      return !!a && a.auth?.state !== 'logged_out';
+    }
     return true;
   }
 
-  async submit(): Promise<void> {
+  /** The footer button sends the composer's prompt (or opens the terminal). */
+  submitFromFooter(): void {
+    const composer = this.composer();
+    if (this.sessionKind() === 'chat' && composer) {
+      composer.submit();
+      return;
+    }
+    void this.start({ text: '', attachments: [] });
+  }
+
+  async start(ev: ComposerSubmit): Promise<void> {
+    if (this.submitting() || !this.canSubmit()) return;
     this.submitting.set(true);
     this.error.set('');
+    const sel = this.selection();
+    const isChat = this.sessionKind() === 'chat';
+    const account = isChat ? this.account() : null;
+    const sameContext = sel.workerId === this.origin.workerId && sel.cwd === this.origin.cwd;
+    const branch = this.newBranch().trim();
+    const perm: PermissionMode = this.sandboxed() ? 'sandboxed' : 'full_access';
     try {
-      const isChat = this.sessionKind() === 'chat';
       const res = await this.api.createSession({
-        worker_selector: this.workerId() ? { worker_id: this.workerId() } : undefined,
-        space_id: this.spaceId() || undefined,
-        repo_id: this.repoId() || undefined,
-        worktree_id: this.worktreeId() || undefined,
+        worker_selector: sel.workerId ? { worker_id: sel.workerId } : undefined,
+        space_id: (sameContext && this.origin.spaceId) || undefined,
+        repo_id: (sameContext && this.origin.repoId) || undefined,
+        worktree_id: (sameContext && this.origin.worktreeId) || undefined,
         session_kind: this.sessionKind(),
-        agent: isChat ? this.agent() : 'shell',
-        account_id: isChat ? this.account()?.id || undefined : undefined,
-        model: isChat ? this.model().trim() || undefined : undefined,
-        repo_path: this.repoPath().trim() || '~',
-        branch: this.branch().trim() || undefined,
-        use_worktree: !!this.branch().trim(),
-        prompt: isChat ? this.prompt().trim() : '',
+        agent: isChat ? account?.agent || this.fallbackAgent() : 'shell',
+        account_id: account?.id || undefined,
+        model: (account && sel.model) || undefined,
+        effort: (account && sel.effort) || undefined,
+        approval_mode: (account && sel.approvalMode) || undefined,
+        repo_path: sel.cwd.trim() || '~',
+        branch: branch || undefined,
+        use_worktree: !!branch,
+        prompt: isChat ? ev.text.trim() : '',
         mode: 'interactive',
         origin: 'direct',
-        permission_mode: this.perm(),
+        permission_mode: perm,
       });
       await Promise.all([this.fleet.refresh(), this.fleet.loadSettings()]);
       const task = this.fleet.tasksById()[res.task_id];
@@ -368,7 +315,7 @@ export class SessionDispatchModalComponent implements OnInit {
         const w = this.fleet.workersById()[task.worker_id];
         this.tabs.openTaskTab(task, w?.name);
       }
-      this.prompt.set('');
+      this.composer()?.clear();
       this.close.emit();
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to start session');

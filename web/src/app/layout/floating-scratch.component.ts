@@ -18,7 +18,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       (click)="tabs.toggleScratch()"
       ksTooltip="Floating Scratch Workspace (⌘J)"
       aria-label="Floating Scratch Workspace (⌘J)"
-      class="fixed bottom-10 right-4 z-30 h-9 w-9 rounded-lg border shadow-xl flex items-center justify-center transition-all duration-150 active:scale-95 cursor-pointer backdrop-blur-md"
+      class="ks-btn ks-btn-sm fixed bottom-10 right-4 z-30 h-9 w-9 shadow-xl flex transition-all duration-150 backdrop-blur-md"
       [class.border-[#4a668a]]="tabs.scratchOpen() || !!tabs.scratchTaskId()"
       [class.bg-[#20232b]/95]="tabs.scratchOpen()"
       [class.text-[#ececed]]="tabs.scratchOpen()"
@@ -36,7 +36,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 
     <!-- Floating Scratch Workspace Window (stays mounted when minimized so PTY persists, with smooth springy reveal!) -->
     <div
-      class="fixed bottom-12 right-4 z-40 w-[620px] h-[400px] max-w-[94vw] max-h-[75vh] rounded-xl border border-[#32353f] bg-[#16171b]/95 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden origin-bottom-right transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
+      class="fixed bottom-12 right-4 z-40 w-[620px] h-[400px] max-w-[94vw] max-h-[75vh] rounded-xl bg-[#16171b]/95 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden origin-bottom-right transition-all duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]"
       [class.opacity-100]="tabs.scratchOpen()"
       [class.scale-100]="tabs.scratchOpen()"
       [class.translate-y-0]="tabs.scratchOpen()"
@@ -47,7 +47,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       [class.pointer-events-none]="!tabs.scratchOpen()"
     >
       <!-- Scratch Header -->
-      <div class="h-9 flex items-center justify-between px-3 border-b border-[#24262c] bg-[#18191d] shrink-0">
+      <div class="h-9 flex items-center justify-between px-3 border-b border-white/[0.06] bg-[#18191d] shrink-0">
         <div class="flex items-center gap-2 text-[12px]">
           <app-icon name="scratch" [size]="13" class="text-[#8e9098]" />
           <span class="font-medium text-[#ececed]">Scratch Workspace</span>
@@ -72,7 +72,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
             type="button"
             (click)="tabs.scratchOpen.set(false)"
             ksTooltip="Minimize (keeps session running)" aria-label="Minimize (keeps session running)"
-            class="rounded p-1 text-[#8e9098] hover:text-[#ececed] hover:bg-[#24262c] transition cursor-pointer"
+            class="ks-icon-btn ks-icon-btn-sm"
           >
             <app-icon name="close" [size]="13" />
           </button>
@@ -83,7 +83,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       @if (!tabs.scratchTaskId()) {
         <div class="flex-1 flex flex-col justify-center p-5 space-y-4">
           <div>
-            <h3 class="text-[13px] font-semibold text-[#ececed] mb-1">Out-of-Band Scratchpad</h3>
+            <h2 class="text-[13px] font-semibold text-[#ececed] mb-1">Out-of-Band Scratchpad</h2>
             <p class="text-[12px] text-[#8e9098]">
               Spin up a quick interactive shell or ad-hoc agent on any connected host without disturbing your main workspace tabs.
             </p>
@@ -97,7 +97,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                   name="scratchWorker"
                   [ngModel]="selectedWorkerId()"
                   (ngModelChange)="selectedWorkerId.set($event)"
-                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-1.5 text-[#ececed]"
+                  class="ks-field w-full"
                 >
                   <option value="">Auto (first online)</option>
                   @for (w of onlineWorkers(); track w.id) {
@@ -112,7 +112,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                   name="scratchAgent"
                   [ngModel]="selectedAgent()"
                   (ngModelChange)="selectedAgent.set($event)"
-                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-1.5 text-[#ececed]"
+                  class="ks-field w-full"
                 >
                   <option value="shell">shell (zsh / bash)</option>
                   <option value="claude">claude</option>
@@ -133,7 +133,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 [ngModel]="workdir()"
                 (ngModelChange)="workdir.set($event)"
                 placeholder="~"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-1.5 font-mono-ide text-[#ececed]"
+                class="ks-field w-full font-mono-ide"
               />
             </div>
 
@@ -144,7 +144,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
             <button
               type="submit"
               [disabled]="launching() || onlineWorkers().length === 0"
-              class="w-full rounded-lg bg-[#ececed] hover:bg-white disabled:opacity-40 py-2 text-[12px] font-medium text-[#111214] transition cursor-pointer"
+              class="ks-btn ks-btn-primary w-full"
             >
               {{ launching() ? 'Starting session...' : onlineWorkers().length === 0 ? 'No online hosts available' : 'Launch Scratch Session' }}
             </button>

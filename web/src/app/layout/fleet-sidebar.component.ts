@@ -17,7 +17,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8] select-none">
       <!-- Top Search & Orchestrator Navigation -->
-      <div class="px-2.5 pt-2.5 pb-2 space-y-1.5 shrink-0">
+      <div class="px-3 pt-3 pb-2.5 space-y-2 shrink-0">
         <div class="relative">
           <app-icon name="search" [size]="13" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#86888f]" />
           <input
@@ -25,14 +25,14 @@ import { TooltipDirective } from '../shared/tooltip.directive';
             [ngModel]="query()"
             (ngModelChange)="query.set($event)"
             placeholder="Search spaces, repos, agents..."
-            class="w-full rounded-md border border-transparent bg-[#1f2025] focus:border-[#343741] pl-8 pr-2.5 py-1.5 text-[12px] text-[#e4e4e7] placeholder-[#686a72] focus:outline-none transition"
+            class="ks-field w-full pl-8 pr-2.5 text-[12px]"
           />
         </div>
 
         <button
           type="button"
           (click)="selectOrchestrator()"
-          class="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-[12px] transition cursor-pointer"
+          class="w-full flex items-center justify-between rounded-md px-2.5 py-2 text-[12.5px] transition cursor-pointer"
           [class.bg-[#24262d]]="tabs.activeTabId() === orchestratorId"
           [class.text-[#f4f4f5]]="tabs.activeTabId() === orchestratorId"
           [class.text-[#a1a3ab]]="tabs.activeTabId() !== orchestratorId"
@@ -50,11 +50,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
         </button>
 
         <!-- Segmented Switcher: Workspaces (4-level taxonomy) vs Machines (Herdr host view) -->
-        <div class="grid grid-cols-2 rounded-md bg-[#111214] p-0.5 border border-[#23252c] text-[11px]">
+        <div class="grid grid-cols-2 rounded-[var(--ks-radius-md)] bg-black/25 p-0.5 text-[11.5px]">
           <button
             type="button"
             (click)="navMode.set('workspaces')"
-            class="rounded py-1 font-medium transition cursor-pointer"
+            class="rounded py-1.5 font-medium transition cursor-pointer"
             [class.bg-[#23252d]]="navMode() === 'workspaces'"
             [class.text-[#ececed]]="navMode() === 'workspaces'"
             [class.text-[#8a8c94]]="navMode() !== 'workspaces'"
@@ -64,7 +64,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
           <button
             type="button"
             (click)="navMode.set('machines')"
-            class="rounded py-1 font-medium transition cursor-pointer"
+            class="rounded py-1.5 font-medium transition cursor-pointer"
             [class.bg-[#23252d]]="navMode() === 'machines'"
             [class.text-[#ececed]]="navMode() === 'machines'"
             [class.text-[#8a8c94]]="navMode() !== 'machines'"
@@ -75,13 +75,13 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       </div>
 
       <!-- Upper Section: Workspaces (Space > Project > Repo > Worktree) OR Machines -->
-      <div class="flex-1 min-h-0 overflow-y-auto px-2 py-1 space-y-1">
+      <div class="flex-1 min-h-0 overflow-y-auto px-2.5 py-1.5 space-y-1.5">
         @if (navMode() === 'workspaces') {
           <!-- Workspace (Space) Selector Row -->
           <div class="flex items-center gap-1 px-1 pb-1">
             <select
               aria-label="Space"
-              class="flex-1 min-w-0 rounded-md border border-[#262830] bg-[#1b1c20] px-2 py-1 text-[11.5px] font-medium text-[#e4e4e7] focus:border-[#4a668a] focus:outline-none"
+              class="ks-field ks-field-sm flex-1 min-w-0 text-[11.5px] font-medium"
               [ngModel]="activeWorkspaceId()"
               (ngModelChange)="selectedWorkspaceId.set($event)"
             >
@@ -93,14 +93,14 @@ import { TooltipDirective } from '../shared/tooltip.directive';
               type="button"
               (click)="toggleCreateForm('workspace')"
               ksTooltip="New Workspace (Space)" aria-label="New Workspace (Space)"
-              class="rounded-md border border-[#262830] bg-[#1b1c20] hover:bg-[#24262d] p-1 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer shrink-0"
+              class="ks-icon-btn ks-icon-btn-sm shrink-0"
             >
-              <app-icon name="plus" [size]="12" />
+              <app-icon name="plus" [size]="13" />
             </button>
           </div>
 
           @if (createMode() === 'workspace') {
-            <form (ngSubmit)="submitCreateWorkspace()" class="mx-1 mb-1.5 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5">
+            <form (ngSubmit)="submitCreateWorkspace()" class="mx-1 mb-1.5 rounded-md bg-[#131418] p-3 space-y-1.5">
               <input
                 type="text"
                 name="newWsName"
@@ -108,11 +108,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 (ngModelChange)="formName.set($event)"
                 placeholder="Space name (e.g. Work)"
                 autofocus
-                class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[11.5px] text-[#ececed] focus:outline-none"
+                class="ks-field ks-field-sm w-full text-[11.5px]"
               />
               <div class="flex justify-end gap-1">
-                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#8a8c94] cursor-pointer">Cancel</button>
-                <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 text-[10.5px] font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add</button>
+                <button type="button" (click)="createMode.set(null)" class="ks-btn ks-btn-sm">Cancel</button>
+                <button type="submit" [disabled]="!formName().trim()" class="ks-btn ks-btn-sm ks-btn-primary">Add</button>
               </div>
             </form>
           }
@@ -124,14 +124,14 @@ import { TooltipDirective } from '../shared/tooltip.directive';
               type="button"
               (click)="toggleCreateForm('project')"
               ksTooltip="New Project in Space" aria-label="New Project in Space"
-              class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
+              class="ks-icon-btn ks-icon-btn-sm"
             >
-              <app-icon name="plus" [size]="12" />
+              <app-icon name="plus" [size]="13" />
             </button>
           </div>
 
           @if (createMode() === 'project') {
-            <form (ngSubmit)="submitCreateProject()" class="mx-1 mb-1.5 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5">
+            <form (ngSubmit)="submitCreateProject()" class="mx-1 mb-1.5 rounded-md bg-[#131418] p-3 space-y-1.5">
               <input
                 type="text"
                 name="newProjName"
@@ -139,11 +139,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 (ngModelChange)="formName.set($event)"
                 placeholder="Project name (multi-repo)"
                 autofocus
-                class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[11.5px] text-[#ececed] focus:outline-none"
+                class="ks-field ks-field-sm w-full text-[11.5px]"
               />
               <div class="flex justify-end gap-1">
-                <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[10.5px] text-[#8a8c94] cursor-pointer">Cancel</button>
-                <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 text-[10.5px] font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add</button>
+                <button type="button" (click)="createMode.set(null)" class="ks-btn ks-btn-sm">Cancel</button>
+                <button type="submit" [disabled]="!formName().trim()" class="ks-btn ks-btn-sm ks-btn-primary">Add</button>
               </div>
             </form>
           }
@@ -151,7 +151,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
           <!-- Projects > Repos > Worktrees Tree -->
           @for (proj of filteredProjects(); track proj.id) {
             <div class="space-y-0.5">
-              <div class="group flex items-center justify-between gap-1 rounded-md px-1.5 py-1 hover:bg-[#1e2026] transition">
+              <div class="group flex items-center justify-between gap-1 rounded-md px-2 py-1.5 hover:bg-[#1e2026] transition">
                 <button
                   type="button"
                   (click)="toggleProject(proj.id)"
@@ -171,31 +171,31 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                     type="button"
                     (click)="openAddRepoForm(proj.id)"
                     ksTooltip="Add Repo to {{ proj.name }}" attr.aria-label="Add Repo to {{ proj.name }}"
-                    class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
+                    class="ks-icon-btn ks-icon-btn-sm opacity-70 group-hover:opacity-100"
                   >
-                    <app-icon name="plus" [size]="11" />
+                    <app-icon name="plus" [size]="13" />
                   </button>
                   @if (!proj.is_default) {
                     <button
                       type="button"
                       (click)="$event.stopPropagation(); deleteProject(proj)"
                       ksTooltip="Delete Project" aria-label="Delete Project"
-                      class="opacity-0 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
+                      class="ks-icon-btn ks-icon-btn-sm ks-btn-danger opacity-0 group-hover:opacity-100"
                     >
-                      <app-icon name="trash" [size]="10" />
+                      <app-icon name="trash" [size]="13" />
                     </button>
                   }
                 </div>
               </div>
 
               @if (createMode() === 'repo' && formParentId() === proj.id) {
-                <form (ngSubmit)="submitCreateRepo(proj.id)" class="mx-2 mb-1 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5 text-[11px]">
+                <form (ngSubmit)="submitCreateRepo(proj.id)" class="mx-2 mb-1 rounded-md bg-[#131418] p-3 space-y-1.5 text-[11px]">
                   <select
                     name="repoWorker"
                     aria-label="Machine"
                     [ngModel]="formWorkerId()"
                     (ngModelChange)="formWorkerId.set($event)"
-                    class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[#ececed]"
+                    class="ks-field ks-field-sm w-full"
                   >
                     @for (w of fleet.workers(); track w.id) {
                       <option [value]="w.id">{{ w.name }}</option>
@@ -207,7 +207,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                     [ngModel]="formPath()"
                     (ngModelChange)="formPath.set($event)"
                     placeholder="/path/to/repo"
-                    class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 font-mono-ide text-[#ececed] focus:outline-none"
+                    class="ks-field ks-field-sm w-full font-mono-ide"
                   />
                   <input
                     type="text"
@@ -215,11 +215,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                     [ngModel]="formName()"
                     (ngModelChange)="formName.set($event)"
                     placeholder="Repo name (optional)"
-                    class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[#ececed] focus:outline-none"
+                    class="ks-field ks-field-sm w-full"
                   />
                   <div class="flex justify-end gap-1">
-                    <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#8a8c94] cursor-pointer">Cancel</button>
-                    <button type="submit" [disabled]="!formPath().trim() || !formWorkerId()" class="rounded bg-[#ececed] px-2 py-0.5 font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Add Repo</button>
+                    <button type="button" (click)="createMode.set(null)" class="ks-btn ks-btn-sm">Cancel</button>
+                    <button type="submit" [disabled]="!formPath().trim() || !formWorkerId()" class="ks-btn ks-btn-sm ks-btn-primary">Add Repo</button>
                   </div>
                 </form>
               }
@@ -228,7 +228,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 <div class="pl-3 space-y-0.5">
                   @for (repo of reposForProject(proj.id); track repo.id) {
                     <div class="space-y-0.5">
-                      <div class="group/repo flex items-center justify-between gap-1 rounded-md px-1.5 py-1 hover:bg-[#1d1f25] transition">
+                      <div class="group/repo flex items-center justify-between gap-1 rounded-md px-2 py-1.5 hover:bg-[#1d1f25] transition">
                         <button
                           type="button"
                           (click)="openWorktreeSession(repo, null)"
@@ -245,23 +245,23 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                             type="button"
                             (click)="$event.stopPropagation(); openAddWorktreeForm(repo.id, repo.path)"
                             ksTooltip="Add Worktree" aria-label="Add Worktree"
-                            class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] cursor-pointer"
+                            class="ks-icon-btn ks-icon-btn-sm opacity-0 group-hover/repo:opacity-100"
                           >
-                            <app-icon name="plus" [size]="10" />
+                            <app-icon name="plus" [size]="13" />
                           </button>
                           <button
                             type="button"
                             (click)="$event.stopPropagation(); deleteRepo(repo)"
                             ksTooltip="Remove Repo" aria-label="Remove Repo"
-                            class="opacity-0 group-hover/repo:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
+                            class="ks-icon-btn ks-icon-btn-sm ks-btn-danger opacity-0 group-hover/repo:opacity-100"
                           >
-                            <app-icon name="close" [size]="10" />
+                            <app-icon name="close" [size]="13" />
                           </button>
                         </div>
                       </div>
 
                       @if (createMode() === 'worktree' && formParentId() === repo.id) {
-                        <form (ngSubmit)="submitCreateWorktree(repo.id)" class="mx-2 mb-1 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5 text-[11px]">
+                        <form (ngSubmit)="submitCreateWorktree(repo.id)" class="mx-2 mb-1 rounded-md bg-[#131418] p-3 space-y-1.5 text-[11px]">
                           <input
                             type="text"
                             name="wtBranch"
@@ -269,7 +269,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                             (ngModelChange)="formName.set($event)"
                             placeholder="Branch (e.g. feat/auth)"
                             autofocus
-                            class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 font-mono-ide text-[#ececed] focus:outline-none"
+                            class="ks-field ks-field-sm w-full font-mono-ide"
                           />
                           <input
                             type="text"
@@ -277,11 +277,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                             [ngModel]="formPath()"
                             (ngModelChange)="formPath.set($event)"
                             placeholder="Worktree path"
-                            class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 font-mono-ide text-[#ececed] focus:outline-none"
+                            class="ks-field ks-field-sm w-full font-mono-ide"
                           />
                           <div class="flex justify-end gap-1">
-                            <button type="button" (click)="createMode.set(null)" class="px-2 py-0.5 text-[#8a8c94] cursor-pointer">Cancel</button>
-                            <button type="submit" [disabled]="!formName().trim()" class="rounded bg-[#ececed] px-2 py-0.5 font-medium text-[#111214] disabled:opacity-40 cursor-pointer">Create</button>
+                            <button type="button" (click)="createMode.set(null)" class="ks-btn ks-btn-sm">Cancel</button>
+                            <button type="submit" [disabled]="!formName().trim()" class="ks-btn ks-btn-sm ks-btn-primary">Create</button>
                           </div>
                         </form>
                       }
@@ -290,7 +290,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                       @for (wt of worktreesForRepo(repo.id); track wt.id) {
                         <div
                           (click)="openWorktreeSession(repo, wt)"
-                          class="group/wt ml-3 flex items-center justify-between gap-1.5 rounded px-1.5 py-0.5 hover:bg-[#1e2027] text-[11px] text-[#9a9ca4] hover:text-[#ececed] transition cursor-pointer"
+                          class="group/wt ml-3 flex items-center justify-between gap-1.5 rounded-md px-2 py-1 hover:bg-[#1e2027] text-[11px] text-[#9a9ca4] hover:text-[#ececed] transition cursor-pointer"
                         >
                           <span class="inline-flex items-center gap-1.5 min-w-0">
                             <app-icon name="git-branch" [size]="10" class="text-[#69b879]" />
@@ -301,9 +301,9 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                               type="button"
                               (click)="$event.stopPropagation(); deleteWorktree(wt)"
                               ksTooltip="Remove worktree entry" aria-label="Remove worktree entry"
-                              class="opacity-0 group-hover/wt:opacity-100 rounded p-0.5 text-[#86888f] hover:text-[#f09595] cursor-pointer"
+                              class="ks-icon-btn ks-icon-btn-sm ks-btn-danger opacity-0 group-hover/wt:opacity-100"
                             >
-                              <app-icon name="close" [size]="9" />
+                              <app-icon name="close" [size]="13" />
                             </button>
                           }
                         </div>
@@ -319,7 +319,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                         <button
                           type="button"
                           (click)="selectTask(t, fleet.workersById()[t.worker_id])"
-                          class="w-full flex items-center justify-between gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-[#1e2027] transition cursor-pointer"
+                          class="w-full flex items-center justify-between gap-1.5 rounded-md px-2 py-1.5 text-left text-[11.5px] hover:bg-[#1e2027] transition cursor-pointer"
                           [class.bg-[#24262e]]="tabs.activeTabId() === t.id"
                         >
                           <span class="inline-flex items-center gap-1.5 min-w-0">
@@ -349,7 +349,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
               type="button"
               (click)="openNewSpace.emit(null)"
               ksTooltip="New folder shortcut on a machine" aria-label="New folder shortcut on a machine"
-              class="inline-flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-[#24262d] p-0.5 text-[#8a8c94] hover:text-[#ececed] transition cursor-pointer"
+              class="ks-icon-btn ks-icon-btn-sm"
             >
               <app-icon name="plus" [size]="13" />
             </button>
@@ -365,7 +365,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
             @for (node of group.workers; track node.worker.id) {
               <div class="space-y-0.5">
                 <!-- Machine Row -->
-                <div class="group flex items-center justify-between gap-1 rounded-md px-1.5 py-1 hover:bg-[#1e2026] transition">
+                <div class="group flex items-center justify-between gap-1 rounded-md px-2 py-1.5 hover:bg-[#1e2026] transition">
                   <button
                     type="button"
                     (click)="toggleWorker(node.worker.id)"
@@ -386,7 +386,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                       <span
                         role="img"
                         class="rounded px-1 text-[9px] font-mono-ide leading-[14px] text-[#e6b566] bg-[#d9a043]/15 shrink-0"
-                        [attr.title]="versionMismatchLabel(node.worker)"
+                        [ksTooltip]="versionMismatchLabel(node.worker)"
                         [attr.aria-label]="versionMismatchLabel(node.worker)"
                         data-testid="version-mismatch-badge"
                       >ver</span>
@@ -398,17 +398,17 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                       type="button"
                       (click)="openNewSpace.emit(node.worker)"
                       ksTooltip="New space on {{ node.worker.name }}" attr.aria-label="New space on {{ node.worker.name }}"
-                      class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      class="ks-icon-btn ks-icon-btn-sm opacity-70 group-hover:opacity-100"
                     >
-                      <app-icon name="plus" [size]="12" />
+                      <app-icon name="plus" [size]="13" />
                     </button>
                     <button
                       type="button"
                       (click)="$event.stopPropagation(); openMachineDetails.emit(node.worker)"
                       ksTooltip="Machine details &amp; remove {{ node.worker.name }}" attr.aria-label="Machine details &amp; remove {{ node.worker.name }}"
-                      class="inline-flex items-center justify-center min-h-6 min-w-6 opacity-70 group-hover:opacity-100 rounded hover:bg-[#2a2d36] p-0.5 text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
+                      class="ks-icon-btn ks-icon-btn-sm opacity-70 group-hover:opacity-100"
                     >
-                      <app-icon name="info" [size]="12" />
+                      <app-icon name="info" [size]="13" />
                     </button>
                     <span
                       class="h-1.5 w-1.5 rounded-full mx-0.5"
@@ -421,10 +421,10 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                       (click)="toggleWorker(node.worker.id)"
                       [attr.aria-label]="(isCollapsed(node.worker.id) ? 'Expand ' : 'Collapse ') + node.worker.name"
                       [attr.aria-expanded]="!isCollapsed(node.worker.id)"
-                      class="text-[#86888f] hover:text-[#b4b6be] cursor-pointer transition-transform duration-150"
+                      class="ks-icon-btn ks-icon-btn-sm transition-transform duration-150"
                       [class.-rotate-90]="isCollapsed(node.worker.id)"
                     >
-                      <app-icon name="chevron-down" [size]="12" />
+                      <app-icon name="chevron-down" [size]="13" />
                     </button>
                   </div>
                 </div>
@@ -457,9 +457,9 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                             type="button"
                             (click)="$event.stopPropagation(); deleteSpace(sp)"
                             ksTooltip="Remove space" aria-label="Remove space"
-                            class="opacity-0 group-hover/sp:opacity-100 rounded p-0.5 hover:bg-white/10 text-[#86888f] hover:text-[#f09595] transition cursor-pointer"
+                            class="ks-icon-btn ks-icon-btn-sm ks-btn-danger opacity-0 group-hover/sp:opacity-100"
                           >
-                            <app-icon name="close" [size]="10" />
+                            <app-icon name="close" [size]="13" />
                           </button>
                         </div>
                       </div>
@@ -469,7 +469,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                       <button
                         type="button"
                         (click)="openNewSpace.emit(node.worker)"
-                        class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-[11px] text-[#86888f] hover:text-[#a1a3ab] hover:bg-[#1c1e24] transition cursor-pointer"
+                        class="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11.5px] text-[#86888f] hover:text-[#a1a3ab] hover:bg-[#1c1e24] transition cursor-pointer"
                       >
                         <app-icon name="plus" [size]="11" />
                         <span>New space there</span>
@@ -484,7 +484,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       </div>
 
       <!-- Herdr-style Live Agents Roster (Lower Section) -->
-      <div class="h-[36%] min-h-[140px] max-h-[260px] flex flex-col border-t border-[#26282e] px-2 pt-2 pb-1 shrink-0">
+      <div class="h-[36%] min-h-[140px] max-h-[260px] flex flex-col border-t border-white/[0.06] px-2.5 pt-2.5 pb-1.5 shrink-0">
         <div class="flex items-center justify-between px-1.5 pb-1.5 text-[11px] font-medium text-[#8a8c94] shrink-0">
           <span>Agents</span>
           <app-icon name="clock" [size]="12" class="text-[#86888f]" />
@@ -504,7 +504,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 <button
                   type="button"
                   (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
-                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-left transition cursor-pointer"
                   [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
                   [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
                 >
@@ -537,7 +537,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 <button
                   type="button"
                   (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
-                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-left transition cursor-pointer"
                   [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
                   [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
                 >
@@ -563,7 +563,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 <button
                   type="button"
                   (click)="selectTask(item.task, fleet.workersById()[item.task.worker_id])"
-                  class="w-full flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition cursor-pointer opacity-75 hover:opacity-100"
+                  class="w-full flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-left transition cursor-pointer"
                   [class.bg-[#24262e]]="tabs.activeTabId() === item.task.id"
                   [class.hover:bg-[#1e2026]]="tabs.activeTabId() !== item.task.id"
                 >
@@ -589,11 +589,11 @@ import { TooltipDirective } from '../shared/tooltip.directive';
       </div>
 
       <!-- Herdr-style Bottom Pinned Controls -->
-      <div class="border-t border-[#26282e] px-2 py-2 space-y-0.5 shrink-0">
+      <div class="border-t border-white/[0.06] px-2.5 py-2.5 space-y-0.5 shrink-0">
         <button
           type="button"
           (click)="openSettings.emit()"
-          class="w-full flex items-center justify-between rounded-md px-2 py-1 text-[12px] text-[#8e9098] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
+          class="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-[12.5px] text-[#9a9ca4] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
         >
           <span class="inline-flex items-center gap-2">
             <app-icon name="settings" [size]="13" />
@@ -606,7 +606,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
         <button
           type="button"
           (click)="openAddMachine.emit()"
-          class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[#8e9098] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
+          class="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[12.5px] text-[#9a9ca4] hover:text-[#ececed] hover:bg-[#1e2026] transition cursor-pointer"
         >
           <app-icon name="plus" [size]="13" />
           <span>Add machine</span>

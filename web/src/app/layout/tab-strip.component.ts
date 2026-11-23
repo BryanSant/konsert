@@ -13,9 +13,9 @@ import { TooltipDirective } from '../shared/tooltip.directive';
   imports: [TooltipDirective, IconComponent],
   host: { class: 'flex-1 min-w-0 h-full' },
   template: `
-    <div class="flex-1 flex items-center gap-1 px-2 h-full overflow-x-auto min-w-0">
+    <div class="flex-1 flex items-center gap-1.5 px-3 h-full overflow-x-auto [scrollbar-width:none] min-w-0">
       @if (activeSpace(); as sp) {
-        <span class="inline-flex items-center gap-1.5 rounded bg-[#1d2026] border border-[#2c2f38] px-2 py-0.5 text-[11px] text-[#b4b6be] shrink-0 mr-1">
+        <span class="inline-flex items-center gap-1.5 rounded-[var(--ks-radius-sm)] bg-[var(--ks-raised)] px-2 py-1 text-[11.5px] text-[#b4b6be] shrink-0 mr-1">
           <span class="h-3.5 w-3.5 rounded flex items-center justify-center text-[9px] font-semibold bg-[#1f8a8c]/85 text-white">
             {{ sp.name === '~' ? '~' : sp.name.slice(0, 1).toUpperCase() }}
           </span>
@@ -29,12 +29,12 @@ import { TooltipDirective } from '../shared/tooltip.directive';
           <div
             role="presentation"
             (click)="selectTab(tab.id)"
-            class="group flex items-center gap-1.5 px-2.5 py-1 text-[12px] rounded-md cursor-pointer shrink-0 transition-all duration-150 focus-within:ring-1 focus-within:ring-[#4a668a]"
-            [class.bg-[#24262d]]="selected || tabs.splitTabId() === tab.id"
+            class="group flex items-center gap-2 h-[30px] px-3 text-[12.5px] rounded-[var(--ks-radius-md)] cursor-pointer shrink-0 transition-all duration-150 focus-within:ring-1 focus-within:ring-[#4a668a]"
+            [class.bg-[var(--ks-raised)]]="selected || tabs.splitTabId() === tab.id"
             [class.text-[#f4f4f5]]="selected"
             [class.text-[#b4b6be]]="tabs.splitTabId() === tab.id && !selected"
             [class.text-[#8e9098]]="!selected && tabs.splitTabId() !== tab.id"
-            [class.hover:bg-[#1e2026]]="!selected && tabs.splitTabId() !== tab.id"
+            [class.hover:bg-white/[0.04]]="!selected && tabs.splitTabId() !== tab.id"
             [class.hover:text-[#d4d4d8]]="!selected && tabs.splitTabId() !== tab.id"
           >
             <button
@@ -47,9 +47,9 @@ import { TooltipDirective } from '../shared/tooltip.directive';
               class="flex items-center gap-1.5 bg-transparent text-inherit cursor-pointer focus:outline-none"
             >
               @if (tab.kind === 'orchestrator') {
-                <app-icon name="orchestrator" [size]="12" class="text-[#60a5fa]" />
+                <app-icon name="orchestrator" [size]="13" class="text-[#60a5fa]" />
               } @else {
-                <app-icon [name]="tab.agent || 'shell'" [size]="12" />
+                <app-icon [name]="tab.agent || 'shell'" [size]="13" />
               }
               <span class="max-w-[150px] truncate">{{ tab.title }}</span>
               @if (notifications.isUnread(tab.id) && !selected) {
@@ -57,7 +57,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 <span class="ks-sr-only">(needs attention)</span>
               }
               @if (tabs.splitTabId() === tab.id) {
-                <span class="rounded bg-[#1a1c22] border border-[#32353f] px-1 text-[9px] font-mono-ide text-[#8e9098]">split</span>
+                <span class="rounded bg-[#1a1c22] px-1 text-[9px] font-mono-ide text-[#8e9098]">split</span>
               }
             </button>
             @if (!tab.pinned) {
@@ -68,7 +68,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
                 aria-hidden="true"
                 ksTooltip="Close tab (Delete)" aria-label="Close tab (Delete)"
                 (click)="$event.stopPropagation(); tabs.closeTab(tab.id)"
-                class="rounded hover:bg-white/10 p-0.5 text-[#86888f] hover:text-[#ececed] transition cursor-pointer"
+                class="ks-icon-btn ks-icon-btn-sm !w-5 !h-5 -mr-1 opacity-60 group-hover:opacity-100"
               >
                 <app-icon name="close" [size]="11" />
               </button>
@@ -82,26 +82,21 @@ import { TooltipDirective } from '../shared/tooltip.directive';
         (click)="newTab.emit()"
         [ksTooltip]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
         [attr.aria-label]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
-        class="rounded-md p-1 text-[#8a8c94] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
+        class="ks-icon-btn shrink-0"
       >
-        <app-icon name="plus" [size]="14" />
+        <app-icon name="plus" [size]="15" />
       </button>
 
       @if (tabs.activeTab()?.kind === 'terminal' || tabs.splitTabId()) {
         <button
           type="button"
           (click)="toggleSplit.emit()"
-          [ksTooltip]="tabs.splitTabId() ? 'Close split pane (⌘\\)' : 'Split terminal side-by-side (⌘\\)'"
+          [ksTooltip]="tabs.splitTabId() ? splitCloseTip : splitOpenTip"
           [attr.aria-label]="tabs.splitTabId() ? 'Close split pane' : 'Split terminal side by side'"
           [attr.aria-pressed]="!!tabs.splitTabId()"
-          class="hidden md:inline-flex rounded-md p-1 active:scale-95 transition cursor-pointer shrink-0"
-          [class.bg-[#24262d]]="!!tabs.splitTabId()"
-          [class.text-[#ececed]]="!!tabs.splitTabId()"
-          [class.text-[#8a8c94]]="!tabs.splitTabId()"
-          [class.hover:text-[#ececed]]="!tabs.splitTabId()"
-          [class.hover:bg-[#23252b]]="!tabs.splitTabId()"
+          class="ks-icon-btn hidden md:inline-flex shrink-0"
         >
-          <app-icon name="split" [size]="14" />
+          <app-icon name="split" [size]="15" />
         </button>
       }
     </div>
@@ -113,6 +108,8 @@ export class TabStripComponent {
   private readonly fleet = inject(FleetStore);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  readonly splitOpenTip = 'Split terminal side-by-side (⌘\\)';
+  readonly splitCloseTip = 'Close split pane (⌘\\)';
   readonly newTab = output<void>();
   readonly toggleSplit = output<void>();
 

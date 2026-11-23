@@ -81,7 +81,9 @@ describe('worker version UI', () => {
       expect(badge.getAttribute('aria-label')).toContain('node-old');
       expect(badge.getAttribute('aria-label')).toContain('1.4.0');
       expect(badge.getAttribute('aria-label')).toContain('1.5.0');
-      expect(badge.getAttribute('title')).toBe(badge.getAttribute('aria-label'));
+      // No native title: the ksTooltip repeats the aria-label, so it isn't linked twice.
+      expect(badge.hasAttribute('title')).toBe(false);
+      expect(badge.hasAttribute('aria-describedby')).toBe(false);
       expect(badge.getAttribute('role')).toBe('img');
     });
 
@@ -107,7 +109,9 @@ describe('worker version UI', () => {
       expect(row.textContent).toContain('1.4.0');
       const note = root.querySelector('[data-testid="worker-version-mismatch"]') as HTMLElement;
       expect(note.textContent).toContain('Differs from hub 1.5.0');
-      expect(note.getAttribute('title')).toContain('1.4.0');
+      expect(note.hasAttribute('title')).toBe(false);
+      const tip = document.getElementById(note.getAttribute('aria-describedby') ?? '');
+      expect(tip?.textContent).toContain('1.4.0');
     });
 
     it('shows matching versions without a warning', () => {

@@ -315,6 +315,8 @@ dialog.ks-dialog::backdrop {
 .ks-btn:hover:not(:disabled),
 .ks-icon-btn:hover:not(:disabled),
 .ks-chip:hover:not(:disabled),
+.ks-btn[aria-pressed='true'],
+.ks-icon-btn[aria-pressed='true'],
 .ks-btn[aria-expanded='true'],
 .ks-icon-btn[aria-expanded='true'],
 .ks-chip[aria-expanded='true'] {
@@ -408,6 +410,52 @@ dialog.ks-dialog::backdrop {
   box-shadow: var(--ks-focus-ring);
 }
 
+/* ---------- Form fields: filled, borderless, focus ring ---------- */
+.ks-field {
+  display: block;
+  border: 0;
+  border-radius: var(--ks-radius-md);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--ks-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px 11px;
+  transition: background-color var(--ks-dur-fast) var(--ks-ease-out), box-shadow var(--ks-dur-fast) var(--ks-ease-out);
+}
+.ks-field::placeholder {
+  color: #80828a;
+}
+.ks-field:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.065);
+}
+.ks-field:focus,
+.ks-field:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.065);
+  box-shadow: 0 0 0 1.5px #6d8fbf;
+}
+.ks-field:disabled {
+  opacity: 0.5;
+}
+.ks-field-sm {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+select.ks-field {
+  padding-right: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a9ca4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+select.ks-field option {
+  background: #1e1f24;
+  color: var(--ks-text);
+}
+
 /* ---------- Popover / menu ---------- */
 .ks-menu {
   min-width: 220px;
@@ -442,8 +490,28 @@ dialog.ks-dialog::backdrop {
   background: var(--ks-raised);
 }
 .ks-menu-item[aria-disabled='true'] {
-  opacity: 0.45;
-  cursor: default;
+  cursor: not-allowed;
+}
+/* Grey the label/icon only, so the reason below stays readable (contrast >= 4.5:1). */
+.ks-menu-item[aria-disabled='true'] > :first-child,
+.ks-menu-item[aria-disabled='true'] .ks-menu-label {
+  color: var(--ks-text-muted);
+}
+.ks-menu-item[aria-disabled='true'] .ks-menu-desc {
+  color: var(--ks-text-muted);
+}
+.ks-menu-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #c9a46a;
+}
+.ks-menu-reason > app-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 .ks-menu-label {
   font-size: 12.5px;
@@ -536,6 +604,19 @@ dialog.ks-dialog::backdrop {
 .ks-pulse {
   animation: ks-pulse-dot 1.4s ease-in-out infinite;
 }
+
+/* Mic button while dictating: red, with a soft pulsing ring. */
+@keyframes ks-mic-ring {
+  0% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(232, 107, 107, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0); }
+}
+.ks-icon-btn.ks-mic-recording,
+.ks-icon-btn.ks-mic-recording:hover:not(:disabled) {
+  color: #f6b8b8;
+  background: var(--ks-red-soft);
+  animation: ks-mic-ring 1.5s var(--ks-ease-out) infinite;
+}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -543,6 +624,7 @@ dialog.ks-dialog::backdrop {
   .ks-tooltip,
   .ks-tooltip.ks-tooltip-animate,
   .ks-pulse,
+  .ks-mic-recording,
   .ks-btn,
   .ks-icon-btn,
   .ks-chip,

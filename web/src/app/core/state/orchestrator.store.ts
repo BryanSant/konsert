@@ -68,8 +68,33 @@ export class OrchestratorStore {
     );
   }
 
+  /**
+   * Inserts or merges a session pushed by the hub (fleet.update chat_session): chats created
+   * in another tab, by the CLI or by the orchestrator appear without a reload. New chats go
+   * to the top; known ones keep their place.
+   */
+  upsertSession(session: ChatSession): void {
+    this.sessions.update((list) => {
+      const idx = list.findIndex((s) => s.id === session.id);
+      if (idx === -1) return [session, ...list];
+      const next = [...list];
+      next[idx] = { ...list[idx], ...session };
+      return next;
+    });
+  }
+
+  /** Drops a session deleted elsewhere (fleet.update chat_session_deleted). */
+  async removeSession(sessionId: string): Promise<void> {
+    if (!this.sessions().some((s) => s.id === sessionId)) return;
+    await this.forgetSession(sessionId);
+  }
+
   async deleteSession(sessionId: string): Promise<void> {
     await this.api.deleteChatSession(sessionId);
+    await this.forgetSession(sessionId);
+  }
+
+  private async forgetSession(sessionId: string): Promise<void> {
     if (this.inFlightSessionId() === sessionId) {
       this.inFlightSessionId.set('');
     }

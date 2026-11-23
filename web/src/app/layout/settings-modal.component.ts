@@ -14,7 +14,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
   standalone: true,
   imports: [FormsModule, ModalDialogComponent],
   template: `
-    <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-xl border border-[#30323c] bg-[#18191d]/95 backdrop-blur-xl p-5 space-y-4 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
+    <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="settings-title">Settings</h3>
@@ -27,7 +27,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
 
       <form (ngSubmit)="save()" class="space-y-4 text-[12px]">
         <!-- Session, Terminal & Fleet Defaults -->
-        <div class="rounded-lg border border-[#26282e] bg-[#131417] p-3.5 space-y-3">
+        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3.5">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
             Session Defaults &amp; Notifications
           </div>
@@ -39,7 +39,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                 name="defaultAccount"
                 [ngModel]="defaultAccountKey()"
                 (ngModelChange)="onAccountChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                class="ks-field w-full"
               >
                 <option value="">Auto (last used)</option>
                 @for (o of accountOptions(); track o.key) {
@@ -55,7 +55,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                 [ngModel]="defaultModel()"
                 (ngModelChange)="onModelChange($event)"
                 [disabled]="modelOptions().length === 0"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] disabled:opacity-50"
+                class="ks-field w-full disabled:opacity-50"
               >
                 <option value="">Account default</option>
                 @for (m of modelOptions(); track m.id) {
@@ -73,7 +73,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                   name="defaultEffort"
                   [ngModel]="defaultEffort()"
                   (ngModelChange)="defaultEffort.set($event)"
-                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                  class="ks-field w-full"
                 >
                   <option value="">Model default</option>
                   @for (e of effortOptions(); track e.id) {
@@ -91,7 +91,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                 name="perm"
                 [ngModel]="defaultPerm()"
                 (ngModelChange)="defaultPerm.set($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                class="ks-field w-full"
               >
                 <option value="full_access">Full Access (Default)</option>
                 <option value="sandboxed">Sandboxed (Opt-In)</option>
@@ -125,7 +125,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
         </div>
 
         <!-- Orchestrator LLM Section -->
-        <details class="rounded-lg bg-[#131417] group" [open]="apiKeySet()">
+        <details class="rounded-[var(--ks-radius-lg)] bg-black/20 group" [open]="apiKeySet()">
           <summary class="cursor-pointer list-none px-3.5 py-3 text-[12px] text-[#a1a3ab] hover:text-[#ececed] flex items-center justify-between">
             <span><span class="font-semibold">Advanced:</span> API-key orchestrator (optional)</span>
             <span class="text-[10.5px] text-[#86888f]">{{ apiKeySet() ? 'Configured' : 'Not needed for subscription agents' }}</span>
@@ -142,7 +142,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                 name="provider"
                 [ngModel]="provider()"
                 (ngModelChange)="onProviderChange($event)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                class="ks-field w-full"
               >
                 <option value="openai">OpenAI / Compatible</option>
                 <option value="anthropic">Anthropic</option>
@@ -158,7 +158,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
                 [ngModel]="model()"
                 (ngModelChange)="model.set($event)"
                 placeholder="model id (required)"
-                class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+                class="ks-field w-full font-mono-ide"
               />
             </div>
           </div>
@@ -171,7 +171,7 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
               [ngModel]="baseUrl()"
               (ngModelChange)="baseUrl.set($event)"
               placeholder="https://api.openai.com/v1 or http://127.0.0.1:11434/v1"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+              class="ks-field w-full font-mono-ide"
             />
           </div>
 
@@ -193,19 +193,19 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
               [ngModel]="apiKey()"
               (ngModelChange)="apiKey.set($event)"
               [placeholder]="apiKeySet() ? '•••••••••••••••• (enter new key to replace)' : 'sk-...'"
-              class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+              class="ks-field w-full font-mono-ide"
             />
           </div>
         </div>
         </details>
 
         @if (error()) {
-          <div class="rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[#f09595]">
+          <div class="rounded-md bg-[#e05d5d]/10 px-3 py-2.5 text-[#f09595]">
             {{ error() }}
           </div>
         }
         @if (savedNotice()) {
-          <div class="rounded-md border border-[#69b879]/30 bg-[#69b879]/10 px-3 py-2 text-[#8fd49d]">
+          <div class="rounded-md bg-[#69b879]/10 px-3 py-2.5 text-[#8fd49d]">
             Settings saved and applied.
           </div>
         }
@@ -214,14 +214,14 @@ import { defaultModel, effortsFor, findModel } from '../features/chat/composer/c
           <button
             type="button"
             (click)="close.emit()"
-            class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#a1a3ab] hover:text-[#ececed] transition cursor-pointer"
+            class="ks-btn ks-btn-sm"
           >
             Close
           </button>
           <button
             type="submit"
             [disabled]="saving()"
-            class="rounded-md bg-[#ececed] hover:bg-white active:scale-[0.98] disabled:opacity-40 px-4 py-1.5 font-medium text-[#111214] transition cursor-pointer"
+            class="ks-btn ks-btn-primary"
           >
             {{ saving() ? 'Saving...' : 'Save Settings' }}
           </button>

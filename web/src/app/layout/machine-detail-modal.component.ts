@@ -6,17 +6,18 @@ import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective],
   template: `
-    <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
+    <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-3 min-w-0">
-          <div class="h-9 w-9 rounded-lg border border-[#2d3039] bg-[#141518] flex items-center justify-center shrink-0">
+          <div class="h-9 w-9 rounded-lg bg-[#141518] flex items-center justify-center shrink-0">
             <app-icon
               [name]="worker().isolation === 'container' ? 'container' : worker().os === 'darwin' ? 'monitor' : 'server'"
               [size]="16"
@@ -59,7 +60,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- Core Identity & Runtime Grid -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-        <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5">
           <div class="text-[#86888f] text-[10px]">Permission</div>
           <div
             class="font-mono-ide mt-0.5 font-medium"
@@ -69,24 +70,24 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
             {{ worker().permission_mode }}
           </div>
         </div>
-        <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5">
           <div class="text-[#86888f] text-[10px]">Active / Slots</div>
           <div class="font-mono-ide mt-0.5 text-[#e4e4e7]">
             {{ activeSessionsCount() }} / {{ worker().max_concurrent }}
           </div>
         </div>
-        <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5">
           <div class="text-[#86888f] text-[10px]">Last Seen</div>
           <div class="font-mono-ide mt-0.5 text-[#d4d4d8] truncate">{{ lastSeenLabel() }}</div>
         </div>
-        <div class="rounded-lg border border-[#262830] bg-[#141518] px-2.5 py-2">
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5">
           <div class="text-[#86888f] text-[10px]">Saved Spaces</div>
           <div class="font-mono-ide mt-0.5 text-[#e4e4e7]">{{ savedSpacesCount() }}</div>
         </div>
       </div>
 
       <!-- Worker ID row -->
-      <div class="flex items-center justify-between gap-2 rounded-lg border border-[#262830] bg-[#141518] px-3 py-2 text-[11px]">
+      <div class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]">
         <div class="min-w-0">
           <span class="text-[#86888f] mr-2">Worker ID</span>
           <span class="font-mono-ide text-[#c8cad0] break-all">{{ worker().id }}</span>
@@ -103,7 +104,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- konsertd version row -->
       <div
-        class="flex items-center justify-between gap-2 rounded-lg border border-[#262830] bg-[#141518] px-3 py-2 text-[11px]"
+        class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]"
         data-testid="worker-version"
       >
         <div class="min-w-0">
@@ -113,7 +114,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
         @if (versionMismatch()) {
           <span
             class="inline-flex items-center gap-1 rounded-full bg-[#d9a043]/15 px-2 py-0.5 text-[10.5px] font-medium text-[#e6b566] shrink-0"
-            [attr.title]="mismatchText()"
+            [ksTooltip]="mismatchText()"
             data-testid="worker-version-mismatch"
           >
             Differs from hub {{ fleet.controllerVersion() }}
@@ -123,7 +124,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- Live Telemetry Metrics -->
       @if (worker().metrics; as m) {
-        <div class="rounded-lg border border-[#262830] bg-[#141518] p-3 space-y-2 text-[11.5px]">
+        <div class="rounded-lg bg-[#141518] p-3 space-y-2 text-[11.5px]">
           <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Live Telemetry</div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono-ide text-[11px]">
             <div>
@@ -148,7 +149,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- Cached Machine Facts -->
       @if (worker().facts; as f) {
-        <div class="rounded-lg border border-[#262830] bg-[#141518] p-3 space-y-2 text-[11.5px]">
+        <div class="rounded-lg bg-[#141518] p-3 space-y-2 text-[11.5px]">
           <div class="flex items-center justify-between">
             <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Machine Facts</span>
             <span class="font-mono-ide text-[10px] text-[#86888f]">{{ f.virtualization || worker().isolation }}</span>
@@ -182,7 +183,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
           @if (toolEntries().length > 0) {
             <div class="flex flex-wrap gap-1 pt-1">
               @for (entry of toolEntries(); track entry.name) {
-                <span class="rounded bg-[#1e2027] border border-[#2a2d36] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab]">
+                <span class="rounded bg-[#1e2027] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab]">
                   {{ entry.name }}@if (entry.version) { <span class="text-[#86888f]"> {{ entry.version }}</span> }
                 </span>
               }
@@ -196,7 +197,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
         <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Installed Agents</div>
         <div class="flex flex-wrap gap-1.5">
           @for (a of worker().agents; track a) {
-            <span class="inline-flex items-center gap-1.5 rounded-md border border-[#2b2e37] bg-[#141518] px-2 py-1 text-[11px] font-mono-ide text-[#d4d4d8]">
+            <span class="inline-flex items-center gap-1.5 rounded-md bg-[#141518] px-2 py-1 text-[11px] font-mono-ide text-[#d4d4d8]">
               <app-icon [name]="a" [size]="11" />
               <span>{{ a }}</span>
             </span>
@@ -206,7 +207,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 
       <!-- Inline "Are you sure?" Remove Confirmation -->
       @if (confirmRemove()) {
-        <div class="rounded-lg border border-[#e05d5d]/40 bg-[#e05d5d]/10 p-3.5 space-y-3">
+        <div class="rounded-lg bg-[#e05d5d]/10 p-3.5 space-y-3">
           <div class="space-y-1">
             <div class="text-[12.5px] font-semibold text-[#f5b4b4]">
               Are you sure you want to remove "{{ worker().name }}"?
@@ -223,7 +224,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               type="button"
               (click)="confirmRemove.set(false)"
               [disabled]="removing()"
-              class="rounded-md border border-[#3a3d47] bg-[#1d1f25] hover:bg-[#262830] px-3 py-1.5 text-[11.5px] text-[#d4d4d8] transition cursor-pointer"
+              class="ks-btn ks-btn-sm ks-btn-soft"
             >
               Cancel
             </button>
@@ -239,11 +240,11 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
         </div>
       } @else {
         <!-- Footer Actions -->
-        <div class="flex items-center justify-between gap-2 pt-2 border-t border-[#26282f]">
+        <div class="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
           <button
             type="button"
             (click)="confirmRemove.set(true)"
-            class="inline-flex items-center gap-1.5 rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 hover:bg-[#e05d5d]/20 px-3 py-1.5 text-[12px] font-medium text-[#f09595] transition cursor-pointer"
+            class="ks-btn ks-btn-sm ks-btn-danger"
           >
             <app-icon name="trash" [size]="12" />
             <span>Remove Machine</span>
@@ -254,7 +255,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               <button
                 type="button"
                 (click)="startTerminal.emit(worker())"
-                class="inline-flex items-center gap-1.5 rounded-md border border-[#2f323c] bg-[#22242b] hover:bg-[#2b2e37] px-3 py-1.5 text-[12px] text-[#e4e4e7] transition cursor-pointer"
+                class="ks-btn ks-btn-sm ks-btn-soft"
               >
                 <app-icon name="shell" [size]="12" />
                 <span>Terminal</span>
@@ -262,7 +263,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               <button
                 type="button"
                 (click)="startChat.emit(worker())"
-                class="inline-flex items-center gap-1.5 rounded-md bg-[#ececed] hover:bg-white px-3.5 py-1.5 text-[12px] font-medium text-[#111214] transition cursor-pointer"
+                class="ks-btn ks-btn-primary"
               >
                 <app-icon name="orchestrator" [size]="12" />
                 <span>New Chat</span>
@@ -271,7 +272,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
               <button
                 type="button"
                 (click)="close.emit()"
-                class="rounded-md border border-[#2f323c] bg-[#22242b] hover:bg-[#2b2e37] px-3.5 py-1.5 text-[12px] text-[#e4e4e7] transition cursor-pointer"
+                class="ks-btn ks-btn-soft"
               >
                 Close
               </button>

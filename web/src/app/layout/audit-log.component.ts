@@ -43,16 +43,16 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
       role="search"
       aria-label="Filter audit log"
       (ngSubmit)="reload()"
-      class="shrink-0 grid grid-cols-2 gap-1.5 p-3 pb-2 border-b border-[#26282e] text-[11px]"
+      class="shrink-0 grid grid-cols-2 gap-2.5 px-4 pt-1.5 pb-3 text-[11.5px]"
     >
       <div>
-        <label for="audit-filter-host" class="block text-[10px] text-[#8a8c94] mb-0.5">Host</label>
+        <label for="audit-filter-host" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Host</label>
         <select
           id="audit-filter-host"
           name="host"
           [ngModel]="hostFilter()"
           (ngModelChange)="hostFilter.set($event); reload()"
-          class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-1.5 py-1 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+          class="ks-field ks-field-sm w-full"
         >
           <option value="">All hosts</option>
           @for (w of hosts(); track w.id) {
@@ -61,13 +61,13 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </select>
       </div>
       <div>
-        <label for="audit-filter-action" class="block text-[10px] text-[#8a8c94] mb-0.5">Action</label>
+        <label for="audit-filter-action" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Action</label>
         <select
           id="audit-filter-action"
           name="action"
           [ngModel]="actionFilter()"
           (ngModelChange)="actionFilter.set($event); reload()"
-          class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-1.5 py-1 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+          class="ks-field ks-field-sm w-full"
         >
           <option value="">All actions</option>
           @for (a of actions; track a.id) {
@@ -76,7 +76,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </select>
       </div>
       <div>
-        <label for="audit-filter-user" class="block text-[10px] text-[#8a8c94] mb-0.5">User</label>
+        <label for="audit-filter-user" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">User</label>
         <input
           id="audit-filter-user"
           name="user"
@@ -87,7 +87,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           [ngModel]="userFilter()"
           (ngModelChange)="userFilter.set($event)"
           (change)="reload()"
-          class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-1.5 py-1 text-[#ececed] placeholder-[#5e6068] focus:border-[#4a668a] focus:outline-none"
+          class="ks-field ks-field-sm w-full"
         />
         <datalist id="audit-user-options">
           @for (u of knownUsers(); track u) {
@@ -96,7 +96,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </datalist>
       </div>
       <div>
-        <label for="audit-filter-task" class="block text-[10px] text-[#8a8c94] mb-0.5">Task ID</label>
+        <label for="audit-filter-task" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Task ID</label>
         <input
           id="audit-filter-task"
           name="task"
@@ -106,7 +106,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           [ngModel]="taskFilter()"
           (ngModelChange)="taskFilter.set($event)"
           (change)="reload()"
-          class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-1.5 py-1 font-mono-ide text-[#ececed] placeholder-[#5e6068] focus:border-[#4a668a] focus:outline-none"
+          class="ks-field ks-field-sm w-full font-mono-ide"
         />
       </div>
       <div class="col-span-2 flex items-center justify-between pt-0.5">
@@ -115,7 +115,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           <button
             type="button"
             (click)="clearFilters()"
-            class="rounded px-1.5 py-0.5 text-[10px] text-[#8e9098] hover:text-[#ececed] hover:bg-[#24262c] cursor-pointer"
+            class="ks-btn ks-btn-sm"
           >
             Clear filters
           </button>
@@ -126,12 +126,12 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
 
     <div class="flex-1 min-h-0 overflow-y-auto">
       @if (error()) {
-        <div role="alert" class="m-3 rounded-md border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-2.5 py-2 text-[11px] text-[#f09595]">
+        <div role="alert" class="m-3 rounded-md bg-[#e05d5d]/10 px-3 py-2.5 text-[11px] text-[#f09595]">
           {{ error() }}
         </div>
       }
       @if (!loading() && events().length === 0 && !error()) {
-        <div class="p-3 text-[11px] text-[#86888f]">
+        <div class="px-4 py-3 text-[11.5px] text-[#86888f]">
           {{ hasFilters() ? 'No audit events match these filters.' : 'No operator actions recorded yet.' }}
         </div>
       }
@@ -146,30 +146,30 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           </colgroup>
           <thead class="sticky top-0 z-10 bg-[#16171a]">
             <tr class="text-left text-[10px] uppercase tracking-wider text-[#8a8c94]">
-              <th scope="col" class="px-2 py-1.5 font-medium">Time</th>
-              <th scope="col" class="px-1 py-1.5 font-medium">User</th>
-              <th scope="col" class="px-1 py-1.5 font-medium">Action</th>
-              <th scope="col" class="px-2 py-1.5 font-medium">Host / Task</th>
+              <th scope="col" class="px-3 py-2 font-medium">Time</th>
+              <th scope="col" class="px-1.5 py-2 font-medium">User</th>
+              <th scope="col" class="px-1.5 py-2 font-medium">Action</th>
+              <th scope="col" class="px-3 py-2 font-medium">Host / Task</th>
             </tr>
           </thead>
           <tbody>
             @for (ev of events(); track ev.id) {
-              <tr class="align-top border-t border-[#22242a] hover:bg-[#1b1c20]" [attr.data-audit-id]="ev.id">
-                <td class="px-2 py-1.5 font-mono-ide text-[10px] text-[#86888f]">
-                  <time [attr.datetime]="ev.created_at" [title]="fullTime(ev.created_at)">{{ shortTime(ev.created_at) }}</time>
+              <tr class="align-top border-t border-white/[0.04] hover:bg-white/[0.03]" [attr.data-audit-id]="ev.id">
+                <td class="px-3 py-2 font-mono-ide text-[10px] text-[#86888f]">
+                  <time [attr.datetime]="ev.created_at" [ksTooltip]="fullTime(ev.created_at)">{{ shortTime(ev.created_at) }}</time>
                 </td>
-                <td class="px-1 py-1.5 text-[#d4d4d8] truncate" [title]="ev.user + (ev.source ? ' via ' + ev.source : '')">
+                <td class="px-1.5 py-2 text-[#d4d4d8] truncate" [ksTooltip]="ev.user + (ev.source ? ' via ' + ev.source : '')">
                   {{ ev.user }}
                 </td>
-                <td class="px-1 py-1.5">
+                <td class="px-1.5 py-2">
                   <div class="font-medium text-[#d9a043] truncate">{{ actionLabel(ev.action) }}</div>
                   @if (ev.message) {
-                    <div class="text-[10px] text-[#8e9098] break-words line-clamp-2" [title]="ev.message">{{ ev.message }}</div>
+                    <div class="text-[10px] text-[#8e9098] break-words line-clamp-2" [ksTooltip]="ev.message">{{ ev.message }}</div>
                   }
                 </td>
-                <td class="px-2 py-1.5 min-w-0">
+                <td class="px-3 py-2 min-w-0">
                   @if (ev.worker_id) {
-                    <div class="truncate text-[#d4d4d8]" [title]="ev.worker_id">{{ hostName(ev.worker_id) }}</div>
+                    <div class="truncate text-[#d4d4d8]" [ksTooltip]="ev.worker_id">{{ hostName(ev.worker_id) }}</div>
                   }
                   @if (ev.task_id) {
                     <button
@@ -192,12 +192,12 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </table>
       }
       @if (nextCursor()) {
-        <div class="p-3 pt-2">
+        <div class="px-4 pb-4 pt-2">
           <button
             type="button"
             (click)="loadMore()"
             [disabled]="loadingMore()"
-            class="w-full rounded-md border border-[#2c2e36] bg-[#1b1c20] hover:bg-[#22242a] px-2.5 py-1.5 text-[11px] text-[#d4d4d8] cursor-pointer disabled:opacity-50"
+            class="ks-btn ks-btn-sm w-full"
           >
             {{ loadingMore() ? 'Loading…' : 'Load older events' }}
           </button>

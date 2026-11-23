@@ -56,10 +56,10 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, IconComponent, ModalDialogComponent],
   template: `
-    <app-modal-dialog label="Command palette" align="top" panelClass="w-full max-w-xl rounded-xl border border-[#31333d] bg-[#191a1e]/95 backdrop-blur-2xl overflow-hidden" (close)="close.emit()">
+    <app-modal-dialog label="Command palette" align="top" panelClass="w-full max-w-xl rounded-[var(--ks-radius-xl)] bg-[#191a1e]/95 backdrop-blur-2xl overflow-hidden" (close)="close.emit()">
       <!-- Inner Rounded Search Input -->
-      <div class="p-2.5 border-b border-[#25272e]">
-        <div class="flex items-center gap-2.5 rounded-lg border border-[#2c2e37] bg-[#141518] px-3 py-2 focus-within:border-[#454958] transition">
+      <div class="p-2.5 border-b border-white/[0.06]">
+        <div class="flex items-center gap-2.5 rounded-lg bg-[#141518] px-3 py-2.5 focus-within:border-[#454958] transition">
           <app-icon name="search" [size]="15" class="text-[#8a8c94]" />
           <input
             type="text"
@@ -76,7 +76,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
             autofocus
             class="flex-1 bg-transparent text-[13px] text-[#ececed] placeholder-[#686a72] focus:outline-none"
           />
-          <span class="rounded border border-[#2d3039] bg-[#1c1e24] px-2 py-0.5 text-[11px] text-[#8e9098]" aria-live="polite" [attr.aria-label]="items().length + ' results'">
+          <span class="rounded bg-[#1c1e24] px-2 py-0.5 text-[11px] text-[#8e9098]" aria-live="polite" [attr.aria-label]="items().length + ' results'">
             {{ items().length }}
           </span>
         </div>
@@ -118,7 +118,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
                   <span class="truncate" [class.font-medium]="item.section !== 'actions'">{{ item.label }}</span>
                   @if (item.sublabel) {
                     @if (item.section === 'machines') {
-                      <span class="rounded border border-[#32343d] bg-[#202127] px-1.5 py-0.5 text-[10px] text-[#8e9098]">{{ item.sublabel }}</span>
+                      <span class="rounded bg-[#202127] px-1.5 py-0.5 text-[10px] text-[#8e9098]">{{ item.sublabel }}</span>
                     } @else {
                       <span class="text-[11px] text-[#a1a3ab]" [class.shrink-0]="item.section === 'sessions'" [class.truncate]="item.section !== 'sessions'">{{ item.sublabel }}</span>
                     }
@@ -128,7 +128,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
                   @if (item.section === 'actions') {
                     <span class="ks-kbd">{{ item.pill }}</span>
                   } @else {
-                    <span class="rounded border border-[#343640] bg-[#1a1b20] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab] shrink-0">{{ item.pill }}</span>
+                    <span class="rounded bg-[#1a1b20] px-1.5 py-0.5 text-[10px] font-mono-ide text-[#a1a3ab] shrink-0">{{ item.pill }}</span>
                   }
                 }
               </button>
@@ -138,7 +138,7 @@ const SECTION_ORDER: PaletteSection[] = ['sessions', 'taxonomy', 'machines', 'ac
       </div>
 
       <!-- Orca-Style Keyboard Hint Footer -->
-      <div class="flex items-center justify-end gap-3 px-3 py-2 border-t border-[#24262d] bg-[#15161a]/90 text-[11px] text-[#86888f]">
+      <div class="flex items-center justify-end gap-3 px-3 py-2 border-t border-white/[0.06] bg-[#15161a]/90 text-[11px] text-[#86888f]">
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">Enter</span> Open</span>
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">Esc</span> Close</span>
         <span class="inline-flex items-center gap-1"><span class="ks-kbd">↑↓</span> Move</span>
