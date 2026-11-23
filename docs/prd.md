@@ -104,7 +104,7 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 
 - **[gap]** Attempts: a task can have several attempts; requeue creates a new attempt instead of overwriting history.
 - **[gap]** Failure-driven retry policy: on classified failures (OOM, disk full, timeout) the scheduler or orchestrator may retry on a larger machine; on usage limits, on another account; on auth, never (ask the user).
-- **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a git bundle sent directly A → B over SSH (fleet-managed keys, see §5.10) when B can reach A, else relayed through the hub; plus a handoff note (previous summary, failure, relevant context) given to the new session.
+- **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a git bundle sent directly A → B over SSH (fleet-managed keys, see §5.9) when B can reach A, else relayed through the hub; plus a handoff note (previous summary, failure, relevant context) given to the new session.
 - **[gap]** Learned pins: after a migration succeeds where the original failed, record a placement rule for that work key (provenance `learned`, with the evidence) so future work goes straight to the right machine class.
 
 ### 5.7 Policy and enforcement
@@ -128,13 +128,13 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 - **[gap]** A shipped *Konsert scheduler skill* for orchestrator agents: how to read the snapshot, when to trust the built-in scheduler, how to respond to failure categories, when to migrate, and how to record learned rules. Konsert owns the facts and memory; the skill owns the playbook.
 - **[gap]** Notifications to the orchestrator when work it dispatched fails, stalls, needs input or completes, so it can react without polling.
 
-### 5.10 Fleet transfer channel
+### 5.9 Fleet transfer channel
 
 - **[gap]** The hub manages a fleet SSH identity per daemon (keypair generated on the machine; public key registered with the hub; private key never leaves the machine). For a transfer, the hub tells the receiver to accept one specific key for one transfer and tells the sender where to connect; authorized keys are restricted to a single konsertd receive command, scoped and short-lived.
 - **[gap]** Reachability is probed, not assumed (Tailscale addresses, LAN); the hub picks git remote → direct SSH → hub relay.
 - **[gap]** Transfers are audited (who, what, bytes, path taken).
 
-### 5.9 Human interface (PWA)
+### 5.10 Human interface (PWA)
 
 - **[have]** Fleet tree, chats with agents, terminal tabs, telemetry, usage footer, approval/model/effort pickers, first-run setup, mobile layout.
 - **[gap]** Activity view of *all* sessions (managed and observed) per machine with their resource use, plus "other load".
