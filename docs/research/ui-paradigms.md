@@ -731,3 +731,17 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
 - Anthropic, Measuring AI agent autonomy in practice (2026): https://www.anthropic.com/research/measuring-agent-autonomy
 - OpenAI, Practices for governing agentic AI systems: https://cdn.openai.com/papers/practices-for-governing-agentic-ai-systems.pdf · Auto-review: https://alignment.openai.com/auto-review
 - Singapore Consensus (2026): https://arxiv.org/pdf/2608.14611
+
+---
+
+## 10. Decision (2026-11-23, after review of the mockups)
+
+The owner reviewed the clickable mockups and decided:
+
+- **Work, Fleet and Wall are accepted** as designed, with three changes:
+  - Fleet's state timeline gets a range picker: 12 h (default), 24 h, 3 days, 1 week.
+  - Wall tiles are any session type: chat tiles have their own reply box; terminal tiles are typeable after Take control. Up to 9 tiles are visible per page and the Wall pages horizontally through more pinned sessions (soft cap ~24); only visible tiles stream.
+- **"Watch" is replaced by "Command"**, the desktop default and a chat-first page: live work on the left, a tabbed conversation area in the centre (the orchestrator as a pinned tab; any agent chat, terminal or observed session opens as another tab, with a GOAL/NOW strip and controls on agent tabs), Needs you on the right, the status/Pause control on top and the fleet/quota strip at the bottom. On desktop, chatting, brainstorming, organising and queuing work is the main job; the orchestrator is front and centre, not a side dock.
+- **Mobile defaults to watching and answering**: the needs-you inbox with live work and Pause everything. Chat, new work and Fleet are reachable but not the default.
+- **First run**: Command opens with a welcome in the Orchestrator tab that explains Konsert and offers "Add this machine" (the orchestrator needs a machine to run on); the side panels explain what will appear there; the composer enables once a machine is online.
+- These modes **replace** the current IDE-style layout (left tree, centre tab strip, right inspector); they are not added beside it.
