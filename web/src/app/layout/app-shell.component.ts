@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Repo, SessionKind, Space, Worker, Worktree } from '../core/models/konsert.models';
 import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
@@ -366,6 +366,10 @@ export class AppShellComponent implements OnInit, OnDestroy {
 
   constructor() {
     inject(HotkeyService).register((action) => this.onHotkey(action));
+    effect(() => {
+      const tasks = this.fleet.tasks();
+      untracked(() => this.tabs.closeExitedShells(tasks));
+    });
   }
 
   ngOnInit(): void {

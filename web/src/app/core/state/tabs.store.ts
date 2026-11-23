@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { Space, Task, WorkspaceTab } from '../models/konsert.models';
+import { Space, Task, TaskStatus, WorkspaceTab } from '../models/konsert.models';
 import { basenamePath } from './fleet.store';
 
 export const ORCHESTRATOR_TAB_ID = 'orchestrator';
@@ -189,4 +189,39 @@ export class TabsStore {
   toggleScratch(): void {
     this.scratchOpen.update((v) => !v);
   }
+
+  /** Last observed status per task, used to detect live shell exits. */
+  private readonly lastStatus = new Map<string, TaskStatus>();
+
+  /**
+   * Closes shell tabs (and the scratch shell) whose shell process exited while
+   * we were watching, so typing `exit` closes the tab like a desktop terminal.
+   * Only a live transition from an active status counts: opening an
+   * already-finished shell to read its output leaves the tab alone. Agent
+   * (chat) sessions stay open so their final output and summary remain visible.
+   */
+  closeExitedShells(tasks: readonly Task[]): void {
+    const exited: string[] = [];
+    for (const t of tasks) {
+      const prev = this.lastStatus.get(t.id);
+      this.lastStatus.set(t.id, t.status);
+      const isShell = t.agent === 'shell' || t.session_kind === 'terminal';
+      if (isShell && prev && ACTIVE_STATUSES.has(prev) && SHELL_EXIT_STATUSES.has(t.status)) {
+        exited.push(t.id);
+      }
+    }
+    for (const id of exited) {
+      if (this.openTabs().some((tab) => tab.id === id)) {
+        this.closeTab(id);
+      }
+      if (this.scratchTaskId() === id) {
+        this.scratchOpen.set(false);
+        this.scratchTaskId.set(null);
+      }
+    }
+  }
 }
+
+const ACTIVE_STATUSES = new Set<TaskStatus>(['queued', 'assigned', 'running', 'waiting_input']);
+// A shell's exit code is its last command's, so `exit` after a failing command reports 'failed'.
+const SHELL_EXIT_STATUSES = new Set<TaskStatus>(['completed', 'failed']);
