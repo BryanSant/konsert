@@ -12,7 +12,7 @@ import {
 } from '../../core/state/questions-logic';
 import { QuestionsStore } from '../../core/state/questions.store';
 import { QuestionCardComponent } from './question-card.component';
-import { QuestionsPanelComponent } from './questions-panel.component';
+import { NeedsYouDialogComponent } from '../needs-you/needs-you-dialog.component';
 import { SideConversationComponent } from './side-conversation.component';
 
 const NOW = Date.parse('2026-11-23T12:00:00Z');
@@ -178,7 +178,7 @@ describe('questions UI', () => {
     store.apply(q({ id: 'b', impact: 3 }));
     store.apply(q({ id: 'c', impact: 1 }));
     store.open();
-    const fixture = TestBed.createComponent(QuestionsPanelComponent);
+    const fixture = TestBed.createComponent(NeedsYouDialogComponent);
     await settle(fixture);
     const key = (k: string) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
     expect(store.selectedId()).toBe('a');

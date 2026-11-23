@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { TaskEvent } from '../../core/models/konsert.models';
 import { ApiClientService } from '../../core/services/api-client.service';
@@ -30,9 +30,11 @@ import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic
           <span class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ it.sid }}</span>
           <ks-control-label [label]="it.control" />
           <span class="flex-1"></span>
-          <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Close panel" (click)="closed()">
-            <app-icon name="close" [size]="12" />
-          </button>
+          @if (!embedded()) {
+            <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Close panel" (click)="closed()">
+              <app-icon name="close" [size]="12" />
+            </button>
+          }
         </div>
         <h2 class="m-0 text-[15px] font-semibold leading-snug text-[var(--ks-text)]">{{ it.title }}</h2>
         <div class="text-[12px] text-[var(--ks-text-secondary)]">{{ sub() }}</div>
@@ -115,6 +117,11 @@ import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic
 })
 export class ReviewPanelComponent {
   readonly item = input<WorkItem | null>(null);
+  /** Inside the Needs-you dialog: no close button; decisions are reported. */
+  readonly embedded = input(false);
+  /** Approved or changes requested. */
+  readonly decided = output<void>();
+  private readonly itemId = computed(() => this.item()?.id ?? '');
   readonly work = inject(WorkStore);
   readonly wall = inject(WallStore);
   private readonly api = inject(ApiClientService);
@@ -157,7 +164,8 @@ export class ReviewPanelComponent {
 
   constructor() {
     effect(() => {
-      const it = this.item();
+      this.itemId();
+      const it = untracked(() => this.item());
       untracked(() => {
         this.changing.set(false);
         this.note.set('');
@@ -184,6 +192,7 @@ export class ReviewPanelComponent {
   approve(it: WorkItem): void {
     this.work.approve(it.id);
     this.message.set('Approved. It moves to Done today.');
+    this.decided.emit();
   }
 
   openInCommand(it: WorkItem): void {
@@ -225,6 +234,7 @@ export class ReviewPanelComponent {
       }
       this.changing.set(false);
       this.note.set('');
+      if (it.column === 'review') this.decided.emit();
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Could not send');
     } finally {

@@ -15,7 +15,7 @@ import { IconComponent } from '../../shared/icon.component';
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <div class="px-4 pt-4 pb-1">
-      <a routerLink="/inbox" class="ks-btn ks-btn-sm min-h-11 -ml-2 no-underline">
+      <a routerLink="/inbox" class="ks-btn ks-btn-sm h-[44px] -ml-2 no-underline">
         <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="12" /></span>
         Inbox
       </a>

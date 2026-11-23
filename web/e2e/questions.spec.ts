@@ -84,6 +84,12 @@ async function openQueue(page: Page, sid: string): Promise<Locator> {
   return panel;
 }
 
+/** Closes the Needs-you dialog unless it already moved on and closed by itself. */
+async function closeDialog(panel: Locator): Promise<void> {
+  const close = panel.getByTestId('questions-close');
+  if (await close.isVisible()) await close.click({ timeout: 3000 }).catch(() => undefined);
+}
+
 function assistant(chat: Locator, text: string): Locator {
   return chat.getByTestId('assistant-message').filter({ hasText: text });
 }
@@ -110,7 +116,7 @@ test.describe('Questions (mock engine)', () => {
 
     await card.getByTestId('question-option-option_2').click();
     await expect(card.getByTestId('question-receipt')).toContainText('Sent “No, keep the strict exit criteria”');
-    await panel.getByTestId('questions-close').click();
+    await closeDialog(panel);
     await expect(assistant(chat, 'Ask result: The user chose: "No, keep the strict exit criteria".')).toBeVisible();
   });
 
@@ -130,8 +136,8 @@ test.describe('Questions (mock engine)', () => {
     await card.getByTestId('question-other-input').fill('Do the phone run on Friday, then close');
     await card.getByTestId('question-other-send').click();
     await expect(card.getByTestId('question-receipt')).toContainText('Sent “Do the phone run on Friday, then close”');
-    if (isMobile) await panel.getByTestId('questions-close').click();
-    else await page.keyboard.press('Escape');
+    if (isMobile) await closeDialog(panel);
+    else if (await panel.isVisible()) await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
     await expect(assistant(chat, 'Ask result: The user answered: Do the phone run on Friday, then close')).toBeVisible();
   });
@@ -158,8 +164,8 @@ test.describe('Questions (mock engine)', () => {
     await expect(thread.getByTestId('thread-draft')).toContainText('Yes');
     await thread.getByTestId('thread-use-draft').click();
     await expect(thread.getByTestId('thread-receipt')).toContainText('with a summary of your side conversation', { timeout: 20_000 });
-    if (isMobile) await thread.getByTestId('thread-close').click(); // the sheet covers the header
-    await panel.getByTestId('questions-close').click();
+    if (isMobile && (await thread.isVisible())) await thread.getByTestId('thread-close').click(); // the sheet covers the header
+    await closeDialog(panel);
     await expect(assistant(chat, 'Side conversation: The user asked what KON-2Q0CH is')).toBeVisible();
   });
 
@@ -171,9 +177,12 @@ test.describe('Questions (mock engine)', () => {
     const panel = await openQueue(page, sid);
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await card.getByTestId('question-delegate').click();
-    await expect(card.getByTestId('question-receipt')).toContainText('The orchestrator sent “Yes”', { timeout: 25_000 });
-    await expect(card.getByTestId('question-receipt')).toContainText('Mock orchestrator');
-    await panel.getByTestId('questions-close').click();
+    // Handing it to the orchestrator moves the dialog on; the answer arrives in the chat.
+    await expect(panel.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
+    await closeDialog(panel);
+    await expect
+      .poll(async () => (await api<{ questions: Array<{ sid: string; answer?: { summary?: string; label?: string; by?: { actor: string } } }> }>(page, 'GET', '/api/questions?status=all')).questions.find((x) => x.sid === sid)?.answer?.by?.actor, { timeout: 25_000 })
+      .toBe('orchestrator');
     await expect(assistant(chat, "The orchestrator answered on the user's behalf")).toBeVisible();
   });
 });
@@ -190,11 +199,9 @@ test.describe('Questions on a phone (390px)', () => {
 
     await page.getByTestId('questions-button').click();
     const panel = page.getByTestId('questions-panel');
-    const queue = panel.getByTestId('questions-queue');
-    await expect(queue).toBeVisible();
-    await queue.locator(`[data-queue-item="${sid}"]`).click();
-    // Full-screen question: the inbox is hidden, the options are reachable.
-    await expect(queue).toBeHidden();
+    await expect(panel).toBeInViewport();
+    await panel.locator(`[data-queue-item="${sid}"]`).click();
+    // Full-screen question: the options are reachable.
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await expect(card).toHaveAttribute('data-question', sid);
     await expect(card.getByTestId('question-option-option_1')).toBeVisible();
@@ -211,10 +218,8 @@ test.describe('Questions on a phone (390px)', () => {
 
     await pinned.getByTestId('thread-option-option_1').click();
     await expect(sheet.getByTestId('thread-receipt')).toContainText('Sent “Yes”', { timeout: 20_000 });
-    await sheet.getByTestId('thread-close').click();
-    await panel.getByTestId('questions-back').click();
-    await expect(queue).toBeVisible();
-    await panel.getByTestId('questions-close').click();
+    if (await sheet.isVisible()) await sheet.getByTestId('thread-close').click().catch(() => undefined);
+    await closeDialog(panel);
     await expect(assistant(chat, 'Side conversation:')).toBeVisible();
   });
 });

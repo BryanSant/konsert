@@ -3,10 +3,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { VETO_REASONS, VetoReason, causeLine } from '../../core/models/control.models';
-import { isPending } from '../../core/models/question.models';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { ControlStore } from '../../core/state/control.store';
-import { QuestionsStore } from '../../core/state/questions.store';
 import { formatSince } from '../../core/state/questions-logic';
 import { WorkStore } from '../../core/state/work.store';
 import { sessionActions } from '../../features/control/session-controls.component';
@@ -14,6 +12,8 @@ import { shortWhen } from '../../features/control/pause-everything.component';
 import { IconComponent } from '../../shared/icon.component';
 import { ModalDialogComponent } from '../../shared/modal-dialog.component';
 import { ControlLabelComponent } from '../control-label.component';
+import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.component';
+import { NeedsYouStore } from '../../core/state/needs-you.store';
 
 /**
  * A session on a phone: what it is doing and why, its question with the options to tap,
@@ -23,11 +23,11 @@ import { ControlLabelComponent } from '../control-label.component';
   selector: 'ks-mobile-session',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, ControlLabelComponent, ModalDialogComponent],
+  imports: [RouterLink, IconComponent, ControlLabelComponent, ModalDialogComponent, NeedsYouItemComponent],
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <div class="px-4 pt-4 pb-1">
-      <a routerLink="/inbox" class="ks-btn ks-btn-sm min-h-11 -ml-2 no-underline" data-testid="mobile-back">
+      <a routerLink="/inbox" class="ks-btn ks-btn-sm h-[44px] -ml-2 no-underline" data-testid="mobile-back">
         <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="12" /></span>
         Inbox
       </a>
@@ -39,14 +39,8 @@ import { ControlLabelComponent } from '../control-label.component';
       </div>
       <div class="px-4 pt-1 text-[12.5px] text-[var(--ks-text-secondary)]">{{ it.sid }} · {{ it.machine }} · started {{ since(it.createdAt) }} ago{{ it.origin === 'orchestrator' ? ' by the orchestrator' : '' }}</div>
 
-      @if (question(); as q) {
-        <div class="mx-4 mt-4 rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-2)] p-3 text-[14px] leading-relaxed" data-testid="mobile-question">“{{ q.prompt }}”</div>
-        <div class="grid gap-2 px-4 pt-2.5" [class.grid-cols-2]="(q.options?.length ?? 0) > 1">
-          @for (o of q.options ?? []; track o.id) {
-            <button type="button" class="ks-btn ks-btn-soft min-h-11 whitespace-normal" [disabled]="questions.isBusy(q.id)" (click)="questions.answer(q, { option_id: o.id })">{{ o.label }}</button>
-          }
-          <button type="button" class="ks-btn min-h-11" (click)="questions.open(q.id)">Other… / Ask about this</button>
-        </div>
+      @if (entry(); as e) {
+        <div class="mx-4 mt-4" data-testid="mobile-session-needs-you"><ks-needs-you-item [entry]="e" /></div>
       }
 
       <dl class="mx-4 mt-4 grid grid-cols-[52px_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 text-[13px] leading-snug">
@@ -62,28 +56,28 @@ import { ControlLabelComponent } from '../control-label.component';
 
       <div class="grid grid-cols-2 gap-2 px-4 pt-4" role="group" aria-label="Controls">
         @if (actions().resume) {
-          <button type="button" class="ks-btn ks-btn-soft min-h-11 text-[var(--ks-violet)]" data-testid="mobile-resume-session" [disabled]="busy()" (click)="resume()">Resume</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px] text-[var(--ks-violet)]" data-testid="mobile-resume-session" [disabled]="busy()" (click)="resume()">Resume</button>
         } @else {
-          <button type="button" class="ks-btn ks-btn-soft min-h-11" data-testid="mobile-suspend" [disabled]="busy() || !actions().suspend" (click)="suspend()">Suspend</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-suspend" [disabled]="busy() || !actions().suspend" (click)="suspend()">Suspend</button>
         }
         @if (it.hold; as h) {
-          <button type="button" class="ks-btn ks-btn-soft min-h-11 text-[#e6b763]" data-testid="mobile-release" [disabled]="control.isBusy(h.id)" (click)="control.releaseHold(h)">Release hold</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px] text-[#e6b763]" data-testid="mobile-release" [disabled]="control.isBusy(h.id)" (click)="control.releaseHold(h)">Release hold</button>
         } @else {
-          <button type="button" class="ks-btn ks-btn-soft min-h-11" data-testid="mobile-hold" [disabled]="busy() || !it.live" (click)="control.holdSession(it.kind, it.id)">Hold</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-hold" [disabled]="busy() || !it.live" (click)="control.holdSession(it.kind, it.id)">Hold</button>
         }
-        <button type="button" class="ks-btn min-h-11 bg-[var(--ks-red-soft)] text-[#f3a3a3]" data-testid="mobile-veto" [disabled]="busy() || !(actions().veto || it.column === 'review')" (click)="vetoing.set(true)">Veto…</button>
+        <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red-soft)] text-[#f3a3a3]" data-testid="mobile-veto" [disabled]="busy() || !(actions().veto || it.column === 'review')" (click)="vetoing.set(true)">Veto…</button>
         @if (it.column === 'review') {
-          <button type="button" class="ks-btn ks-btn-soft min-h-11" (click)="work.approve(it.id)">Approve</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px]" (click)="work.approve(it.id)">Approve</button>
         } @else {
-          <a class="ks-btn ks-btn-soft min-h-11 no-underline" [routerLink]="['/command', it.sid]">Open full view</a>
+          <a class="ks-btn ks-btn-soft h-[44px] no-underline" [routerLink]="['/command', it.sid]">Open full view</a>
         }
       </div>
 
       @if (it.kind === 'chat' && it.chat) {
         <form class="mx-4 mt-4 flex gap-2" (submit)="$event.preventDefault(); reply()">
           <label class="ks-sr-only" for="ks-mobile-reply">Reply to {{ it.agent }}</label>
-          <input id="ks-mobile-reply" class="ks-field flex-1 min-h-11" placeholder="Reply…" data-testid="mobile-reply" [value]="draft()" (input)="draft.set($any($event.target).value)" />
-          <button type="submit" class="ks-btn ks-btn-primary min-h-11" [disabled]="!draft().trim()">Send</button>
+          <input id="ks-mobile-reply" class="ks-field flex-1 h-[44px]" placeholder="Reply…" data-testid="mobile-reply" [value]="draft()" (input)="draft.set($any($event.target).value)" />
+          <button type="submit" class="ks-btn ks-btn-primary h-[44px]" [disabled]="!draft().trim()">Send</button>
         </form>
       }
 
@@ -107,12 +101,12 @@ import { ControlLabelComponent } from '../control-label.component';
           <p class="mt-1 mb-3 text-[13px] text-[var(--ks-text-secondary)]">It stops, and the orchestrator remembers not to retry it the same way.</p>
           <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Veto reason">
             @for (r of reasons; track r.id) {
-              <button type="button" role="radio" class="ks-btn ks-btn-soft min-h-11" [attr.aria-checked]="reason() === r.id" [class.!bg-[var(--ks-red-soft)]]="reason() === r.id" (click)="reason.set(r.id)">{{ r.label }}</button>
+              <button type="button" role="radio" class="ks-btn ks-btn-soft h-[44px]" [attr.aria-checked]="reason() === r.id" [class.!bg-[var(--ks-red-soft)]]="reason() === r.id" (click)="reason.set(r.id)">{{ r.label }}</button>
             }
           </div>
           <div class="grid gap-2 mt-4">
-            <button type="button" class="ks-btn min-h-11 bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-veto-confirm" [disabled]="!reason()" (click)="veto()">Veto</button>
-            <button type="button" class="ks-btn ks-btn-soft min-h-11" autofocus (click)="vetoing.set(false)">Cancel</button>
+            <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-veto-confirm" [disabled]="!reason()" (click)="veto()">Veto</button>
+            <button type="button" class="ks-btn ks-btn-soft h-[44px]" autofocus (click)="vetoing.set(false)">Cancel</button>
           </div>
         </app-modal-dialog>
       }
@@ -124,16 +118,15 @@ import { ControlLabelComponent } from '../control-label.component';
 export class MobileSessionComponent {
   readonly work = inject(WorkStore);
   readonly control = inject(ControlStore);
-  readonly questions = inject(QuestionsStore);
   private readonly agentChat = inject(AgentChatStore);
   readonly reasons = VETO_REASONS;
 
   readonly sid = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('sid') ?? '')), { initialValue: '' });
   readonly item = computed(() => this.work.bySid(this.sid()) ?? null);
-  readonly question = computed(() => {
+  private readonly needsYou = inject(NeedsYouStore);
+  readonly entry = computed(() => {
     const it = this.item();
-    if (!it) return null;
-    return this.questions.pending().find((q) => (it.kind === 'task' ? q.task_id === it.id : q.chat_id === it.id && !q.task_id)) ?? null;
+    return it ? this.needsYou.entryFor(it.id) : undefined;
   });
   readonly actions = computed(() => {
     const it = this.item();
@@ -199,5 +192,4 @@ export class MobileSessionComponent {
     if (this.agentChat.send(it.chat, t)) this.draft.set('');
   }
 
-  protected readonly isPending = isPending;
 }

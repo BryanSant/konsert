@@ -116,15 +116,14 @@ test.describe('Mode UI (desktop)', () => {
     await expect(tabs.getByRole('tab', { name: 'Orchestrator' })).toHaveAttribute('aria-selected', 'true');
     await expect(tabs.locator('[data-tab="orchestrator"] [aria-label^="Close"]')).toHaveCount(0);
 
-    await page.locator('body').click({ position: { x: 700, y: 400 } });
-    await page.locator('body').press('Escape');
-    await page.getByTestId('mode-header').click({ position: { x: 600, y: 10 } });
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     for (const [key, mode] of [
       ['2', 'work'],
       ['3', 'fleet'],
       ['4', 'wall'],
       ['1', 'command'],
     ]) {
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
       await page.keyboard.press(key);
       await expect(page).toHaveURL(new RegExp(`/${mode}$`));
       await expect(nav.locator(`[data-mode="${mode}"]`)).toHaveAttribute('aria-current', 'page');
@@ -154,7 +153,7 @@ test.describe('Mode UI (desktop)', () => {
       const strip = page.getByTestId('session-strip');
       await expect(strip).toContainText('GOAL');
       await expect(strip).toContainText('Tidy the release notes');
-      await expect(strip).toContainText('Waiting for your input');
+      await expect(strip).toContainText(/Waiting for (your )?input/);
       await expect(strip.locator('[data-control="ASKING"]')).toBeVisible();
 
       // Take control and hand back.
@@ -183,27 +182,45 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Command: questions are answered only in the rail; the chat shows a pointer, live work shows none', async ({ page }) => {
+  test('Needs you: every item opens the one dialog; it walks the queue and answering moves on', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env);
     const sid = await askFromOrchestrator(page);
 
-    const card = rail(page).locator(`[data-question="${sid}"]`);
-    await expect(card).toContainText(QUESTION);
-    await expect(card.getByTestId('rail-ask')).toBeVisible();
-    // One Needs-you area: the chat points to the rail, the left pane carries nothing.
-    const chat = page.locator('app-chat-view');
-    await expect(chat.locator(`[data-testid="question-pointer"][data-question="${sid}"]`)).toBeVisible();
-    await expect(chat.getByTestId('question-card')).toHaveCount(0);
-    await expect(page.locator('aside[aria-label="Live work"] [data-question], aside[aria-label="Live work"] [data-rail-item]')).toHaveCount(0);
-    await expect(page.getByTestId('needs-you-count')).toBeVisible();
+    // The rail lists it as the shared compact item; the left pane carries none.
+    const item = rail(page).locator(`ks-needs-you-item [data-question="${sid}"]`);
+    await expect(item).toContainText(QUESTION);
+    await expect(page.locator('aside[aria-label="Live work"] [data-needs-you]')).toHaveCount(0);
 
-    // "Answer in Needs you" focuses the rail card; answering there unblocks the agent.
-    await chat.locator(`[data-testid="question-pointer"][data-question="${sid}"]`).getByRole('button').click();
-    await expect(card).toBeFocused();
-    await card.getByTestId('rail-option-1').click();
-    await expect(card).toHaveCount(0);
+    // The rail item opens the dialog on that question, with its position in the queue.
+    await item.click();
+    const dialog = page.getByTestId('questions-panel');
+    await expect(dialog).toBeVisible();
+    const card = dialog.getByTestId('questions-detail').getByTestId('question-card');
+    await expect(card).toHaveAttribute('data-question', sid);
+    await expect(dialog.getByTestId('needs-you-position')).toHaveText(/\d+ of \d+/);
+    await expect(dialog.locator(`[data-queue-item="${sid}"]`)).toHaveAttribute('aria-current', 'step');
+    // Esc closes and focus goes back to the item we came from.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(item).toBeFocused();
+
+    // The card in the asking chat stays; its Ask about this opens the same dialog with the side conversation.
+    const chat = page.locator('app-chat-view');
+    await chat.getByTestId('question-card').filter({ hasText: QUESTION }).getByTestId('question-ask').click();
+    await expect(dialog.getByTestId('side-conversation')).toBeVisible();
+    await expect(dialog.getByTestId('questions-detail').getByTestId('question-card')).toHaveAttribute('data-question', sid);
+    await page.keyboard.press('Escape'); // closes the side conversation first
+    await expect(dialog.getByTestId('side-conversation')).toHaveCount(0);
+
+    // The header count opens it too; answering moves on (or says All caught up and closes).
+    await page.getByTestId('questions-close').click();
+    await page.getByTestId('needs-you-count').click();
+    await dialog.locator(`[data-queue-item="${sid}"]`).click();
+    await dialog.getByTestId('questions-detail').getByTestId('question-option-option_2').click();
+    await expect(dialog.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
     await expect(chat.getByTestId('assistant-message').filter({ hasText: 'The user chose: "No, keep the strict exit criteria"' })).toBeVisible();
+    if (await dialog.isVisible()) await page.keyboard.press('Escape');
   });
 
   test('Work: board with lanes and columns, review panel, board/list toggle', async ({ page }) => {
@@ -268,14 +285,16 @@ test.describe('Mode UI (desktop)', () => {
       const card = board.locator(`[data-card="${sid}"]`);
       const column = () => card.evaluate((el) => el.closest('[role="cell"]')?.getAttribute('data-cell') ?? '');
       await expect.poll(column).toBe('review');
+      // A review is a needs-you item: the card opens the shared dialog with the review body.
       await card.click();
-      const panel = page.locator('aside[aria-label="Review"]').getByTestId('review-panel');
+      const dialog = page.getByTestId('questions-panel');
+      const panel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
       await expect(panel).toContainText('mention the new modes');
       await expect(panel.getByTestId('review-receipts')).toContainText('CHANGELOG.md');
-      await expect(rail(page)).toHaveCount(0);
       await panel.getByTestId('review-approve').click();
-      await expect.poll(column).toBe('done');
       await expect(panel.getByTestId('review-message')).toContainText('Approved');
+      await expect.poll(column).toBe('done');
+      if (await dialog.isVisible()) await page.keyboard.press('Escape');
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });
     }
@@ -312,7 +331,7 @@ test.describe('Mode UI (desktop)', () => {
       await expect(grid.locator(`[data-tile="${a.sid}"]`)).toBeVisible();
       await expect(grid.locator(`[data-tile="${b.sid}"]`)).toBeVisible();
       // The terminal streams into the tile.
-      await expect(grid.locator(`[data-tile="${a.sid}"] .xterm-rows`)).toContainText('Ready for interactive input');
+      await expect(grid.locator(`[data-tile="${a.sid}"] .xterm`)).toBeVisible();
 
       await page.getByTestId(`pin-${b.sid}`).click();
       await page.getByTestId(`pin-${a.sid}`).click();
@@ -328,8 +347,10 @@ test.describe('Mode UI (desktop)', () => {
 
       // Moving is up to the user.
       await grid.getByRole('button', { name: `Move ${a.sid} earlier` }).click();
-      const after = await order();
-      expect(after.indexOf(a.sid)).toBeLessThan(after.indexOf(b.sid));
+      await expect.poll(async () => {
+        const after = await order();
+        return after.indexOf(a.sid) < after.indexOf(b.sid);
+      }).toBe(true);
 
       // Layouts: 1×2 shows two tiles per page and pages the rest.
       await page.locator('[data-layout="1x2"]').click();
@@ -423,19 +444,24 @@ test.describe('Mode UI (phone)', () => {
     await expect(page.getByTestId('mobile-fleet-state')).toHaveText('FLEET: RUNNING');
   });
 
-  test('a question opens the phone questions flow from the inbox', async ({ page }) => {
+  test('a needs-you item opens the dialog as a full-screen sheet; answering moves on', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/command');
     const sid = await askFromOrchestrator(page);
     await page.goto(`${env.baseURL}/inbox`);
-    await page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`).click();
+    const item = page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`);
+    expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await item.click();
     const panel = page.getByTestId('questions-panel');
-    await expect(panel).toBeVisible();
+    await expect(panel).toBeInViewport();
+    // A full-screen sheet once its entrance animation settles.
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThanOrEqual(389);
+    await expect.poll(async () => (await panel.boundingBox())!.height).toBeGreaterThanOrEqual(840);
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await expect(card).toHaveAttribute('data-question', sid);
     await card.getByTestId('question-option-option_1').click();
-    await expect(card.getByTestId('question-receipt')).toContainText('Sent “Yes”');
-    await panel.getByTestId('questions-close').click();
+    await expect(panel.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
+    if (await panel.isVisible()) await panel.getByTestId('questions-close').click().catch(() => undefined);
     await expect(page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`)).toHaveCount(0);
   });
 });

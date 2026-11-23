@@ -7,7 +7,8 @@ import { QuestionsStore } from '../core/state/questions.store';
 import { SetupStore } from '../core/state/setup.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
-import { QuestionsPanelComponent } from '../features/questions/questions-panel.component';
+import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
+import { NeedsYouStore } from '../core/state/needs-you.store';
 import { AddMachineModalComponent } from '../layout/add-machine-modal.component';
 import { HotkeyService } from '../layout/hotkey.service';
 import { MachineDetailModalComponent } from '../layout/machine-detail-modal.component';
@@ -26,7 +27,7 @@ import { ModeUiStore } from './mode-ui.store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterOutlet,
-    QuestionsPanelComponent,
+    NeedsYouDialogComponent,
     ReloginDialogComponent,
     AddMachineModalComponent,
     SettingsModalComponent,
@@ -39,8 +40,8 @@ import { ModeUiStore } from './mode-ui.store';
     <router-outlet />
 
     <ks-relogin-dialog />
-    @if (questions.panelOpen()) {
-      <ks-questions-panel />
+    @if (needsYou.isOpen()) {
+      <ks-needs-you-dialog />
     }
     @if (ui.addMachineOpen()) {
       <app-add-machine-modal
@@ -74,6 +75,7 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
   readonly fleet = inject(FleetStore);
   readonly setup = inject(SetupStore);
   readonly questions = inject(QuestionsStore);
+  readonly needsYou = inject(NeedsYouStore);
   private readonly control = inject(ControlStore);
   private readonly socket = inject(KonsertSocketService);
   private readonly tabs = inject(TabsStore);

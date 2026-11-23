@@ -21,6 +21,8 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { AgentAccount } from '../models/agent-chat.models';
+import { SessionActivity } from '../models/activity.models';
+import { ActivityStore } from '../state/activity.store';
 import { AgentAccountsStore } from '../state/agent-accounts.store';
 import { AgentChatStore } from '../state/agent-chat.store';
 import { AuditStore } from '../state/audit.store';
@@ -51,6 +53,7 @@ export class KonsertSocketService {
   private readonly questionsStore = inject(QuestionsStore);
   private readonly agentChat = inject(AgentChatStore);
   private readonly agentAccounts = inject(AgentAccountsStore);
+  private readonly activity = inject(ActivityStore);
   private readonly notifications = inject(NotificationService);
   private readonly auth = inject(AuthService);
 
@@ -253,6 +256,7 @@ export class KonsertSocketService {
           request?: UserRequest;
           pause?: FleetPause;
           question?: QuestionView;
+          activity?: SessionActivity;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -271,6 +275,9 @@ export class KonsertSocketService {
           this.agentChat.onSessionUpsert(p.chat_session);
         } else if (p.kind === CHAT_PROTOCOL.fleetChatSessionDeletedKind && p.deleted_id) {
           void this.agentChat.onSessionDeleted(p.deleted_id);
+          this.activity.forget(`chat:${p.deleted_id}`);
+        } else if (p.kind === 'activity' && p.activity) {
+          this.activity.apply(p.activity);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
         } else if (p.kind === 'fleet_event' && p.fleet_event) {

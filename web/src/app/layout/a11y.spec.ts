@@ -29,6 +29,8 @@ class HostComponent {
 
 describe('accessibility', () => {
   beforeEach(() => {
+    // TabsStore restores tabs from localStorage; other specs in this worker may have left some.
+    localStorage.clear();
     vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => {
       fn(0);
       return 0;

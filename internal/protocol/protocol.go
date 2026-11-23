@@ -224,14 +224,17 @@ type ListeningPort struct {
 }
 
 type WorkerMetrics struct {
-	CPUPercent     float64         `json:"cpu_percent"`
-	MemUsedMB      uint64          `json:"mem_used_mb"`
-	MemTotalMB     uint64          `json:"mem_total_mb"`
-	SwapUsedMB     uint64          `json:"swap_used_mb,omitzero"`
-	SwapTotalMB    uint64          `json:"swap_total_mb,omitzero"`
-	DiskFreeGB     uint64          `json:"disk_free_gb,omitzero"`
-	DiskTotalGB    uint64          `json:"disk_total_gb,omitzero"`
-	LoadAvg        float64         `json:"load_avg"`
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemUsedMB   uint64  `json:"mem_used_mb"`
+	MemTotalMB  uint64  `json:"mem_total_mb"`
+	SwapUsedMB  uint64  `json:"swap_used_mb,omitzero"`
+	SwapTotalMB uint64  `json:"swap_total_mb,omitzero"`
+	DiskFreeGB  uint64  `json:"disk_free_gb,omitzero"`
+	DiskTotalGB uint64  `json:"disk_total_gb,omitzero"`
+	LoadAvg     float64 `json:"load_avg"`
+	// GPUPercent is GPU utilization 0-100 when the platform reports it cheaply (macOS
+	// IOAccelerator statistics, nvidia-smi on Linux); nil when unknown.
+	GPUPercent     *float64        `json:"gpu_percent,omitzero"`
 	ListeningPorts []ListeningPort `json:"listening_ports,omitempty"`
 }
 
@@ -268,6 +271,11 @@ type ExternalSessionPayload struct {
 	Summary      string   `json:"summary,omitempty"`
 	ChangedFiles []string `json:"changed_files,omitempty"`
 	Source       string   `json:"source"` // "hook" | "passive"
+	// Tool is the tool the agent is running (a PreToolUse hook), "" when unknown or
+	// finished (PostToolUse); with Status "working" it gives the coarse activity.
+	Tool string `json:"tool,omitempty"`
+	// Event is the raw hook event (PreToolUse, PostToolUse, Notification, Stop, ...).
+	Event string `json:"event,omitempty"`
 }
 
 type UsageBucket struct {
@@ -418,6 +426,8 @@ type FleetUpdatePayload struct {
 	Pause      any `json:"pause,omitzero"`
 	// Question carries a question (with its side conversation) when Kind is "question".
 	Question any `json:"question,omitzero"`
+	// Activity carries a SessionActivity when Kind is "activity".
+	Activity any `json:"activity,omitzero"`
 }
 
 type GitChangedFile struct {

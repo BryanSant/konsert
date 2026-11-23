@@ -32,7 +32,6 @@ import { ChatTranscriptComponent } from './transcript/chat-transcript.component'
         [accountId]="s.account_id || ''"
         [relogin]="account()?.auth?.relogin"
         [alternatives]="alternatives()"
-        [needsYouElsewhere]="needsYouElsewhere()"
         (answer)="respond($event)"
         (retry)="agentChat.retry(s)"
         (keepWaiting)="agentChat.dismissError(s.id, $event)"
@@ -75,8 +74,6 @@ export class SessionChatComponent {
   readonly chatId = input.required<string>();
   /** Tight padding for wall tiles. */
   readonly compact = input(false);
-  /** Pending questions are answered in the page's Needs-you area. */
-  readonly needsYouElsewhere = input(false);
 
   readonly agentChat = inject(AgentChatStore);
   private readonly orch = inject(OrchestratorStore);

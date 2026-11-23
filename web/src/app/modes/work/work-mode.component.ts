@@ -5,6 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { WorkColumn, WorkItem } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
+import { NeedsYouStore } from '../../core/state/needs-you.store';
 import { IconComponent } from '../../shared/icon.component';
 import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
@@ -211,6 +212,7 @@ const VIEW_KEY = 'konsert.work.view';
 export class WorkModeComponent {
   readonly work = inject(WorkStore);
   readonly ui = inject(ModeUiStore);
+  private readonly needsYou = inject(NeedsYouStore);
   private readonly router = inject(Router);
   readonly labels = COLUMN_LABELS;
 
@@ -260,7 +262,13 @@ export class WorkModeComponent {
     return [who, it.machine, tail].filter(Boolean).join(' · ');
   }
 
+  /** Needs-you and review cards open the Needs-you dialog; others the side panel. */
   select(it: WorkItem): void {
+    const e = it.column === 'needs_you' || it.column === 'review' ? this.needsYou.entryFor(it.id) : undefined;
+    if (e) {
+      this.needsYou.open(e.key);
+      return;
+    }
     void this.router.navigate(['/work', it.sid]);
   }
 

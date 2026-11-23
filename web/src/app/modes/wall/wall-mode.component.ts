@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, u
 import { Router } from '@angular/router';
 import { WorkItem } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
+import { NeedsYouStore } from '../../core/state/needs-you.store';
 import { SessionChatComponent } from '../../features/chat/session-chat.component';
 import { SessionControlsComponent } from '../../features/control/session-controls.component';
 import { XtermPaneComponent } from '../../features/terminal/xterm-pane.component';
@@ -116,6 +117,12 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
               <span class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ t.item.sid }}</span>
               <span class="truncate min-w-0">{{ t.item.sessionKind === 'terminal' ? 'terminal' : t.item.agent }} · {{ t.item.machine }}</span>
               <span class="flex-1"></span>
+              @if (needsYou.entryFor(t.item.id); as e) {
+                <button type="button" class="ks-chip ks-chip-amber !h-6 shrink-0" [attr.data-testid]="'tile-needs-you-' + t.item.sid" (click)="needsYou.open(e.key)">
+                  <app-icon name="bell" [size]="11" />
+                  Needs you
+                </button>
+              }
               @if (t.item.stale) {
                 <span class="text-[var(--ks-amber)] text-[11.5px] shrink-0">not reporting</span>
               } @else if (t.item.observed) {
@@ -171,6 +178,7 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
 export class WallModeComponent {
   readonly wall = inject(WallStore);
   readonly takeControl = inject(TakeControlService);
+  readonly needsYou = inject(NeedsYouStore);
   private readonly work = inject(WorkStore);
   private readonly ui = inject(ModeUiStore);
   private readonly router = inject(Router);

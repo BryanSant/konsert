@@ -1,3 +1,4 @@
+import type { SessionActivity, WorkerHeat } from './activity.models';
 import { Cause, FleetPause } from './control.models';
 
 export type PermissionMode = 'full_access' | 'sandboxed';
@@ -26,6 +27,8 @@ export interface WorkerMetrics {
   mem_used_mb: number;
   mem_total_mb: number;
   load_avg: number;
+  /** GPU utilization 0-100 where the platform reports it. */
+  gpu_percent?: number;
   listening_ports?: ListeningPort[];
 }
 
@@ -85,6 +88,8 @@ export interface Worker {
   /** Drained: the machine accepts no new work and finishes what it runs. */
   drained?: boolean;
   drained_at?: string;
+  /** Smoothed load score; absent while offline or before the first heartbeat. */
+  heat?: WorkerHeat;
 }
 
 export type WorkerLaunch = 'local' | 'ssh';
@@ -180,6 +185,9 @@ export interface Project {
   workspace_id: string;
   name: string;
   is_default: boolean;
+  /** The project's current goal as the orchestrator states it (set_narration). */
+  headline?: string;
+  headline_at?: string;
   created_at: string;
 }
 
@@ -363,6 +371,14 @@ export interface Task {
   suspended_by?: string;
   /** The orchestrator chat that dispatched it. */
   parent_chat_id?: string;
+  /** Short name (dispatch_task title). */
+  title?: string;
+  /** The orchestrator's one-line "now" (set_narration). */
+  narration?: string;
+  narration_at?: string;
+  /** The ka ticket it works on; the title is resolved by the hub. */
+  ticket_id?: string;
+  ticket_title?: string;
 }
 
 export interface TaskEvent {
@@ -503,6 +519,8 @@ export interface FleetSnapshotResponse {
   controller_version?: string;
   /** Fleet-wide Pause everything state. */
   pause?: FleetPause;
+  /** Latest activity of every known session. */
+  activity?: SessionActivity[];
 }
 
 export interface DispatchTaskRequest {

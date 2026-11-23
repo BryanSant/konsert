@@ -105,7 +105,7 @@ export const ORCHESTRATOR = 'orchestrator';
             @if (showWelcome()) {
               <ks-first-run (start)="startChatting($event)" />
             } @else {
-              <app-chat-view [needsYouElsewhere]="true" (openNewTerminal)="ui.newSession('terminal')" />
+              <app-chat-view (openNewTerminal)="ui.newSession('terminal')" />
             }
           </div>
           @if (activeItem(); as it) {

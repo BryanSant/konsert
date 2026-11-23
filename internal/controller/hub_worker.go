@@ -22,6 +22,7 @@ func (h *Hub) DisconnectWorker(workerID string) {
 	delete(h.workers, workerID)
 	delete(h.workerMetrics, workerID)
 	h.mu.Unlock()
+	h.forgetHeat(workerID)
 	if ok && wc != nil {
 		// Send WebSocket close frame 4001 BEFORE canceling connCtx so coder/websocket doesn't hard-abort TCP with EOF.
 		_ = wc.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
@@ -310,6 +311,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onAgentCapabilities(ctx, wc, env)
 	case protocol.MsgOperatorCommand:
 		h.onOperatorCommand(ctx, wc, env)
+	case protocol.MsgSessionActivity:
+		h.onSessionActivity(ctx, wc, env)
 	}
 }
 
@@ -375,6 +378,15 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		return
 	}
 	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
+		metrics := p.Metrics
+		if metrics == nil {
+			metrics = h.WorkerMetrics(wc.id)
+		}
+		cores := 0
+		if f := decodeWorkerFacts(w.FactsJSON); f != nil {
+			cores = f.CPUCores
+		}
+		h.updateHeat(wc.id, metrics, cores, len(p.ActiveTaskIDs), w.MaxConcurrent, time.Now())
 		h.broadcastFleetUpdate("worker", toWorkerView(w, len(p.ActiveTaskIDs), p.Metrics))
 	}
 }

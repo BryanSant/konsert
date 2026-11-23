@@ -39,6 +39,12 @@ export class QuestionsStore {
     return (id && this.byId()[id]) || null;
   });
 
+  /**
+   * The last question the user dealt with here (answered, handed to the orchestrator or
+   * snoozed): the Needs-you dialog moves on to the next item.
+   */
+  readonly acted = signal<{ id: string; at: number } | null>(null);
+
   /** Ids answered (or delegated) from this page; kept visible with their receipt. */
   private readonly recent = signal<Set<string>>(new Set());
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -117,17 +123,6 @@ export class QuestionsStore {
     this.select(i >= 0 ? list[i].id : null);
   }
 
-  /** After answering, move on to the next pending question (the receipt stays on the old one). */
-  private advanceFrom(id: string): void {
-    const list = this.pending().filter((q) => q.id !== id);
-    if (this.selectedId() === id && list.length > 0) {
-      // Leave the receipt visible briefly, then move on.
-      setTimeout(() => {
-        if (this.selectedId() === id) this.select(this.pending()[0]?.id ?? id);
-      }, 1500);
-    }
-  }
-
   // --- actions ---
 
   private async run(id: string, fallback: string, fn: () => Promise<QuestionView>): Promise<boolean> {
@@ -153,7 +148,7 @@ export class QuestionsStore {
     const ok = await this.run(q.id, 'Could not send the answer', () => this.api.answerQuestion(q.id, req));
     if (ok) {
       this.recent.update((s) => new Set(s).add(q.id));
-      this.advanceFrom(q.id);
+      this.acted.set({ id: q.id, at: Date.now() });
     }
     return ok;
   }
@@ -174,12 +169,17 @@ export class QuestionsStore {
 
   async delegate(q: QuestionView): Promise<boolean> {
     const ok = await this.run(q.id, 'Could not hand the question to the orchestrator', () => this.api.delegateQuestion(q.id));
-    if (ok) this.recent.update((s) => new Set(s).add(q.id));
+    if (ok) {
+      this.recent.update((s) => new Set(s).add(q.id));
+      this.acted.set({ id: q.id, at: Date.now() });
+    }
     return ok;
   }
 
-  snooze(q: QuestionView, minutes: number): Promise<boolean> {
-    return this.run(q.id, 'Could not snooze the question', () => this.api.snoozeQuestion(q.id, minutes));
+  async snooze(q: QuestionView, minutes: number): Promise<boolean> {
+    const ok = await this.run(q.id, 'Could not snooze the question', () => this.api.snoozeQuestion(q.id, minutes));
+    if (ok && minutes > 0) this.acted.set({ id: q.id, at: Date.now() });
+    return ok;
   }
 
   /** Whether the user can (still) answer: pending, or an orchestrator answer to override. */

@@ -68,7 +68,7 @@ import { TakeControlService } from '../take-control.service';
     </div>
     <div class="flex-1 min-h-0">
       @if (it.kind === 'chat') {
-        <ks-session-chat class="h-full" [chatId]="it.id" [needsYouElsewhere]="true" />
+        <ks-session-chat class="h-full" [chatId]="it.id" />
       } @else {
         @defer (on immediate) {
           <app-xterm-pane class="block h-full" [taskId]="it.id" [visible]="true" [bare]="true" />

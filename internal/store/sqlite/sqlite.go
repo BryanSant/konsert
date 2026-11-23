@@ -556,13 +556,13 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 			id, sid, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
-			cause_json, suspended_by, parent_chat_id,
+			cause_json, suspended_by, parent_chat_id, title, ticket_id, ticket_title,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, t.ID, t.SID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
-		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID,
+		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID, t.Title, t.TicketID, t.TicketTitle,
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	return err
 }
@@ -712,6 +712,20 @@ func (s *SQLiteStore) SetTaskParentChat(ctx context.Context, id, chatID string) 
 	return s.execOne(ctx, `UPDATE tasks SET parent_chat_id = ? WHERE id = ?`, chatID, id)
 }
 
+// SetTaskNarration sets (or clears) a task's one-line narration.
+func (s *SQLiteStore) SetTaskNarration(ctx context.Context, id, narration string, at time.Time) error {
+	var atVal any
+	if narration != "" {
+		atVal = formatTime(at.UTC())
+	}
+	return s.execOne(ctx, `UPDATE tasks SET narration = ?, narration_at = ? WHERE id = ?`, narration, atVal, id)
+}
+
+// SetTaskTicket records the ka ticket a task works on.
+func (s *SQLiteStore) SetTaskTicket(ctx context.Context, id, ticketID, ticketTitle string) error {
+	return s.execOne(ctx, `UPDATE tasks SET ticket_id = ?, ticket_title = ? WHERE id = ?`, ticketID, ticketTitle, id)
+}
+
 // execOne runs an UPDATE that must touch exactly one row (else ErrNotFound).
 func (s *SQLiteStore) execOne(ctx context.Context, q string, args ...any) error {
 	res, err := s.db.ExecContext(ctx, q, args...)
@@ -734,12 +748,14 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		createdAt   string
 		startedAt   sql.NullString
 		completedAt sql.NullString
+		narrationAt sql.NullString
 	)
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
+		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
 		&createdAt, &startedAt, &completedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -763,6 +779,10 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		ct := parseTime(completedAt.String)
 		t.CompletedAt = &ct
 	}
+	if narrationAt.Valid && narrationAt.String != "" {
+		nt := parseTime(narrationAt.String)
+		t.NarrationAt = &nt
+	}
 	return t, nil
 }
 
@@ -772,6 +792,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
+		       title, narration, narration_at, ticket_id, ticket_title,
 		       created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
 	`, id)
@@ -798,6 +819,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
+		       title, narration, narration_at, ticket_id, ticket_title,
 		       created_at, started_at, completed_at
 		FROM tasks`
 	if len(conds) > 0 {

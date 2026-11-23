@@ -4,6 +4,8 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { Worker } from '../../core/models/konsert.models';
 import { ControlStore } from '../../core/state/control.store';
+import { NeedsYouStore } from '../../core/state/needs-you.store';
+import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.component';
 import { FleetStore } from '../../core/state/fleet.store';
 import { occupiesSlot } from '../../core/state/work-logic';
 import { IconComponent } from '../../shared/icon.component';
@@ -30,10 +32,25 @@ export function machineBadge(w: Worker, running: number): 'OFFLINE' | 'STARTING'
   selector: 'ks-fleet-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, TooltipDirective],
+  imports: [IconComponent, TooltipDirective, NeedsYouItemComponent],
   host: { class: 'block h-full overflow-y-auto' },
   template: `
     <div class="px-4 py-3 flex flex-col gap-4 max-w-[1400px]">
+      @if (needsYou.count() > 0) {
+        <section aria-labelledby="ks-fleet-needs-you" data-testid="fleet-needs-you">
+          <div class="flex items-center gap-2 mb-2">
+            <h2 id="ks-fleet-needs-you" class="m-0 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--ks-amber)]">Needs you · {{ needsYou.count() }}</h2>
+            @if (needsYou.count() > 3) {
+              <button type="button" class="ks-btn ks-btn-sm text-[var(--ks-blue)]" (click)="needsYou.open()">Go through all</button>
+            }
+          </div>
+          <ul class="m-0 p-0 list-none grid gap-1.5 md:grid-cols-3">
+            @for (e of needsYou.entries().slice(0, 3); track e.key) {
+              <li><ks-needs-you-item [entry]="e" /></li>
+            }
+          </ul>
+        </section>
+      }
       <section aria-labelledby="ks-fleet-machines" data-testid="fleet-machines">
         <div class="flex flex-wrap items-center gap-2 mb-2">
           <h2 id="ks-fleet-machines" class="m-0 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Machines · {{ rows().length }}</h2>
@@ -220,6 +237,7 @@ export function machineBadge(w: Worker, running: number): 'OFFLINE' | 'STARTING'
 export class FleetModeComponent {
   readonly ui = inject(ModeUiStore);
   readonly control = inject(ControlStore);
+  readonly needsYou = inject(NeedsYouStore);
   private readonly fleet = inject(FleetStore);
   private readonly router = inject(Router);
   readonly ranges = TIMELINE_RANGES;

@@ -45,6 +45,9 @@ import { ModeUiStore } from '../mode-ui.store';
               <span class="truncate">{{ g.name }}</span>
               <span class="font-mono-ide normal-case tracking-normal">{{ summary(g.running, g.queued) }}</span>
             </h3>
+            @if (headlines()[g.name]; as h) {
+              <p class="m-0 px-2 pb-1 text-[11.5px] leading-snug text-[var(--ks-text-secondary)]" data-testid="project-headline">{{ h }}</p>
+            }
             <ul class="m-0 p-0 list-none">
               @for (it of g.items; track it.id) {
                 <li>
@@ -77,6 +80,12 @@ export class LiveWorkComponent {
   readonly work = inject(WorkStore);
   readonly ui = inject(ModeUiStore);
   readonly groups = computed(() => this.work.liveByProject());
+  /** The orchestrator's headline per project name, where it wrote one. */
+  readonly headlines = computed(() => {
+    const out: Record<string, string> = {};
+    for (const g of this.work.projectGroups()) if (g.headlineSource === 'orchestrator' && g.headline) out[g.name] = g.headline;
+    return out;
+  });
 
   summary(running: number, queued: number): string {
     const parts = [];

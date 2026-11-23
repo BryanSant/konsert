@@ -27,7 +27,8 @@ import { PauseEverythingComponent, PausedBannerComponent } from '../features/con
 import { ControlStore } from '../core/state/control.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { QuestionsButtonComponent } from '../features/questions/questions-button.component';
-import { QuestionsPanelComponent } from '../features/questions/questions-panel.component';
+import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
+import { NeedsYouStore } from '../core/state/needs-you.store';
 import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.component';
 
 @Component({
@@ -52,7 +53,7 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
     PauseEverythingComponent,
     PausedBannerComponent,
     QuestionsButtonComponent,
-    QuestionsPanelComponent,
+    NeedsYouDialogComponent,
   ],
   template: `
     <div class="flex flex-col h-screen w-screen overflow-hidden bg-[#111214] text-[#ececed]">
@@ -333,8 +334,8 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
         />
       }
 
-      @if (questions.panelOpen()) {
-        <ks-questions-panel />
+      @if (needsYou.isOpen()) {
+        <ks-needs-you-dialog />
       }
 
       @if (commandPaletteOpen()) {
@@ -358,6 +359,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly setup = inject(SetupStore);
   readonly control = inject(ControlStore);
   readonly questions = inject(QuestionsStore);
+  readonly needsYou = inject(NeedsYouStore);
 
   readonly leftOpen = signal(true);
   readonly rightOpen = signal(true);

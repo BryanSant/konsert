@@ -1,4 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { ProjectGroup as ActivityProjectGroup, SessionActivity, WorkItem as ActivityWorkItem } from '../models/activity.models';
+import { ActivityStore } from './activity.store';
+import { activityFromChatStatus, activityFromTaskStatus, groupWork } from './activity-logic';
 import { ControlStore } from './control.store';
 import { FleetStore } from './fleet.store';
 import { OrchestratorStore } from './orchestrator.store';
@@ -39,6 +42,58 @@ export class WorkStore {
   private readonly questions = inject(QuestionsStore);
   private readonly control = inject(ControlStore);
   private readonly tabs = inject(TabsStore);
+  private readonly activity = inject(ActivityStore);
+
+  // --- live-work view model (activity, narration; feat/activity-data) ---
+
+  /**
+   * Every task and agent chat grouped by project with counts (running / queued / needs you /
+   * blocked / done), each with its live activity and a never-blank narration line.
+   */
+  readonly projectGroups = computed<ActivityProjectGroup[]>(() => {
+    const byKey = this.activity.byKey();
+    const tax = { projects: this.fleet.projects(), repos: this.fleet.repos() };
+    return groupWork({
+      ...tax,
+      tasks: this.fleet.tasks(),
+      chats: this.orch.sessions(),
+      activityOf: (key) => byKey[key],
+    });
+  });
+
+  /** Every live-work item by "task:<id>" / "chat:<id>". */
+  readonly itemsByKey = computed(() => {
+    const out: Record<string, ActivityWorkItem> = {};
+    for (const g of this.projectGroups()) for (const it of g.items) out[`${it.kind}:${it.id}`] = it;
+    return out;
+  });
+
+  /** Fleet-wide counts across all groups. */
+  readonly totals = computed(() => {
+    const t = { running: 0, queued: 0, needs_you: 0, blocked: 0, done: 0, failed: 0 };
+    for (const g of this.projectGroups()) {
+      for (const k of Object.keys(t) as (keyof typeof t)[]) t[k] += g.counts[k];
+    }
+    return t;
+  });
+
+  /** A task's activity: the reported one, else a coarse one from its status. */
+  taskActivity(taskId: string): SessionActivity | undefined {
+    const a = this.activity.forTask(taskId);
+    if (a) return a;
+    const t = this.fleet.tasksById()[taskId];
+    return t ? activityFromTaskStatus(t) : undefined;
+  }
+
+  /** A chat's activity: the reported one, else a coarse one from its status pill. */
+  chatActivity(chatId: string): SessionActivity | undefined {
+    const a = this.activity.forChat(chatId);
+    if (a) return a;
+    const c = this.orch.sessions().find((s) => s.id === chatId);
+    return c ? activityFromChatStatus(c) : undefined;
+  }
+
+  // --- mode UI selectors (board, live list, reviews) ---
 
   /** Review decisions and Expedite flags (kept in this browser until the hub stores them). */
   readonly review = signal<ReviewState>(loadReview());
@@ -48,7 +103,8 @@ export class WorkStore {
     // Re-evaluate when Take Control changes.
     this.tabs.takenControl();
     this.tabs.openTabs();
-    return buildWorkItems({
+    const narrated = this.itemsByKey();
+    const built = buildWorkItems({
       tasks: this.fleet.tasks(),
       chats: this.orch.sessions(),
       workers: this.fleet.workersById(),
@@ -60,6 +116,12 @@ export class WorkStore {
       reviewed: this.review().decided,
       chatStatus: (id) => transcripts[id]?.status,
       chatNow: (id) => transcripts[id]?.subtitle ?? '',
+    });
+    // Live work says what it is doing now: the orchestrator's narration or the live activity.
+    return built.map((it) => {
+      const a = narrated[`${it.kind}:${it.id}`];
+      if (!a || !it.live || (a.nowSource !== 'orchestrator' && a.nowSource !== 'activity') || !a.now) return it;
+      return { ...it, now: a.now };
     });
   });
 

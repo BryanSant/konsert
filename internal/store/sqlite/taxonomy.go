@@ -173,9 +173,10 @@ func (s *SQLiteStore) GetProject(ctx context.Context, id string) (store.Project,
 	var p store.Project
 	var isDef int
 	var createdAt string
+	var headlineAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, workspace_id, name, is_default, created_at FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &createdAt)
+		SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at FROM projects WHERE id = ?
+	`, id).Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Project{}, store.ErrNotFound
 	}
@@ -184,7 +185,26 @@ func (s *SQLiteStore) GetProject(ctx context.Context, id string) (store.Project,
 	}
 	p.IsDefault = isDef != 0
 	p.CreatedAt = parseTime(createdAt)
+	p.HeadlineAt = parseOptTime(headlineAt)
 	return p, nil
+}
+
+// SetProjectHeadline sets (or clears) a project's headline.
+func (s *SQLiteStore) SetProjectHeadline(ctx context.Context, id, headline string, at time.Time) error {
+	var atVal any
+	if headline != "" {
+		atVal = formatTime(at.UTC())
+	}
+	return s.execOne(ctx, `UPDATE projects SET headline = ?, headline_at = ? WHERE id = ?`, headline, atVal, id)
+}
+
+// parseOptTime parses a nullable timestamp column.
+func parseOptTime(v sql.NullString) *time.Time {
+	if !v.Valid || v.String == "" {
+		return nil
+	}
+	t := parseTime(v.String)
+	return &t
 }
 
 func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]store.Project, error) {
@@ -194,12 +214,12 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 	)
 	if workspaceID != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, workspace_id, name, is_default, created_at
+			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at
 			FROM projects WHERE workspace_id = ? ORDER BY is_default DESC, created_at ASC
 		`, workspaceID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, workspace_id, name, is_default, created_at
+			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at
 			FROM projects ORDER BY is_default DESC, created_at ASC
 		`)
 	}
@@ -213,11 +233,13 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 		var p store.Project
 		var isDef int
 		var createdAt string
-		if err := rows.Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &createdAt); err != nil {
+		var headlineAt sql.NullString
+		if err := rows.Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &createdAt); err != nil {
 			return nil, err
 		}
 		p.IsDefault = isDef != 0
 		p.CreatedAt = parseTime(createdAt)
+		p.HeadlineAt = parseOptTime(headlineAt)
 		out = append(out, p)
 	}
 	return out, rows.Err()

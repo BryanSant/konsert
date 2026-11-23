@@ -351,6 +351,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"usage":              usage,
 		"controller_version": s.version,
 		"pause":              res.Pause,
+		"activity":           s.hub.activityList(),
 	})
 }
 

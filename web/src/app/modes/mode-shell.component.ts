@@ -45,7 +45,7 @@ export function modeForKey(ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'
         konsert
       </a>
       @if (phone()) {
-        <a routerLink="/inbox" class="ks-btn ks-btn-sm min-h-11" data-testid="back-to-inbox">
+        <a routerLink="/inbox" class="ks-btn ks-btn-sm !h-[44px]" data-testid="back-to-inbox">
           <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="12" /></span>
           Inbox
         </a>
@@ -76,17 +76,17 @@ export function modeForKey(ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'
       <span class="flex-1 md:hidden"></span>
 
       @if (needsYou.count() > 0) {
-        <a
-          routerLink="/command"
+        <button
+          type="button" (click)="needsYou.open()"
           class="ks-chip ks-chip-amber min-h-8"
           data-testid="needs-you-count"
           [attr.aria-label]="needsYou.count() + ' need you'"
-          ksTooltip="Questions, requests, vetoes and reviews waiting for you (Command's right rail)"
+          ksTooltip="Go through what needs you: questions, requests, vetoes and reviews"
         >
           <app-icon name="bell" [size]="13" />
           <span class="font-mono-ide font-semibold">{{ needsYou.count() }}</span>
           <span class="hidden lg:inline">need you</span>
-        </a>
+        </button>
       }
       <span class="hidden sm:inline font-mono-ide text-[11.5px]" data-testid="fleet-state" [class.text-[var(--ks-violet)]]="control.paused()" [class.text-[var(--ks-text-muted)]]="!control.paused()">{{ fleetState() }}</span>
       @if (!ui.firstRun()) {
@@ -102,7 +102,7 @@ export function modeForKey(ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'
     @if (showBanner()) {
       <div class="flex flex-wrap items-center gap-x-3.5 gap-y-1 px-4 py-1.5 text-[12.5px] shrink-0 border-b border-[var(--ks-hairline)]" [class.bg-[var(--ks-amber-soft)]]="needsYou.count() > 0" data-testid="status-banner" role="status">
         @if (needsYou.count() > 0) {
-          <a routerLink="/command" class="font-semibold text-[var(--ks-text)] no-underline hover:underline">▲ {{ needsYou.count() }} need{{ needsYou.count() === 1 ? 's' : '' }} you</a>
+          <button type="button" class="font-semibold text-[var(--ks-text)] hover:underline cursor-pointer" (click)="needsYou.open()">▲ {{ needsYou.count() }} need{{ needsYou.count() === 1 ? 's' : '' }} you</button>
         } @else {
           <span class="text-[var(--ks-text-secondary)]">Nothing needs you</span>
         }

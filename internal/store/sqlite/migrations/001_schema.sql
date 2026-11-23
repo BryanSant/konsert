@@ -59,6 +59,9 @@ CREATE TABLE projects (
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name         TEXT NOT NULL,
     is_default   INTEGER NOT NULL DEFAULT 0,
+    -- headline is the project's current goal, set by the orchestrator (set_narration).
+    headline     TEXT NOT NULL DEFAULT '',
+    headline_at  TEXT,
     created_at   TEXT NOT NULL
 );
 CREATE INDEX idx_projects_workspace ON projects(workspace_id);
@@ -133,6 +136,15 @@ CREATE TABLE tasks (
     suspended_by       TEXT NOT NULL DEFAULT '',
     -- parent_chat_id is the orchestrator/agent chat that dispatched the task ('' otherwise).
     parent_chat_id     TEXT NOT NULL DEFAULT '',
+    -- title is a short name for the task (dispatch_task title); narration is the
+    -- orchestrator's one-line "now" for it (set_narration).
+    title              TEXT NOT NULL DEFAULT '',
+    narration          TEXT NOT NULL DEFAULT '',
+    narration_at       TEXT,
+    -- ticket_id / ticket_title: the ka ticket the task works on (detected in its title or
+    -- prompt; the title is resolved with ka in the background).
+    ticket_id          TEXT NOT NULL DEFAULT '',
+    ticket_title       TEXT NOT NULL DEFAULT '',
     created_at         TEXT NOT NULL,
     started_at         TEXT,
     completed_at       TEXT

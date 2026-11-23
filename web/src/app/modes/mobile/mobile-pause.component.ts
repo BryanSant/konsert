@@ -17,12 +17,12 @@ import { ModalDialogComponent } from '../../shared/modal-dialog.component';
   host: { class: 'block' },
   template: `
     @if (control.paused()) {
-      <button type="button" class="ks-btn w-full min-h-11 text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]" data-testid="mobile-resume" [disabled]="control.isBusy('fleet')" (click)="control.resumeEverything()">
+      <button type="button" class="ks-btn w-full h-[44px] text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]" data-testid="mobile-resume" [disabled]="control.isBusy('fleet')" (click)="control.resumeEverything()">
         <app-icon name="play" [size]="12" />
         Resume everything
       </button>
     } @else {
-      <button type="button" class="w-full min-h-11 bg-transparent border-0 text-[12.5px] font-medium text-[var(--ks-text-muted)] cursor-pointer rounded-[var(--ks-radius-md)] ks-focusable" data-testid="mobile-pause" (click)="confirming.set(true)">
+      <button type="button" class="w-full h-[44px] bg-transparent border-0 text-[12.5px] font-medium text-[var(--ks-text-muted)] cursor-pointer rounded-[var(--ks-radius-md)] ks-focusable" data-testid="mobile-pause" (click)="confirming.set(true)">
         ❚❚ Emergency: pause everything
       </button>
     }
@@ -34,8 +34,8 @@ import { ModalDialogComponent } from '../../shared/modal-dialog.component';
           Suspends all agent work on {{ machines() }} and stops dispatching until you resume. Nothing is lost, and agents are told you paused them.
         </p>
         <div class="grid gap-2 mt-4">
-          <button type="button" class="ks-btn min-h-11 bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-pause-confirm" (click)="confirm()">Pause everything</button>
-          <button type="button" class="ks-btn min-h-11 ks-btn-soft" data-testid="mobile-pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
+          <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-pause-confirm" (click)="confirm()">Pause everything</button>
+          <button type="button" class="ks-btn h-[44px] ks-btn-soft" data-testid="mobile-pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
         </div>
       </app-modal-dialog>
     }

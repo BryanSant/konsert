@@ -181,7 +181,6 @@ export function chatTitleFrom(text: string): string {
           [accountId]="s.account_id || ''"
           [relogin]="activeAccount()?.auth?.relogin"
           [alternatives]="alternatives()"
-          [needsYouElsewhere]="needsYouElsewhere()"
           (answer)="respond($event)"
           (retry)="retry()"
           (switchAccount)="switchTo($event)"
@@ -252,8 +251,6 @@ export function chatTitleFrom(text: string): string {
 })
 export class ChatViewComponent implements OnInit {
   readonly openNewTerminal = output<void>();
-  /** Command mode: pending questions are answered in the Needs-you rail, not inline. */
-  readonly needsYouElsewhere = input(false);
 
   readonly orch = inject(OrchestratorStore);
   readonly agentChat = inject(AgentChatStore);
