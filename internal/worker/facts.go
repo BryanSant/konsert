@@ -56,10 +56,13 @@ func classifyVirtualization(f *protocol.MachineFacts) string {
 }
 
 type toolProbe struct {
-	name string
-	bin  string
-	args []string
+	name    string
+	bin     string
+	args    []string
+	timeout time.Duration // 0 means defaultToolProbeTimeout
 }
+
+const defaultToolProbeTimeout = 700 * time.Millisecond
 
 var defaultToolProbes = []toolProbe{
 	{name: "git", bin: "git", args: []string{"--version"}},
@@ -79,6 +82,9 @@ var defaultToolProbes = []toolProbe{
 	{name: "agy", bin: "agy", args: []string{"--version"}},
 	{name: "codex", bin: "codex", args: []string{"--version"}},
 	{name: "grok", bin: "grok", args: []string{"--version"}},
+	{name: "copilot", bin: "copilot", args: []string{"--version"}},
+	// cursor-agent is a Node bundle: `--version` takes over a second to start.
+	{name: "cursor", bin: "cursor-agent", args: []string{"--version"}, timeout: 3 * time.Second},
 }
 
 func collectToolAndAuthCapabilities(parentCtx context.Context, f *protocol.MachineFacts) {
@@ -93,7 +99,11 @@ func collectToolAndAuthCapabilities(parentCtx context.Context, f *protocol.Machi
 		wg.Add(1)
 		go func(p toolProbe, bin string) {
 			defer wg.Done()
-			tCtx, cancel := context.WithTimeout(parentCtx, 700*time.Millisecond)
+			timeout := p.timeout
+			if timeout == 0 {
+				timeout = defaultToolProbeTimeout
+			}
+			tCtx, cancel := context.WithTimeout(parentCtx, timeout)
 			defer cancel()
 			out, err := exec.CommandContext(tCtx, bin, p.args...).CombinedOutput()
 			ver := extractVersion(string(out))

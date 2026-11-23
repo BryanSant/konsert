@@ -83,7 +83,16 @@ func CollectSubscriptionQuotas(_ context.Context, homeDir, workerID string) []pr
 		// says to run /usage inside the TUI; per-session token usage.json files carry no
 		// plan limit), so this only picks up a quota.json written by a hook or probe.
 		{provider: "grok", windowLabel: "", relPath: filepath.Join(".grok", "quota.json")},
+		// cursor-agent keeps no local plan-usage cache either: its TUI /usage command calls
+		// Cursor's DashboardService (GetCurrentPeriodUsage) with the keychain login, which
+		// this probe never reads. A quota.json written by a hook or probe is accepted in the
+		// generic shape or as the GetCurrentPeriodUsage JSON response
+		// ({"billingCycleEnd":"<ms>","planUsage":{"totalPercentUsed":..}}).
 		{provider: "cursor", windowLabel: "", relPath: filepath.Join(".cursor", "quota.json")},
+		// copilot's plan quotas come from its own account cache, which the copilot driver
+		// reads (and reports as quota telemetry) while a copilot task runs, right after the
+		// CLI refreshes it; this entry only picks up a quota.json written by a hook or probe.
+		{provider: "copilot", windowLabel: "", relPath: filepath.Join(".copilot", "quota.json")},
 	}
 	for _, vf := range vendorFiles {
 		raw, err := os.ReadFile(filepath.Join(homeDir, vf.relPath))
@@ -95,6 +104,13 @@ func CollectSubscriptionQuotas(_ context.Context, homeDir, workerID string) []pr
 			Utilization *float64 `json:"utilization"`
 			Window      string   `json:"window_label"`
 			ResetAt     string   `json:"reset_at"`
+			// Cursor GetCurrentPeriodUsage response shape.
+			BillingCycleEnd json.Number `json:"billingCycleEnd"`
+			PlanUsage       *struct {
+				TotalPercentUsed *float64 `json:"totalPercentUsed"`
+				IncludedSpend    float64  `json:"includedSpend"`
+				Limit            float64  `json:"limit"`
+			} `json:"planUsage"`
 		}
 		if json.Unmarshal(raw, &obj) != nil {
 			continue
@@ -106,6 +122,12 @@ func CollectSubscriptionQuotas(_ context.Context, homeDir, workerID string) []pr
 			pct = *obj.Utilization
 			if pct <= 1.0 && pct > 0 {
 				pct *= 100
+			}
+		} else if pu := obj.PlanUsage; pu != nil {
+			if pu.TotalPercentUsed != nil {
+				pct = *pu.TotalPercentUsed
+			} else if pu.Limit > 0 {
+				pct = pu.IncludedSpend / pu.Limit * 100
 			}
 		}
 		if pct < 0 {
@@ -120,6 +142,9 @@ func CollectSubscriptionQuotas(_ context.Context, homeDir, workerID string) []pr
 			if rt, err := time.Parse(time.RFC3339, obj.ResetAt); err == nil {
 				resetPtr = &rt
 			}
+		} else if ms, err := obj.BillingCycleEnd.Int64(); err == nil && ms > 0 {
+			rt := time.UnixMilli(ms).UTC()
+			resetPtr = &rt
 		}
 		add(protocol.SubscriptionQuota{
 			Provider:    vf.provider,
@@ -146,6 +171,8 @@ func defaultQuotaLabel(provider string) string {
 		return "Grok"
 	case "cursor":
 		return "Cursor Models"
+	case "copilot", "github":
+		return "Copilot"
 	default:
 		return provider
 	}
