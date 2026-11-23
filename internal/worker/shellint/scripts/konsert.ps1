@@ -19,15 +19,17 @@ $global:__KonsertOrigPrompt = $function:prompt
 # records the history position.
 $global:__KonsertLastHistoryId = -1
 
-# Escapes a value for an OSC payload: "\" -> "\\", ";" -> "\x3b", controls -> "\xNN".
+# Escapes a value for an OSC payload: "\" -> "\\", ";" -> "\x3b", controls and every
+# non-ASCII byte of the UTF-8 encoding -> "\xNN". The payload is pure ASCII, so the console
+# code page (Windows PowerShell 5.1 often writes through a legacy OEM/ANSI page that can't
+# represent characters like U+2713) can't mangle it.
 function global:__KonsertEsc([string]$s) {
     $sb = New-Object System.Text.StringBuilder
-    foreach ($ch in $s.ToCharArray()) {
-        $c = [int]$ch
-        if ($ch -eq [char]'\') { [void]$sb.Append('\\') }
-        elseif ($ch -eq [char]';') { [void]$sb.Append('\x3b') }
-        elseif ($c -lt 0x20 -or $c -eq 0x7f) { [void]$sb.Append(('\x{0:x2}' -f $c)) }
-        else { [void]$sb.Append($ch) }
+    foreach ($b in [System.Text.Encoding]::UTF8.GetBytes($s)) {
+        if ($b -eq 0x5c) { [void]$sb.Append('\\') }
+        elseif ($b -eq 0x3b) { [void]$sb.Append('\x3b') }
+        elseif ($b -lt 0x20 -or $b -ge 0x7f) { [void]$sb.Append(('\x{0:x2}' -f $b)) }
+        else { [void]$sb.Append([char]$b) }
     }
     $sb.ToString()
 }
