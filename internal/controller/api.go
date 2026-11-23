@@ -49,8 +49,16 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		logger = slog.Default()
 	}
 	// Apply persisted settings from SQLite over startup defaults if present.
+	// Saved values that fail validation (e.g. a provider typo written by an older
+	// build) are ignored so the controller never silently sends the key elsewhere.
 	if saved, err := st.GetAllSettings(context.Background()); err == nil {
-		applySavedOrchestratorSettings(&cfg.Orchestrator, saved)
+		merged := cfg.Orchestrator
+		applySavedOrchestratorSettings(&merged, saved)
+		if err := merged.Validate(); err != nil {
+			logger.Error("ignoring invalid saved orchestrator settings; using startup config", "err", err)
+		} else {
+			cfg.Orchestrator = merged
+		}
 	}
 	authMgr := auth.NewManager(auth.Options{
 		FleetToken:            cfg.FleetToken,
@@ -157,13 +165,22 @@ func (s *Server) registerRoutes() {
 
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
-		mcpHandler := NewMCPHTTPHandler(s.service, s.version, s.orch)
+		// Two MCP servers with separate session spaces: one for admin-scoped callers
+		// (admin token or --no-auth) and one for MCP-token-only callers, which may
+		// not redirect or replace the LLM API key.
+		adminMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: true}, s.version, s.orch)
+		scopedMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: false}, s.version, s.orch)
 		s.mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !s.auth.CheckMCPAuth(r) {
+			ok, admin := s.auth.MCPScope(r)
+			if !ok {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
 			}
-			mcpHandler.ServeHTTP(w, r)
+			if admin {
+				adminMCP.ServeHTTP(w, r)
+				return
+			}
+			scopedMCP.ServeHTTP(w, r)
 		}))
 	}
 
@@ -573,81 +590,16 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		LLMProvider           *string `json:"llm_provider"`
-		LLMModel              *string `json:"llm_model"`
-		LLMBaseURL            *string `json:"llm_base_url"`
-		LLMAPIKey             *string `json:"llm_api_key"`
-		ClearAPIKey           bool    `json:"clear_api_key"`
-		DefaultAgent          *string `json:"default_agent"`
-		DefaultModel          *string `json:"default_model"`
-		DefaultPermissionMode *string `json:"default_permission_mode"`
-		TerminalFontSize      *int    `json:"terminal_font_size"`
-		NotifySound           *bool   `json:"notify_sound"`
-		NotifyDesktop         *bool   `json:"notify_desktop"`
-	}
+	var body SettingsUpdate
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-
-	updates := make(map[string]string)
-	s.cfgMu.Lock()
-	if body.LLMProvider != nil {
-		v := strings.TrimSpace(*body.LLMProvider)
-		if v != "" {
-			s.cfg.Orchestrator.Provider = v
-			updates["llm_provider"] = v
-		}
-	}
-	if body.LLMModel != nil {
-		v := strings.TrimSpace(*body.LLMModel)
-		s.cfg.Orchestrator.Model = v
-		updates["llm_model"] = v
-	}
-	if body.LLMBaseURL != nil {
-		v := strings.TrimSpace(*body.LLMBaseURL)
-		s.cfg.Orchestrator.BaseURL = v
-		updates["llm_base_url"] = v
-	}
-	if body.ClearAPIKey {
-		s.cfg.Orchestrator.APIKey = ""
-		updates["llm_api_key"] = ""
-	} else if body.LLMAPIKey != nil && strings.TrimSpace(*body.LLMAPIKey) != "" {
-		v := strings.TrimSpace(*body.LLMAPIKey)
-		s.cfg.Orchestrator.APIKey = v
-		updates["llm_api_key"] = v
-	}
-	orchCfg := s.cfg.Orchestrator
-	s.cfgMu.Unlock()
-
-	if body.DefaultAgent != nil {
-		updates["default_agent"] = strings.TrimSpace(*body.DefaultAgent)
-	}
-	if body.DefaultModel != nil {
-		updates["default_model"] = strings.TrimSpace(*body.DefaultModel)
-	}
-
-	if body.DefaultPermissionMode != nil {
-		v := strings.TrimSpace(*body.DefaultPermissionMode)
-		if v == protocol.PermissionFullAccess || v == protocol.PermissionSandboxed {
-			updates["default_permission_mode"] = v
-		}
-	}
-	if body.TerminalFontSize != nil && *body.TerminalFontSize >= 10 && *body.TerminalFontSize <= 24 {
-		updates["terminal_font_size"] = strconv.Itoa(*body.TerminalFontSize)
-	}
-	if body.NotifySound != nil {
-		updates["notify_sound"] = strconv.FormatBool(*body.NotifySound)
-	}
-	if body.NotifyDesktop != nil {
-		updates["notify_desktop"] = strconv.FormatBool(*body.NotifyDesktop)
-	}
-
-	if err := s.store.SetSettings(r.Context(), updates); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	// Browser/REST callers are authenticated with the admin credential (session
+	// cookie, admin bearer, or trusted Tailscale identity), so they hold admin scope.
+	if err := s.applySettings(r.Context(), body, true); err != nil {
+		writeSettingsError(w, err)
 		return
 	}
-	s.orch.UpdateConfig(orchCfg)
 	writeJSON(w, http.StatusOK, s.buildSettingsResponse(r.Context()))
 }
 
@@ -909,11 +861,14 @@ func (s *Server) handleCreateChatSession(w http.ResponseWriter, r *http.Request)
 	if strings.TrimSpace(body.Title) == "" {
 		body.Title = "Orchestrator Session"
 	}
+	s.cfgMu.RLock()
+	defProvider, defModel := s.cfg.Orchestrator.Provider, s.cfg.Orchestrator.Model
+	s.cfgMu.RUnlock()
 	if body.Provider == "" {
-		body.Provider = s.cfg.Orchestrator.Provider
+		body.Provider = defProvider
 	}
 	if body.Model == "" {
-		body.Model = s.cfg.Orchestrator.Model
+		body.Model = defModel
 	}
 	now := time.Now().UTC()
 	cs := store.ChatSession{
