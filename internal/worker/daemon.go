@@ -22,11 +22,6 @@ import (
 	"github.com/coder/websocket"
 )
 
-type outboundMsg struct {
-	msgType websocket.MessageType
-	data    []byte
-}
-
 // Daemon connects outbound to konsert, handles reconnects with exponential backoff,
 // sends heartbeats, and bridges controller commands to Runner.
 type Daemon struct {
@@ -36,7 +31,10 @@ type Daemon struct {
 	logger   *slog.Logger
 
 	sendMu sync.RWMutex
-	sendCh chan outboundMsg
+	queues *connQueues // nil while disconnected
+
+	// outbox keeps final task statuses until written to a hub connection (persisted).
+	outbox *statusOutbox
 
 	// Test hooks: optional custom heartbeat & facts refresh intervals.
 	HeartbeatInterval time.Duration
@@ -72,12 +70,19 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg:               cfg,
 		registry:          registry,
 		logger:            logger,
+		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
 	}
 
 	d.runner = NewRunner(registry, cfg.Sandbox, cfg.AllowedRoots, RunnerCallbacks{
 		OnTaskStatus: func(p protocol.TaskStatusPayload) {
+			if protocol.IsTerminalTaskStatus(p.Status) {
+				// Final statuses go through the persistent outbox so they survive a
+				// disconnect and are re-sent after the next worker.hello.
+				d.outbox.add(p)
+				return
+			}
 			d.sendJSON(protocol.MsgTaskStatus, p)
 		},
 		OnTaskEvent: func(p protocol.TaskEventPayload) {
@@ -89,7 +94,8 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 				logger.Warn("dropping PTY frame: encode failed", "task_id", taskID, "frame_type", frameType, "err", err)
 				return
 			}
-			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame})
+			// Snapshots are control traffic (never dropped); live data may be dropped.
+			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame, droppable: frameType == protocol.FramePtyData})
 		},
 	}, logger)
 
@@ -191,15 +197,15 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 
-	sendCh := make(chan outboundMsg, 512)
+	queues := newConnQueues()
 	d.sendMu.Lock()
-	d.sendCh = sendCh
+	d.queues = queues
 	d.sendMu.Unlock()
 
 	defer func() {
 		d.sendMu.Lock()
-		if d.sendCh == sendCh {
-			d.sendCh = nil
+		if d.queues == queues {
+			d.queues = nil
 		}
 		d.sendMu.Unlock()
 	}()
@@ -241,25 +247,17 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		"active_tasks", len(hello.ActiveTasks),
 	)
 
-	// Writer goroutine
-	writeErrCh := make(chan error, 1)
+	// Writer goroutine. It starts after worker.hello has been written, so pending final
+	// statuses from the outbox are always delivered after hello.
 	go func() {
-		for {
-			select {
-			case <-connCtx.Done():
-				writeErrCh <- connCtx.Err()
-				return
-			case msg := <-sendCh:
-				wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
-				err := conn.Write(wCtx, msg.msgType, msg.data)
-				wCancel()
-				if err != nil {
-					writeErrCh <- err
-					connCancel()
-					return
-				}
-			}
+		if err := d.writeLoop(connCtx, queues, func(msg outboundMsg) error {
+			wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
+			defer wCancel()
+			return conn.Write(wCtx, msg.msgType, msg.data)
+		}); err != nil && connCtx.Err() == nil {
+			d.logger.Warn("write to controller failed", "err", err)
 		}
+		connCancel()
 	}()
 
 	// Adaptive delta-throttled heartbeat goroutine (faster when active, gentle when idle).
@@ -707,22 +705,63 @@ func (d *Daemon) sendJSONWithID(msgType, id string, payload any) {
 	d.enqueue(outboundMsg{msgType: websocket.MessageText, data: raw})
 }
 
+// enqueue hands msg to the current connection's queues. It never blocks. While
+// disconnected, messages are discarded: final task statuses do not pass through here (they
+// live in the outbox), live state is re-sent in worker.hello, and request results are
+// meaningless on a new connection.
 func (d *Daemon) enqueue(msg outboundMsg) {
 	d.sendMu.RLock()
-	ch := d.sendCh
+	q := d.queues
 	d.sendMu.RUnlock()
-	if ch == nil {
+	if q == nil {
 		return
 	}
-	select {
-	case ch <- msg:
-	default:
-		// If outbound queue is full, drop live PTY frame rather than stalling worker.
-		if msg.msgType == websocket.MessageText {
-			// Best-effort block briefly for control messages.
-			select {
-			case ch <- msg:
-			case <-time.After(100 * time.Millisecond):
+	q.push(msg)
+}
+
+// writeLoop drains queues in priority order until ctx ends or write fails:
+// control messages first, then pending outbox statuses, then live PTY data.
+func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outboundMsg) error) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if msg, ok := q.popControl(); ok {
+			if err := write(msg); err != nil {
+				return err
+			}
+			continue
+		}
+		if entries := d.outbox.pending(); len(entries) > 0 {
+			for _, e := range entries {
+				raw, err := protocol.NewEnvelope(protocol.MsgTaskStatus, "", e.Status)
+				if err != nil {
+					d.outbox.remove(e.Seq)
+					continue
+				}
+				if err := write(outboundMsg{msgType: websocket.MessageText, data: raw}); err != nil {
+					return err
+				}
+				d.outbox.remove(e.Seq)
+			}
+			continue
+		}
+		select {
+		case msg := <-q.pty:
+			if err := write(msg); err != nil {
+				return err
+			}
+			continue
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-q.signal:
+		case <-d.outbox.signal:
+		case msg := <-q.pty:
+			if err := write(msg); err != nil {
+				return err
 			}
 		}
 	}

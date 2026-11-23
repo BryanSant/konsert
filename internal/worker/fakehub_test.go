@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,8 +17,9 @@ import (
 
 // fakeHub is a minimal hub endpoint: each worker connection is handed to the test.
 type fakeHub struct {
-	srv   *httptest.Server
-	conns chan *hubConn
+	srv    *httptest.Server
+	conns  chan *hubConn
+	reject atomic.Bool // when set, connection attempts get HTTP 503
 }
 
 // hubConn is one accepted worker connection with its decoded text envelopes.
@@ -31,6 +33,10 @@ func newFakeHub(t *testing.T) *fakeHub {
 	t.Helper()
 	h := &fakeHub{conns: make(chan *hubConn, 8)}
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.reject.Load() {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
