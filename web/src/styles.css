@@ -556,6 +556,19 @@ dialog.ks-dialog::backdrop {
 .ks-pulse {
   animation: ks-pulse-dot 1.4s ease-in-out infinite;
 }
+
+/* Mic button while dictating: red, with a soft pulsing ring. */
+@keyframes ks-mic-ring {
+  0% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(232, 107, 107, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0); }
+}
+.ks-icon-btn.ks-mic-recording,
+.ks-icon-btn.ks-mic-recording:hover:not(:disabled) {
+  color: #f6b8b8;
+  background: var(--ks-red-soft);
+  animation: ks-mic-ring 1.5s var(--ks-ease-out) infinite;
+}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -563,6 +576,7 @@ dialog.ks-dialog::backdrop {
   .ks-tooltip,
   .ks-tooltip.ks-tooltip-animate,
   .ks-pulse,
+  .ks-mic-recording,
   .ks-btn,
   .ks-icon-btn,
   .ks-chip,
