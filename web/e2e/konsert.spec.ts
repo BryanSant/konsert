@@ -16,7 +16,7 @@ function loadEnv(): E2EEnv {
 }
 
 async function loginThroughUI(page: Page, env: E2EEnv): Promise<void> {
-  await page.goto(env.baseURL, { waitUntil: 'networkidle' });
+  await page.goto(`${env.baseURL}/classic`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Konsert' })).toBeVisible();
 
   // Verify invalid token is rejected first

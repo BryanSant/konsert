@@ -196,6 +196,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/fleet/pause", s.requireBrowserAuth(s.handlePauseFleet))
 	s.mux.Handle("POST /api/fleet/resume", s.requireBrowserAuth(s.handleResumeFleet))
 	s.mux.Handle("GET /api/holds", s.requireBrowserAuth(s.handleListHolds))
+	s.mux.Handle("POST /api/holds", s.requireBrowserAuth(s.handleCreateHold))
 	s.mux.Handle("POST /api/holds/{id}/release", s.requireBrowserAuth(s.byRef(ids.Hold, s.handleReleaseHold)))
 	s.mux.Handle("GET /api/requests", s.requireBrowserAuth(s.handleListRequests))
 	s.mux.Handle("POST /api/requests/{id}/resolve", s.requireBrowserAuth(s.byRef(ids.Request, s.handleResolveRequest)))

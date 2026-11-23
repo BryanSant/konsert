@@ -22,7 +22,7 @@ function loadEnv(): E2EEnv {
 }
 
 async function signIn(page: Page, env: E2EEnv): Promise<void> {
-  await page.goto(env.baseURL);
+  await page.goto(`${env.baseURL}/classic`);
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();

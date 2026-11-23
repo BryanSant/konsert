@@ -323,6 +323,11 @@ export class ApiClientService {
     return this.request(`/api/holds${qs ? `?${qs}` : ''}`);
   }
 
+  /** Places a hold the user asked for: a session (task or chat) or a whole machine. */
+  createHold(target: { task_id?: string; chat_id?: string; worker_id?: string; note?: string }): Promise<Hold> {
+    return this.request('/api/holds', { method: 'POST', body: JSON.stringify(target) });
+  }
+
   releaseHold(holdId: string, note?: string): Promise<Hold> {
     return this.request(`/api/holds/${encodeURIComponent(holdId)}/release`, {
       method: 'POST',

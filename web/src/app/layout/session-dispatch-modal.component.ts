@@ -164,6 +164,8 @@ export class SessionDispatchModalComponent implements OnInit {
 
   readonly request = input.required<SessionDispatchRequest>();
   readonly close = output<void>();
+  /** The new session's task id, once it was dispatched. */
+  readonly started = output<string>();
 
   private readonly composer = viewChild(ChatComposerComponent);
 
@@ -315,6 +317,7 @@ export class SessionDispatchModalComponent implements OnInit {
       if (task) {
         const w = this.fleet.workersById()[task.worker_id];
         this.tabs.openTaskTab(task, w?.name);
+        this.started.emit(task.id);
       }
       this.composer()?.clear();
       this.close.emit();

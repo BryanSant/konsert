@@ -52,7 +52,7 @@ async function stopHub(hub: Hub): Promise<void> {
 }
 
 async function login(page: Page, hub: Hub): Promise<void> {
-  await page.goto(hub.baseURL, { waitUntil: 'networkidle' });
+  await page.goto(`${hub.baseURL}/classic`, { waitUntil: 'networkidle' });
   await page.locator('#token').fill(ADMIN);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.getByRole('heading', { name: 'KONSERT' })).toBeVisible();

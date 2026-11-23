@@ -88,7 +88,7 @@ export function sessionActions(
         }
       </button>
     }
-    @if (actions().cancel) {
+    @if (actions().cancel && !hideCancel()) {
       <button
         type="button"
         class="ks-btn ks-btn-sm ks-btn-danger"
@@ -104,7 +104,40 @@ export function sessionActions(
         }
       </button>
     }
-    @if (actions().veto) {
+    @if (showHold()) {
+      @if (hold(); as h) {
+        <button
+          type="button"
+          class="ks-btn ks-btn-sm text-[#e6b763]"
+          data-testid="session-release-hold"
+          [disabled]="control.isBusy(h.id)"
+          (click)="control.releaseHold(h)"
+          ksTooltip="Let automatic actions (retries, orchestrator steering) touch it again"
+          aria-label="Release hold"
+        >
+          <app-icon name="unlock" [size]="11" />
+          @if (!compact()) {
+            <span>Release hold</span>
+          }
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="ks-btn ks-btn-sm"
+          data-testid="session-hold-btn"
+          [disabled]="busy()"
+          (click)="placeHold()"
+          ksTooltip="Nothing automatic touches it (retries, orchestrator steering) until you release it; it keeps running"
+          aria-label="Hold"
+        >
+          <app-icon name="lock" [size]="11" />
+          @if (!compact()) {
+            <span>Hold</span>
+          }
+        </button>
+      }
+    }
+    @if (actions().veto || vetoAlways()) {
       <ks-popover
         label="Veto"
         role="dialog"
@@ -179,8 +212,15 @@ export class SessionControlsComponent {
   readonly status = input<string>('');
   /** Icon-only buttons on narrow headers. */
   readonly compact = input(false);
+  /** Also offer Hold / Release hold. */
+  readonly showHold = input(false);
+  /** Offer Veto even once the session finished (reviews: "don't do it this way again"). */
+  readonly vetoAlways = input(false);
+  /** Leave out Cancel (where the host already offers Stop). */
+  readonly hideCancel = input(false);
 
-  private readonly control = inject(ControlStore);
+  readonly control = inject(ControlStore);
+  readonly hold = computed(() => this.control.sessionHold(this.sessionId()));
 
   private static seq = 0;
   readonly noteId = `ks-veto-note-${++SessionControlsComponent.seq}`;
@@ -200,6 +240,10 @@ export class SessionControlsComponent {
   resume(): Promise<boolean> {
     const id = this.sessionId();
     return this.kind() === 'task' ? this.control.resumeTask(id) : this.control.resumeChat(id);
+  }
+
+  async placeHold(): Promise<boolean> {
+    return !!(await this.control.holdSession(this.kind(), this.sessionId()));
   }
 
   cancel(): Promise<boolean> {

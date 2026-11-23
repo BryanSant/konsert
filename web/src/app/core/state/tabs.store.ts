@@ -190,16 +190,36 @@ export class TabsStore {
     this.splitRatio.set(Math.min(0.75, Math.max(0.25, ratio)));
   }
 
+  /**
+   * Take Control for sessions shown outside the classic tab strip (Command tabs, Wall
+   * tiles): task id -> typing goes to the PTY. Never persisted.
+   */
+  readonly takenControl = signal<Record<string, boolean>>({});
+
+  /** Whether typing in this task's terminal goes to its PTY. */
+  isInteractive(taskId: string): boolean {
+    const tab = this.openTabs().find((t) => t.id === taskId);
+    if (tab) return tab.interactiveMode;
+    return !!this.takenControl()[taskId];
+  }
+
   toggleInteractiveMode(tabId: string): void {
-    this.openTabs.update((tabs) =>
-      tabs.map((t) => (t.id === tabId ? { ...t, interactiveMode: !t.interactiveMode } : t))
-    );
+    this.setInteractiveMode(tabId, !this.isInteractive(tabId));
   }
 
   setInteractiveMode(tabId: string, enabled: boolean): void {
-    this.openTabs.update((tabs) =>
-      tabs.map((t) => (t.id === tabId ? { ...t, interactiveMode: enabled } : t))
-    );
+    if (this.openTabs().some((t) => t.id === tabId)) {
+      this.openTabs.update((tabs) =>
+        tabs.map((t) => (t.id === tabId ? { ...t, interactiveMode: enabled } : t))
+      );
+      return;
+    }
+    this.takenControl.update((m) => {
+      const next = { ...m };
+      if (enabled) next[tabId] = true;
+      else delete next[tabId];
+      return next;
+    });
   }
 
   toggleScratch(): void {
