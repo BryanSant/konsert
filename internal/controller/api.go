@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -450,25 +452,34 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		ControllerURL string `json:"controller_url"`
 		Sandbox       bool   `json:"sandbox"`
 		EnableMock    bool   `json:"enable_mock"`
+		// AcceptHostKey is the SHA256 host key fingerprint the operator confirmed after
+		// a previous attempt returned host_key_confirmation_required.
+		AcceptHostKey string `json:"accept_host_key"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if strings.TrimSpace(body.Target) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "target is required"})
+	if _, err := sshutil.ParseTarget(body.Target); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
-	}
-	ctrlURL := strings.TrimSpace(body.ControllerURL)
-	if ctrlURL == "" {
-		scheme := "ws"
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			scheme = "wss"
-		}
-		ctrlURL = scheme + "://" + r.Host + "/ws/worker"
 	}
 	s.cfgMu.RLock()
 	fleetTok := s.cfg.FleetToken
+	publicURL := s.cfg.PublicURL
 	s.cfgMu.RUnlock()
+	ctrlURL, err := workerControllerURL(publicURL, body.ControllerURL)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	opts := sshutil.BootstrapOptions{
+		Target:        body.Target,
+		ControllerURL: ctrlURL,
+		FleetToken:    fleetTok,
+		Sandbox:       body.Sandbox,
+		EnableMock:    body.EnableMock,
+		AcceptHostKey: body.AcceptHostKey,
+	}
 
 	streamSSE := r.URL.Query().Get("stream") == "1" || strings.Contains(r.Header.Get("Accept"), "text/event-stream")
 	if streamSSE {
@@ -478,18 +489,12 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
 			w.WriteHeader(http.StatusOK)
-			res := sshutil.BootstrapRemoteWorker(r.Context(), sshutil.BootstrapOptions{
-				Target:        body.Target,
-				ControllerURL: ctrlURL,
-				FleetToken:    fleetTok,
-				Sandbox:       body.Sandbox,
-				EnableMock:    body.EnableMock,
-				OnStage: func(stage, label, detail string) {
-					b, _ := json.Marshal(map[string]any{"type": "stage", "stage": stage, "label": label, "detail": detail})
-					_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
-					flusher.Flush()
-				},
-			})
+			opts.OnStage = func(stage, label, detail string) {
+				b, _ := json.Marshal(map[string]any{"type": "stage", "stage": stage, "label": label, "detail": detail})
+				_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
+				flusher.Flush()
+			}
+			res := sshutil.BootstrapRemoteWorker(r.Context(), opts)
 			b, _ := json.Marshal(map[string]any{"type": "done", "result": res})
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 			flusher.Flush()
@@ -497,18 +502,42 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	res := sshutil.BootstrapRemoteWorker(r.Context(), sshutil.BootstrapOptions{
-		Target:        body.Target,
-		ControllerURL: ctrlURL,
-		FleetToken:    fleetTok,
-		Sandbox:       body.Sandbox,
-		EnableMock:    body.EnableMock,
-	})
-	if !res.OK {
+	res := sshutil.BootstrapRemoteWorker(r.Context(), opts)
+	switch {
+	case res.OK:
+		writeJSON(w, http.StatusOK, res)
+	case res.HostKeyConfirmationRequired:
+		writeJSON(w, http.StatusConflict, res)
+	default:
 		writeJSON(w, http.StatusBadGateway, res)
-		return
 	}
-	writeJSON(w, http.StatusOK, res)
+}
+
+// workerControllerURL picks the WebSocket URL handed (with the fleet token) to an
+// SSH-bootstrapped worker. The configured public URL wins; otherwise the
+// authenticated caller must supply a ws(s):// URL. The request Host header is never
+// used, so a spoofed Host cannot redirect the fleet token.
+func workerControllerURL(publicURL, requested string) (string, error) {
+	if pu := strings.TrimSpace(publicURL); pu != "" {
+		u, err := url.Parse(pu)
+		if err != nil || u.Host == "" {
+			return "", fmt.Errorf("configured public_url %q is invalid", pu)
+		}
+		scheme := "ws"
+		if strings.EqualFold(u.Scheme, "https") {
+			scheme = "wss"
+		}
+		return scheme + "://" + u.Host + strings.TrimRight(u.Path, "/") + "/ws/worker", nil
+	}
+	req := strings.TrimSpace(requested)
+	if req == "" {
+		return "", errors.New("controller URL unknown: start konsert with --public-url or pass controller_url")
+	}
+	u, err := url.Parse(req)
+	if err != nil || u.Host == "" || (!strings.EqualFold(u.Scheme, "ws") && !strings.EqualFold(u.Scheme, "wss")) {
+		return "", fmt.Errorf("controller_url %q must be a ws:// or wss:// URL", req)
+	}
+	return req, nil
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {
