@@ -1,0 +1,162 @@
+[>4;2m[?u[?2026$p[?1049h[?2004h[?1004h[?1003h[?1006h[?25l[?12$p[?1007$p[c[H[2J[14t]10;?\]11;?\]4;0;?\]4;1;?\]4;2;?\]4;3;?\]4;4;?\]4;5;?\]4;6;?\]4;7;?\]4;8;?\]4;9;?\]4;10;?\]4;11;?\]4;12;?\]4;13;?\]4;14;?\]4;15;?\[?25l[22;0t]0;GitHub Copilot]7501;state=idle:app=copilot\[H[2J [1;97;44m[Current][m  Sessions  [2m Issues [m [2m Pull requests [m  Gists[?996n
+
+[2;90m╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│[116C│
+│[m [34m ╭─╮╭─╮[5;39H[2;90m│[m  [1;34mGetting started[61C[0;2;90m│
+│[m [34m ╰─╯╰─╯[m  Copilot v1.0.114 uses AI.  [2;90m│[m  Use the tabs above to explore your sessions and pull requests[15C[2;90m│
+│[m [35m █ [96m▘▝[35m █[m  Check for mistakes.[7;39H[2;90m│[m  /model — Switch models across providers, or use Auto[24C[2;90m│
+│[m [35m  ▔▔▔▔ [8;39H[2;90m│[78C│
+│[116C│
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[36;2H[m/private/var/tmp/scratch/interactive[36;73HRun on: This computer [1mctrl+e[m change environment
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[m❯
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[C[0;94m●[m [94mL[34moading: 13 hooks[m[38;3H[?25h[?25l[40;21H[34m, 7 skills[m[38;3H[?25h[?25l
+
+ [94m◉[m [34mLo[94mad[m[38;3H[?25h[?25l
+
+ [34m◎[m [94mL[34moadi[94mng[m[38;3H[?25h[?25l
+
+ [34m○[m [34mLo[94mad[34ming:[94m 1[m[38;3H[?25h[?25l
+
+ [34m◎[m [34mLoadi[94mng[34m: 13[94m h[m[38;3H[?25h[?25l[7;90HCopilot Fusion[40;106HCopilot Fusion[38;3H[?25h[?25l
+
+ [34m◉[6Cng:[94m 1[34m3 ho[94mok[m[38;3H[?25h[?25l
+
+ [94m●[40;12H[34m 13[94m h[34mooks[94m, [m[38;3H[?25h[?25l
+
+ [94m◉[40;15H[34m ho[94mok[34ms, 7[94m s[m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l
+
+ [94m◎[40;18H[34moks[94m, [34m7 sk[94mil[m[38;3H[?25h[?25l[7;6H[96m  [35m [m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [40;2H[34m○[40;21H, 7[94m s[34mkill[94ms[m[38;3H[?25h[?25l
+
+ [94m●[m [94mL[40;24H[34m skills, 1 MCP server[m[38;3H[?25h[?25l[7;6H[96m▘▝[35m [m[38;3H[?25h[?25l
+
+ [94m◉[m [34mLo[94mad[m[38;3H[?25h[?25l
+
+ [34m◎[m [94mL[34moadi[94mng[m[38;3H[?25h[?25l
+
+ [34m○[m [34mLo[94mad[34ming:[94m 1[m[38;3H[?25h[?25l
+
+ [1m←[m open sidebar · Interactive · Allow All · [1m/[m commands · [1m?[m help · [1mtab[m next tab[38;3H[?25h]9;4;3;0]7501;state=working:app=copilot\[?25l[26A❯ Create a file named ok.txt containing the word OK, then reply with the single word DONE[23C23:37[36;95H[K[4B [94m●[m [94mW[34morking[m [1mctrl+c[m interrupt                                                   [38;3H[?25h]0;Create a file named ok.txt containing the word OK, then reply with the single word DONE - GitHub Copilot[?25l
+
+ [94m◉[m [34mWo[94mrk[m[38;3H[?25h[?25l[40;87HCopilot Fusion → mai-code-2-flash[38;3H[?25h[?25l
+
+ [34m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [14;2H[34m●[m Copilot Fusion selected MAI Code 2 Flash because it was the best choice out of the models available in your plan.[38;3H[?25h[?25l
+
+ [34m○[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l[7;6H[96m  [35m [m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [40;2H[34m◎[m [34mWorki[94mng[m[38;3H[?25h[?25l[36;73H                     [7CSession: 0 AIC used
+
+❯ [?25h[?25l[7;6H[96m▘▝[35m [40;2H[34m◉[6Cng[m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [40;2H[94m●[m [2A[?25h[?25l[7;6H[96m  [35m [40;2H[94m◉[m [2A[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l
+
+ [94m◎[m [94mW[34mo[m[38;3H[?25h[?25l[7;6H[96m▘▝[35m [m[38;3H[?25h[?25l
+
+ [34m○[m [34mWo[94mrk[m[38;3H[?25h]0;Create ok.txt File - GitHub Copilot[?25l
+
+ [34m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [34m◉[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [34m●[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [94m◉[6C[34mng[m[38;3H[?25h[?25l
+
+ [94m◎[m [2A[?25h[?25l
+
+ [94m○[m [2A[?25h[?25l
+
+ [34m◎[m [94mW[34mo[m[38;3H[?25h[?25l
+
+ [34m◉[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [34m●[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [34m◉[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [94m◎[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [94m○[6C[34mng[m[38;3H[?25h[?25l
+
+ [94m◎[m [2A[?25h[?25l
+
+ [34m◉[m [2A[?25h[?25l
+
+ [34m●[m [94mW[34mo[m[38;3H[?25h[?25l
+
+ [34m◉[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [34m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [94m○[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [94m◎[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [94m◉[6C[34mng[m[38;3H[?25h[?25l
+
+ [34m●[m [2A[?25h[?25l
+
+ [34m◉[m [2A[?25h[?25l
+
+ [34m◎[m [94mW[34mo[m[38;3H[?25h[?25l
+
+ [34m○[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [94m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [94m◉[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [94m●[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [34m◉[6Cng[m[38;3H[?25h[?25l
+
+ [34m◎[m [2A[?25h[?25l[40;12H· 16 B [1mctrl+c[m interrupt[38;3H[?25h[?25l[40;14H82 [38;3H[?25h[?25l[36;99HSession: 0.2[4B [34m○[m [2A[?25h[?25l[22A○ [1mShell [mCreate ok.txt containing OK
+   printf 'OK' > ok.txt[38;3H[?25h[?25l
+
+ [34m◎[m [94mW[34mo[m[38;3H[?25h[?25l[22A[33m$[16;38H[mNo Content[38;3H[?25h[?25l
+
+ [94m◉[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [94m●[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [94m◉[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [34m◎[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [34m○[6Cng[m[38;3H[?25h[?25l
+
+ [34m◎[m [2A[?25h[?25l
+
+ [34m◉[m [2A[?25h[?25l
+
+ [94m●[m [94mW[34mo[m[38;3H[?25h[?25l
+
+ [94m◉[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [94m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [34m○[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l
+
+ [34m◎[m [34mWorki[94mng[m[38;3H[?25h[?25l
+
+ [34m◉[6Cng[m[38;3H[?25h[?25l
+
+ [34m●[m [2A[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h]9;4;3;0[?25l[7;6H[96m  [35m [40;2H[94m◉[m [2A[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l
+
+ [94m◎[m [94mW[34mo[m[38;3H[?25h[?25l[7;6H[96m▘▝[35m [m[38;3H[?25h[?25l
+
+ [94m○[m [34mWo[94mrk[m[38;3H[?25h[?25l
+
+ [34m◎[m [94mW[34morki[94mng[m[38;3H[?25h[?25l
+
+ [34m◉[m [34mWo[94mrk[34ming[m[38;3H[?25h[?25l[40;15H6 [38;3H[?25h[?25l[19A[34m●[m DO[40;2H[34m●[m [34mWorki[94mng[m[38;3H[?25h[?25l[19;6HN[38;3H[?25h[?25l[19;7HE[36;98HSession: 0.23[40;9H[34mng[m [38;3H[?25h]9;4;0;0]7501;state=done:app=copilot\[?25l
+
+ [1m←[m open sidebar · Interactive · Allow All · [1m/[m commands · [1m?[m help · [1mtab[m next tab[38;3H[?25h]111;]110;[?25l[2A[K
+╭─╮╭─╮   Changes    [32m+0[m [31m-0[m[K
+╰─╯╰─╯   AI Credits 0.23 (8s)
+█ ▘▝ █   Tokens     ↑ 42.8k (22.5k cached) • ↓ 44[K
+ ▔▔▔▔    Resume     copilot --resume=d0d65ea6-2706-4439-9ee1-6a48c30d4ead[K[?25h[23;0t[?1006l[?1003l[?1002l[?1001l[?1000l[?9l[?1005l[?1015l[?1016l[?1004l[?2004l[>4;0m[?1049l[?25h
+  
+  ╭─╮╭─╮   Changes    [32m+0[39m [31m-0[39m
+  ╰─╯╰─╯   AI Credits 0.23 (8s)
+  █ ▘▝ █   Tokens     ↑ 42.8k (22.5k cached) • ↓ 44
+   ▔▔▔▔    Resume     copilot --resume=d0d65ea6-2706-4439-9ee1-6a48c30d4ead
+
+]111;]110;[?25h
