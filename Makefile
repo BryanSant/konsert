@@ -1,4 +1,4 @@
-.PHONY: all build web build-controller build-worker build-all test test-race clean dev-controller dev-worker
+.PHONY: all build web build-controller build-worker build-all test test-race test-e2e lint vuln clean dev-controller dev-worker
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -35,6 +35,15 @@ test:
 
 test-race:
 	go test -race ./...
+
+lint:
+	@test -z "$$(gofmt -l cmd internal)" || (gofmt -l cmd internal; exit 1)
+	go mod tidy -diff
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
 test-e2e: all
 	cd web && npm run test:e2e

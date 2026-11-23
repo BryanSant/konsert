@@ -10,6 +10,51 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Go Lint, Vet, Tidy & Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l cmd internal)
+          if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi
+
+      - name: go mod tidy check
+        run: go mod tidy -diff
+
+      - name: go vet (all target OSes)
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./internal/worker/... ./internal/gitutil/... ./cmd/konsertd/...
+          GOOS=darwin go vet ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+
+  windows:
+    name: Windows Worker Tests (ConPTY)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run worker test suite
+        run: go test -count=1 ./internal/worker/... ./internal/gitutil/... ./internal/protocol/... ./cmd/konsertd/...
+
   web:
     name: Angular Vitest & PWA Build
     runs-on: ubuntu-latest

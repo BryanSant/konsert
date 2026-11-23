@@ -2,6 +2,8 @@ module github.com/BryanSant/konsert
 
 go 1.27.2
 
+toolchain go1.27.4
+
 require (
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/coder/websocket v1.8.15
