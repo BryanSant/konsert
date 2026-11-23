@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
   ChatToolCard,
   Envelope,
@@ -48,6 +48,33 @@ export class KonsertSocketService {
   private hasConnected = false;
   /** Consecutive sockets that closed without ever opening (e.g. 401 on upgrade). */
   private failedHandshakes = 0;
+
+  /** Chat session whose events this client wants (the active orchestrator session). */
+  private desiredChatSession = '';
+  /** Chat session subscribed on the *current* socket ('' when none / not yet sent). */
+  private subscribedChatSession = '';
+
+  constructor() {
+    // The hub only fans chat.* events out to clients subscribed to that session, so
+    // follow the active session: unsubscribe from the old one, subscribe to the new.
+    effect(() => {
+      const sid = this.orchestratorStore.activeSessionId();
+      untracked(() => this.setChatSubscription(sid));
+    });
+  }
+
+  /** Subscribes this socket to chat events for `sessionId` ('' to unsubscribe). */
+  setChatSubscription(sessionId: string): void {
+    this.desiredChatSession = sessionId;
+    if (this.subscribedChatSession === sessionId) return;
+    if (this.subscribedChatSession) {
+      this.sendJSON('chat.unsubscribe', { session_id: this.subscribedChatSession });
+      this.subscribedChatSession = '';
+    }
+    if (sessionId && this.sendJSON('chat.subscribe', { session_id: sessionId })) {
+      this.subscribedChatSession = sessionId;
+    }
+  }
 
   private readonly ptyListeners = new Map<string, Set<PtyListener>>();
   private readonly encoder = new TextEncoder();
@@ -99,6 +126,9 @@ export class KonsertSocketService {
         void this.orchestratorStore.onReconnected();
         void this.telemetryStore.onReconnected();
       }
+      // A new socket starts with no subscriptions: re-subscribe the active chat session.
+      this.subscribedChatSession = '';
+      this.setChatSubscription(this.desiredChatSession);
       // Re-subscribe any open terminal panes after reconnect.
       for (const taskId of this.ptyListeners.keys()) {
         this.sendJSON('pty.subscribe', { task_id: taskId });

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeWebSocket } from '../../../testing/fake-websocket';
 import { ApiClientService } from './api-client.service';
+import { OrchestratorStore } from '../state/orchestrator.store';
 import { AuthService } from './auth.service';
 import {
   HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK,
@@ -37,6 +38,50 @@ describe('KonsertSocketService', () => {
     restoreWs();
     vi.useRealTimers();
     TestBed.resetTestingModule();
+  });
+
+  describe('chat subscriptions', () => {
+    function chatFrames(ws: FakeWebSocket) {
+      return ws.sentJSON().filter((e) => e.type.startsWith('chat.'));
+    }
+
+    it('subscribes to the active session, switches on select, and resubscribes after reconnect', async () => {
+      const orch = TestBed.inject(OrchestratorStore);
+      socket.connect();
+      const ws = FakeWebSocket.last;
+      ws.open();
+
+      orch.activeSessionId.set('s1');
+      TestBed.tick();
+      expect(chatFrames(ws)).toEqual([{ type: 'chat.subscribe', ts: expect.any(String), payload: { session_id: 's1' } }]);
+
+      orch.activeSessionId.set('s2');
+      TestBed.tick();
+      expect(chatFrames(ws).slice(1).map((e) => [e.type, e.payload])).toEqual([
+        ['chat.unsubscribe', { session_id: 's1' }],
+        ['chat.subscribe', { session_id: 's2' }],
+      ]);
+
+      ws.serverClose();
+      await vi.advanceTimersByTimeAsync(1000);
+      const ws2 = FakeWebSocket.last;
+      ws2.open();
+      expect(chatFrames(ws2).map((e) => [e.type, e.payload])).toEqual([
+        ['chat.subscribe', { session_id: 's2' }],
+      ]);
+    });
+
+    it('defers the subscribe until the socket opens', () => {
+      const orch = TestBed.inject(OrchestratorStore);
+      orch.activeSessionId.set('s1');
+      TestBed.tick();
+      socket.connect();
+      const ws = FakeWebSocket.last;
+      ws.open();
+      expect(chatFrames(ws).map((e) => [e.type, e.payload])).toEqual([
+        ['chat.subscribe', { session_id: 's1' }],
+      ]);
+    });
   });
 
   describe('session expiry', () => {
