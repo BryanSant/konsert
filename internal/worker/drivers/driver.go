@@ -50,6 +50,7 @@ type LaunchOptions struct {
 	TaskID         string
 	Prompt         string
 	Workdir        string
+	Model          string
 	Mode           string // "oneshot" | "interactive"
 	PermissionMode string // "full_access" | "sandboxed"
 	Env            []string

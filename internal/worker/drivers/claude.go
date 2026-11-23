@@ -45,6 +45,9 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--dangerously-skip-permissions")
 	}
+	if m := strings.TrimSpace(opts.Model); m != "" {
+		args = append(args, "--model", m)
+	}
 	if opts.Mode == "interactive" {
 		if strings.TrimSpace(opts.Prompt) != "" {
 			args = append(args, opts.Prompt)

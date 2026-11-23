@@ -737,3 +737,157 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 		t.Fatalf("expected 0 workers after delete, got %d", len(fleetOut.Workers))
 	}
 }
+
+func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "tax-session.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Connect a localhost-named worker with mock driver
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	wCfg := config.DefaultWorkerConfig()
+	wCfg.ControllerURL = wsURL
+	wCfg.WorkerID = "w-local-1"
+	wCfg.Name = "localhost"
+	wCfg.EnableMockDriver = true
+
+	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = daemon.Run(ctx)
+	}()
+	waitForWorkerOnline(t, srv.Service(), "w-local-1")
+
+	// 1. Verify GET /api/taxonomy starts with built-in Default Space & Default Project
+	taxResp, err := http.Get(ts.URL + "/api/taxonomy")
+	if err != nil || taxResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/taxonomy failed: resp=%v err=%v", taxResp, err)
+	}
+	var tax struct {
+		Workspaces []map[string]any `json:"workspaces"`
+		Projects   []map[string]any `json:"projects"`
+	}
+	_ = json.NewDecoder(taxResp.Body).Decode(&tax)
+	_ = taxResp.Body.Close()
+	if len(tax.Workspaces) != 1 || len(tax.Projects) != 1 {
+		t.Fatalf("expected Default workspace and project, got %+v", tax)
+	}
+
+	// 2. Create Workspace -> Project -> 2 Repos -> Worktree
+	wsResp, err := http.Post(ts.URL+"/api/workspaces", "application/json", strings.NewReader(`{"name":"Engineering"}`))
+	if err != nil || wsResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/workspaces failed: %v", err)
+	}
+	var wsObj struct{ ID string `json:"id"` }
+	_ = json.NewDecoder(wsResp.Body).Decode(&wsObj)
+	_ = wsResp.Body.Close()
+
+	projResp, err := http.Post(ts.URL+"/api/projects", "application/json", strings.NewReader(`{"workspace_id":"`+wsObj.ID+`","name":"Platform"}`))
+	if err != nil || projResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/projects failed: %v", err)
+	}
+	var projObj struct{ ID string `json:"id"` }
+	_ = json.NewDecoder(projResp.Body).Decode(&projObj)
+	_ = projResp.Body.Close()
+
+	repoDir := t.TempDir()
+	repoBody, _ := json.Marshal(map[string]string{
+		"project_id": projObj.ID,
+		"worker_id":  "w-local-1",
+		"name":       "platform-core",
+		"path":       repoDir,
+		"branch":     "main",
+	})
+	repoResp, err := http.Post(ts.URL+"/api/repos", "application/json", bytes.NewReader(repoBody))
+	if err != nil || repoResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/repos failed: %v", err)
+	}
+	var repoObj struct{ ID string `json:"id"` }
+	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
+	_ = repoResp.Body.Close()
+
+	// 3. Session defaults cascade: localhost machine + smart first-run guess
+	defResp, err := http.Get(ts.URL + "/api/sessions/defaults")
+	if err != nil || defResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/sessions/defaults failed: %v", err)
+	}
+	var defs SessionDefaultsResult
+	_ = json.NewDecoder(defResp.Body).Decode(&defs)
+	_ = defResp.Body.Close()
+	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent == "" || defs.Model == "" {
+		t.Fatalf("unexpected initial session defaults: %+v", defs)
+	}
+
+	// 4. Start a unified Chat Session bound to repo_id with explicit model -> persists as last_used
+	sessBody, _ := json.Marshal(map[string]any{
+		"session_kind": "chat",
+		"origin":       "direct",
+		"repo_id":      repoObj.ID,
+		"agent":        "mock",
+		"model":        "claude-sonnet-4-5",
+		"mode":         "oneshot",
+		"prompt":       "STREAM_LINES=1",
+	})
+	sessResp, err := http.Post(ts.URL+"/api/sessions", "application/json", bytes.NewReader(sessBody))
+	if err != nil || sessResp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/sessions failed: resp=%v err=%v", sessResp, err)
+	}
+	var disp DispatchResult
+	_ = json.NewDecoder(sessResp.Body).Decode(&disp)
+	_ = sessResp.Body.Close()
+	if disp.WorkspaceID != wsObj.ID || disp.ProjectID != projObj.ID || disp.RepoID != repoObj.ID || disp.Model != "claude-sonnet-4-5" {
+		t.Fatalf("unexpected unified session result: %+v", disp)
+	}
+
+	// 5. Verify last-used cascade now picks mock + claude-sonnet-4-5
+	defResp2, err := http.Get(ts.URL + "/api/sessions/defaults")
+	if err != nil || defResp2.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/sessions/defaults (2) failed: %v", err)
+	}
+	var defs2 SessionDefaultsResult
+	_ = json.NewDecoder(defResp2.Body).Decode(&defs2)
+	_ = defResp2.Body.Close()
+	if defs2.Agent != "mock" || defs2.AgentSource != "last_used" || defs2.Model != "claude-sonnet-4-5" || defs2.ModelSource != "last_used" {
+		t.Fatalf("expected last_used cascade after session start, got %+v", defs2)
+	}
+
+	// 6. Configured default overrides last_used
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/settings", strings.NewReader(`{"default_agent":"mock","default_model":"gemini-2.5-pro"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil || putResp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT /api/settings default agent/model failed: %v", err)
+	}
+	_ = putResp.Body.Close()
+
+	defResp3, _ := http.Get(ts.URL + "/api/sessions/defaults")
+	var defs3 SessionDefaultsResult
+	_ = json.NewDecoder(defResp3.Body).Decode(&defs3)
+	_ = defResp3.Body.Close()
+	if defs3.Agent != "mock" || defs3.AgentSource != "default" || defs3.Model != "gemini-2.5-pro" || defs3.ModelSource != "default" {
+		t.Fatalf("expected configured default to override last_used, got %+v", defs3)
+	}
+
+	// Deleting built-in default workspace via REST returns 400
+	delDefReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workspaces/space-default", nil)
+	delDefResp, err := http.DefaultClient.Do(delDefReq)
+	if err != nil || delDefResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 deleting default workspace, got %v err=%v", delDefResp, err)
+	}
+	_ = delDefResp.Body.Close()
+
+	cancel()
+	<-done
+}

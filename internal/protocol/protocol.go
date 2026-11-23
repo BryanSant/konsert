@@ -193,6 +193,8 @@ type UsageSummary struct {
 type TaskStartPayload struct {
 	TaskID         string `json:"task_id"`
 	Agent          string `json:"agent"`
+	Model          string `json:"model,omitempty"`
+	SessionKind    string `json:"session_kind,omitempty"`
 	Workdir        string `json:"workdir"`
 	Branch         string `json:"branch,omitempty"`
 	UseWorktree    bool   `json:"use_worktree"`
@@ -282,11 +284,15 @@ type ChatErrorPayload struct {
 }
 
 type FleetUpdatePayload struct {
-	Kind      string `json:"kind"` // "worker" | "task" | "event" | "space" | "space_deleted"
+	Kind      string `json:"kind"` // "worker" | "task" | "event" | "space" | "workspace" | "project" | "repo" | "worktree" | "*_deleted"
 	Worker    any    `json:"worker,omitempty"`
 	Task      any    `json:"task,omitempty"`
 	Event     any    `json:"event,omitempty"`
 	Space     any    `json:"space,omitempty"`
+	Workspace any    `json:"workspace,omitempty"`
+	Project   any    `json:"project,omitempty"`
+	Repo      any    `json:"repo,omitempty"`
+	Worktree  any    `json:"worktree,omitempty"`
 	DeletedID string `json:"deleted_id,omitempty"`
 }
 

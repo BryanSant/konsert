@@ -1,5 +1,16 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { AppSettings, Space, Task, UsageSummary, Worker } from '../models/konsert.models';
+import {
+  AppSettings,
+  Project,
+  Repo,
+  SessionDefaults,
+  Space,
+  Task,
+  UsageSummary,
+  Worker,
+  Workspace,
+  Worktree,
+} from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
 
 export interface WorkerNodeView {
@@ -40,11 +51,20 @@ export class FleetStore {
   readonly workers = signal<Worker[]>([]);
   readonly tasks = signal<Task[]>([]);
   readonly spaces = signal<Space[]>([]);
+  readonly workspaces = signal<Workspace[]>([]);
+  readonly projects = signal<Project[]>([]);
+  readonly repos = signal<Repo[]>([]);
+  readonly worktrees = signal<Worktree[]>([]);
   readonly settings = signal<AppSettings>({
     llm_provider: 'openai',
     llm_model: 'gpt-4o',
     llm_base_url: '',
     llm_api_key_set: false,
+    default_agent: '',
+    default_model: '',
+    last_used_machine: '',
+    last_used_agent: '',
+    last_used_model: '',
     default_permission_mode: 'full_access',
     terminal_font_size: 13,
     notify_sound: true,
@@ -215,6 +235,12 @@ export class FleetStore {
       if (snap.spaces) {
         this.spaces.set(snap.spaces);
       }
+      if (snap.taxonomy) {
+        this.workspaces.set(snap.taxonomy.workspaces ?? []);
+        this.projects.set(snap.taxonomy.projects ?? []);
+        this.repos.set(snap.taxonomy.repos ?? []);
+        this.worktrees.set(snap.taxonomy.worktrees ?? []);
+      }
       if (snap.usage) {
         this.usage.set(snap.usage);
       }
@@ -249,6 +275,163 @@ export class FleetStore {
   removeWorker(workerId: string): void {
     this.workers.update((list) => list.filter((w) => w.id !== workerId));
     this.spaces.update((list) => list.filter((s) => s.worker_id !== workerId));
+    this.repos.update((list) => list.filter((r) => r.worker_id !== workerId));
+  }
+
+  upsertWorkspace(ws: Workspace): void {
+    this.workspaces.update((list) => {
+      const idx = list.findIndex((x) => x.id === ws.id);
+      if (idx === -1) return [...list, ws];
+      const next = [...list];
+      next[idx] = { ...next[idx], ...ws };
+      return next;
+    });
+  }
+
+  removeWorkspace(id: string): void {
+    this.workspaces.update((list) => list.filter((x) => x.id !== id));
+    const removedProjIds = new Set(this.projects().filter((p) => p.workspace_id === id).map((p) => p.id));
+    this.projects.update((list) => list.filter((p) => p.workspace_id !== id));
+    const removedRepoIds = new Set(this.repos().filter((r) => removedProjIds.has(r.project_id)).map((r) => r.id));
+    this.repos.update((list) => list.filter((r) => !removedProjIds.has(r.project_id)));
+    this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+  }
+
+  upsertProject(proj: Project): void {
+    this.projects.update((list) => {
+      const idx = list.findIndex((x) => x.id === proj.id);
+      if (idx === -1) return [...list, proj];
+      const next = [...list];
+      next[idx] = { ...next[idx], ...proj };
+      return next;
+    });
+  }
+
+  removeProject(id: string): void {
+    this.projects.update((list) => list.filter((p) => p.id !== id));
+    const removedRepoIds = new Set(this.repos().filter((r) => r.project_id === id).map((r) => r.id));
+    this.repos.update((list) => list.filter((r) => r.project_id !== id));
+    this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
+  }
+
+  upsertRepo(repo: Repo): void {
+    this.repos.update((list) => {
+      const idx = list.findIndex((x) => x.id === repo.id);
+      if (idx === -1) return [...list, repo];
+      const next = [...list];
+      next[idx] = { ...next[idx], ...repo };
+      return next;
+    });
+  }
+
+  removeRepo(id: string): void {
+    this.repos.update((list) => list.filter((r) => r.id !== id));
+    this.worktrees.update((list) => list.filter((wt) => wt.repo_id !== id));
+  }
+
+  upsertWorktree(wt: Worktree): void {
+    this.worktrees.update((list) => {
+      const idx = list.findIndex((x) => x.id === wt.id);
+      if (idx === -1) return [...list, wt];
+      const next = [...list];
+      next[idx] = { ...next[idx], ...wt };
+      return next;
+    });
+  }
+
+  removeWorktree(id: string): void {
+    this.worktrees.update((list) => list.filter((wt) => wt.id !== id));
+  }
+
+  /**
+   * Resolves Machine (default localhost), Agent (default -> last used -> guess),
+   * and Model (default -> last used -> guess) for a new Chat session.
+   */
+  resolveSessionDefaults(explicitMachineId = '', explicitAgent = '', explicitModel = ''): SessionDefaults {
+    const s = this.settings();
+    const allWorkers = this.workers();
+    const online = allWorkers.filter((w) => w.status === 'online');
+    const pool = online.length > 0 ? online : allWorkers;
+
+    let chosen: Worker | undefined;
+    let machineId = '';
+    let machineSource: SessionDefaults['machine_source'] = 'guess';
+
+    if (explicitMachineId) {
+      chosen = pool.find((w) => w.id === explicitMachineId) ?? allWorkers.find((w) => w.id === explicitMachineId);
+      machineId = chosen?.id || explicitMachineId;
+      machineSource = 'explicit';
+    } else {
+      const local = pool.find(
+        (w) =>
+          w.name.toLowerCase() === 'localhost' ||
+          w.host_group.toLowerCase() === 'localhost' ||
+          w.tags?.['local'] === 'true'
+      );
+      if (local) {
+        chosen = local;
+        machineId = local.id;
+        machineSource = 'localhost';
+      } else if (s.last_used_machine) {
+        const last = pool.find((w) => w.id === s.last_used_machine);
+        if (last) {
+          chosen = last;
+          machineId = last.id;
+          machineSource = 'last_used';
+        }
+      }
+      if (!chosen && pool.length > 0) {
+        chosen = pool[0];
+        machineId = pool[0].id;
+        machineSource = 'guess';
+      }
+    }
+
+    const availableAgents = (chosen?.agents ?? []).filter((a) => a !== 'shell');
+    const hasAgent = (a: string) => !chosen || availableAgents.length === 0 || availableAgents.includes(a);
+
+    let agent = '';
+    let agentSource: SessionDefaults['agent_source'] = 'guess';
+    if (explicitAgent) {
+      agent = explicitAgent;
+      agentSource = 'explicit';
+    } else if (s.default_agent && hasAgent(s.default_agent)) {
+      agent = s.default_agent;
+      agentSource = 'default';
+    } else if (s.last_used_agent && s.last_used_agent !== 'shell' && hasAgent(s.last_used_agent)) {
+      agent = s.last_used_agent;
+      agentSource = 'last_used';
+    } else {
+      const preferred = ['agy', 'claude', 'codex', 'grok', 'mock'];
+      agent = preferred.find((p) => availableAgents.includes(p)) || availableAgents[0] || 'claude';
+      agentSource = 'guess';
+    }
+
+    let model = '';
+    let modelSource: SessionDefaults['model_source'] = 'guess';
+    if (explicitModel) {
+      model = explicitModel;
+      modelSource = 'explicit';
+    } else if (s.default_model) {
+      model = s.default_model;
+      modelSource = 'default';
+    } else if (s.last_used_model) {
+      model = s.last_used_model;
+      modelSource = 'last_used';
+    } else {
+      model = guessModelForAgent(agent, s.llm_model);
+      modelSource = 'guess';
+    }
+
+    return {
+      machine_id: machineId,
+      machine_source: machineSource,
+      agent,
+      agent_source: agentSource,
+      model,
+      model_source: modelSource,
+      available_agents: availableAgents,
+    };
   }
 
   upsertWorker(worker: Worker): void {
@@ -273,6 +456,23 @@ export class FleetStore {
 
   setUsage(summary: UsageSummary): void {
     this.usage.set(summary);
+  }
+}
+
+export function guessModelForAgent(agent: string, fallbackModel = ''): string {
+  switch (agent.toLowerCase()) {
+    case 'claude':
+      return 'claude-sonnet-4-5';
+    case 'agy':
+      return 'gemini-2.5-pro';
+    case 'codex':
+      return 'o4-mini';
+    case 'grok':
+      return 'grok-code-fast-1';
+    case 'mock':
+      return 'mock-default';
+    default:
+      return fallbackModel || 'gpt-4o';
   }
 }
 

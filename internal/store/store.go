@@ -6,7 +6,15 @@ import (
 	"time"
 )
 
-var ErrNotFound = errors.New("record not found")
+var (
+	ErrNotFound         = errors.New("record not found")
+	ErrProtectedDefault = errors.New("cannot delete built-in default resource")
+)
+
+const (
+	DefaultWorkspaceID = "space-default"
+	DefaultProjectID   = "project-default"
+)
 
 type PermissionMode string
 
@@ -39,11 +47,63 @@ type Space struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Workspace is the top-level abstract "Space" in Konsert's Space > Project > Repo > Worktree taxonomy.
+type Workspace struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Project groups one or more Repos (supporting multi-repo projects across machines) inside a Workspace.
+type Project struct {
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	Name        string    `json:"name"`
+	IsDefault   bool      `json:"is_default"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Repo represents a repository or working folder on a specific machine belonging to a Project.
+type Repo struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	WorkerID  string    `json:"worker_id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	RemoteURL string    `json:"remote_url,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Worktree represents a branch checkout or git worktree within a Repo.
+type Worktree struct {
+	ID        string    `json:"id"`
+	RepoID    string    `json:"repo_id"`
+	Branch    string    `json:"branch,omitempty"`
+	Path      string    `json:"path"`
+	IsPrimary bool      `json:"is_primary"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TaxonomySnapshot bundles the complete Space > Project > Repo > Worktree hierarchy.
+type TaxonomySnapshot struct {
+	Workspaces []Workspace `json:"workspaces"`
+	Projects   []Project   `json:"projects"`
+	Repos      []Repo      `json:"repos"`
+	Worktrees  []Worktree  `json:"worktrees"`
+}
+
 type Task struct {
 	ID             string         `json:"id"`
 	WorkerID       string         `json:"worker_id"`
 	SpaceID        string         `json:"space_id,omitempty"`
+	WorkspaceID    string         `json:"workspace_id,omitempty"`
+	ProjectID      string         `json:"project_id,omitempty"`
+	RepoID         string         `json:"repo_id,omitempty"`
+	WorktreeID     string         `json:"worktree_id,omitempty"`
 	Agent          string         `json:"agent"`
+	Model          string         `json:"model,omitempty"`
+	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
 	Workdir        string         `json:"workdir"`
 	EffectiveDir   string         `json:"effective_dir"`
 	Branch         string         `json:"branch"`
@@ -122,6 +182,29 @@ type Store interface {
 	GetSpace(ctx context.Context, id string) (Space, error)
 	ListSpaces(ctx context.Context, workerID string) ([]Space, error)
 	DeleteSpace(ctx context.Context, id string) error
+
+	EnsureTaxonomyDefaults(ctx context.Context) error
+	GetTaxonomy(ctx context.Context) (TaxonomySnapshot, error)
+
+	CreateWorkspace(ctx context.Context, ws Workspace) error
+	GetWorkspace(ctx context.Context, id string) (Workspace, error)
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	DeleteWorkspace(ctx context.Context, id string) error
+
+	CreateProject(ctx context.Context, p Project) error
+	GetProject(ctx context.Context, id string) (Project, error)
+	ListProjects(ctx context.Context, workspaceID string) ([]Project, error)
+	DeleteProject(ctx context.Context, id string) error
+
+	CreateRepo(ctx context.Context, r Repo) error
+	GetRepo(ctx context.Context, id string) (Repo, error)
+	ListRepos(ctx context.Context, projectID, workerID string) ([]Repo, error)
+	DeleteRepo(ctx context.Context, id string) error
+
+	CreateWorktree(ctx context.Context, wt Worktree) error
+	GetWorktree(ctx context.Context, id string) (Worktree, error)
+	ListWorktrees(ctx context.Context, repoID string) ([]Worktree, error)
+	DeleteWorktree(ctx context.Context, id string) error
 
 	CreateTask(ctx context.Context, t Task) error
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error

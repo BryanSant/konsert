@@ -74,6 +74,8 @@ export class TabsStore {
           workerId: task.worker_id,
           spaceId: task.space_id || undefined,
           agent: task.agent,
+          model: task.model || undefined,
+          sessionKind: task.session_kind || (task.agent === 'shell' ? 'terminal' : 'chat'),
           origin: task.origin || 'orchestrator',
           interactiveMode: defaultInteractive,
         },

@@ -7,12 +7,16 @@ import {
   FRAME_PTY_SNAPSHOT,
   FRAME_PTY_STDIN,
   FRAME_TASK_ID_SIZE,
+  Project,
   PtyFrameEvent,
+  Repo,
   Space,
   Task,
   TaskEvent,
   UsageSummary,
   Worker,
+  Workspace,
+  Worktree,
 } from '../models/konsert.models';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
@@ -118,6 +122,10 @@ export class KonsertSocketService {
           task?: Task;
           event?: TaskEvent;
           space?: Space;
+          workspace?: Workspace;
+          project?: Project;
+          repo?: Repo;
+          worktree?: Worktree;
           deleted_id?: string;
         } | undefined;
         if (!p) return;
@@ -133,6 +141,22 @@ export class KonsertSocketService {
           this.fleetStore.removeSpace(p.deleted_id);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {
           this.fleetStore.removeWorker(p.deleted_id);
+        } else if (p.kind === 'workspace' && p.workspace) {
+          this.fleetStore.upsertWorkspace(p.workspace);
+        } else if (p.kind === 'workspace_deleted' && p.deleted_id) {
+          this.fleetStore.removeWorkspace(p.deleted_id);
+        } else if (p.kind === 'project' && p.project) {
+          this.fleetStore.upsertProject(p.project);
+        } else if (p.kind === 'project_deleted' && p.deleted_id) {
+          this.fleetStore.removeProject(p.deleted_id);
+        } else if (p.kind === 'repo' && p.repo) {
+          this.fleetStore.upsertRepo(p.repo);
+        } else if (p.kind === 'repo_deleted' && p.deleted_id) {
+          this.fleetStore.removeRepo(p.deleted_id);
+        } else if (p.kind === 'worktree' && p.worktree) {
+          this.fleetStore.upsertWorktree(p.worktree);
+        } else if (p.kind === 'worktree_deleted' && p.deleted_id) {
+          this.fleetStore.removeWorktree(p.deleted_id);
         }
         break;
       }

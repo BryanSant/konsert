@@ -95,10 +95,41 @@ import { FleetStore } from '../core/state/fleet.store';
             </div>
           </div>
 
-          <!-- Terminal & Fleet Defaults -->
+          <!-- Session, Terminal & Fleet Defaults -->
           <div class="rounded-lg border border-[#26282e] bg-[#131417] p-3.5 space-y-3">
             <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
-              Workspace &amp; Notifications
+              Session Defaults &amp; Notifications
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-[#8e9098] mb-1">Default Chat Agent (optional)</label>
+                <select
+                  name="defaultAgent"
+                  [ngModel]="defaultAgent()"
+                  (ngModelChange)="defaultAgent.set($event)"
+                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
+                >
+                  <option value="">Auto (last used → detected)</option>
+                  <option value="agy">agy (Antigravity)</option>
+                  <option value="claude">claude (Claude Code)</option>
+                  <option value="codex">codex (OpenAI Codex)</option>
+                  <option value="grok">grok (Grok CLI)</option>
+                  <option value="mock">mock</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] text-[#8e9098] mb-1">Default Chat Model (optional)</label>
+                <input
+                  type="text"
+                  name="defaultModel"
+                  [ngModel]="defaultModel()"
+                  (ngModelChange)="defaultModel.set($event)"
+                  placeholder="Auto (last used → guess)"
+                  class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed]"
+                />
+              </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
@@ -186,6 +217,8 @@ export class SettingsModalComponent implements OnInit {
   readonly apiKey = signal('');
   readonly apiKeySet = signal(false);
   readonly clearApiKey = signal(false);
+  readonly defaultAgent = signal('');
+  readonly defaultModel = signal('');
   readonly defaultPerm = signal<PermissionMode>('full_access');
   readonly fontSize = signal(13);
   readonly notifySound = signal(true);
@@ -203,6 +236,8 @@ export class SettingsModalComponent implements OnInit {
       this.model.set(s.llm_model || '');
       this.baseUrl.set(s.llm_base_url || '');
       this.apiKeySet.set(!!s.llm_api_key_set);
+      this.defaultAgent.set(s.default_agent || '');
+      this.defaultModel.set(s.default_model || '');
       this.defaultPerm.set(s.default_permission_mode || 'full_access');
       this.fontSize.set(s.terminal_font_size || 13);
       this.notifySound.set(!!s.notify_sound);
@@ -238,6 +273,8 @@ export class SettingsModalComponent implements OnInit {
         llm_base_url: this.baseUrl().trim(),
         llm_api_key: this.apiKey().trim() || undefined,
         clear_api_key: this.clearApiKey(),
+        default_agent: this.defaultAgent().trim(),
+        default_model: this.defaultModel().trim(),
         default_permission_mode: this.defaultPerm(),
         terminal_font_size: this.fontSize(),
         notify_sound: this.notifySound(),

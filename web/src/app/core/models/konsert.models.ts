@@ -1,5 +1,6 @@
 export type PermissionMode = 'full_access' | 'sandboxed';
 export type TaskOrigin = 'orchestrator' | 'direct' | 'scratch';
+export type SessionKind = 'chat' | 'terminal';
 
 export type TaskStatus =
   | 'queued'
@@ -56,6 +57,57 @@ export interface Space {
   path: string;
   branch?: string;
   created_at: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface Project {
+  id: string;
+  workspace_id: string;
+  name: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface Repo {
+  id: string;
+  project_id: string;
+  worker_id: string;
+  name: string;
+  path: string;
+  remote_url?: string;
+  created_at: string;
+}
+
+export interface Worktree {
+  id: string;
+  repo_id: string;
+  branch?: string;
+  path: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export interface TaxonomySnapshot {
+  workspaces: Workspace[];
+  projects: Project[];
+  repos: Repo[];
+  worktrees: Worktree[];
+}
+
+export interface SessionDefaults {
+  machine_id: string;
+  machine_source: 'explicit' | 'localhost' | 'last_used' | 'guess' | string;
+  agent: string;
+  agent_source: 'explicit' | 'default' | 'last_used' | 'guess' | string;
+  model: string;
+  model_source: 'explicit' | 'default' | 'last_used' | 'guess' | string;
+  available_agents: string[];
 }
 
 export interface GitChangedFile {
@@ -122,6 +174,11 @@ export interface AppSettings {
   llm_model: string;
   llm_base_url: string;
   llm_api_key_set: boolean;
+  default_agent?: string;
+  default_model?: string;
+  last_used_machine?: string;
+  last_used_agent?: string;
+  last_used_model?: string;
   default_permission_mode: PermissionMode;
   terminal_font_size: number;
   notify_sound: boolean;
@@ -132,7 +189,13 @@ export interface Task {
   id: string;
   worker_id: string;
   space_id?: string;
+  workspace_id?: string;
+  project_id?: string;
+  repo_id?: string;
+  worktree_id?: string;
   agent: string;
+  model?: string;
+  session_kind?: SessionKind | string;
   workdir: string;
   effective_dir: string;
   branch: string;
@@ -215,6 +278,7 @@ export interface FleetSnapshotResponse {
   active_tasks_count: number;
   tasks: Task[];
   spaces?: Space[];
+  taxonomy?: TaxonomySnapshot;
   usage?: UsageSummary;
 }
 
@@ -226,7 +290,13 @@ export interface DispatchTaskRequest {
     tags?: Record<string, string>;
   };
   space_id?: string;
-  agent: string;
+  workspace_id?: string;
+  project_id?: string;
+  repo_id?: string;
+  worktree_id?: string;
+  session_kind?: SessionKind;
+  agent?: string;
+  model?: string;
   repo_path?: string;
   branch?: string;
   use_worktree?: boolean;
@@ -246,8 +316,10 @@ export interface WorkspaceTab {
   workerId?: string;
   spaceId?: string;
   agent?: string;
+  model?: string;
+  sessionKind?: SessionKind | string;
   origin?: TaskOrigin | string;
-  interactiveMode: boolean; // Direct/Scratch = true by default; Orchestrated = false (Read-Only)
+  interactiveMode: boolean;
 }
 
 export interface Envelope<T = unknown> {

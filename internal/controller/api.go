@@ -98,6 +98,21 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
 	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
 	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.handleDeleteSpace))
+	s.mux.Handle("GET /api/taxonomy", s.requireBrowserAuth(s.handleGetTaxonomy))
+	s.mux.Handle("GET /api/workspaces", s.requireBrowserAuth(s.handleListWorkspaces))
+	s.mux.Handle("POST /api/workspaces", s.requireBrowserAuth(s.handleCreateWorkspace))
+	s.mux.Handle("DELETE /api/workspaces/{id}", s.requireBrowserAuth(s.handleDeleteWorkspace))
+	s.mux.Handle("GET /api/projects", s.requireBrowserAuth(s.handleListProjects))
+	s.mux.Handle("POST /api/projects", s.requireBrowserAuth(s.handleCreateProject))
+	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.handleDeleteProject))
+	s.mux.Handle("GET /api/repos", s.requireBrowserAuth(s.handleListRepos))
+	s.mux.Handle("POST /api/repos", s.requireBrowserAuth(s.handleCreateRepo))
+	s.mux.Handle("DELETE /api/repos/{id}", s.requireBrowserAuth(s.handleDeleteRepo))
+	s.mux.Handle("GET /api/worktrees", s.requireBrowserAuth(s.handleListWorktrees))
+	s.mux.Handle("POST /api/worktrees", s.requireBrowserAuth(s.handleCreateWorktree))
+	s.mux.Handle("DELETE /api/worktrees/{id}", s.requireBrowserAuth(s.handleDeleteWorktree))
+	s.mux.Handle("GET /api/sessions/defaults", s.requireBrowserAuth(s.handleSessionDefaults))
+	s.mux.Handle("POST /api/sessions", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
 	s.mux.Handle("PUT /api/settings", s.requireBrowserAuth(s.handleUpdateSettings))
 	s.mux.Handle("GET /api/git/inspect", s.requireBrowserAuth(s.handleGitInspect))
@@ -202,6 +217,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 	}
 	tasks, _ := s.store.ListTasks(r.Context(), "", "", 100)
 	spaces, _ := s.store.ListSpaces(r.Context(), "")
+	taxonomy, _ := s.store.GetTaxonomy(r.Context())
 	usage, _ := s.store.GetUsageSummary(r.Context())
 	if tasks == nil {
 		tasks = []store.Task{}
@@ -214,6 +230,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"active_tasks_count": res.ActiveTasksCount,
 		"tasks":              tasks,
 		"spaces":             spaces,
+		"taxonomy":           taxonomy,
 		"usage":              usage,
 	})
 }
@@ -453,6 +470,11 @@ type settingsResponse struct {
 	LLMModel              string `json:"llm_model"`
 	LLMBaseURL            string `json:"llm_base_url"`
 	LLMAPIKeySet          bool   `json:"llm_api_key_set"`
+	DefaultAgent          string `json:"default_agent"`
+	DefaultModel          string `json:"default_model"`
+	LastUsedMachine       string `json:"last_used_machine"`
+	LastUsedAgent         string `json:"last_used_agent"`
+	LastUsedModel         string `json:"last_used_model"`
 	DefaultPermissionMode string `json:"default_permission_mode"`
 	TerminalFontSize      int    `json:"terminal_font_size"`
 	NotifySound           bool   `json:"notify_sound"`
@@ -481,6 +503,11 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		LLMModel:              orch.Model,
 		LLMBaseURL:            orch.BaseURL,
 		LLMAPIKeySet:          orch.APIKey != "",
+		DefaultAgent:          saved["default_agent"],
+		DefaultModel:          saved["default_model"],
+		LastUsedMachine:       saved["last_used_machine"],
+		LastUsedAgent:         saved["last_used_agent"],
+		LastUsedModel:         saved["last_used_model"],
 		DefaultPermissionMode: perm,
 		TerminalFontSize:      fontSize,
 		NotifySound:           notifySound,
@@ -499,6 +526,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		LLMBaseURL            *string `json:"llm_base_url"`
 		LLMAPIKey             *string `json:"llm_api_key"`
 		ClearAPIKey           bool    `json:"clear_api_key"`
+		DefaultAgent          *string `json:"default_agent"`
+		DefaultModel          *string `json:"default_model"`
 		DefaultPermissionMode *string `json:"default_permission_mode"`
 		TerminalFontSize      *int    `json:"terminal_font_size"`
 		NotifySound           *bool   `json:"notify_sound"`
@@ -538,6 +567,13 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	orchCfg := s.cfg.Orchestrator
 	s.cfgMu.Unlock()
+
+	if body.DefaultAgent != nil {
+		updates["default_agent"] = strings.TrimSpace(*body.DefaultAgent)
+	}
+	if body.DefaultModel != nil {
+		updates["default_model"] = strings.TrimSpace(*body.DefaultModel)
+	}
 
 	if body.DefaultPermissionMode != nil {
 		v := strings.TrimSpace(*body.DefaultPermissionMode)

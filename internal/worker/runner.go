@@ -147,6 +147,7 @@ func (r *Runner) StartTask(parentCtx context.Context, req protocol.TaskStartPayl
 		TaskID:         req.TaskID,
 		Prompt:         req.Prompt,
 		Workdir:        effectiveDir,
+		Model:          req.Model,
 		Mode:           req.Mode,
 		PermissionMode: permMode,
 	})

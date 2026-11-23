@@ -47,7 +47,13 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 		return nil, err
 	}
 
-	return &SQLiteStore{db: db}, nil
+	st := &SQLiteStore{db: db}
+	if err := st.EnsureTaxonomyDefaults(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return st, nil
 }
 
 func (s *SQLiteStore) Close() error {
@@ -185,6 +191,10 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM repos WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -327,6 +337,19 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 	if t.Status == "" {
 		t.Status = protocol.TaskStatusQueued
 	}
+	if t.SessionKind == "" {
+		if t.Agent == "shell" {
+			t.SessionKind = "terminal"
+		} else {
+			t.SessionKind = "chat"
+		}
+	}
+	if t.WorkspaceID == "" {
+		t.WorkspaceID = store.DefaultWorkspaceID
+	}
+	if t.ProjectID == "" {
+		t.ProjectID = store.DefaultProjectID
+	}
 
 	var workerID any
 	if t.WorkerID != "" {
@@ -342,11 +365,13 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+			id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, t.ID, workerID, t.SpaceID, t.Agent, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, t.ID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	return err
@@ -414,7 +439,8 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		completedAt sql.NullString
 	)
 	if err := scanner.Scan(
-		&t.ID, &workerID, &t.SpaceID, &t.Agent, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
+		&t.ID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
+		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&createdAt, &startedAt, &completedAt,
 	); err != nil {
@@ -443,7 +469,8 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+		SELECT id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
@@ -467,7 +494,8 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 	}
 
 	query := `
-		SELECT id, worker_id, space_id, agent, workdir, effective_dir, branch, mode, origin, permission_mode,
+		SELECT id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       created_at, started_at, completed_at
 		FROM tasks`

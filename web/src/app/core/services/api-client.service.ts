@@ -9,10 +9,16 @@ import {
   FleetSnapshotResponse,
   GitCommitResult,
   GitInspectResult,
+  Project,
+  Repo,
   SSHBootstrapResult,
   SSHHost,
+  SessionDefaults,
   Space,
   TaskEvent,
+  TaxonomySnapshot,
+  Workspace,
+  Worktree,
 } from '../models/konsert.models';
 
 @Injectable({ providedIn: 'root' })
@@ -185,5 +191,76 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify(req),
     });
+  }
+
+  createSession(req: DispatchTaskRequest): Promise<{
+    task_id: string;
+    worker_id?: string;
+    agent?: string;
+    model?: string;
+    session_kind?: string;
+    status: string;
+  }> {
+    return this.request('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  getSessionDefaults(params?: { workerId?: string; agent?: string; model?: string }): Promise<SessionDefaults> {
+    const sp = new URLSearchParams();
+    if (params?.workerId) sp.set('worker_id', params.workerId);
+    if (params?.agent) sp.set('agent', params.agent);
+    if (params?.model) sp.set('model', params.model);
+    const qs = sp.toString();
+    return this.request(`/api/sessions/defaults${qs ? '?' + qs : ''}`);
+  }
+
+  getTaxonomy(): Promise<TaxonomySnapshot> {
+    return this.request('/api/taxonomy');
+  }
+
+  createWorkspace(name: string): Promise<Workspace> {
+    return this.request('/api/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  deleteWorkspace(id: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  createProject(req: { workspace_id?: string; name: string }): Promise<Project> {
+    return this.request('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  deleteProject(id: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  createRepo(req: { project_id?: string; worker_id: string; name?: string; path: string; remote_url?: string; branch?: string }): Promise<Repo> {
+    return this.request('/api/repos', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  deleteRepo(id: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  createWorktree(req: { repo_id: string; branch?: string; path?: string; is_primary?: boolean }): Promise<Worktree> {
+    return this.request('/api/worktrees', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  deleteWorktree(id: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 }

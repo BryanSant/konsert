@@ -38,19 +38,19 @@ import { IconComponent } from '../../shared/icon.component';
         <div class="flex items-center gap-2">
           <button
             type="button"
-            (click)="openDirectSession.emit()"
+            (click)="openNewChat.emit()"
             class="inline-flex items-center gap-1.5 rounded-md border border-[#2a2c33] bg-[#1b1c20] hover:bg-[#24262c] px-2.5 py-1 text-[11px] text-[#d4d4d8] transition cursor-pointer"
           >
-            <app-icon name="shell" [size]="12" />
-            <span>Direct Session</span>
+            <app-icon name="orchestrator" [size]="12" class="text-[#60a5fa]" />
+            <span>New Chat</span>
           </button>
           <button
             type="button"
-            (click)="openDispatch.emit()"
+            (click)="openNewTerminal.emit()"
             class="inline-flex items-center gap-1.5 rounded-md border border-[#2a2c33] bg-[#1b1c20] hover:bg-[#24262c] px-2.5 py-1 text-[11px] text-[#d4d4d8] transition cursor-pointer"
           >
-            <app-icon name="git-branch" [size]="12" />
-            <span>Dispatch Job</span>
+            <app-icon name="shell" [size]="12" />
+            <span>New Terminal</span>
           </button>
         </div>
       </div>
@@ -64,24 +64,24 @@ import { IconComponent } from '../../shared/icon.component';
             </div>
             <h2 class="text-[18px] font-semibold tracking-tight text-[#ececed] mb-1">KONSERT</h2>
             <p class="text-[13px] text-[#8e9098] mb-6">
-              Run direct sessions on any machine, or orchestrate parallel agents across your fleet.
+              Start a chat or terminal on any machine, or ask the Orchestrator to route work across your fleet as one logical system.
             </p>
             <div class="flex flex-wrap items-center justify-center gap-2 mb-6">
               <button
                 type="button"
-                (click)="openDirectSession.emit()"
+                (click)="openNewChat.emit()"
                 class="inline-flex items-center gap-1.5 rounded-lg border border-[#2c2e36] bg-[#1b1c20] hover:bg-[#24262c] px-3.5 py-2 text-[12px] font-medium text-[#e4e4e7] transition cursor-pointer"
               >
-                <app-icon name="shell" [size]="13" />
-                <span>New Direct Session</span>
+                <app-icon name="orchestrator" [size]="13" class="text-[#60a5fa]" />
+                <span>New Chat Session</span>
               </button>
               <button
                 type="button"
-                (click)="openDispatch.emit()"
+                (click)="openNewTerminal.emit()"
                 class="inline-flex items-center gap-1.5 rounded-lg border border-[#2c2e36] bg-[#1b1c20] hover:bg-[#24262c] px-3.5 py-2 text-[12px] font-medium text-[#e4e4e7] transition cursor-pointer"
               >
-                <app-icon name="git-branch" [size]="13" />
-                <span>Dispatch Worktree Job</span>
+                <app-icon name="shell" [size]="13" />
+                <span>New Terminal</span>
               </button>
             </div>
             <div class="w-full max-w-sm space-y-1.5 text-[12px] text-[#6d7078]">
@@ -193,8 +193,8 @@ import { IconComponent } from '../../shared/icon.component';
               <div class="flex items-center gap-2">
                 <button
                   type="button"
-                  (click)="openDispatch.emit()"
-                  title="Dispatch task"
+                  (click)="openNewChat.emit()"
+                  title="New chat session"
                   class="h-6 w-6 rounded-md hover:bg-[#26282e] flex items-center justify-center text-[#8e9098] hover:text-[#ececed] transition cursor-pointer"
                 >
                   <app-icon name="plus" [size]="14" />
@@ -241,8 +241,8 @@ import { IconComponent } from '../../shared/icon.component';
   `,
 })
 export class OrchestratorChatComponent implements OnInit {
-  readonly openDispatch = output<void>();
-  readonly openDirectSession = output<void>();
+  readonly openNewChat = output<void>();
+  readonly openNewTerminal = output<void>();
 
   readonly orch = inject(OrchestratorStore);
   readonly auth = inject(AuthService);

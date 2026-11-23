@@ -166,4 +166,70 @@ describe('FleetStore and TabsStore (Zoneless Signals)', () => {
     expect(tabs.visibleTabs().length).toBe(3); // Orchestrator + shell + claude
     expect(tabs.activeTabId()).toBe('t-shell');
   });
+
+  it('resolves unified Chat Session Machine/Agent/Model via default -> last used -> guess cascade', () => {
+    TestBed.configureTestingModule({});
+    const fleet = TestBed.inject(FleetStore);
+
+    const localW: Worker = {
+      id: 'w-local',
+      name: 'localhost',
+      host_group: 'localhost',
+      os: 'darwin',
+      arch: 'arm64',
+      isolation: 'host',
+      permission_mode: 'full_access',
+      agents: ['shell', 'claude', 'agy'],
+      tags: { local: 'true' },
+      max_concurrent: 4,
+      status: 'online',
+      last_seen_at: new Date().toISOString(),
+    };
+    const remoteW: Worker = {
+      ...localW,
+      id: 'w-remote',
+      name: 'bocabox',
+      host_group: 'homelab',
+      tags: {},
+      agents: ['shell', 'grok'],
+    };
+    fleet.upsertWorker(remoteW);
+    fleet.upsertWorker(localW);
+
+    // 1. First-run guess prefers localhost + preferred installed agent (agy) + guessed model
+    const r1 = fleet.resolveSessionDefaults();
+    expect(r1.machine_id).toBe('w-local');
+    expect(r1.machine_source).toBe('localhost');
+    expect(r1.agent).toBe('agy');
+    expect(r1.agent_source).toBe('guess');
+    expect(r1.model).toBe('gemini-2.5-pro');
+    expect(r1.model_source).toBe('guess');
+
+    // 2. Last-used overrides guess
+    fleet.settings.update((s) => ({ ...s, last_used_agent: 'claude', last_used_model: 'claude-opus-4-1' }));
+    const r2 = fleet.resolveSessionDefaults();
+    expect(r2.agent).toBe('claude');
+    expect(r2.agent_source).toBe('last_used');
+    expect(r2.model).toBe('claude-opus-4-1');
+    expect(r2.model_source).toBe('last_used');
+
+    // 3. Configured default overrides last-used
+    fleet.settings.update((s) => ({ ...s, default_agent: 'agy', default_model: 'gemini-2.5-flash' }));
+    const r3 = fleet.resolveSessionDefaults();
+    expect(r3.agent).toBe('agy');
+    expect(r3.agent_source).toBe('default');
+    expect(r3.model).toBe('gemini-2.5-flash');
+    expect(r3.model_source).toBe('default');
+
+    // 4. Taxonomy cascading removal
+    fleet.upsertWorkspace({ id: 'ws-1', name: 'Work', is_default: false, created_at: new Date().toISOString() });
+    fleet.upsertProject({ id: 'p-1', workspace_id: 'ws-1', name: 'App1', is_default: false, created_at: new Date().toISOString() });
+    fleet.upsertRepo({ id: 'r-1', project_id: 'p-1', worker_id: 'w-local', name: 'api', path: '/api', created_at: new Date().toISOString() });
+    fleet.upsertWorktree({ id: 'wt-1', repo_id: 'r-1', branch: 'main', path: '/api', is_primary: true, created_at: new Date().toISOString() });
+    fleet.removeWorkspace('ws-1');
+    expect(fleet.workspaces().length).toBe(0);
+    expect(fleet.projects().length).toBe(0);
+    expect(fleet.repos().length).toBe(0);
+    expect(fleet.worktrees().length).toBe(0);
+  });
 });

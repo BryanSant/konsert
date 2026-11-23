@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -84,10 +85,194 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 	}, nil
 }
 
+type SessionDefaultsResult struct {
+	MachineID       string   `json:"machine_id"`
+	MachineSource   string   `json:"machine_source"` // "explicit" | "localhost" | "last_used" | "guess"
+	Agent           string   `json:"agent"`
+	AgentSource     string   `json:"agent_source"` // "explicit" | "default" | "last_used" | "guess"
+	Model           string   `json:"model"`
+	ModelSource     string   `json:"model_source"` // "explicit" | "default" | "last_used" | "guess"
+	AvailableAgents []string `json:"available_agents"`
+}
+
+var preferredAgentOrder = []string{"agy", "claude", "codex", "grok", "mock"}
+
+func guessModelForAgent(agent, fallbackModel string) string {
+	switch strings.ToLower(strings.TrimSpace(agent)) {
+	case "claude":
+		return "claude-sonnet-4-5"
+	case "agy":
+		return "gemini-2.5-pro"
+	case "codex":
+		return "o4-mini"
+	case "grok":
+		return "grok-code-fast-1"
+	case "mock":
+		return "mock-default"
+	default:
+		if fallbackModel != "" {
+			return fallbackModel
+		}
+		return "gpt-4o"
+	}
+}
+
+func isLocalhostWorker(w store.Worker, localHostname string) bool {
+	name := strings.ToLower(strings.TrimSpace(w.Name))
+	hg := strings.ToLower(strings.TrimSpace(w.HostGroup))
+	if name == "localhost" || name == "127.0.0.1" || hg == "localhost" {
+		return true
+	}
+	if w.Tags["local"] == "true" || w.Tags["host"] == "localhost" {
+		return true
+	}
+	if localHostname != "" {
+		lh := strings.ToLower(strings.TrimSpace(localHostname))
+		shortLH := strings.Split(lh, ".")[0]
+		if name == lh || name == shortLH || hg == lh || hg == shortLH {
+			return true
+		}
+	}
+	return false
+}
+
+func workerHasAgent(w store.Worker, agent string) bool {
+	for _, a := range w.Agents {
+		if strings.EqualFold(a, agent) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveSessionDefaults resolves Machine (default localhost), Agent (default -> last used -> guess),
+// and Model (default -> last used -> guess) for a new Chat session.
+func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, reqAgent, reqModel string) (SessionDefaultsResult, error) {
+	saved, _ := s.store.GetAllSettings(ctx)
+	workers, err := s.store.ListWorkers(ctx)
+	if err != nil {
+		return SessionDefaultsResult{}, err
+	}
+	online := make([]store.Worker, 0, len(workers))
+	for _, w := range workers {
+		if w.Status == "online" && s.hub.IsWorkerConnected(w.ID) {
+			online = append(online, w)
+		}
+	}
+	pool := online
+	if len(pool) == 0 {
+		pool = workers
+	}
+
+	localHost, _ := os.Hostname()
+	res := SessionDefaultsResult{AvailableAgents: []string{}}
+
+	// 1. Machine cascade: explicit -> localhost -> last_used -> first available
+	var chosenWorker *store.Worker
+	if m := strings.TrimSpace(reqMachine); m != "" {
+		res.MachineID = m
+		res.MachineSource = "explicit"
+		for i := range pool {
+			if pool[i].ID == m || strings.EqualFold(pool[i].Name, m) {
+				chosenWorker = &pool[i]
+				res.MachineID = pool[i].ID
+				break
+			}
+		}
+	}
+	if chosenWorker == nil && res.MachineID == "" {
+		for i := range pool {
+			if isLocalhostWorker(pool[i], localHost) {
+				chosenWorker = &pool[i]
+				res.MachineID = pool[i].ID
+				res.MachineSource = "localhost"
+				break
+			}
+		}
+	}
+	if chosenWorker == nil && res.MachineID == "" {
+		if last := strings.TrimSpace(saved["last_used_machine"]); last != "" {
+			for i := range pool {
+				if pool[i].ID == last {
+					chosenWorker = &pool[i]
+					res.MachineID = pool[i].ID
+					res.MachineSource = "last_used"
+					break
+				}
+			}
+		}
+	}
+	if chosenWorker == nil && res.MachineID == "" && len(pool) > 0 {
+		chosenWorker = &pool[0]
+		res.MachineID = pool[0].ID
+		res.MachineSource = "guess"
+	}
+
+	// Collect non-shell coding agents available on the resolved machine.
+	if chosenWorker != nil {
+		for _, a := range chosenWorker.Agents {
+			if a != "shell" {
+				res.AvailableAgents = append(res.AvailableAgents, a)
+			}
+		}
+	}
+
+	// 2. Agent cascade: explicit -> configured default -> last used -> smart first-run guess
+	if a := strings.TrimSpace(reqAgent); a != "" {
+		res.Agent = a
+		res.AgentSource = "explicit"
+	} else if defA := strings.TrimSpace(saved["default_agent"]); defA != "" && (chosenWorker == nil || workerHasAgent(*chosenWorker, defA)) {
+		res.Agent = defA
+		res.AgentSource = "default"
+	} else if lastA := strings.TrimSpace(saved["last_used_agent"]); lastA != "" && lastA != "shell" && (chosenWorker == nil || workerHasAgent(*chosenWorker, lastA)) {
+		res.Agent = lastA
+		res.AgentSource = "last_used"
+	} else {
+		for _, pref := range preferredAgentOrder {
+			if chosenWorker != nil && workerHasAgent(*chosenWorker, pref) {
+				res.Agent = pref
+				res.AgentSource = "guess"
+				break
+			}
+		}
+		if res.Agent == "" && len(res.AvailableAgents) > 0 {
+			res.Agent = res.AvailableAgents[0]
+			res.AgentSource = "guess"
+		}
+		if res.Agent == "" {
+			res.Agent = "claude"
+			res.AgentSource = "guess"
+		}
+	}
+
+	// 3. Model cascade: explicit -> configured default -> last used -> smart guess per agent
+	if mod := strings.TrimSpace(reqModel); mod != "" {
+		res.Model = mod
+		res.ModelSource = "explicit"
+	} else if defM := strings.TrimSpace(saved["default_model"]); defM != "" {
+		res.Model = defM
+		res.ModelSource = "default"
+	} else if lastM := strings.TrimSpace(saved["last_used_model"]); lastM != "" {
+		res.Model = lastM
+		res.ModelSource = "last_used"
+	} else {
+		res.Model = guessModelForAgent(res.Agent, strings.TrimSpace(saved["llm_model"]))
+		res.ModelSource = "guess"
+	}
+
+	return res, nil
+}
+
 type DispatchRequest struct {
 	WorkerSelector WorkerSelector `json:"worker_selector,omitempty"`
 	SpaceID        string         `json:"space_id,omitempty"`
+	WorkspaceID    string         `json:"workspace_id,omitempty"`
+	ProjectID      string         `json:"project_id,omitempty"`
+	RepoID         string         `json:"repo_id,omitempty"`
+	WorktreeID     string         `json:"worktree_id,omitempty"`
+	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
 	Agent          string         `json:"agent"`
+	Model          string         `json:"model,omitempty"`
 	RepoPath       string         `json:"repo_path"`
 	Branch         string         `json:"branch,omitempty"`
 	UseWorktree    *bool          `json:"use_worktree,omitempty"`
@@ -103,15 +288,66 @@ type DispatchResult struct {
 	TaskID           string `json:"task_id"`
 	WorkerID         string `json:"worker_id,omitempty"`
 	SpaceID          string `json:"space_id,omitempty"`
+	WorkspaceID      string `json:"workspace_id,omitempty"`
+	ProjectID        string `json:"project_id,omitempty"`
+	RepoID           string `json:"repo_id,omitempty"`
+	WorktreeID       string `json:"worktree_id,omitempty"`
+	SessionKind      string `json:"session_kind,omitempty"`
+	Agent            string `json:"agent,omitempty"`
+	Model            string `json:"model,omitempty"`
 	Status           string `json:"status"`
 	WorkdirEffective string `json:"workdir_effective"`
 }
 
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
-	if strings.TrimSpace(req.Agent) == "" {
-		return DispatchResult{}, fmt.Errorf("agent is required")
+	// Resolve taxonomy bindings from Worktree -> Repo -> Project -> Workspace (falling back to Default).
+	if wtID := strings.TrimSpace(req.WorktreeID); wtID != "" {
+		wt, err := s.store.GetWorktree(ctx, wtID)
+		if err != nil {
+			return DispatchResult{}, fmt.Errorf("worktree %s not found: %w", wtID, err)
+		}
+		if req.RepoID == "" {
+			req.RepoID = wt.RepoID
+		}
+		if strings.TrimSpace(req.RepoPath) == "" {
+			req.RepoPath = wt.Path
+		}
+		if strings.TrimSpace(req.Branch) == "" && wt.Branch != "" {
+			req.Branch = wt.Branch
+		}
 	}
-	// Resolve defaults from Space when space_id is supplied.
+	if repoID := strings.TrimSpace(req.RepoID); repoID != "" {
+		repo, err := s.store.GetRepo(ctx, repoID)
+		if err != nil {
+			return DispatchResult{}, fmt.Errorf("repo %s not found: %w", repoID, err)
+		}
+		if req.ProjectID == "" {
+			req.ProjectID = repo.ProjectID
+		}
+		if req.WorkerSelector.WorkerID == "" && repo.WorkerID != "" {
+			req.WorkerSelector.WorkerID = repo.WorkerID
+		}
+		if strings.TrimSpace(req.RepoPath) == "" {
+			req.RepoPath = repo.Path
+		}
+	}
+	if projID := strings.TrimSpace(req.ProjectID); projID != "" {
+		proj, err := s.store.GetProject(ctx, projID)
+		if err != nil {
+			return DispatchResult{}, fmt.Errorf("project %s not found: %w", projID, err)
+		}
+		if req.WorkspaceID == "" {
+			req.WorkspaceID = proj.WorkspaceID
+		}
+	}
+	if strings.TrimSpace(req.WorkspaceID) == "" {
+		req.WorkspaceID = store.DefaultWorkspaceID
+	}
+	if strings.TrimSpace(req.ProjectID) == "" {
+		req.ProjectID = store.DefaultProjectID
+	}
+
+	// Resolve legacy per-machine Space bindings when space_id is supplied.
 	if strings.TrimSpace(req.SpaceID) != "" {
 		sp, err := s.store.GetSpace(ctx, req.SpaceID)
 		if err != nil {
@@ -130,20 +366,51 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 			req.Origin = protocol.TaskOriginDirect
 		}
 	}
+
+	// Normalize unified session kind ("chat" | "terminal") and apply Machine/Agent/Model cascade when requested.
+	sessionKind := strings.ToLower(strings.TrimSpace(req.SessionKind))
+	if sessionKind == "" {
+		if req.Agent == "shell" {
+			sessionKind = "terminal"
+		} else {
+			sessionKind = "chat"
+		}
+	}
+	if sessionKind == "terminal" && strings.TrimSpace(req.Agent) == "" {
+		req.Agent = "shell"
+	}
+	if sessionKind == "chat" && (strings.TrimSpace(req.Agent) == "" || (req.Origin == protocol.TaskOriginDirect && strings.TrimSpace(req.Model) == "")) {
+		resolved, rErr := s.ResolveSessionDefaults(ctx, req.WorkerSelector.WorkerID, req.Agent, req.Model)
+		if rErr == nil {
+			if req.WorkerSelector.WorkerID == "" && req.Origin == protocol.TaskOriginDirect && resolved.MachineID != "" {
+				req.WorkerSelector.WorkerID = resolved.MachineID
+			}
+			if strings.TrimSpace(req.Agent) == "" {
+				req.Agent = resolved.Agent
+			}
+			if strings.TrimSpace(req.Model) == "" && req.Origin == protocol.TaskOriginDirect {
+				req.Model = resolved.Model
+			}
+		}
+	}
+	if strings.TrimSpace(req.Agent) == "" {
+		return DispatchResult{}, fmt.Errorf("agent is required")
+	}
+
 	origin := req.Origin
 	if origin == "" {
 		origin = protocol.TaskOriginOrchestrator
 	}
 	mode := req.Mode
 	if mode == "" {
-		if req.Agent == "shell" || origin == protocol.TaskOriginDirect || origin == protocol.TaskOriginScratch {
+		if req.Agent == "shell" || sessionKind == "terminal" || origin == protocol.TaskOriginDirect || origin == protocol.TaskOriginScratch {
 			mode = protocol.TaskModeInteractive
 		} else {
 			mode = protocol.TaskModeOneshot
 		}
 	}
 	if strings.TrimSpace(req.RepoPath) == "" {
-		if origin == protocol.TaskOriginDirect || origin == protocol.TaskOriginScratch || req.Agent == "shell" {
+		if origin == protocol.TaskOriginDirect || origin == protocol.TaskOriginScratch || req.Agent == "shell" || sessionKind == "terminal" {
 			req.RepoPath = "~"
 		} else {
 			return DispatchResult{}, fmt.Errorf("repo_path is required")
@@ -189,7 +456,13 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	task := store.Task{
 		ID:             taskID,
 		SpaceID:        req.SpaceID,
+		WorkspaceID:    req.WorkspaceID,
+		ProjectID:      req.ProjectID,
+		RepoID:         req.RepoID,
+		WorktreeID:     req.WorktreeID,
 		Agent:          req.Agent,
+		Model:          strings.TrimSpace(req.Model),
+		SessionKind:    sessionKind,
 		Workdir:        req.RepoPath,
 		EffectiveDir:   req.RepoPath,
 		Branch:         req.Branch,
@@ -210,9 +483,28 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		return DispatchResult{}, err
 	}
 
+	// Persist last-used Machine/Agent/Model for future chat sessions.
+	if sessionKind == "chat" && origin != protocol.TaskOriginScratch {
+		lastUpdates := map[string]string{}
+		if task.WorkerID != "" {
+			lastUpdates["last_used_machine"] = task.WorkerID
+		}
+		if task.Agent != "" && task.Agent != "shell" {
+			lastUpdates["last_used_agent"] = task.Agent
+		}
+		if task.Model != "" {
+			lastUpdates["last_used_model"] = task.Model
+		}
+		if len(lastUpdates) > 0 {
+			_ = s.store.SetSettings(ctx, lastUpdates)
+		}
+	}
+
 	startPayload := protocol.TaskStartPayload{
 		TaskID:         taskID,
 		Agent:          req.Agent,
+		Model:          task.Model,
+		SessionKind:    sessionKind,
 		Workdir:        req.RepoPath,
 		Branch:         req.Branch,
 		UseWorktree:    useWorktree,
@@ -239,6 +531,13 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		TaskID:           task.ID,
 		WorkerID:         task.WorkerID,
 		SpaceID:          task.SpaceID,
+		WorkspaceID:      task.WorkspaceID,
+		ProjectID:        task.ProjectID,
+		RepoID:           task.RepoID,
+		WorktreeID:       task.WorktreeID,
+		SessionKind:      task.SessionKind,
+		Agent:            task.Agent,
+		Model:            task.Model,
 		Status:           task.Status,
 		WorkdirEffective: task.EffectiveDir,
 	}, nil

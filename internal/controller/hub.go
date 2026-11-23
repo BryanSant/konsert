@@ -1001,7 +1001,15 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Event = item
 	case "space":
 		p.Space = item
-	case "space_deleted", "worker_deleted":
+	case "workspace":
+		p.Workspace = item
+	case "project":
+		p.Project = item
+	case "repo":
+		p.Repo = item
+	case "worktree":
+		p.Worktree = item
+	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}

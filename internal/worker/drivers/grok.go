@@ -29,6 +29,9 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if IsFullAccess(opts.PermissionMode) {
 		args = append(args, "--yes")
 	}
+	if m := strings.TrimSpace(opts.Model); m != "" {
+		args = append(args, "--model", m)
+	}
 	if opts.Mode == "interactive" {
 		if strings.TrimSpace(opts.Prompt) != "" {
 			args = append(args, opts.Prompt)

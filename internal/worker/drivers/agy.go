@@ -32,6 +32,9 @@ func (d *AgyDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	} else {
 		args = append(args, "--sandbox")
 	}
+	if m := strings.TrimSpace(opts.Model); m != "" {
+		args = append(args, "--model="+m)
+	}
 	if opts.Mode == "interactive" {
 		if p := strings.TrimSpace(opts.Prompt); p != "" {
 			args = append(args, "--prompt-interactive="+p)

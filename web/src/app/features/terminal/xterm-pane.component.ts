@@ -51,13 +51,9 @@ import { IconComponent } from '../../shared/icon.component';
                   {{ task()?.branch }}
                 </span>
               }
-              @if (task()?.origin === 'direct') {
-                <span class="hidden md:inline-block rounded px-1.5 py-0.5 text-[10px] bg-white/[0.05] text-[#8e9098]">
-                  Direct
-                </span>
-              } @else if (task()?.origin === 'orchestrator' || !task()?.origin) {
-                <span class="hidden md:inline-block rounded px-1.5 py-0.5 text-[10px] bg-[#4a668a]/20 text-[#93b8e4]">
-                  Orchestrated
+              @if (task()?.model) {
+                <span class="hidden md:inline-block rounded px-1.5 py-0.5 text-[10px] font-mono-ide bg-white/[0.05] text-[#9a9ca4] shrink-0">
+                  {{ task()?.model }}
                 </span>
               }
             </div>

@@ -1,10 +1,10 @@
 import { Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PermissionMode, SSHHost, Space, Worker } from '../core/models/konsert.models';
+import { PermissionMode, SSHHost, SessionKind, Space, Worker } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { KonsertSocketService } from '../core/services/konsert-socket.service';
-import { FleetStore, basenamePath } from '../core/state/fleet.store';
+import { FleetStore, basenamePath, guessModelForAgent } from '../core/state/fleet.store';
 import { ORCHESTRATOR_TAB_ID, TabsStore } from '../core/state/tabs.store';
 import { OrchestratorChatComponent } from '../features/orchestrator/orchestrator-chat.component';
 import { XtermPaneComponent } from '../features/terminal/xterm-pane.component';
@@ -125,7 +125,7 @@ interface PaletteItem {
           <button
             type="button"
             (click)="openNewTabInActiveContext()"
-            [title]="activeSpace() ? 'New tab in ' + activeSpace()!.name : 'New direct session'"
+            [title]="activeSpace() ? 'New session in ' + activeSpace()!.name : 'New chat or terminal session'"
             class="rounded-md p-1 text-[#787a82] hover:text-[#ececed] hover:bg-[#23252b] active:scale-95 transition cursor-pointer shrink-0"
           >
             <app-icon name="plus" [size]="14" />
@@ -235,8 +235,8 @@ interface PaletteItem {
             <div class="absolute inset-0" [class.hidden]="tabs.activeTabId() !== tab.id">
               @if (tab.id === orchestratorTabId) {
                 <app-orchestrator-chat
-                  (openDispatch)="openSessionModal('orchestrator', null)"
-                  (openDirectSession)="openSessionModal('direct', null)"
+                  (openNewChat)="openSessionModal('chat', null)"
+                  (openNewTerminal)="openSessionModal('terminal', null)"
                 />
               } @else if (tab.taskId) {
                 <app-xterm-pane [taskId]="tab.taskId" [visible]="tabs.activeTabId() === tab.id" />
@@ -379,7 +379,7 @@ interface PaletteItem {
         </div>
       }
 
-      <!-- DUAL-MODE MODAL: DIRECT SESSION vs ORCHESTRATED JOB (Wider layout + Remote Directory Picker) -->
+      <!-- UNIFIED SESSION MODAL: CHAT SESSION vs TERMINAL (Machine/Agent/Model Cascade + Remote Dir Picker) -->
       @if (dispatchModalOpen()) {
         <div class="ks-backdrop fixed inset-0 z-50 flex items-center justify-center px-4" (click)="dispatchModalOpen.set(false)">
           <div class="ks-modal w-full max-w-2xl rounded-xl border border-[#2d3038] bg-[#1b1c20] p-5 space-y-4" (click)="$event.stopPropagation()">
@@ -387,23 +387,23 @@ interface PaletteItem {
               <div class="inline-flex rounded-lg bg-[#111214] p-0.5 border border-[#26282e] text-[12px]">
                 <button
                   type="button"
-                  (click)="switchModalOrigin('direct')"
+                  (click)="switchSessionKind('chat')"
                   class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
-                  [class.bg-[#262830]]="modalOrigin() === 'direct'"
-                  [class.text-[#ececed]]="modalOrigin() === 'direct'"
-                  [class.text-[#787a82]]="modalOrigin() !== 'direct'"
+                  [class.bg-[#262830]]="sessionKind() === 'chat'"
+                  [class.text-[#ececed]]="sessionKind() === 'chat'"
+                  [class.text-[#787a82]]="sessionKind() !== 'chat'"
                 >
-                  Direct Session
+                  Chat Session
                 </button>
                 <button
                   type="button"
-                  (click)="switchModalOrigin('orchestrator')"
+                  (click)="switchSessionKind('terminal')"
                   class="rounded-md px-3 py-1 font-medium transition cursor-pointer"
-                  [class.bg-[#262830]]="modalOrigin() === 'orchestrator'"
-                  [class.text-[#ececed]]="modalOrigin() === 'orchestrator'"
-                  [class.text-[#787a82]]="modalOrigin() !== 'orchestrator'"
+                  [class.bg-[#262830]]="sessionKind() === 'terminal'"
+                  [class.text-[#ececed]]="sessionKind() === 'terminal'"
+                  [class.text-[#787a82]]="sessionKind() !== 'terminal'"
                 >
-                  Orchestrated Job
+                  Terminal
                 </button>
               </div>
 
@@ -413,38 +413,90 @@ interface PaletteItem {
             </div>
 
             <form (ngSubmit)="submitDispatch()" class="space-y-3 text-[12px]">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              @if (sessionKind() === 'chat') {
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="text-[11px] text-[#8e9098]">Machine</label>
+                      @if (machineSourceHint()) {
+                        <span class="text-[10px] text-[#686a72]">{{ machineSourceHint() }}</span>
+                      }
+                    </div>
+                    <select
+                      name="worker"
+                      [ngModel]="dispatchWorkerId()"
+                      (ngModelChange)="onSessionMachineChange($event)"
+                      class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+                    >
+                      @if (fleet.workers().length === 0) {
+                        <option value="">localhost (no daemon connected)</option>
+                      }
+                      @for (w of fleet.workers(); track w.id) {
+                        <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
+                      }
+                    </select>
+                  </div>
+
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="text-[11px] text-[#8e9098]">Agent</label>
+                      @if (agentSourceHint()) {
+                        <span class="text-[10px] text-[#686a72]">{{ agentSourceHint() }}</span>
+                      }
+                    </div>
+                    <select
+                      name="agent"
+                      [ngModel]="dispatchAgent()"
+                      (ngModelChange)="onSessionAgentChange($event)"
+                      class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+                    >
+                      @for (a of chatAgentOptions(); track a) {
+                        <option [value]="a">{{ a }}</option>
+                      }
+                    </select>
+                  </div>
+
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <label class="text-[11px] text-[#8e9098]">Model</label>
+                      @if (modelSourceHint()) {
+                        <span class="text-[10px] text-[#686a72]">{{ modelSourceHint() }}</span>
+                      }
+                    </div>
+                    <input
+                      type="text"
+                      name="sessionModel"
+                      list="ks-model-suggestions"
+                      [ngModel]="dispatchModel()"
+                      (ngModelChange)="onSessionModelChange($event)"
+                      placeholder="Auto"
+                      class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 font-mono-ide text-[#ececed] focus:border-[#4a668a] focus:outline-none"
+                    />
+                    <datalist id="ks-model-suggestions">
+                      @for (m of modelSuggestions(); track m) {
+                        <option [value]="m"></option>
+                      }
+                    </datalist>
+                  </div>
+                </div>
+              } @else {
                 <div>
                   <label class="block text-[11px] text-[#8e9098] mb-1">Machine</label>
                   <select
                     name="worker"
                     [ngModel]="dispatchWorkerId()"
-                    (ngModelChange)="dispatchWorkerId.set($event)"
+                    (ngModelChange)="onSessionMachineChange($event)"
                     class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
                   >
-                    <option value="">Auto-schedule (best online)</option>
+                    @if (fleet.workers().length === 0) {
+                      <option value="">localhost (no daemon connected)</option>
+                    }
                     @for (w of fleet.workers(); track w.id) {
                       <option [value]="w.id">{{ w.name }} ({{ w.status }})</option>
                     }
                   </select>
                 </div>
-
-                <div>
-                  <label class="block text-[11px] text-[#8e9098] mb-1">Agent / Shell</label>
-                  <select
-                    name="agent"
-                    [ngModel]="dispatchAgent()"
-                    (ngModelChange)="dispatchAgent.set($event)"
-                    class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
-                  >
-                    <option value="shell">shell (interactive terminal)</option>
-                    <option value="claude">claude</option>
-                    <option value="agy">agy</option>
-                    <option value="grok">grok</option>
-                    <option value="mock">mock</option>
-                  </select>
-                </div>
-              </div>
+              }
 
               <div>
                 <label class="block text-[11px] text-[#8e9098] mb-1">Workspace Directory</label>
@@ -457,23 +509,21 @@ interface PaletteItem {
                 />
               </div>
 
-              @if (modalOrigin() === 'orchestrator' || dispatchAgent() !== 'shell') {
+              @if (sessionKind() === 'chat') {
                 <div>
-                  <label class="block text-[11px] text-[#8e9098] mb-1">
-                    {{ modalOrigin() === 'direct' ? 'Initial Prompt (optional)' : 'Task Prompt' }}
-                  </label>
+                  <label class="block text-[11px] text-[#8e9098] mb-1">Initial Prompt (optional)</label>
                   <textarea
                     rows="3"
                     name="prompt"
                     [ngModel]="dispatchPrompt()"
                     (ngModelChange)="dispatchPrompt.set($event)"
-                    [placeholder]="modalOrigin() === 'direct' ? 'Leave blank to start an interactive session...' : 'Describe the task for the autonomous agent...'"
+                    placeholder="Ask the agent anything, or leave blank to start an interactive session..."
                     class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed] focus:border-[#4a668a] focus:outline-none"
                   ></textarea>
                 </div>
               }
 
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label class="block text-[11px] text-[#8e9098] mb-1">Git Branch (optional worktree)</label>
                   <input
@@ -497,18 +547,6 @@ interface PaletteItem {
                     <option value="sandboxed">Sandboxed (Opt-In)</option>
                   </select>
                 </div>
-                <div>
-                  <label class="block text-[11px] text-[#8e9098] mb-1">Lifecycle</label>
-                  <select
-                    name="mode"
-                    [ngModel]="dispatchMode()"
-                    (ngModelChange)="dispatchMode.set($event)"
-                    class="w-full rounded-md border border-[#2c2e36] bg-[#111214] px-2.5 py-2 text-[#ececed]"
-                  >
-                    <option value="interactive">Interactive (persistent PTY)</option>
-                    <option value="oneshot">Oneshot (run & exit)</option>
-                  </select>
-                </div>
               </div>
 
               @if (dispatchError()) {
@@ -530,7 +568,7 @@ interface PaletteItem {
                   [disabled]="dispatching() || !canSubmitDispatch()"
                   class="rounded-md bg-[#ececed] hover:bg-white active:scale-[0.98] disabled:opacity-40 px-4 py-1.5 font-medium text-[#111214] transition cursor-pointer"
                 >
-                  {{ dispatching() ? 'Starting...' : modalOrigin() === 'direct' ? 'Open Session' : 'Dispatch Job' }}
+                  {{ dispatching() ? 'Starting...' : sessionKind() === 'chat' ? 'Start Chat' : 'Open Terminal' }}
                 </button>
               </div>
             </form>
@@ -842,17 +880,20 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly mobileFleetOpen = signal(false);
   readonly mobileTelemetryOpen = signal(false);
 
-  // Dual-mode session / job modal
+  // Unified session modal (Chat Session vs Terminal with Machine/Agent/Model cascade)
   readonly dispatchModalOpen = signal(false);
-  readonly modalOrigin = signal<'direct' | 'orchestrator'>('direct');
+  readonly sessionKind = signal<SessionKind>('chat');
   readonly dispatchSpaceId = signal<string | null>(null);
-  readonly dispatchAgent = signal('shell');
-  readonly dispatchMode = signal<'oneshot' | 'interactive'>('interactive');
+  readonly dispatchAgent = signal('claude');
+  readonly dispatchModel = signal('');
   readonly dispatchWorkerId = signal('');
   readonly dispatchPerm = signal<PermissionMode>('full_access');
   readonly dispatchRepo = signal('~');
   readonly dispatchBranch = signal('');
   readonly dispatchPrompt = signal('');
+  readonly machineSourceHint = signal('');
+  readonly agentSourceHint = signal('');
+  readonly modelSourceHint = signal('');
   readonly dispatching = signal(false);
   readonly dispatchError = signal('');
 
@@ -885,6 +926,29 @@ export class AppShellComponent implements OnInit, OnDestroy {
   readonly commandPaletteOpen = signal(false);
   readonly commandQuery = signal('');
   readonly paletteIndex = signal(0);
+
+  readonly chatAgentOptions = computed(() => {
+    const w = this.fleet.workersById()[this.dispatchWorkerId()];
+    const detected = (w?.agents ?? []).filter((a) => a !== 'shell');
+    const base = ['agy', 'claude', 'codex', 'grok', 'mock'];
+    const merged = Array.from(new Set([...detected, ...base]));
+    return merged;
+  });
+
+  readonly modelSuggestions = computed(() => {
+    switch (this.dispatchAgent().toLowerCase()) {
+      case 'claude':
+        return ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-haiku-3-5'];
+      case 'agy':
+        return ['gemini-2.5-pro', 'gemini-2.5-flash'];
+      case 'codex':
+        return ['o4-mini', 'o3', 'gpt-4.1'];
+      case 'grok':
+        return ['grok-code-fast-1', 'grok-4'];
+      default:
+        return ['claude-sonnet-4-5', 'gemini-2.5-pro', 'o4-mini', 'grok-code-fast-1'];
+    }
+  });
 
   readonly activeSpace = computed(() => {
     const sid = this.tabs.activeSpaceId();
@@ -930,27 +994,27 @@ export class AppShellComponent implements OnInit, OnDestroy {
         icon: w.isolation === 'container' ? 'container' : 'server',
         dotOnline: w.status === 'online',
         pill: `${w.os}/${w.arch}`,
-        action: () => this.openSessionModal('direct', w),
+        action: () => this.openSessionModal('chat', w),
       });
     }
 
     // 3. Actions
     items.push(
       {
-        id: 'act-direct',
-        label: 'New Direct Session on a Machine',
+        id: 'act-chat',
+        label: 'New Chat Session on a Machine',
         section: 'actions',
-        icon: 'shell',
-        pill: 'Direct',
-        action: () => this.openSessionModal('direct', null),
+        icon: 'orchestrator',
+        pill: 'Chat',
+        action: () => this.openSessionModal('chat', null),
       },
       {
-        id: 'act-job',
-        label: 'Dispatch Orchestrated Worktree Job',
+        id: 'act-terminal',
+        label: 'New Terminal on a Machine',
         section: 'actions',
-        icon: 'git-branch',
-        pill: 'Fleet',
-        action: () => this.openSessionModal('orchestrator', null),
+        icon: 'shell',
+        pill: 'Term',
+        action: () => this.openSessionModal('terminal', null),
       },
       {
         id: 'act-scratch',
@@ -1092,10 +1156,10 @@ export class AppShellComponent implements OnInit, OnDestroy {
     const sp = this.activeSpace();
     if (sp) {
       const w = this.fleet.workersById()[sp.worker_id] ?? null;
-      this.openSessionModal('direct', w, sp);
+      this.openSessionModal('chat', w, sp);
       return;
     }
-    this.openSessionModal('direct', null);
+    this.openSessionModal('chat', null);
   }
 
   openNewSpaceModal(worker: Worker | null): void {
@@ -1171,50 +1235,76 @@ export class AppShellComponent implements OnInit, OnDestroy {
           this.tabs.openTaskTab(task, ev.worker.name);
         }
       } catch {
-        this.openSessionModal('direct', ev.worker, ev.space);
+        this.openSessionModal('terminal', ev.worker, ev.space);
       }
     }
   }
 
-  openSessionModal(origin: 'direct' | 'orchestrator', worker: Worker | null, space: Space | null = null): void {
-    this.dispatchError.set('');
-    this.modalOrigin.set(origin);
-    this.dispatchSpaceId.set(space?.id || null);
-    this.dispatchWorkerId.set(space?.worker_id || worker?.id || '');
-    this.dispatchPerm.set(this.fleet.settings().default_permission_mode || 'full_access');
-    if (origin === 'direct') {
-      this.dispatchMode.set('interactive');
-      this.dispatchRepo.set(space?.path || '~');
-      this.dispatchBranch.set(space?.branch || '');
-      this.dispatchAgent.set('shell');
-    } else {
-      this.dispatchMode.set('oneshot');
-      this.dispatchRepo.set(space?.path || '~');
-      const target = worker || this.fleet.workers().find((w) => w.status === 'online');
-      const preferred = target?.agents.find((a) => a !== 'shell') || 'mock';
-      this.dispatchAgent.set(preferred);
+  private formatSourceHint(src: string): string {
+    switch (src) {
+      case 'localhost':
+        return 'localhost';
+      case 'default':
+        return 'default';
+      case 'last_used':
+        return 'last used';
+      case 'guess':
+        return 'auto';
+      default:
+        return '';
     }
+  }
+
+  openSessionModal(kind: SessionKind, worker: Worker | null, space: Space | null = null): void {
+    this.dispatchError.set('');
+    this.sessionKind.set(kind);
+    this.dispatchSpaceId.set(space?.id || null);
+    this.dispatchPerm.set(this.fleet.settings().default_permission_mode || 'full_access');
+    this.dispatchRepo.set(space?.path || '~');
+    this.dispatchBranch.set(space?.branch || '');
+
+    const explicitMachine = space?.worker_id || worker?.id || '';
+    const resolved = this.fleet.resolveSessionDefaults(explicitMachine);
+    this.dispatchWorkerId.set(resolved.machine_id);
+    this.machineSourceHint.set(this.formatSourceHint(resolved.machine_source));
+    this.dispatchAgent.set(resolved.agent);
+    this.agentSourceHint.set(this.formatSourceHint(resolved.agent_source));
+    this.dispatchModel.set(resolved.model);
+    this.modelSourceHint.set(this.formatSourceHint(resolved.model_source));
     this.dispatchModalOpen.set(true);
   }
 
-  switchModalOrigin(origin: 'direct' | 'orchestrator'): void {
-    this.modalOrigin.set(origin);
-    if (origin === 'direct') {
-      this.dispatchMode.set('interactive');
-    } else {
-      this.dispatchMode.set('oneshot');
-      if (this.dispatchAgent() === 'shell') {
-        const online = this.fleet.workers().find((w) => w.status === 'online');
-        this.dispatchAgent.set(online?.agents.find((a) => a !== 'shell') || 'mock');
-      }
+  switchSessionKind(kind: SessionKind): void {
+    this.sessionKind.set(kind);
+  }
+
+  onSessionMachineChange(workerId: string): void {
+    this.dispatchWorkerId.set(workerId);
+    this.machineSourceHint.set('');
+    const resolved = this.fleet.resolveSessionDefaults(workerId);
+    if (this.agentSourceHint() !== '') {
+      this.dispatchAgent.set(resolved.agent);
+      this.agentSourceHint.set(this.formatSourceHint(resolved.agent_source));
     }
+  }
+
+  onSessionAgentChange(agent: string): void {
+    this.dispatchAgent.set(agent);
+    this.agentSourceHint.set('');
+    if (this.modelSourceHint() === 'auto' || !this.dispatchModel().trim()) {
+      this.dispatchModel.set(guessModelForAgent(agent, this.fleet.settings().llm_model));
+      this.modelSourceHint.set('auto');
+    }
+  }
+
+  onSessionModelChange(model: string): void {
+    this.dispatchModel.set(model);
+    this.modelSourceHint.set('');
   }
 
   canSubmitDispatch(): boolean {
     if (!this.dispatchRepo().trim()) return false;
-    if (this.modalOrigin() === 'orchestrator' && this.dispatchAgent() !== 'shell' && this.dispatchMode() === 'oneshot') {
-      return !!this.dispatchPrompt().trim();
-    }
+    if (this.sessionKind() === 'chat' && !this.dispatchAgent().trim()) return false;
     return true;
   }
 
@@ -1222,19 +1312,22 @@ export class AppShellComponent implements OnInit, OnDestroy {
     this.dispatching.set(true);
     this.dispatchError.set('');
     try {
-      const res = await this.api.dispatchTask({
+      const isChat = this.sessionKind() === 'chat';
+      const res = await this.api.createSession({
         worker_selector: this.dispatchWorkerId() ? { worker_id: this.dispatchWorkerId() } : undefined,
         space_id: this.dispatchSpaceId() || undefined,
-        agent: this.dispatchAgent(),
+        session_kind: this.sessionKind(),
+        agent: isChat ? this.dispatchAgent() : 'shell',
+        model: isChat ? this.dispatchModel().trim() || undefined : undefined,
         repo_path: this.dispatchRepo().trim() || '~',
         branch: this.dispatchBranch().trim() || undefined,
         use_worktree: !!this.dispatchBranch().trim(),
-        prompt: this.dispatchPrompt().trim(),
-        mode: this.dispatchMode(),
-        origin: this.modalOrigin(),
+        prompt: isChat ? this.dispatchPrompt().trim() : '',
+        mode: 'interactive',
+        origin: 'direct',
         permission_mode: this.dispatchPerm(),
       });
-      await this.fleet.refresh();
+      await Promise.all([this.fleet.refresh(), this.fleet.loadSettings()]);
       const task = this.fleet.tasksById()[res.task_id];
       if (task) {
         const w = this.fleet.workersById()[task.worker_id];

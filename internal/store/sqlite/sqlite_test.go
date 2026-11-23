@@ -151,3 +151,88 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("expected task preserved with empty worker_id, got %+v err=%v", gotTAfter, err)
 	}
 }
+
+func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "taxonomy.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer st.Close()
+
+	// 1. Default Space and Default Project exist automatically and cannot be deleted.
+	tax, err := st.GetTaxonomy(ctx)
+	if err != nil {
+		t.Fatalf("GetTaxonomy failed: %v", err)
+	}
+	if len(tax.Workspaces) != 1 || tax.Workspaces[0].ID != store.DefaultWorkspaceID || !tax.Workspaces[0].IsDefault {
+		t.Fatalf("expected built-in Default workspace, got %+v", tax.Workspaces)
+	}
+	if len(tax.Projects) != 1 || tax.Projects[0].ID != store.DefaultProjectID || !tax.Projects[0].IsDefault {
+		t.Fatalf("expected built-in Default project, got %+v", tax.Projects)
+	}
+	if err := st.DeleteWorkspace(ctx, store.DefaultWorkspaceID); err != store.ErrProtectedDefault {
+		t.Fatalf("expected ErrProtectedDefault deleting default workspace, got %v", err)
+	}
+	if err := st.DeleteProject(ctx, store.DefaultProjectID); err != store.ErrProtectedDefault {
+		t.Fatalf("expected ErrProtectedDefault deleting default project, got %v", err)
+	}
+
+	// 2. Multi-repo Project across two machines inside a custom Space.
+	now := time.Now().UTC()
+	for _, wid := range []string{"w-mac", "w-linux"} {
+		if err := st.UpsertWorker(ctx, store.Worker{ID: wid, Name: wid, HostGroup: wid, OS: "linux", Arch: "amd64", Status: "online", LastSeenAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.CreateWorkspace(ctx, store.Workspace{ID: "ws-work", Name: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateProject(ctx, store.Project{ID: "proj-app1", WorkspaceID: "ws-work", Name: "App1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-api", ProjectID: "proj-app1", WorkerID: "w-linux", Name: "app1-api", Path: "/srv/app1-api"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-web", ProjectID: "proj-app1", WorkerID: "w-mac", Name: "app1-web", Path: "/Users/dev/app1-web"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateWorktree(ctx, store.Worktree{ID: "wt-feat", RepoID: "repo-api", Branch: "feat/gcp", Path: "/srv/app1-api/.wt/gcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := st.ListRepos(ctx, "proj-app1", "")
+	if err != nil || len(repos) != 2 {
+		t.Fatalf("expected 2 repos under multi-repo project, got %+v err=%v", repos, err)
+	}
+
+	// Bind a task to the full 4-level taxonomy + unified session model fields.
+	if err := st.CreateTask(ctx, store.Task{
+		ID:          "t-tax-1",
+		WorkerID:    "w-linux",
+		WorkspaceID: "ws-work",
+		ProjectID:   "proj-app1",
+		RepoID:      "repo-api",
+		WorktreeID:  "wt-feat",
+		Agent:       "claude",
+		Model:       "claude-sonnet-4-5",
+		SessionKind: "chat",
+		Workdir:     "/srv/app1-api/.wt/gcp",
+		Status:      protocol.TaskStatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gotT, err := st.GetTask(ctx, "t-tax-1")
+	if err != nil || gotT.WorkspaceID != "ws-work" || gotT.ProjectID != "proj-app1" || gotT.RepoID != "repo-api" || gotT.WorktreeID != "wt-feat" || gotT.Model != "claude-sonnet-4-5" || gotT.SessionKind != "chat" {
+		t.Fatalf("unexpected task taxonomy/session fields: %+v err=%v", gotT, err)
+	}
+
+	// Deleting custom workspace cascades projects/repos/worktrees and re-homes tasks to Default.
+	if err := st.DeleteWorkspace(ctx, "ws-work"); err != nil {
+		t.Fatal(err)
+	}
+	gotRehomed, err := st.GetTask(ctx, "t-tax-1")
+	if err != nil || gotRehomed.WorkspaceID != store.DefaultWorkspaceID || gotRehomed.ProjectID != store.DefaultProjectID || gotRehomed.RepoID != "" {
+		t.Fatalf("expected task re-homed to Default after workspace delete, got %+v err=%v", gotRehomed, err)
+	}
+}
