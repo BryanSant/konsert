@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"text/tabwriter"
-	"time"
 
 	"github.com/BryanSant/konsert/internal/auth"
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/controller"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
 	"github.com/spf13/cobra"
 )
 
@@ -107,40 +104,7 @@ func newServeCmd() *cobra.Command {
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-
-			st, err := sqlite.Open(ctx, cfg.DBPath)
-			if err != nil {
-				return err
-			}
-			defer st.Close()
-
-			srv := controller.NewServer(cfg, st, logger, version)
-			go srv.Hub().RunReaper(ctx)
-
-			httpSrv := &http.Server{
-				Addr:              cfg.ListenAddr,
-				Handler:           srv,
-				ReadHeaderTimeout: 10 * time.Second,
-			}
-
-			go func() {
-				<-ctx.Done()
-				srv.Hub().Close()
-				shCtx, shCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer shCancel()
-				_ = httpSrv.Shutdown(shCtx)
-			}()
-
-			logger.Info("konsert controller listening",
-				"addr", cfg.ListenAddr,
-				"db", cfg.DBPath,
-				"mcp_http", cfg.EnableMCPHTTP,
-				"auth_enabled", !cfg.NoAuth,
-			)
-			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				return err
-			}
-			return nil
+			return runServe(ctx, cfg, logger, nil)
 		},
 	}
 

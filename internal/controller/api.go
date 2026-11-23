@@ -43,6 +43,7 @@ type Server struct {
 	// originPatterns are the extra browser origins allowed besides the request Host.
 	originPatterns []string
 	loginLimiter   *auth.LoginLimiter
+	inflight       inflightTracker
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -98,6 +99,8 @@ func (s *Server) Service() *FleetService              { return s.service }
 func (s *Server) Orchestrator() *orchestrator.Service { return s.orch }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.inflight.add()
+	defer s.inflight.done()
 	s.handler.ServeHTTP(w, r)
 }
 
