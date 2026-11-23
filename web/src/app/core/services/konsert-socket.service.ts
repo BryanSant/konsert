@@ -39,6 +39,8 @@ export class KonsertSocketService {
   private shouldReconnect = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True once any socket in this connect() lifetime has opened (distinguishes reconnects). */
+  private hasConnected = false;
 
   private readonly ptyListeners = new Map<string, Set<PtyListener>>();
   private readonly encoder = new TextEncoder();
@@ -49,6 +51,7 @@ export class KonsertSocketService {
       return;
     }
     this.shouldReconnect = true;
+    this.hasConnected = false;
     this.openSocket();
   }
 
@@ -59,10 +62,12 @@ export class KonsertSocketService {
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close(1000, 'client disconnect');
+      const ws = this.ws;
       this.ws = null;
+      ws.close(1000, 'client disconnect');
     }
     this.state.set('disconnected');
+    this.orchestratorStore.onConnectionLost();
   }
 
   private openSocket(): void {
@@ -74,9 +79,14 @@ export class KonsertSocketService {
     this.ws = ws;
 
     ws.onopen = () => {
+      const isReconnect = this.hasConnected;
+      this.hasConnected = true;
       this.reconnectAttempt = 0;
       this.state.set('connected');
       void this.fleetStore.refresh();
+      if (isReconnect) {
+        void this.orchestratorStore.onReconnected();
+      }
       // Re-subscribe any open terminal panes after reconnect.
       for (const taskId of this.ptyListeners.keys()) {
         this.sendJSON('pty.subscribe', { task_id: taskId });
@@ -92,10 +102,10 @@ export class KonsertSocketService {
     };
 
     ws.onclose = () => {
-      if (this.ws === ws) {
-        this.ws = null;
-      }
+      if (this.ws !== ws) return; // superseded by disconnect()/a newer socket
+      this.ws = null;
       this.state.set('disconnected');
+      this.orchestratorStore.onConnectionLost();
       if (this.shouldReconnect) {
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 15000);
         this.reconnectAttempt++;
@@ -254,18 +264,40 @@ export class KonsertSocketService {
     this.sendJSON('pty.resize', { task_id: taskId, cols, rows });
   }
 
-  sendChatMessage(sessionId: string, content: string): void {
-    this.orchestratorStore.appendLocalUserMessage(content);
-    this.sendJSON('chat.send', { session_id: sessionId, content });
+  get isOpen(): boolean {
+    return !!this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 
-  private sendJSON(type: string, payload: unknown): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  /**
+   * Sends a chat message. Returns false (and records an error on the store) when the
+   * socket is not open, so the caller can keep the draft instead of silently losing it.
+   */
+  sendChatMessage(sessionId: string, content: string): boolean {
+    if (!this.isOpen) {
+      this.orchestratorStore.rejectSend();
+      return false;
+    }
+    this.orchestratorStore.beginSend(sessionId, content);
+    if (!this.sendJSON('chat.send', { session_id: sessionId, content })) {
+      this.orchestratorStore.abortSend(sessionId);
+      return false;
+    }
+    return true;
+  }
+
+  /** Writes a JSON envelope; returns false if the socket is not open or the write threw. */
+  private sendJSON(type: string, payload: unknown): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     const env: Envelope = {
       type,
       ts: new Date().toISOString(),
       payload,
     };
-    this.ws.send(JSON.stringify(env));
+    try {
+      this.ws.send(JSON.stringify(env));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

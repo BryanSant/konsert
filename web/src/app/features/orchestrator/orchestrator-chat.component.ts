@@ -177,7 +177,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
 
       <!-- Messages / Calm Empty State -->
       <div class="flex-1 overflow-y-auto px-4 py-6">
-        @if (orch.messages().length === 0 && !orch.sending()) {
+        @if (orch.messages().length === 0 && !orch.sending() && !orch.error()) {
           <div class="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center">
             <div class="h-12 w-12 rounded-xl border border-[#282a30] bg-[#191a1e] flex items-center justify-center mb-4 shadow-lg">
               <img src="icon.svg" alt="Konsert" class="h-7 w-7" />
@@ -327,7 +327,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
             }
 
             @if (orch.error()) {
-              <div class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
+              <div role="alert" class="rounded-lg border border-[#e05d5d]/30 bg-[#e05d5d]/10 px-3 py-2 text-[12px] text-[#f09595]">
                 {{ orch.error() }}
               </div>
             }
@@ -740,10 +740,12 @@ export class OrchestratorChatComponent implements OnInit {
       payload = `${text}${ATTACHMENT_MARKER}${pathsBlock}`;
     }
 
+    // Only clear the composer once the frame was actually handed to an open socket;
+    // otherwise keep the draft (the store surfaces a "not connected" error).
+    if (!this.socket.sendChatMessage(sid, payload)) return;
     this.draft.set('');
     this.attachments.set([]);
     this.uploadError.set('');
-    this.socket.sendChatMessage(sid, payload);
   }
 
   parseUserMsg(content: string): { text: string; files: string[] } {
