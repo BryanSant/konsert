@@ -1,16 +1,13 @@
 package drivers
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -118,19 +115,7 @@ func (d *GrokDriver) sessionFor(taskID string) string {
 // grokHomeDir resolves grok's home: GROK_HOME from the task env, then the daemon env,
 // then ~/.grok.
 func grokHomeDir(env []string) string {
-	for i := len(env) - 1; i >= 0; i-- {
-		if v, ok := strings.CutPrefix(env[i], "GROK_HOME="); ok && v != "" {
-			return v
-		}
-	}
-	if v := os.Getenv("GROK_HOME"); v != "" {
-		return v
-	}
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".grok")
+	return agentHomeDir(env, "GROK_HOME", ".grok")
 }
 
 // findSessionLog locates <grokHome>/sessions/*/<sessionID>/updates.jsonl. Grok names the
@@ -180,25 +165,11 @@ func (d *GrokDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, emit
 		offset = d.pollUpdates(t, logPath, offset, emit)
 	}
 
-	ticker := time.NewTicker(600 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			poll()
-			return
-		case line, ok := <-opts.OutputLines:
-			if !ok {
-				poll()
-				return
-			}
-			if ev, ok := grokScanOutput(line); ok {
-				emit(ev)
-			}
-		case <-ticker.C:
-			poll()
+	watchLoop(ctx, opts.OutputLines, poll, func(line string) {
+		if ev, ok := grokScanOutput(line); ok {
+			emit(ev)
 		}
-	}
+	})
 }
 
 // grokTrustPrompt is the TUI's first-run folder trust dialog. It blocks before the session
@@ -208,62 +179,20 @@ const grokTrustPrompt = "Do you trust the contents of this directory?"
 
 // grokTrustPromptShown reports whether the tail of the PTY output shows the trust dialog.
 func grokTrustPromptShown(snapshot func() []byte) bool {
-	if snapshot == nil {
-		return false
-	}
-	raw := snapshot()
-	if len(raw) > 64*1024 {
-		raw = raw[len(raw)-64*1024:]
-	}
-	return strings.Contains(StripANSI(string(raw)), grokTrustPrompt)
+	return ringContains(snapshot, grokTrustPrompt)
 }
 
 // grokScanOutput inspects one PTY output line. Structured milestones come from the
-// session log; the PTY is only scanned for things the log never records: CLI usage
-// errors (printed before a session exists) and explicit y/n confirmation prompts.
+// session log; the PTY is only scanned for things the log never records (see
+// scanCLIOutput).
 func grokScanOutput(line string) (TelemetryEvent, bool) {
-	clean := strings.TrimSpace(StripANSI(line))
-	if clean == "" {
-		return TelemetryEvent{}, false
-	}
-	lower := strings.ToLower(clean)
-	switch {
-	case strings.HasPrefix(lower, "error:"):
-		return TelemetryEvent{Kind: "error", Message: truncateRunes(clean, 300)}, true
-	case strings.Contains(lower, "[y/n]"):
-		return TelemetryEvent{Kind: "waiting_input", Message: truncateRunes(clean, 300)}, true
-	}
-	return TelemetryEvent{}, false
+	return scanCLIOutput(line)
 }
 
 // pollUpdates parses complete lines appended to path since offset and returns the new
-// offset. The offset only advances past a trailing '\n': a record that is still being
-// written is re-read in full on the next poll instead of being lost or split.
+// offset; a partially written record is left for the next poll (see tailJSONL).
 func (d *GrokDriver) pollUpdates(t *grokTask, path string, offset int64, emit func(TelemetryEvent)) int64 {
-	f, err := os.Open(path)
-	if err != nil {
-		return offset
-	}
-	defer f.Close()
-	if info, err := f.Stat(); err != nil || info.Size() < offset {
-		offset = 0 // truncated or replaced
-	}
-	if offset > 0 {
-		if _, err := f.Seek(offset, io.SeekStart); err != nil {
-			return offset
-		}
-	}
-	reader := bufio.NewReader(f)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 && line[len(line)-1] == '\n' {
-			offset += int64(len(line))
-			d.parseUpdate(t, line, emit)
-		}
-		if err != nil {
-			return offset
-		}
-	}
+	return tailJSONL(path, offset, func(line []byte) { d.parseUpdate(t, line, emit) })
 }
 
 // grokUpdateLine is one updates.jsonl envelope: {"timestamp":..,"method":"session/update"
