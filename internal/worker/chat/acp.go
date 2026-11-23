@@ -856,6 +856,16 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 	for _, o := range p.Options {
 		perm.options = append(perm.options, protocol.AgentElicitationOption{ID: o.OptionID, Label: o.Name, Kind: o.Kind})
 	}
+	// Konsert's own MCP tools (ask_user, fleet tools) are trusted: answer the agent's
+	// permission request ourselves instead of asking the user for permission to ask them.
+	if allow := s.trustedToolAllowOption(tc, p.ToolCall, perm.options); allow != "" {
+		c := s.conn
+		s.mu.Unlock()
+		if c != nil {
+			_ = c.rpc.Reply(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
+		}
+		return
+	}
 	s.perms[eid] = perm
 	turnID := ""
 	var flush []protocol.AgentChatEvent
@@ -887,6 +897,50 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 		ID: eid, Kind: protocol.ElicitPermission, Title: title, Detail: truncate(detail, acpToolTextMax), ToolCall: tc, Options: perm.options,
 	}})
 	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: turnID, Status: protocol.ChatStatusNeedsYou, Text: title})
+}
+
+// trustedToolAllowOption returns the allow option to pick automatically when the permission
+// request is for a tool of a Konsert-provided MCP server, or "" to ask the user. Agents
+// identify MCP tools differently (cursor: rawInput providerIdentifier; others: names like
+// "mcp__konsert__ask_user" or titles like "konsert: ask_user"). Caller holds s.mu.
+func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json.RawMessage, opts []protocol.AgentElicitationOption) string {
+	if len(s.opts.MCPServers) == 0 {
+		return ""
+	}
+	var probe struct {
+		RawInput struct {
+			ProviderIdentifier string `json:"providerIdentifier"`
+			ToolName           string `json:"tool_name"`
+		} `json:"rawInput"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	trusted := false
+	for _, srv := range s.opts.MCPServers {
+		name := strings.ToLower(strings.TrimSpace(srv.Name))
+		if name == "" {
+			continue
+		}
+		if strings.EqualFold(probe.RawInput.ProviderIdentifier, name) {
+			trusted = true
+		}
+		for _, v := range []string{tc.Name, tc.Title, probe.RawInput.ToolName} {
+			v = strings.ToLower(strings.TrimSpace(v))
+			if strings.HasPrefix(v, "mcp__"+name+"__") || strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") {
+				trusted = true
+			}
+		}
+	}
+	if !trusted {
+		return ""
+	}
+	for _, kind := range []string{"allow_once", "allow_always"} {
+		for _, o := range opts {
+			if o.Kind == kind {
+				return o.ID
+			}
+		}
+	}
+	return ""
 }
 
 // --- Session API --------------------------------------------------------------------------

@@ -593,6 +593,21 @@ func (m *Manager) doRespond(c *chatState, r protocol.AgentChatRespond) {
 		return
 	}
 	if err := sess.Respond(context.Background(), r); err != nil {
+		c.mu.Lock()
+		stillPending := c.pending[r.ElicitationID]
+		turn := ""
+		if c.turnActive {
+			turn = c.turnID
+		}
+		if stillPending {
+			// The answer was refused (e.g. an option the request didn't offer) but the agent
+			// is still waiting: stay in needs_you rather than reporting the chat as failed.
+			m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: turn,
+				Status: protocol.ChatStatusNeedsYou, Text: "That answer was not accepted: " + err.Error()})
+			c.mu.Unlock()
+			return
+		}
+		c.mu.Unlock()
 		m.emitDetachedTurn(c, "", errEvent(protocol.ErrKindProtocol, "could not deliver the answer: "+err.Error(), false))
 		return
 	}
