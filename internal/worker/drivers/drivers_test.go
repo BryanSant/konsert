@@ -1,6 +1,7 @@
 package drivers
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -93,6 +94,20 @@ func TestClaudeJSONLParserAndUsageDeltas(t *testing.T) {
 	summary := d.ExtractSummary(t.Context(), SummaryOptions{TaskID: "t1"})
 	if summary != "All tests now pass." {
 		t.Fatalf("unexpected summary: %q", summary)
+	}
+}
+
+// konsertd advertises and `konsertd doctor` lists every driver in the default registry.
+func TestDefaultRegistryIncludesCopilotAndCursor(t *testing.T) {
+	for name, bin := range map[string]string{"copilot": "copilot", "cursor": "cursor-agent"} {
+		d, ok := DefaultRegistry.Get(name)
+		if !ok {
+			t.Fatalf("%s driver not registered", name)
+		}
+		spec := d.BuildCommand(LaunchOptions{Prompt: "x", Mode: protocol.TaskModeOneshot})
+		if got := strings.TrimSuffix(filepath.Base(spec.Binary), ".exe"); got != bin {
+			t.Fatalf("%s binary = %q, want %s", name, spec.Binary, bin)
+		}
 	}
 }
 

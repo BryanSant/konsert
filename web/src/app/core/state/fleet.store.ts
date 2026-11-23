@@ -489,7 +489,7 @@ export class FleetStore {
       agent = s.last_used_agent;
       agentSource = 'last_used';
     } else {
-      const preferred = ['agy', 'claude', 'codex', 'grok', 'mock'];
+      const preferred = ['agy', 'claude', 'codex', 'grok', 'copilot', 'cursor', 'mock'];
       agent = preferred.find((p) => availableAgents.includes(p)) || availableAgents[0] || 'claude';
       agentSource = 'guess';
     }
@@ -567,6 +567,9 @@ export function guessModelForAgent(agent: string, fallbackModel = ''): string {
       return 'o4-mini';
     case 'grok':
       return 'grok-code-fast-1';
+    case 'copilot':
+    case 'cursor':
+      return 'auto';
     case 'mock':
       return 'mock-default';
     default:

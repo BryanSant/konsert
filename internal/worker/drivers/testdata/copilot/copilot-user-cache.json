@@ -1,0 +1,35 @@
+// Disposable cache for Copilot user responses, safe to delete. Managed automatically.
+// User settings belong in settings.json.
+{
+  "copilotUserCache": {
+    "v1:0000000000000000000000000000000000000000000000000000000000000000": {
+      "schemaVersion": 1,
+      "generation": "00000000-0000-0000-0000-000000000000",
+      "retrievedAt": "2026-10-01T00:00:00.000Z",
+      "response": {
+        "quota_reset_date_utc": "2026-11-01T00:00:00.000Z",
+        "quota_snapshots": {
+          "chat": {"entitlement": 50, "percent_remaining": 0, "remaining": 0, "unlimited": false, "has_quota": true}
+        }
+      }
+    },
+    "v1:1111111111111111111111111111111111111111111111111111111111111111": {
+      "schemaVersion": 1,
+      "generation": "11111111-1111-1111-1111-111111111111",
+      "retrievedAt": "2026-11-23T06:31:41.252Z",
+      "response": {
+        "login": "octocat",
+        "access_type_sku": "free_limited_copilot",
+        "chat_enabled": true,
+        "copilot_plan": "individual",
+        "quota_reset_date": "2026-12-01",
+        "quota_snapshots": {
+          "chat": {"entitlement": 200, "overage_count": 0, "overage_permitted": false, "percent_remaining": 87.5, "quota_remaining": 175, "remaining": 175, "unlimited": false, "timestamp_utc": "2026-11-23T06:31:41.193Z", "has_quota": true, "quota_reset_at": 0, "token_based_billing": false},
+          "completions": {"entitlement": 2000, "overage_count": 0, "overage_permitted": false, "percent_remaining": 100, "quota_remaining": 2000, "remaining": 2000, "unlimited": false, "timestamp_utc": "2026-11-23T06:31:41.193Z", "has_quota": true, "quota_reset_at": 0, "token_based_billing": false},
+          "premium_interactions": {"entitlement": 0, "overage_count": 0, "overage_permitted": false, "percent_remaining": 0, "quota_remaining": 0, "remaining": 0, "unlimited": false, "timestamp_utc": "2026-11-23T06:31:41.193Z", "has_quota": false, "quota_reset_at": 0, "token_based_billing": false}
+        },
+        "quota_reset_date_utc": "2026-12-01T00:00:00.000Z"
+      }
+    }
+  }
+}

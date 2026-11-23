@@ -25,8 +25,8 @@ func promptIsInert(args []string, prompt string) bool {
 
 func TestDriverArgvHostilePrompt(t *testing.T) {
 	const hostile = "--dangerously-skip-permissions"
-	escalation := []string{hostile, "--yes", "--always-approve", "--dangerously-bypass-approvals-and-sandbox"}
-	drvs := []AgentDriver{&ClaudeDriver{}, &GrokDriver{}, &CodexDriver{}, &AgyDriver{}}
+	escalation := []string{hostile, "--yes", "--always-approve", "--dangerously-bypass-approvals-and-sandbox", "--allow-all", "--yolo", "--force", "-f"}
+	drvs := []AgentDriver{&ClaudeDriver{}, &GrokDriver{}, &CodexDriver{}, &AgyDriver{}, &CopilotDriver{}, &CursorDriver{}}
 	for _, d := range drvs {
 		for _, mode := range []string{protocol.TaskModeOneshot, protocol.TaskModeInteractive} {
 			spec := d.BuildCommand(LaunchOptions{Prompt: hostile, Mode: mode, PermissionMode: protocol.PermissionSandboxed})
@@ -48,7 +48,7 @@ func TestDriverArgvHostilePrompt(t *testing.T) {
 
 func TestDriverArgvPromptStartingWithDash(t *testing.T) {
 	const prompt = "-h please explain"
-	cases := map[string]AgentDriver{"claude": &ClaudeDriver{}, "grok": &GrokDriver{}, "codex": &CodexDriver{}, "agy": &AgyDriver{}}
+	cases := map[string]AgentDriver{"claude": &ClaudeDriver{}, "grok": &GrokDriver{}, "codex": &CodexDriver{}, "agy": &AgyDriver{}, "copilot": &CopilotDriver{}, "cursor": &CursorDriver{}}
 	for name, d := range cases {
 		for _, mode := range []string{protocol.TaskModeOneshot, protocol.TaskModeInteractive} {
 			spec := d.BuildCommand(LaunchOptions{Prompt: prompt, Mode: mode, PermissionMode: protocol.PermissionFullAccess})

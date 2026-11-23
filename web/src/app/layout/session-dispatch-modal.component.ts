@@ -263,7 +263,7 @@ export class SessionDispatchModalComponent implements OnInit {
   readonly chatAgentOptions = computed(() => {
     const w = this.fleet.workersById()[this.workerId()];
     const detected = (w?.agents ?? []).filter((a) => a !== 'shell');
-    const base = ['agy', 'claude', 'codex', 'grok', 'mock'];
+    const base = ['agy', 'claude', 'codex', 'grok', 'copilot', 'cursor', 'mock'];
     return Array.from(new Set([...detected, ...base]));
   });
 
@@ -277,6 +277,10 @@ export class SessionDispatchModalComponent implements OnInit {
         return ['o4-mini', 'o3', 'gpt-4.1'];
       case 'grok':
         return ['grok-code-fast-1', 'grok-4'];
+      case 'copilot':
+        return ['auto', 'gpt-5.6-sol'];
+      case 'cursor':
+        return ['auto', 'composer-2.5', 'gpt-5.3-codex', 'claude-sonnet-5-thinking-high'];
       default:
         return ['claude-sonnet-4-5', 'gemini-2.5-pro', 'o4-mini', 'grok-code-fast-1'];
     }

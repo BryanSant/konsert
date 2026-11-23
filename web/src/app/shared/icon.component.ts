@@ -29,6 +29,14 @@ import { Component, input } from '@angular/core';
           <circle cx="8" cy="8" r="1.8" stroke="currentColor" stroke-width="1.3"/>
         </svg>
       }
+      @case ('copilot') {
+        <!-- Generic visor/goggles mark in GitHub purple (not the Copilot logo). -->
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0 text-[#a371f7]">
+          <path d="M2.2 9.2V7.4C2.2 4.6 4.8 2.8 8 2.8s5.8 1.8 5.8 4.6v1.8c0 2.4-2.6 4-5.8 4s-5.8-1.6-5.8-4Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+          <rect x="4.2" y="6.2" width="7.6" height="3.4" rx="1.7" stroke="currentColor" stroke-width="1.25"/>
+          <path d="M6.3 7.4v1M9.7 7.4v1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      }
       @case ('cursor') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0 text-[#a5b4fc]">
           <path d="M3.2 2.8 12.8 7.5 8.2 9l-1.5 4.2-3.5-10.4Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>

@@ -554,7 +554,7 @@ export class OrchestratorChatComponent implements OnInit {
   readonly availableAgents = computed(() => {
     const w = this.fleet.workersById()[this.selectedMachineId()];
     const detected = (w?.agents ?? []).filter((a) => a !== 'shell');
-    return Array.from(new Set([...detected, 'agy', 'claude', 'codex', 'grok', 'mock']));
+    return Array.from(new Set([...detected, 'agy', 'claude', 'codex', 'grok', 'copilot', 'cursor', 'mock']));
   });
 
   readonly modelChoices = computed(() => {

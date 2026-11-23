@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Sunday, Nov 22, 2026, 11:32 PM (UTC-7)</timestamp>\n<user_query>\nCreate a file named ok.txt containing the word OK, then reply with the single word DONE\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Creating `ok.txt` now."},{"type":"tool_use","name":"Write","input":{"path":"/private/var/tmp/scratch/oneshot/ok.txt","contents":"OK\n"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"DONE"}]}}
+{"type":"turn_ended","status":"success"}

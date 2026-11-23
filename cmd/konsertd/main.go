@@ -204,9 +204,9 @@ func newDoctorCmd() *cobra.Command {
 					continue
 				}
 				if p, ok := d.Detect(); ok {
-					fmt.Printf("  [OK] %-8s -> %s\n", d.Name(), p)
+					fmt.Printf("  [OK] %-12s -> %s\n", d.Name(), p)
 				} else {
-					fmt.Printf("  [--] %-8s -> not found in PATH\n", d.Name())
+					fmt.Printf("  [--] %-12s -> not found in PATH\n", d.Name())
 				}
 			}
 
@@ -327,7 +327,7 @@ func newHookEventCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&agent, "agent", "claude", "Agent name (claude, agy, codex, grok)")
+	cmd.Flags().StringVar(&agent, "agent", "claude", "Agent name (claude, agy, codex, grok, copilot, cursor)")
 	cmd.Flags().StringVar(&event, "event", "working", "Hook event name or status")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "External session identifier")
 	cmd.Flags().StringVar(&cwd, "cwd", "", "Working directory (defaults to current directory)")
