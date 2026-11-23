@@ -189,6 +189,7 @@ export class XtermPaneComponent implements OnDestroy {
   });
 
   private term: Terminal | null = null;
+  private webgl: WebglAddon | null = null;
   /** Set once xterm is created so effects can react to it (afterNextRender runs after them). */
   private readonly termReady = signal<Terminal | null>(null);
   private fitAddon: FitAddon | null = null;
@@ -202,7 +203,13 @@ export class XtermPaneComponent implements OnDestroy {
     });
 
     effect(() => {
-      if (this.visible() && this.termReady()) {
+      const term = this.termReady();
+      const visible = this.visible();
+      if (!term) return;
+      // Browsers cap live WebGL contexts (~16), so only visible panes hold one;
+      // hidden panes fall back to xterm's DOM renderer.
+      untracked(() => (visible ? this.enableWebgl(term) : this.disableWebgl()));
+      if (visible) {
         setTimeout(() => this.fitAndNotify(), 25);
       }
     });
@@ -224,6 +231,28 @@ export class XtermPaneComponent implements OnDestroy {
         untracked(() => this.attachPty(term, id));
       }
     });
+  }
+
+  private enableWebgl(term: Terminal): void {
+    if (this.webgl) return;
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => this.disableWebgl());
+      term.loadAddon(webgl);
+      this.webgl = webgl;
+    } catch {
+      // No WebGL: keep the DOM renderer.
+    }
+  }
+
+  private disableWebgl(): void {
+    const webgl = this.webgl;
+    this.webgl = null;
+    try {
+      webgl?.dispose();
+    } catch {
+      // already disposed
+    }
   }
 
   private attachPty(term: Terminal, taskId: string): void {
@@ -275,13 +304,6 @@ export class XtermPaneComponent implements OnDestroy {
     term.loadAddon(new WebLinksAddon());
     term.open(hostEl);
 
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // Canvas fallback
-    }
 
     this.term = term;
     this.fitAddon = fitAddon;
@@ -350,6 +372,7 @@ export class XtermPaneComponent implements OnDestroy {
     if (this.resizeDebounce) clearTimeout(this.resizeDebounce);
     this.resizeObserver?.disconnect();
     this.unsubPty?.();
+    this.disableWebgl();
     this.term?.dispose();
   }
 }

@@ -148,11 +148,15 @@ import { IconComponent } from '../shared/icon.component';
         </div>
       } @else {
         <div class="flex-1 min-h-0">
-          <app-xterm-pane
-            [taskId]="tabs.scratchTaskId()!"
-            [visible]="tabs.scratchOpen()"
-            [embedded]="true"
-          />
+          @defer (on immediate) {
+            <app-xterm-pane
+              [taskId]="tabs.scratchTaskId()!"
+              [visible]="tabs.scratchOpen()"
+              [embedded]="true"
+            />
+          } @placeholder {
+            <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#686a72]" role="status">Loading terminal...</div>
+          }
         </div>
       }
     </div>

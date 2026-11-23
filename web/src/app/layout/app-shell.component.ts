@@ -197,7 +197,12 @@ import { InspectorPanel, TelemetryDrawerComponent } from './telemetry-drawer.com
                   (openNewTerminal)="openSessionModal('terminal', null)"
                 />
               } @else if (tab.taskId) {
-                <app-xterm-pane [taskId]="tab.taskId" [visible]="isPrimary || isSecondary" />
+                <!-- xterm + addons load as their own chunk, only once a terminal tab exists. -->
+                @defer (on immediate) {
+                  <app-xterm-pane [taskId]="tab.taskId" [visible]="isPrimary || isSecondary" />
+                } @placeholder {
+                  <div class="h-full w-full flex items-center justify-center bg-[#111214] text-[12px] text-[#686a72]" role="status">Loading terminal...</div>
+                }
               }
             </div>
           }
