@@ -1021,10 +1021,16 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 					"worker_selector": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"worker_id":  map[string]any{"type": "string"},
-							"host_group": map[string]any{"type": "string"},
-							"os":         map[string]any{"type": "string"},
-							"tags":       map[string]any{"type": "object"},
+							"worker_id":        map[string]any{"type": "string"},
+							"name":             map[string]any{"type": "string", "description": "Named host match (e.g. 'foo1')"},
+							"host_group":       map[string]any{"type": "string"},
+							"os":               map[string]any{"type": "string", "description": "OS constraint (darwin/macos, linux, windows)"},
+							"virtualization":   map[string]any{"type": "string", "description": "bare_metal, wsl, container, mac_container, vm"},
+							"required_tools":   map[string]any{"type": "object", "description": "Map of required tool -> minimum version (e.g. {\"postgres\":\"18\"})"},
+							"required_auth":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tools that must be logged in/ready (e.g. [\"gcloud\"])"},
+							"min_ram_mb":       map[string]any{"type": "integer"},
+							"min_disk_free_gb": map[string]any{"type": "integer"},
+							"tags":             map[string]any{"type": "object"},
 						},
 					},
 					"agent":           map[string]any{"type": "string", "description": "Agent driver name (e.g. claude, agy, grok, mock)"},
@@ -1037,6 +1043,23 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 					"timeout_seconds": map[string]any{"type": "integer"},
 				},
 				"required": []string{"agent", "repo_path", "prompt"},
+			},
+		},
+		{
+			Name:        "fan_out_fleet",
+			Description: "Execute a parallel operation across all matching online machines (e.g. cleaning up temp worktrees for an epic across the fleet), deterministically short-circuiting no-op hosts at zero agent token cost.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind":      map[string]any{"type": "string", "enum": []string{"worktree_cleanup", "agent_sweep"}},
+					"query":     map[string]any{"type": "string", "description": "Substring filter (e.g. 'epic-123')"},
+					"root_path": map[string]any{"type": "string"},
+					"apply":     map[string]any{"type": "boolean", "description": "For worktree_cleanup: delete removable matches when true (default dry-run)"},
+					"precheck":  map[string]any{"type": "boolean", "description": "For agent_sweep: skip machines with 0 deterministic matches"},
+					"agent":     map[string]any{"type": "string"},
+					"prompt":    map[string]any{"type": "string"},
+				},
+				"required": []string{"kind"},
 			},
 		},
 		{
@@ -1215,6 +1238,13 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args json.R
 			return nil, err
 		}
 		return map[string]any{"entries": items}, nil
+
+	case "fan_out_fleet":
+		var req FanOutRequest
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("invalid fan_out_fleet args: %w", err)
+		}
+		return s.FanOutFleet(ctx, req)
 
 	case "dispatch_task":
 		var req DispatchRequest

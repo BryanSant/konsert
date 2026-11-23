@@ -254,11 +254,24 @@ export interface UsageBucket {
   requests: number;
 }
 
+export interface SubscriptionQuota {
+  id?: string;
+  provider: string;
+  label: string;
+  window_label?: string;
+  used_percent: number;
+  reset_at?: string | null;
+  source?: string;
+  worker_id?: string;
+  updated_at?: string;
+}
+
 export interface UsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;
   total_requests: number;
   by_provider: UsageBucket[];
+  quotas?: SubscriptionQuota[];
 }
 
 export interface ChatSession {

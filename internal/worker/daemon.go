@@ -265,8 +265,12 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
-	// Periodic Machine Facts refresher (keeps cached OS/disk/tools facts current without bloating heartbeats).
+	// Periodic Machine Facts + Subscription Quota refresher (keeps cached facts & quotas fresh without bloating heartbeats).
 	go func() {
+		// Push initial subscription quotas right away if present.
+		if qs := CollectSubscriptionQuotas(connCtx, "", d.cfg.WorkerID); len(qs) > 0 {
+			d.sendJSON(protocol.MsgWorkerQuotas, protocol.WorkerQuotasPayload{Quotas: qs})
+		}
 		fInt := d.FactsInterval
 		if fInt <= 0 {
 			fInt = 5 * time.Minute
@@ -280,8 +284,19 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			case <-ticker.C:
 				facts := CollectMachineFacts(connCtx)
 				d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
+				if qs := CollectSubscriptionQuotas(connCtx, "", d.cfg.WorkerID); len(qs) > 0 {
+					d.sendJSON(protocol.MsgWorkerQuotas, protocol.WorkerQuotasPayload{Quotas: qs})
+				}
 			}
 		}
+	}()
+
+	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
+	go func() {
+		disc := NewSessionDiscovery("", nil, func(p protocol.ExternalSessionPayload) {
+			d.sendJSON(protocol.MsgExternalSession, p)
+		})
+		disc.Run(connCtx)
 	}()
 
 	// Read loop

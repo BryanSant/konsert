@@ -90,6 +90,7 @@ func (s *Server) registerRoutes() {
 
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
+	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.handleDeleteWorker))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.handleGetWorkerFacts))
 	s.mux.Handle("GET /api/orchestrator/memory", s.requireBrowserAuth(s.handleListMemory))
@@ -99,6 +100,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/ssh/hosts", s.requireBrowserAuth(s.handleSSHHosts))
 	s.mux.Handle("POST /api/ssh/bootstrap", s.requireBrowserAuth(s.handleSSHBootstrap))
 	s.mux.Handle("GET /api/usage", s.requireBrowserAuth(s.handleGetUsage))
+	s.mux.Handle("POST /api/usage/quotas", s.requireBrowserAuth(s.handleUpsertQuotas))
 	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
 	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
 	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.handleDeleteSpace))

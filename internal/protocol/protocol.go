@@ -11,6 +11,8 @@ const (
 	MsgWorkerHello     = "worker.hello"
 	MsgWorkerHeartbeat = "worker.heartbeat"
 	MsgWorkerFacts     = "worker.facts"
+	MsgWorkerQuotas    = "worker.quotas"
+	MsgExternalSession = "worker.external_session"
 
 	MsgTaskStart  = "task.start"
 	MsgTaskCancel = "task.cancel"
@@ -49,6 +51,7 @@ const (
 	TaskOriginOrchestrator = "orchestrator"
 	TaskOriginDirect       = "direct"
 	TaskOriginScratch      = "scratch"
+	TaskOriginExternal     = "external"
 )
 
 // Task statuses.
@@ -207,6 +210,35 @@ type WorkerHeartbeatPayload struct {
 	Metrics       *WorkerMetrics `json:"metrics,omitempty"`
 }
 
+type SubscriptionQuota struct {
+	Provider    string     `json:"provider"`               // "claude" | "agy" | "codex" | "grok" | "cursor"
+	Label       string     `json:"label"`                  // "Claude", "Antigravity", "Codex", "Grok", "Cursor Models"
+	WindowLabel string     `json:"window_label,omitempty"` // "5h", "8h", "7d", ""
+	UsedPercent float64    `json:"used_percent"`           // 0..100
+	ResetAt     *time.Time `json:"reset_at,omitempty"`
+	Source      string     `json:"source,omitempty"` // "probe" | "hook" | "manual"
+	WorkerID    string     `json:"worker_id,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type WorkerQuotasPayload struct {
+	Quotas []SubscriptionQuota `json:"quotas"`
+}
+
+// ExternalSessionPayload reports a coding agent session launched outside Konsert
+// (discovered via agent hooks or lightweight passive process/transcript inspection).
+type ExternalSessionPayload struct {
+	ExternalID   string   `json:"external_id"` // stable per-host session key (e.g. "pid-1234" or hook session id)
+	Agent        string   `json:"agent"`       // "claude" | "agy" | "codex" | "grok"
+	Model        string   `json:"model,omitempty"`
+	Cwd          string   `json:"cwd"`
+	Branch       string   `json:"branch,omitempty"`
+	Status       string   `json:"status"` // "working" | "needs_you" | "done" | "fail"
+	Summary      string   `json:"summary,omitempty"`
+	ChangedFiles []string `json:"changed_files,omitempty"`
+	Source       string   `json:"source"` // "hook" | "passive"
+}
+
 type UsageBucket struct {
 	Provider     string `json:"provider"`
 	Model        string `json:"model"`
@@ -216,10 +248,11 @@ type UsageBucket struct {
 }
 
 type UsageSummary struct {
-	TotalInputTokens  int64         `json:"total_input_tokens"`
-	TotalOutputTokens int64         `json:"total_output_tokens"`
-	TotalRequests     int64         `json:"total_requests"`
-	ByProvider        []UsageBucket `json:"by_provider"`
+	TotalInputTokens  int64               `json:"total_input_tokens"`
+	TotalOutputTokens int64               `json:"total_output_tokens"`
+	TotalRequests     int64               `json:"total_requests"`
+	ByProvider        []UsageBucket       `json:"by_provider"`
+	Quotas            []SubscriptionQuota `json:"quotas,omitempty"`
 }
 
 type TaskStartPayload struct {

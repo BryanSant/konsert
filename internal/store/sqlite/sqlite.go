@@ -408,6 +408,68 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 	return err
 }
 
+// UpsertExternalTask creates or updates a passively discovered / hook-reported session row.
+func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) error {
+	now := time.Now().UTC()
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = now
+	}
+	if t.Mode == "" {
+		t.Mode = protocol.TaskModeInteractive
+	}
+	if t.Origin == "" {
+		t.Origin = protocol.TaskOriginExternal
+	}
+	if t.SessionKind == "" {
+		t.SessionKind = "chat"
+	}
+	if t.PermissionMode == "" {
+		t.PermissionMode = store.PermissionFullAccess
+	}
+	if t.OrphanPolicy == "" {
+		t.OrphanPolicy = protocol.OrphanPolicyFail
+	}
+	if t.WorkspaceID == "" {
+		t.WorkspaceID = store.DefaultWorkspaceID
+	}
+	if t.ProjectID == "" {
+		t.ProjectID = store.DefaultProjectID
+	}
+	var workerID any
+	if t.WorkerID != "" {
+		workerID = t.WorkerID
+	}
+	var startedAt any = formatTime(now)
+	var completedAt any
+	if protocol.IsTerminalTaskStatus(t.Status) {
+		completedAt = formatTime(now)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO tasks (
+			id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
+			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+			created_at, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			workspace_id = excluded.workspace_id,
+			project_id = excluded.project_id,
+			repo_id = CASE WHEN excluded.repo_id != '' THEN excluded.repo_id ELSE tasks.repo_id END,
+			worktree_id = CASE WHEN excluded.worktree_id != '' THEN excluded.worktree_id ELSE tasks.worktree_id END,
+			model = CASE WHEN excluded.model != '' THEN excluded.model ELSE tasks.model END,
+			effective_dir = CASE WHEN excluded.effective_dir != '' THEN excluded.effective_dir ELSE tasks.effective_dir END,
+			branch = CASE WHEN excluded.branch != '' THEN excluded.branch ELSE tasks.branch END,
+			status = excluded.status,
+			summary = CASE WHEN excluded.summary != '' THEN excluded.summary ELSE tasks.summary END,
+			git_summary_json = CASE WHEN excluded.git_summary_json != '' THEN excluded.git_summary_json ELSE tasks.git_summary_json END,
+			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END
+	`, t.ID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
+		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
+		formatTime(t.CreatedAt), startedAt, completedAt)
+	return err
+}
+
 func (s *SQLiteStore) UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error {
 	var wVal any
 	if workerID != "" {
@@ -718,7 +780,7 @@ func (s *SQLiteStore) GetUsageSummary(ctx context.Context) (store.UsageSummary, 
 	}
 	defer rows.Close()
 
-	sum := store.UsageSummary{ByProvider: []store.UsageBucket{}}
+	sum := store.UsageSummary{ByProvider: []store.UsageBucket{}, Quotas: []store.SubscriptionQuota{}}
 	for rows.Next() {
 		var b store.UsageBucket
 		if err := rows.Scan(&b.Provider, &b.Model, &b.InputTokens, &b.OutputTokens, &b.Requests); err != nil {
@@ -729,7 +791,73 @@ func (s *SQLiteStore) GetUsageSummary(ctx context.Context) (store.UsageSummary, 
 		sum.TotalRequests += b.Requests
 		sum.ByProvider = append(sum.ByProvider, b)
 	}
-	return sum, rows.Err()
+	if err := rows.Err(); err != nil {
+		return store.UsageSummary{}, err
+	}
+	if quotas, qErr := s.ListSubscriptionQuotas(ctx); qErr == nil {
+		sum.Quotas = quotas
+	}
+	return sum, nil
+}
+
+func (s *SQLiteStore) UpsertSubscriptionQuota(ctx context.Context, q store.SubscriptionQuota) error {
+	if q.UpdatedAt.IsZero() {
+		q.UpdatedAt = time.Now().UTC()
+	}
+	if q.Label == "" {
+		q.Label = q.Provider
+	}
+	if q.Source == "" {
+		q.Source = "probe"
+	}
+	if q.ID == "" {
+		q.ID = q.Provider + ":" + q.WindowLabel
+	}
+	var resetAt any
+	if q.ResetAt != nil {
+		resetAt = formatTime(*q.ResetAt)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO subscription_quotas (id, provider, label, window_label, used_percent, reset_at, source, worker_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(provider, window_label) DO UPDATE SET
+			label = excluded.label,
+			used_percent = excluded.used_percent,
+			reset_at = COALESCE(excluded.reset_at, subscription_quotas.reset_at),
+			source = excluded.source,
+			worker_id = CASE WHEN excluded.worker_id != '' THEN excluded.worker_id ELSE subscription_quotas.worker_id END,
+			updated_at = excluded.updated_at
+	`, q.ID, q.Provider, q.Label, q.WindowLabel, q.UsedPercent, resetAt, q.Source, q.WorkerID, formatTime(q.UpdatedAt))
+	return err
+}
+
+func (s *SQLiteStore) ListSubscriptionQuotas(ctx context.Context) ([]store.SubscriptionQuota, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, provider, label, window_label, used_percent, reset_at, source, worker_id, updated_at
+		FROM subscription_quotas
+		ORDER BY provider ASC, window_label ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []store.SubscriptionQuota{}
+	for rows.Next() {
+		var q store.SubscriptionQuota
+		var resetAt sql.NullString
+		var updatedAt string
+		if err := rows.Scan(&q.ID, &q.Provider, &q.Label, &q.WindowLabel, &q.UsedPercent, &resetAt, &q.Source, &q.WorkerID, &updatedAt); err != nil {
+			return nil, err
+		}
+		if resetAt.Valid && resetAt.String != "" {
+			rt := parseTime(resetAt.String)
+			q.ResetAt = &rt
+		}
+		q.UpdatedAt = parseTime(updatedAt)
+		out = append(out, q)
+	}
+	return out, rows.Err()
 }
 
 func (s *SQLiteStore) GetAllSettings(ctx context.Context) (map[string]string, error) {

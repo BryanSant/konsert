@@ -176,11 +176,24 @@ type UsageBucket struct {
 	Requests     int64  `json:"requests"`
 }
 
+type SubscriptionQuota struct {
+	ID          string     `json:"id"`
+	Provider    string     `json:"provider"`
+	Label       string     `json:"label"`
+	WindowLabel string     `json:"window_label,omitempty"`
+	UsedPercent float64    `json:"used_percent"`
+	ResetAt     *time.Time `json:"reset_at,omitempty"`
+	Source      string     `json:"source,omitempty"`
+	WorkerID    string     `json:"worker_id,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 type UsageSummary struct {
-	TotalInputTokens  int64         `json:"total_input_tokens"`
-	TotalOutputTokens int64         `json:"total_output_tokens"`
-	TotalRequests     int64         `json:"total_requests"`
-	ByProvider        []UsageBucket `json:"by_provider"`
+	TotalInputTokens  int64               `json:"total_input_tokens"`
+	TotalOutputTokens int64               `json:"total_output_tokens"`
+	TotalRequests     int64               `json:"total_requests"`
+	ByProvider        []UsageBucket       `json:"by_provider"`
+	Quotas            []SubscriptionQuota `json:"quotas"`
 }
 
 type Store interface {
@@ -220,6 +233,7 @@ type Store interface {
 	DeleteWorktree(ctx context.Context, id string) error
 
 	CreateTask(ctx context.Context, t Task) error
+	UpsertExternalTask(ctx context.Context, t Task) error
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
 	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int) error
 	GetTask(ctx context.Context, id string) (Task, error)
@@ -236,6 +250,8 @@ type Store interface {
 
 	RecordUsage(ctx context.Context, u UsageEvent) error
 	GetUsageSummary(ctx context.Context) (UsageSummary, error)
+	UpsertSubscriptionQuota(ctx context.Context, q SubscriptionQuota) error
+	ListSubscriptionQuotas(ctx context.Context) ([]SubscriptionQuota, error)
 
 	GetAllSettings(ctx context.Context) (map[string]string, error)
 	SetSettings(ctx context.Context, kv map[string]string) error

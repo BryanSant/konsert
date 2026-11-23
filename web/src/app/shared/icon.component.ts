@@ -21,6 +21,17 @@ import { Component, input } from '@angular/core';
           <path d="M4.2 11.8 11.8 4.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       }
+      @case ('codex') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0 text-[#74d6a8]">
+          <path d="M8 2.2 13 5.1v5.8L8 13.8 3 10.9V5.1L8 2.2Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+          <circle cx="8" cy="8" r="1.8" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+      }
+      @case ('cursor') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0 text-[#a5b4fc]">
+          <path d="M3.2 2.8 12.8 7.5 8.2 9l-1.5 4.2-3.5-10.4Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
+        </svg>
+      }
       @case ('shell') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0 text-[#9ca3af]">
           <path d="M3 4.5 6.8 8 3 11.5M8.2 11.5H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>

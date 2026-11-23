@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/google/uuid"
 )
@@ -426,4 +427,44 @@ func (s *Server) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleFleetFanOut(w http.ResponseWriter, r *http.Request) {
+	var req FanOutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	res, err := s.service.FanOutFleet(r.Context(), req)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleUpsertQuotas(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Quotas []store.SubscriptionQuota `json:"quotas"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	for _, q := range body.Quotas {
+		if strings.TrimSpace(q.Provider) == "" {
+			continue
+		}
+		if err := s.store.UpsertSubscriptionQuota(r.Context(), q); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	sum, err := s.store.GetUsageSummary(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.broadcastJSON(protocol.MsgUsageUpdate, sum)
+	writeJSON(w, http.StatusOK, sum)
 }

@@ -89,3 +89,68 @@ func TestSelectWorkerCapabilitiesAndIsolation(t *testing.T) {
 		t.Fatal("expected no worker when all matching workers are at max_concurrent")
 	}
 }
+
+func TestSelectWorkerFactAwareRouting(t *testing.T) {
+	now := time.Now().UTC()
+	workers := []store.Worker{
+		{
+			ID:             "w-mac",
+			Name:           "mac-studio",
+			HostGroup:      "mac-studio",
+			OS:             "darwin",
+			PermissionMode: store.PermissionFullAccess,
+			Agents:         []string{"claude", "agy"},
+			MaxConcurrent:  4,
+			Status:         "online",
+			LastSeenAt:     now,
+			FactsJSON:      `{"os_name":"macOS","cpu_cores":16,"ram_total_mb":65536,"disk_free_gb":400,"virtualization":"bare_metal","tools":{"go":"1.27.2","node":"26.11.1"},"auth_ready":{"gh":true}}`,
+		},
+		{
+			ID:             "w-pg",
+			Name:           "bocabox",
+			HostGroup:      "homelab",
+			OS:             "linux",
+			PermissionMode: store.PermissionFullAccess,
+			Agents:         []string{"claude", "agy"},
+			MaxConcurrent:  4,
+			Status:         "online",
+			LastSeenAt:     now,
+			FactsJSON:      `{"os_name":"Fedora Linux","cpu_cores":32,"ram_total_mb":131072,"disk_free_gb":900,"tmp_is_tmpfs":true,"virtualization":"bare_metal","tools":{"postgres":"18.1","podman":"5.4.0"},"auth_ready":{"podman":true}}`,
+		},
+		{
+			ID:             "w-gcp",
+			Name:           "foo1",
+			HostGroup:      "cloud-ops",
+			OS:             "linux",
+			PermissionMode: store.PermissionFullAccess,
+			Agents:         []string{"claude", "agy"},
+			MaxConcurrent:  4,
+			Status:         "online",
+			LastSeenAt:     now,
+			FactsJSON:      `{"os_name":"Ubuntu","cpu_cores":8,"ram_total_mb":16384,"disk_free_gb":120,"virtualization":"vm","tools":{"gcloud":"512.0.0","kubectl":"1.32.0"},"auth_ready":{"gcloud":true,"kubectl":true}}`,
+		},
+	}
+
+	// 1. macOS-only job ("macos" alias -> darwin) routes to mac-studio
+	w, ok := SelectWorker(workers, nil, WorkerSelector{OS: "macos"}, "agy", store.PermissionFullAccess)
+	if !ok || w.ID != "w-mac" {
+		t.Fatalf("expected w-mac for macOS job, got %+v ok=%v", w, ok)
+	}
+
+	// 2. Schema migration needing Postgres 18 routes to bocabox
+	w, ok = SelectWorker(workers, nil, WorkerSelector{RequiredTools: map[string]string{"postgres": "18"}}, "claude", store.PermissionFullAccess)
+	if !ok || w.ID != "w-pg" {
+		t.Fatalf("expected w-pg for Postgres 18 job, got %+v ok=%v", w, ok)
+	}
+
+	// 3. Named host / gcloud auth_ready routes to foo1
+	w, ok = SelectWorker(workers, nil, WorkerSelector{Name: "foo1", RequiredAuth: []string{"gcloud"}}, "claude", store.PermissionFullAccess)
+	if !ok || w.ID != "w-gcp" {
+		t.Fatalf("expected w-gcp (foo1) for gcloud deploy, got %+v ok=%v", w, ok)
+	}
+
+	// 4. Impossible Postgres 19 requirement returns false
+	if _, ok := SelectWorker(workers, nil, WorkerSelector{RequiredTools: map[string]string{"postgres": "19"}}, "claude", store.PermissionFullAccess); ok {
+		t.Fatal("expected no worker matching postgres 19")
+	}
+}

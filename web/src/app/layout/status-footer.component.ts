@@ -34,12 +34,35 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
         <button
           type="button"
           (click)="togglePopover('usage')"
-          class="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer truncate"
+          title="Subscription quotas & API token usage"
+          class="inline-flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer min-w-0 overflow-hidden"
         >
-          <span class="text-[#686a72]">Used</span>
-          <span class="font-mono-ide text-[#b4b6be]">{{ formattedTotalTokens() }}</span>
-          @if (auth.provider()) {
-            <span class="hidden md:inline text-[#686a72]">· {{ auth.provider() }}</span>
+          <span class="text-[#686a72] shrink-0">Used</span>
+          @if (subscriptionQuotas().length > 0) {
+            <span class="inline-flex items-center gap-2.5 truncate">
+              @for (q of subscriptionQuotas(); track q.provider + ':' + (q.window_label || '')) {
+                <span class="inline-flex items-center gap-1 shrink-0">
+                  <app-icon [name]="q.provider" [size]="11" />
+                  <span class="text-[#b4b6be]">{{ q.label }}</span>
+                  @if (q.window_label) {
+                    <span class="font-mono-ide text-[#787a82]">{{ q.window_label }}</span>
+                  }
+                  <span
+                    class="font-mono-ide"
+                    [class.text-[#e05d5d]]="q.used_percent >= 90"
+                    [class.text-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
+                    [class.text-[#d4d4d8]]="q.used_percent < 70"
+                  >
+                    {{ formatPct(q.used_percent) }}
+                  </span>
+                </span>
+              }
+            </span>
+          } @else {
+            <span class="font-mono-ide text-[#b4b6be]">{{ formattedTotalTokens() }}</span>
+            @if (auth.provider()) {
+              <span class="hidden md:inline text-[#686a72]">· {{ auth.provider() }}</span>
+            }
           }
         </button>
       </div>
@@ -111,36 +134,97 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
         </button>
       </div>
 
-      <!-- POPOVER: USAGE -->
+      <!-- POPOVER: SUBSCRIPTION QUOTAS & API TOKEN USAGE -->
       @if (openPopover() === 'usage') {
-        <div class="ks-popover absolute bottom-8 left-3 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
+        <div class="ks-popover absolute bottom-8 left-3 z-30 w-88 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
           <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
-            <span class="text-[12px] font-semibold text-[#ececed]">API Token Usage</span>
-            <span class="font-mono-ide text-[10px] text-[#787a82]">{{ fleet.usage().total_requests }} calls</span>
+            <span class="text-[12px] font-semibold text-[#ececed]">Subscription Quotas &amp; Usage</span>
+            <button
+              type="button"
+              (click)="fleet.refresh()"
+              class="text-[10.5px] text-[#8e9098] hover:text-[#ececed] cursor-pointer"
+            >
+              Refresh
+            </button>
           </div>
-          <div class="p-3 space-y-2.5 text-[11px]">
-            <div class="grid grid-cols-2 gap-2">
-              <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                <div class="text-[#686a72]">Input Tokens</div>
-                <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_input_tokens) }}</div>
+          <div class="p-3 space-y-3 text-[11px] max-h-80 overflow-y-auto">
+            <!-- Subscription Quotas (Primary) -->
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-semibold uppercase tracking-wider text-[#686a72]">
+                Subscription Windows
               </div>
-              <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                <div class="text-[#686a72]">Output Tokens</div>
-                <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_output_tokens) }}</div>
-              </div>
+              @if (subscriptionQuotas().length === 0) {
+                <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#686a72]">
+                  No rolling subscription quotas reported yet. Active providers appear here automatically.
+                </div>
+              } @else {
+                <div class="space-y-2">
+                  @for (q of subscriptionQuotas(); track q.provider + ':' + (q.window_label || '')) {
+                    <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 space-y-1.5">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="inline-flex items-center gap-1.5 text-[#e4e4e7] font-medium">
+                          <app-icon [name]="q.provider" [size]="12" />
+                          <span>{{ q.label }}</span>
+                          @if (q.window_label) {
+                            <span class="font-mono-ide text-[10px] text-[#787a82]">{{ q.window_label }}</span>
+                          }
+                        </span>
+                        <span
+                          class="font-mono-ide font-medium"
+                          [class.text-[#e05d5d]]="q.used_percent >= 90"
+                          [class.text-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
+                          [class.text-[#ececed]]="q.used_percent < 70"
+                        >
+                          {{ formatPct(q.used_percent) }}
+                        </span>
+                      </div>
+                      <div class="h-1.5 w-full rounded-full bg-[#24262c] overflow-hidden">
+                        <div
+                          class="h-full rounded-full transition-all"
+                          [class.bg-[#e05d5d]]="q.used_percent >= 90"
+                          [class.bg-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
+                          [class.bg-[#60a5fa]]="q.used_percent < 70"
+                          [style.width.%]="q.used_percent"
+                        ></div>
+                      </div>
+                      @if (q.reset_at) {
+                        <div class="text-[10px] font-mono-ide text-[#686a72]">
+                          {{ formatReset(q.reset_at) }}
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
             </div>
-            @if (fleet.usage().by_provider.length === 0) {
-              <div class="text-[#686a72] py-1">No Orchestrator LLM token usage recorded yet.</div>
-            } @else {
-              <div class="space-y-1">
-                @for (b of fleet.usage().by_provider; track b.provider + b.model) {
-                  <div class="flex items-center justify-between rounded bg-[#121316] px-2.5 py-1.5 font-mono-ide">
-                    <span class="text-[#d4d4d8] truncate">{{ b.provider }}/{{ b.model }}</span>
-                    <span class="text-[#8e9098] shrink-0">{{ formatNum(b.input_tokens + b.output_tokens) }}</span>
-                  </div>
-                }
+
+            <!-- API Token Usage (Fallback / Secondary) -->
+            <div class="space-y-2 pt-2 border-t border-[#24262c]">
+              <div class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#686a72]">
+                <span>API Token Usage</span>
+                <span class="font-mono-ide font-normal">{{ fleet.usage().total_requests }} calls</span>
               </div>
-            }
+              <div class="grid grid-cols-2 gap-2">
+                <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
+                  <div class="text-[#686a72]">Input Tokens</div>
+                  <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_input_tokens) }}</div>
+                </div>
+                <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
+                  <div class="text-[#686a72]">Output Tokens</div>
+                  <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_output_tokens) }}</div>
+                </div>
+              </div>
+              @if (fleet.usage().by_provider.length > 0) {
+                <div class="space-y-1">
+                  @for (b of fleet.usage().by_provider; track b.provider + b.model) {
+                    <div class="flex items-center justify-between rounded bg-[#121316] px-2.5 py-1.5 font-mono-ide">
+                      <span class="text-[#d4d4d8] truncate">{{ b.provider }}/{{ b.model }}</span>
+                      <span class="text-[#8e9098] shrink-0">{{ formatNum(b.input_tokens + b.output_tokens) }}</span>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
           </div>
         </div>
       }
@@ -349,6 +433,8 @@ export class StatusFooterComponent implements OnDestroy {
     this.fleet.tasks().filter((t) => t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned')
   );
 
+  readonly subscriptionQuotas = computed(() => this.fleet.usage().quotas ?? []);
+
   readonly formattedTotalTokens = computed(() => {
     const total = this.fleet.usage().total_input_tokens + this.fleet.usage().total_output_tokens;
     if (total === 0) return '0 tok';
@@ -413,6 +499,20 @@ export class StatusFooterComponent implements OnDestroy {
 
   formatNum(n: number): string {
     return n.toLocaleString();
+  }
+
+  formatPct(v: number): string {
+    return `${Math.round(Math.max(0, Math.min(100, v)))}%`;
+  }
+
+  formatReset(iso: string): string {
+    const diffMs = new Date(iso).getTime() - Date.now();
+    if (isNaN(diffMs) || diffMs <= 0) return 'resets soon';
+    const mins = Math.round(diffMs / 60000);
+    if (mins < 60) return `resets in ${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    const remM = mins % 60;
+    return remM > 0 ? `resets in ${hrs}h ${remM}m` : `resets in ${hrs}h`;
   }
 
   ngOnDestroy(): void {

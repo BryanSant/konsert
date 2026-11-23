@@ -1006,3 +1006,114 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 	cancel()
 	<-done
 }
+
+func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "wave3.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cfg := config.DefaultControllerConfig()
+	cfg.NoAuth = true
+	srv := NewServer(cfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Worker 1 has an epic-123 temp worktree; Worker 2 is clean (no-op).
+	root1 := t.TempDir()
+	root2 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root1, "app1", ".konsert-worktrees", "epic-123-wt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
+	startWorker := func(id, name, root string) chan struct{} {
+		wCfg := config.DefaultWorkerConfig()
+		wCfg.ControllerURL = wsURL
+		wCfg.WorkerID = id
+		wCfg.Name = name
+		wCfg.EnableMockDriver = true
+		wCfg.AllowedRoots = []string{root}
+		d := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = d.Run(ctx)
+		}()
+		waitForWorkerOnline(t, srv.Service(), id)
+		return done
+	}
+	done1 := startWorker("w-match", "box-a", root1)
+	done2 := startWorker("w-noop", "box-b", root2)
+
+	// 1. Fleet-wide fan-out deterministically short-circuits w-noop and matches w-match (0 agent LLM calls)
+	fanBody := `{"kind":"worktree_cleanup","query":"epic-123","apply":false}`
+	fResp, err := http.Post(ts.URL+"/api/fleet/fanout", "application/json", strings.NewReader(fanBody))
+	if err != nil || fResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/fleet/fanout failed: resp=%v err=%v", fResp, err)
+	}
+	var fanOut FanOutResult
+	if err := json.NewDecoder(fResp.Body).Decode(&fanOut); err != nil {
+		t.Fatal(err)
+	}
+	_ = fResp.Body.Close()
+	if fanOut.TotalMachines != 2 || fanOut.NoOpMachines != 1 || fanOut.ActedMachines != 1 || fanOut.TotalMatches != 1 {
+		t.Fatalf("unexpected fanout result: %+v", fanOut)
+	}
+
+	// 2. Subscription-first quotas upsert & retrieval via /api/usage
+	qBody := `{"quotas":[{"provider":"codex","label":"Codex","window_label":"5h","used_percent":21},{"provider":"agy","label":"Antigravity","window_label":"8h","used_percent":15}]}`
+	qResp, err := http.Post(ts.URL+"/api/usage/quotas", "application/json", strings.NewReader(qBody))
+	if err != nil || qResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/usage/quotas failed: resp=%v err=%v", qResp, err)
+	}
+	var usageOut store.UsageSummary
+	if err := json.NewDecoder(qResp.Body).Decode(&usageOut); err != nil {
+		t.Fatal(err)
+	}
+	_ = qResp.Body.Close()
+	if len(usageOut.Quotas) != 2 {
+		t.Fatalf("expected 2 subscription quotas in usage summary, got %+v", usageOut.Quotas)
+	}
+
+	// 3. External SSH-launched session maps automatically to Space > Project > Repo (or Default fallback)
+	_ = st.CreateWorkspace(ctx, store.Workspace{ID: "ws-eng", Name: "Eng"})
+	_ = st.CreateProject(ctx, store.Project{ID: "proj-app1", WorkspaceID: "ws-eng", Name: "App1"})
+	app1Dir := filepath.Join(root1, "app1")
+	_ = st.CreateRepo(ctx, store.Repo{ID: "repo-app1", ProjectID: "proj-app1", WorkerID: "w-match", Name: "app1", Path: app1Dir})
+
+	srv.Hub().handleExternalSession(ctx, "w-match", protocol.ExternalSessionPayload{
+		ExternalID:   "ssh-agy-42",
+		Agent:        "agy",
+		Cwd:          filepath.Join(app1Dir, "cmd"),
+		Branch:       "feat/deploy",
+		Status:       "working",
+		ChangedFiles: []string{"cmd/main.go"},
+		Source:       "hook",
+	})
+	mapped, err := st.GetTask(ctx, "ext-w-match-ssh-agy-42")
+	if err != nil || mapped.WorkspaceID != "ws-eng" || mapped.ProjectID != "proj-app1" || mapped.RepoID != "repo-app1" || mapped.Status != protocol.TaskStatusRunning {
+		t.Fatalf("expected external session mapped to Eng/App1/repo-app1, got %+v err=%v", mapped, err)
+	}
+
+	// Unmanaged path falls back cleanly to Default Space & Default Project
+	srv.Hub().handleExternalSession(ctx, "w-match", protocol.ExternalSessionPayload{
+		ExternalID: "ssh-claude-99",
+		Agent:      "claude",
+		Cwd:        "/tmp/ad-hoc-scratch",
+		Status:     "needs_you",
+		Source:     "passive",
+	})
+	fallback, err := st.GetTask(ctx, "ext-w-match-ssh-claude-99")
+	if err != nil || fallback.WorkspaceID != store.DefaultWorkspaceID || fallback.ProjectID != store.DefaultProjectID || fallback.Status != protocol.TaskStatusWaitingInput {
+		t.Fatalf("expected unmanaged external session to fall back to Default Space/Project, got %+v err=%v", fallback, err)
+	}
+
+	cancel()
+	<-done1
+	<-done2
+}
