@@ -12,6 +12,7 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { TakeControlService } from '../take-control.service';
+import { ItemSpinnerComponent } from '../item-spinner.component';
 import { WALL_LAYOUTS, WALL_SOFT_CAP, WallStore, pageCount, pageOf, tilesPerPage } from './wall.store';
 
 interface Tile {
@@ -40,7 +41,7 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
   selector: 'ks-wall-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [ItemSpinnerComponent, 
     IconComponent,
     TooltipDirective,
     PopoverComponent,
@@ -113,6 +114,7 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
             [attr.data-tile]="t.item.sid"
           >
             <header class="flex items-center gap-2 px-3 h-9 shrink-0 border-b border-[var(--ks-hairline)] text-[12.5px]">
+              <ks-item-spinner [item]="t.item" [size]="22" class="shrink-0" />
               <ks-control-label [label]="t.item.control" />
               <span class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ t.item.sid }}</span>
               <span class="truncate min-w-0">{{ t.item.sessionKind === 'terminal' ? 'terminal' : t.item.agent }} · {{ t.item.machine }}</span>

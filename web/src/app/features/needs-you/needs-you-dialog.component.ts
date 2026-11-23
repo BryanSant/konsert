@@ -30,10 +30,10 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
   template: `
     <app-modal-dialog
       labelledBy="ks-needs-you-heading"
-      panelClass="ks-ny-panel max-md:!fixed max-md:!inset-0 shrink-0 flex flex-col bg-[var(--ks-bg-chrome)] overflow-hidden rounded-none md:w-[min(1120px,95vw)] md:h-[min(820px,92vh)] md:rounded-[var(--ks-radius-xl)]"
+      [panelClass]="panelClass()"
       (close)="onEscape()"
     >
-      <div class="flex flex-col h-full min-h-0" data-testid="questions-panel">
+      <div class="flex flex-col flex-1 min-h-0" data-testid="questions-panel">
         <header class="flex items-center gap-2 h-12 px-3 shrink-0 border-b border-[var(--ks-hairline)]" data-testid="needs-you-dialog">
           <app-icon name="bell" [size]="15" />
           <h2 id="ks-needs-you-heading" class="m-0 text-[13px] font-semibold text-[var(--ks-text)]">Needs you</h2>
@@ -76,7 +76,7 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
         <div class="flex flex-1 min-h-0" (touchstart)="onTouchStart($event)" (touchend)="onTouchEnd($event)">
           <main class="flex-1 min-w-0 min-h-0 overflow-y-auto" aria-live="polite" data-testid="questions-detail">
             @if (store.caughtUp()) {
-              <div class="ks-ny-slide h-full flex flex-col items-center justify-center gap-2 text-center p-6" role="status" data-testid="needs-you-caught-up">
+              <div class="ks-ny-slide h-full min-h-[220px] flex flex-col items-center justify-center gap-2 text-center p-6" role="status" data-testid="needs-you-caught-up">
                 <span class="text-[var(--ks-green)]"><app-icon name="check-circle" [size]="28" /></span>
                 <p class="m-0 text-[15px] font-semibold text-[var(--ks-text)]">All caught up</p>
                 <p class="m-0 text-[12.5px] text-[var(--ks-text-muted)]">Nothing else needs you right now.</p>
@@ -257,6 +257,17 @@ export class NeedsYouDialogComponent {
   /** Direction of the last move, for the slide (1: forward, -1: back). */
   readonly dir = signal(1);
   readonly pos = this.store.position;
+  /**
+   * Sized to its content up to a max (short questions don't leave a tall empty panel); a
+   * review or an open side conversation gets the full height since they scroll inside.
+   */
+  readonly panelClass = computed(() => {
+    const tall = this.questions.threadOpen() || this.store.current()?.kind === 'review';
+    return (
+      'ks-ny-panel max-md:!fixed max-md:!inset-0 shrink-0 flex flex-col bg-[var(--ks-bg-chrome)] overflow-hidden rounded-none md:w-[min(1120px,95vw)] md:max-h-[min(820px,92vh)] md:rounded-[var(--ks-radius-xl)]' +
+      (tall ? ' md:h-[min(820px,92vh)]' : '')
+    );
+  });
   readonly currentList = computed<NeedsYouEntry[]>(() => {
     const c = this.store.current();
     return c ? [c] : [];

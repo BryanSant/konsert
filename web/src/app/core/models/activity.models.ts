@@ -57,6 +57,25 @@ export interface WorkerHeat {
   updated_at: string;
 }
 
+/** One downsampled heat bucket (GET /api/fleet/heat); null = no data (offline, no history). */
+export interface HeatSample {
+  /** Mean smoothed score over the bucket. */
+  score: number;
+  /** Highest smoothed score in the bucket. */
+  max: number;
+  /** The cause at the highest score. */
+  cause: HeatCause | string;
+}
+
+/** Heat history per machine over a range (GET /api/fleet/heat?range=12h&points=48). */
+export interface HeatHistory {
+  range: string;
+  start: string;
+  end: string;
+  step_seconds: number;
+  workers: Array<{ worker_id: string; samples: Array<HeatSample | null> }>;
+}
+
 /** Heat thresholds (documented in docs/design/activity.md). */
 export const HEAT_WARM_AT = 0.4;
 export const HEAT_HOT_AT = 0.75;

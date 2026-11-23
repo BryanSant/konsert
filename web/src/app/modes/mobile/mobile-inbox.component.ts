@@ -7,7 +7,7 @@ import { WorkStore } from '../../core/state/work.store';
 import { PausedBannerComponent } from '../../features/control/pause-everything.component';
 import { YourActionsComponent } from '../../features/control/your-actions.component';
 import { IconComponent } from '../../shared/icon.component';
-import { ControlLabelComponent } from '../control-label.component';
+import { ItemSpinnerComponent } from '../item-spinner.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { MobilePauseComponent } from './mobile-pause.component';
 import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.component';
@@ -21,7 +21,7 @@ import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.c
   selector: 'ks-mobile-inbox',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, ControlLabelComponent, MobilePauseComponent, PausedBannerComponent, YourActionsComponent, NeedsYouItemComponent],
+  imports: [RouterLink, IconComponent, ItemSpinnerComponent, MobilePauseComponent, PausedBannerComponent, YourActionsComponent, NeedsYouItemComponent],
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <header class="flex items-center justify-between px-4 pt-4 pb-2.5 shrink-0">
@@ -70,10 +70,10 @@ import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.c
           @for (it of openList(); track it.id) {
             <li>
               <a class="ks-inbox-row no-underline text-inherit" [routerLink]="['/inbox', it.sid]" [attr.data-work-item]="it.sid">
-                <ks-control-label [label]="it.control" />
+                <ks-item-spinner [item]="it" [size]="28" [wordless]="true" />
                 <span class="flex-1 min-w-0">
                   <span class="block truncate">{{ it.title }}</span>
-                  <span class="block truncate text-[12.5px] text-[var(--ks-text-secondary)]">{{ it.agent }} · {{ it.machine }} · {{ it.now }}</span>
+                  <span class="block truncate text-[12.5px] text-[var(--ks-text-secondary)]">{{ work.spinnerById()[it.id]?.word }} · {{ it.agent }} · {{ it.machine }} · {{ it.now }}</span>
                 </span>
                 <app-icon name="chevron-right" [size]="14" />
               </a>

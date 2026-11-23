@@ -25,6 +25,7 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
+import { HeatHistory } from '../models/activity.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
 import {
   ChatActionResult,
@@ -301,6 +302,11 @@ export class ApiClientService {
   /** Bulk machine control: suspend-all, resume-all or stop-all. */
   workerBulk(workerId: string, action: 'suspend-all' | 'resume-all' | 'stop-all'): Promise<WorkerControlResult> {
     return this.request(`/api/workers/${encodeURIComponent(workerId)}/${action}`, { method: 'POST' });
+  }
+
+  /** Per-machine heat history over a range, downsampled to `points` buckets (oldest first). */
+  getHeatHistory(range: string, points = 48): Promise<HeatHistory> {
+    return this.request<HeatHistory>(`/api/fleet/heat?range=${encodeURIComponent(range)}&points=${points}`);
   }
 
   getFleetPause(): Promise<FleetPause> {
