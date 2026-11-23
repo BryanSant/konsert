@@ -65,10 +65,17 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// timeLayout is a fixed-width UTC timestamp layout. Unlike time.RFC3339Nano it
+// never strips trailing fractional zeros, so stored values sort correctly as
+// text (RFC3339Nano would order "...05.5Z" before "...05Z" because '.' < 'Z').
+// Every write goes through formatTime; migration 008 rewrites legacy rows.
+const timeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 func formatTime(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format(timeLayout)
 }
 
+// parseTime accepts both the fixed-width layout and legacy RFC3339(Nano) values.
 func parseTime(v string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, v)
 	if err != nil {
@@ -333,34 +340,29 @@ func (s *SQLiteStore) DeduplicateWorkers(ctx context.Context) ([]string, error) 
 	return removedIDs, nil
 }
 
+// MarkStaleWorkersOffline flips every online worker whose last heartbeat is older
+// than cutoff to offline and returns exactly the IDs it changed. It is a single
+// atomic UPDATE ... RETURNING, so a heartbeat that lands concurrently can never
+// cause a live worker's ID to be reported as reaped.
 func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error) {
-	cutoffStr := formatTime(cutoff)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id FROM workers WHERE status = 'online' AND last_seen_at < ?
-	`, cutoffStr)
+		UPDATE workers SET status = 'offline'
+		WHERE status = 'online' AND last_seen_at < ?
+		RETURNING id
+	`, formatTime(cutoff))
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var stale []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
 			return nil, err
 		}
 		stale = append(stale, id)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if len(stale) == 0 {
-		return nil, nil
-	}
-
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE workers SET status = 'offline' WHERE status = 'online' AND last_seen_at < ?
-	`, cutoffStr)
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return stale, nil

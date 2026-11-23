@@ -61,7 +61,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`,
-			name, time.Now().UTC().Format(time.RFC3339Nano),
+			name, formatTime(time.Now()),
 		); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", name, err)
