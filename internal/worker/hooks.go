@@ -108,8 +108,8 @@ func InstallAgentHooks(homeDir, konsertdBin string) (HookInstallReport, error) {
 	notifyPath := filepath.Join(hooksDir, "notify.sh")
 	notifyScript := fmt.Sprintf(`#!/usr/bin/env bash
 # Konsert lightweight agent telemetry hook (managed by konsertd install-hooks)
-exec %q hook-event "$@" >/dev/null 2>&1 || true
-`, konsertdBin)
+exec %s hook-event "$@" >/dev/null 2>&1 || true
+`, shellQuote(konsertdBin))
 	if err := os.WriteFile(notifyPath, []byte(notifyScript), 0o755); err != nil {
 		return report, err
 	}
@@ -132,7 +132,19 @@ exec %q hook-event "$@" >/dev/null 2>&1 || true
 	return report, nil
 }
 
-const konsertHookMarker = "konsertd hook-event"
+// konsertHookMarker identifies Konsert-managed hook entries (quoted or unquoted binary path).
+const konsertHookMarker = " hook-event --agent claude --event "
+
+// shellQuote quotes s for POSIX sh (Claude Code runs hook commands through a shell), so a
+// konsertd path containing spaces or metacharacters stays one word.
+func shellQuote(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-+:@%=,", r))
+	}) < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 func installClaudeHooks(homeDir, konsertdBin string) error {
 	claudeDir := filepath.Join(homeDir, ".claude")
@@ -154,11 +166,11 @@ func installClaudeHooks(homeDir, konsertdBin string) error {
 
 	events := []string{"PreToolUse", "PostToolUse", "Notification", "Stop"}
 	for _, evName := range events {
-		cmdStr := fmt.Sprintf("%s hook-event --agent claude --event %s", konsertdBin, evName)
+		cmdStr := fmt.Sprintf("%s hook-event --agent claude --event %s", shellQuote(konsertdBin), evName)
 		existing, _ := hooksMap[evName].([]any)
-		if hasKonsertHookEntry(existing) {
-			continue
-		}
+		// Replace any earlier Konsert entry (e.g. an unquoted path from an older install)
+		// so re-running install-hooks stays idempotent and fixes old entries.
+		existing = withoutKonsertHookEntries(existing)
 		entry := map[string]any{
 			"matcher": "*",
 			"hooks": []any{
@@ -179,14 +191,19 @@ func installClaudeHooks(homeDir, konsertdBin string) error {
 	return os.WriteFile(settingsPath, append(out, '\n'), 0o600)
 }
 
-func hasKonsertHookEntry(entries []any) bool {
+func isKonsertHookEntry(item any) bool {
+	b, err := json.Marshal(item)
+	return err == nil && strings.Contains(string(b), konsertHookMarker)
+}
+
+func withoutKonsertHookEntries(entries []any) []any {
+	out := make([]any, 0, len(entries))
 	for _, item := range entries {
-		b, err := json.Marshal(item)
-		if err == nil && strings.Contains(string(b), konsertHookMarker) {
-			return true
+		if !isKonsertHookEntry(item) {
+			out = append(out, item)
 		}
 	}
-	return false
+	return out
 }
 
 func installAgyTelemetrySkill(homeDir, konsertdBin string) error {
@@ -207,6 +224,6 @@ When running on a Konsert-managed machine outside the Konsert UI, you can emit c
 %s hook-event --agent agy --event working --cwd "$PWD"
 %s hook-event --agent agy --event done --cwd "$PWD"
 `+"```"+`
-`, konsertdBin, konsertdBin)
+`, shellQuote(konsertdBin), shellQuote(konsertdBin))
 	return os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644)
 }

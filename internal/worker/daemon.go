@@ -36,6 +36,10 @@ type Daemon struct {
 	// outbox keeps final task statuses until written to a hub connection (persisted).
 	outbox *statusOutbox
 
+	// helloAt is when worker.hello was last written on a connection (zero if the last
+	// attempt never got that far). Only touched by the Run goroutine.
+	helloAt time.Time
+
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
 	discovery *SessionDiscovery
@@ -149,20 +153,28 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		connectedAt := time.Now()
+		d.helloAt = time.Time{}
 		err := d.connectAndServe(ctx)
 		if ctx.Err() != nil {
 			d.runner.ShutdownAll()
 			return ctx.Err()
 		}
-		if websocket.CloseStatus(err) == websocket.StatusCode(protocol.WSCloseWorkerRemoved) {
+		// Only an operator removal (4001) stops the daemon. Every other close, including a
+		// normal 1000 (superseded connection) and 1013 (try again later: another live
+		// connection holds this identity), reconnects with backoff.
+		switch websocket.CloseStatus(err) {
+		case websocket.StatusCode(protocol.WSCloseWorkerRemoved):
 			d.logger.Info("machine was removed from fleet by controller; stopping daemon", "worker_id", d.cfg.WorkerID)
 			d.runner.ShutdownAll()
 			return nil
+		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
+			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
 		}
 
-		// Reset backoff if we stayed connected for > 10 seconds.
-		if time.Since(connectedAt) > 10*time.Second {
+		// Reset backoff only after a session that got past worker.hello and lasted > 10 s.
+		// The timestamp is taken after hello, so a slow or failing 15 s dial never counts
+		// as a long session.
+		if !d.helloAt.IsZero() && time.Since(d.helloAt) > 10*time.Second {
 			backoff = time.Second
 		}
 
@@ -247,6 +259,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	if err := conn.Write(connCtx, websocket.MessageText, helloBytes); err != nil {
 		return fmt.Errorf("write worker.hello: %w", err)
 	}
+	d.helloAt = time.Now()
 	d.logger.Info("connected to controller",
 		"url", d.cfg.ControllerURL,
 		"worker_id", d.cfg.WorkerID,
