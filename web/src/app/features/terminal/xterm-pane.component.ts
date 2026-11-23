@@ -281,6 +281,12 @@ export class XtermPaneComponent implements OnDestroy {
       cursorBlink: true,
       fontSize: clampFontSize(this.fleetStore.settings().terminal_font_size),
       lineHeight: 1.25,
+      // xterm rasterizes glyphs onto a canvas, which skips the browser's
+      // -webkit-font-smoothing and renders noticeably heavier than DOM text,
+      // especially on HiDPI screens. Light/SemiBold matches the visual weight
+      // of Regular/Bold elsewhere in the UI.
+      fontWeight: TERMINAL_FONT_WEIGHT,
+      fontWeightBold: TERMINAL_FONT_WEIGHT_BOLD,
       fontFamily: '"JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       theme: {
         background: '#111214',
@@ -308,6 +314,18 @@ export class XtermPaneComponent implements OnDestroy {
     this.term = term;
     this.fitAddon = fitAddon;
     fitAddon.fit();
+
+    // Glyphs rasterized before the Light web font arrives are cached in the
+    // texture atlas at the fallback weight; redraw once it has loaded.
+    document.fonts
+      ?.load(`${TERMINAL_FONT_WEIGHT} ${term.options.fontSize}px "JetBrains Mono"`)
+      .then(() => {
+        if (this.term === term) {
+          term.clearTextureAtlas();
+          term.refresh(0, term.rows - 1);
+        }
+      })
+      .catch(() => undefined);
 
     term.onData((data) => {
       if (!this.interactiveMode()) {
@@ -380,6 +398,9 @@ export class XtermPaneComponent implements OnDestroy {
 export const DEFAULT_TERMINAL_FONT_SIZE = 13;
 
 /** Settings allow 10-24px; anything else (unset, corrupt) falls back to the default. */
+export const TERMINAL_FONT_WEIGHT = 300;
+export const TERMINAL_FONT_WEIGHT_BOLD = 600;
+
 export function clampFontSize(size: number | undefined): number {
   return typeof size === 'number' && size >= 10 && size <= 24 ? size : DEFAULT_TERMINAL_FONT_SIZE;
 }
