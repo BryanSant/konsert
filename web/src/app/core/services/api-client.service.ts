@@ -17,6 +17,7 @@ import {
   Space,
   TaskEvent,
   TaxonomySnapshot,
+  WakeLockStatus,
   Workspace,
   Worktree,
 } from '../models/konsert.models';
@@ -178,6 +179,27 @@ export class ApiClientService {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/steer`, {
       method: 'POST',
       body: JSON.stringify({ input_text: inputText, append_newline: appendNewline }),
+    });
+  }
+
+  /** Fleet-wide host wake lock wish plus each worker's state. */
+  getWakeLock(): Promise<WakeLockStatus> {
+    return this.request<WakeLockStatus>('/api/wakelock');
+  }
+
+  /** Applies a host wake lock to every host (and hosts that connect later). */
+  setFleetWakeLock(enabled: boolean, reason?: string): Promise<{ ok: boolean; sent_to: string[]; status: WakeLockStatus }> {
+    return this.request('/api/wakelock', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, reason }),
+    });
+  }
+
+  /** Applies a host wake lock to one host, overriding the fleet-wide wish. */
+  setWorkerWakeLock(workerId: string, enabled: boolean, reason?: string): Promise<{ ok: boolean; sent: boolean }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/wakelock`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled, reason }),
     });
   }
 

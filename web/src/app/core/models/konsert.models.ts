@@ -63,8 +63,33 @@ export interface Worker {
   status: 'online' | 'offline' | string;
   active_tasks?: number;
   last_seen_at: string;
+  /** Host Keep Awake state; absent until the worker reports it or one is requested. */
+  wake_lock?: WorkerWakeLock;
   metrics?: WorkerMetrics;
   facts?: MachineFacts;
+}
+
+/** Per-host wake lock (caffeinate / systemd-inhibit / SetThreadExecutionState). */
+export interface WorkerWakeLock {
+  /** The worker's konsertd reports wake lock state (older builds never do). */
+  supported: boolean;
+  /** Hub-side wish for this host; absent when nobody asked. */
+  desired?: boolean;
+  active: boolean;
+  method?: string;
+  error?: string;
+  reason?: string;
+  since?: string;
+}
+
+export interface WakeLockDesire {
+  enabled: boolean;
+  reason?: string;
+}
+
+export interface WakeLockStatus {
+  fleet: WakeLockDesire | null;
+  workers: Array<Partial<WorkerWakeLock> & { worker_id: string; online: boolean }>;
 }
 
 export interface GitSummary {
