@@ -65,7 +65,7 @@ const VIEW_KEY = 'konsert.work.view';
                   {{ lane.key === 'expedite' ? '⚑ Expedite' : lane.name }}
                 </div>
                 @for (c of board().columns; track c) {
-                  <div role="cell" class="pt-1.5 min-h-[44px] flex flex-col gap-1.5">
+                  <div role="cell" class="pt-1.5 min-h-[44px] flex flex-col gap-1.5" [attr.data-cell]="c">
                     @for (it of lane.cells[c]; track it.id) {
                       <button
                         type="button"
