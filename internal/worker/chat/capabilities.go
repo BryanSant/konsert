@@ -42,6 +42,9 @@ type CapabilitiesOptions struct {
 	// reset time) so a restarted konsertd still knows an account is out of usage before
 	// the user sends anything.
 	PersistPath string
+	// Sandboxed marks approval modes above protocol.SandboxMaxRisk as disabled (konsertd
+	// --sandbox refuses them).
+	Sandboxed bool
 }
 
 // Capabilities probes every account concurrently (with timeouts and per-account caching)
@@ -294,6 +297,9 @@ func (c *Capabilities) Report(ctx context.Context, force bool) protocol.AgentCap
 	c.mu.Lock()
 	for i := range results {
 		results[i] = c.applyOverlaysLocked(results[i])
+		if c.opts.Sandboxed {
+			results[i] = markSandboxedModes(results[i])
+		}
 	}
 	// Forget cache entries of accounts that disappeared.
 	keep := map[string]bool{}
@@ -459,4 +465,44 @@ func (c *Capabilities) applyOverlaysLocked(a protocol.AgentAccount) protocol.Age
 	}
 	a.Usage = usage
 	return a
+}
+
+// markSandboxedModes disables approval modes a --sandbox worker refuses, and moves the
+// default to the highest allowed mode if needed.
+func markSandboxedModes(a protocol.AgentAccount) protocol.AgentAccount {
+	if len(a.Approvals) == 0 {
+		return a
+	}
+	modes := append([]protocol.AgentApprovalMode(nil), a.Approvals...)
+	best := ""
+	bestRisk := -1
+	for i := range modes {
+		if modes[i].Risk > protocol.SandboxMaxRisk {
+			modes[i].Disabled = protocol.SandboxDisabledReason
+		} else if modes[i].Risk > bestRisk {
+			best, bestRisk = modes[i].ID, modes[i].Risk
+		}
+	}
+	a.Approvals = modes
+	for _, m := range modes {
+		if m.ID == a.DefaultApproval && m.Disabled != "" {
+			a.DefaultApproval = best
+		}
+	}
+	return a
+}
+
+// ModeRisk returns the risk of approval mode id for an account from the cached report
+// (-1 when unknown).
+func (c *Capabilities) ModeRisk(accountID, mode string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.cache[accountID]; ok {
+		for _, m := range e.acct.Approvals {
+			if m.ID == mode {
+				return m.Risk
+			}
+		}
+	}
+	return -1
 }

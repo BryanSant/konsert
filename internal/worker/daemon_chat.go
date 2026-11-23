@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -76,6 +77,18 @@ func (d *Daemon) initChat() {
 		Logger:      d.logger,
 		OnFailure:   d.onChatFailure,
 		OnRateLimit: d.onChatRateLimit,
+		CheckApproval: func(agent, accountID, mode string) error {
+			if !d.cfg.Sandbox || d.caps == nil {
+				return nil
+			}
+			if accountID == "" {
+				accountID = agent // default accounts use the agent name as id
+			}
+			if d.caps.ModeRisk(accountID, mode) > protocol.SandboxMaxRisk {
+				return errors.New(protocol.SandboxDisabledReason)
+			}
+			return nil
+		},
 	})
 	d.caps = chat.NewCapabilities(chat.CapabilitiesOptions{
 		Accounts: d.accounts,
@@ -84,6 +97,7 @@ func (d *Daemon) initChat() {
 		Logger:   d.logger,
 		// Exhausted usage windows survive a konsertd restart (no secrets stored).
 		PersistPath: usageCachePath(),
+		Sandboxed:   d.cfg.Sandbox,
 	})
 	d.runner.SetAccounts(d.accounts)
 }

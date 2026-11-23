@@ -43,3 +43,24 @@ func TestExhaustedUsageSurvivesRestart(t *testing.T) {
 		t.Fatal("window restored after its reset time")
 	}
 }
+
+func TestSandboxedWorkerDisablesFullAccessModes(t *testing.T) {
+	a := protocol.AgentAccount{
+		DefaultApproval: "bypassPermissions",
+		Approvals: []protocol.AgentApprovalMode{
+			{ID: "plan", Risk: 0}, {ID: "default", Risk: 1}, {ID: "auto", Risk: 3}, {ID: "bypassPermissions", Risk: 4},
+		},
+	}
+	got := markSandboxedModes(a)
+	for _, m := range got.Approvals {
+		if (m.Risk > protocol.SandboxMaxRisk) != (m.Disabled != "") {
+			t.Fatalf("mode %s risk %d disabled=%q", m.ID, m.Risk, m.Disabled)
+		}
+	}
+	if got.DefaultApproval != "auto" {
+		t.Fatalf("default should move to the highest allowed mode, got %q", got.DefaultApproval)
+	}
+	if a.Approvals[3].Disabled != "" {
+		t.Fatal("input account modified")
+	}
+}

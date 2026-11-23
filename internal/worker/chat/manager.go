@@ -61,6 +61,9 @@ type ManagerOptions struct {
 	// state seen in a chat: every EventRateLimit, and an exhausted window derived from an
 	// ErrKindUsageLimit error. konsertd feeds it into the cached capabilities.
 	OnRateLimit func(accountID string, rl protocol.AgentRateLimit)
+	// CheckApproval, when set, vets the requested approval mode before an engine starts
+	// (konsertd --sandbox refuses full-access modes). A non-nil error fails the turn.
+	CheckApproval func(agent, accountID, mode string) error
 	// SeqBase returns the first Seq of a chat in this process. The default is the current
 	// time in milliseconds × 1000, so Seq keeps increasing across konsertd restarts.
 	SeqBase func() int64
@@ -460,6 +463,12 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 		return false
 	}
 	o.Cwd = cwd
+	if m.opts.CheckApproval != nil && o.ApprovalMode != "" {
+		if err := m.opts.CheckApproval(o.Agent, o.AccountID, o.ApprovalMode); err != nil {
+			m.emitError(c, turnID, errEvent(protocol.ErrKindOther, err.Error(), false))
+			return false
+		}
+	}
 	eng, ok := m.Engine(o.Agent)
 	if !ok {
 		m.emitError(c, turnID, errEvent(protocol.ErrKindNotFound, fmt.Sprintf("no chat engine for agent %q on this worker", o.Agent), false))

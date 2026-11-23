@@ -322,4 +322,13 @@ type AgentApprovalMode struct {
 	// 2 accepts edits, 3 auto/approve-for-me, 4 full access (never asks).
 	Risk int    `json:"risk"`
 	Icon string `json:"icon,omitempty"` // hand, edit, shield-check, shield-alert, eye
+	// Disabled, when set, explains why the mode can't be used on this worker (e.g.
+	// konsertd runs with --sandbox, which refuses full-access modes).
+	Disabled string `json:"disabled,omitempty"`
 }
+
+// SandboxMaxRisk is the highest approval-mode risk a --sandbox worker allows.
+const SandboxMaxRisk = 3
+
+// SandboxDisabledReason is the AgentApprovalMode.Disabled text on sandboxed workers.
+const SandboxDisabledReason = "This machine runs konsertd with --sandbox, which refuses full-access modes."
