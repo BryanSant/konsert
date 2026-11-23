@@ -511,6 +511,17 @@ Built right after observed sessions and before placement: it shapes every intera
 - Later (needs Phase 6): process-death ↔ command correlation, SSH-outside-Konsert attribution, per-process kill.
 - Exit: user stops nginx in a Konsert terminal on host-1 → hold on host-1/nginx, orchestrator and the affected session are told and ask before restarting; when an agent asked the user to restart nginx, the same action resolves its request and the agent continues.
 
+### Phase 5b: Questions and steering
+
+Built alongside 5a (open requests are questions with an action attached).
+- `ask_user` schema with required context/consequences/rationale and validation; question-writing guidance in managed sessions.
+- `questions` table, queue API, dedupe of re-asks, generous MCP tool timeouts for managed sessions (`MCP_TOOL_TIMEOUT` for claude) with re-ask on timeout.
+- Reference enrichment (ka tickets, PRs, files, sids).
+- Side-conversation engine: fork the asking session read-only (claude `--resume <id> --fork-session` with plan mode; codex fork), else the orchestrator with a context pack; answer drafts; summary delivered with the answer.
+- PWA: question card, queue with keyboard flow, thread with pinned options; mobile inbox and side-conversation sheet with dictation.
+- Delegation to the orchestrator with receipts; question quality metrics.
+- Exit: an under-specified question is rejected and re-asked properly; the user asks "what is JK-ABC12 and why shorten it?" in a side conversation answered by a fork, then answers from a phone; the agent receives the answer and the summary.
+
 ### Phase 6: Processes and load (Visibility II)
 
 - Daemon process sampler (per OS: `/proc` on Linux, `libproc`/`ps` on macOS, Toolhelp/`NtQuerySystemInformation` on Windows): per-process CPU and RSS every 5 s while work runs, 30 s idle.
