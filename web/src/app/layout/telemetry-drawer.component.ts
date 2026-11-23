@@ -6,13 +6,14 @@ import { FleetStore, basenamePath } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { TelemetryStore } from '../core/state/telemetry.store';
 import { IconComponent } from '../shared/icon.component';
+import { AuditLogComponent } from './audit-log.component';
 
-export type InspectorPanel = 'agent' | 'git' | 'checks';
+export type InspectorPanel = 'agent' | 'git' | 'checks' | 'audit';
 
 @Component({
   selector: 'app-telemetry-drawer',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, AuditLogComponent],
   template: `
     <div class="flex flex-col h-full w-full bg-[#16171a] text-[#d4d4d8]">
       <!-- Panel Header -->
@@ -54,12 +55,23 @@ export type InspectorPanel = 'agent' | 'git' | 'checks';
               <div class="text-[10px] text-[#8a8c94]">Execution posture & exit signals</div>
             </div>
           }
+          @case ('audit') {
+            <div>
+              <h2 class="text-[12px] font-semibold text-[#ececed]">Audit Log</h2>
+              <div class="text-[10px] text-[#8a8c94]">Operator control actions across the fleet</div>
+            </div>
+          }
         }
 
-        @if (panel() !== 'git' && activeTask(); as t) {
+        @if (panel() !== 'git' && panel() !== 'audit' && activeTask(); as t) {
           <span class="font-mono-ide text-[10px] text-[#86888f]">{{ t.id.slice(0, 8) }}</span>
         }
       </div>
+
+      <!-- PANEL: FLEET AUDIT LOG (KON-WP2A5) -->
+      @if (panel() === 'audit') {
+        <app-audit-log class="ks-panel-enter flex-1" />
+      }
 
       <!-- PANEL 1: AGENT TELEMETRY + ORCA-STYLE SESSION HISTORY -->
       @if (panel() === 'agent') {

@@ -297,6 +297,38 @@ export interface TaskEvent {
   created_at: string;
 }
 
+/** One operator control action from the fleet-wide audit log (GET /api/audit). */
+export interface AuditEvent {
+  id: number;
+  created_at: string;
+  /** Authenticated identity: session user, Tailscale login, "token", "mcp", "orchestrator". */
+  user: string;
+  /** Path the action came through: "rest" | "cli" | "mcp" | "orchestrator" | "legacy". */
+  source?: string;
+  action: string;
+  worker_id?: string;
+  task_id?: string;
+  message?: string;
+  meta_json?: string;
+}
+
+export interface AuditListResponse {
+  events: AuditEvent[];
+  /** before_id for the next (older) page; absent on the last page. */
+  next_cursor?: number;
+}
+
+export interface AuditQuery {
+  worker_id?: string;
+  task_id?: string;
+  user?: string;
+  action?: string;
+  since?: string;
+  until?: string;
+  before_id?: number;
+  limit?: number;
+}
+
 export interface UsageBucket {
   provider: string;
   model: string;

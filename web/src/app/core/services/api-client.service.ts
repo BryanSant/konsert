@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
 import {
   AppSettings,
+  AuditListResponse,
+  AuditQuery,
   AuthMe,
   ChatMessage,
   ChatSession,
@@ -201,6 +203,27 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ enabled, reason }),
     });
+  }
+
+  /**
+   * Reports the Take Control (Interactive) toggle so the hub can audit who took or
+   * released interactive control of a task.
+   */
+  setTaskControl(taskId: string, enabled: boolean): Promise<{ ok: boolean }> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  /** Fleet-wide operator audit log, newest first. */
+  listAudit(q: AuditQuery = {}): Promise<AuditListResponse> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) {
+      if (v !== undefined && v !== null && v !== '' && v !== 0) params.set(k, String(v));
+    }
+    const qs = params.toString();
+    return this.request<AuditListResponse>(`/api/audit${qs ? `?${qs}` : ''}`);
   }
 
   cancelTask(taskId: string): Promise<{ ok: boolean }> {

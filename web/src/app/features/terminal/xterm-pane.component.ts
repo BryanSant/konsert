@@ -367,6 +367,8 @@ export class XtermPaneComponent implements OnDestroy {
   toggleInteractive(): void {
     this.tabsStore.toggleInteractiveMode(this.taskId());
     this.readOnlyToast.set(false);
+    // Audit signal only (fire-and-forget): the toggle itself stays client-side.
+    this.api.setTaskControl(this.taskId(), this.interactiveMode()).catch(() => undefined);
     if (this.interactiveMode()) {
       this.term?.focus();
     }
