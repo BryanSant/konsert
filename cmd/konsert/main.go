@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 
@@ -32,6 +33,9 @@ func main() {
 		newStatusCmd(),
 		newDispatchCmd(),
 		newTasksCmd(),
+		newSteerCmd(),
+		newCancelCmd(),
+		newLogsCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -197,29 +201,44 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Display registered workers and fleet status",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			client := remoteClientFromFlags(url, token)
-			res, err := client.FleetStatus(context.Background())
+			res, err := client.FleetStatus(cmd.Context())
 			if err != nil {
+				return friendlyAPIError(err)
+			}
+			out := cmd.OutOrStdout()
+			if asJSON {
+				return writeJSONOut(out, res)
+			}
+			ctrlVersion := strings.TrimSpace(res.ControllerVersion)
+			if ctrlVersion == "" {
+				ctrlVersion = "unknown"
+			}
+			fmt.Fprintf(out, "Controller version: %s\n\n", ctrlVersion)
+			mismatches := 0
+			w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tNAME\tHOST_GROUP\tOS/ARCH\tISOLATION\tPERMISSION\tAGENTS\tACTIVE\tSTATUS\tVERSION")
+			for _, wk := range res.Workers {
+				if controller.VersionMismatch(res.ControllerVersion, wk.Version) {
+					mismatches++
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s/%s\t%s\t%s\t%v\t%d/%d\t%s\t%s\n",
+					wk.ID, wk.Name, wk.HostGroup, wk.OS, wk.Arch, wk.Isolation, wk.PermissionMode,
+					wk.Agents, wk.ActiveTasks, wk.MaxConcurrent, wk.Status,
+					workerVersionLabel(res.ControllerVersion, wk.Version))
+			}
+			if err := w.Flush(); err != nil {
 				return err
 			}
-			if asJSON {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(res)
+			if mismatches > 0 {
+				fmt.Fprintf(out, "\nwarning: %d worker(s) run a konsertd version different from the controller (%s)\n",
+					mismatches, ctrlVersion)
 			}
-			w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tHOST_GROUP\tOS/ARCH\tISOLATION\tPERMISSION\tAGENTS\tACTIVE\tSTATUS")
-			for _, wk := range res.Workers {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s/%s\t%s\t%s\t%v\t%d/%d\t%s\n",
-					wk.ID, wk.Name, wk.HostGroup, wk.OS, wk.Arch, wk.Isolation, wk.PermissionMode,
-					wk.Agents, wk.ActiveTasks, wk.MaxConcurrent, wk.Status)
-			}
-			return w.Flush()
+			return nil
 		},
 	}
-	cmd.Flags().StringVar(&url, "url", "", "Konsert controller HTTP URL")
-	cmd.Flags().StringVar(&token, "token", "", "Admin bearer token")
+	addClientFlags(cmd, &url, &token)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output raw JSON")
 	return cmd
 }
