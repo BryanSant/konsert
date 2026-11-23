@@ -495,7 +495,7 @@ Goal: every agent session on a machine shows up, whoever started it.
   Each source maps records to the normalized `AgentChatEvent` stream the chat engines already use, so the UI renders observed sessions with the same components.
 - Hooks stay as a low-latency status signal; the process scan becomes a fallback and gains cursor-agent, copilot and the desktop apps.
 - Status from session records (turn started/ended, waiting for permission), not CPU.
-- Hub: observed sessions are `tasks` rows with `origin=external` (exists); add `agent_session_id`, account, model, and an event log. The hub stores normalized events with size caps; full transcripts are fetched from the daemon on demand.
+- Hub: observed sessions are `tasks` rows with `origin=external` (exists); add `agent_session_id`, account, model, summary, files touched and counts. Transcripts are fetched from the daemon only when a user opens one, cached on the hub for 30 minutes (configurable) and purged; nothing transcript-shaped is persisted.
 - PWA: read-only session view; an "All activity" list per machine.
 - Exit: start a session by hand in each of the six CLIs on macOS, Linux and Windows; each appears within 5 s with correct status transitions and tool calls. Daemon CPU stays under 1% idle.
 
@@ -522,6 +522,8 @@ Goal: every agent session on a machine shows up, whoever started it.
 - Resource envelopes per OS: Linux systemd user scopes (cgroup v2) with rlimit fallback; Windows Job Object limits on the existing job; macOS priority plus monitored kill. Envelope size from the work profile or a default class.
 - Optional rootless Podman tier for Linux work (`isolation: container` per project): image, mounts for repo and agent login state, envelope via Podman flags.
 - Policy read-only over MCP; edits in UI/CLI, audited.
+- Break glass: `request_override` (rules, scope, duration, justification) with user approval by default (approval card in the orchestrator chat + notification), optional orchestrator self-approval, automatic expiry. `policy_events` log of every block and override with the stated intent; a report of how often rules blocked work and whether overrides followed.
+- Container awareness: detect Podman/Docker; per-project opt-in container execution; never required for resource protection.
 - Exit: a memory-hungry test job is capped on Linux and Windows and killed (classified OOM) when it exceeds its envelope; an interactive machine with an active user receives no new heavy work.
 
 ### Phase 9: Placement
@@ -537,13 +539,20 @@ Goal: every agent session on a machine shows up, whoever started it.
 ### Phase 10: Retry and migration
 
 - Retry policy by failure category (bigger machine for OOM/disk/timeout; another account for usage limit; never for auth).
-- Migration: stop on A; transfer via push to the shared remote when available, otherwise a hub-relayed `git bundle` (daemon A → hub → daemon B); start on B with a handoff note (previous summary, failure, files changed).
+- Migration: stop on A; transfer via push to the shared remote when available, otherwise a `git bundle` sent directly A → B over the fleet transfer channel (Phase 10a), falling back to a hub relay; start on B with a handoff note (previous summary, failure, files changed).
 - Learned rules: a migration that succeeds after a classified failure writes a `learned` placement rule for the work key with the evidence.
 - Exit: an ML-style job that OOMs on a small machine is migrated to a larger one, succeeds, and the next dispatch of that work key goes straight to the larger class.
 
+### Phase 10a: Fleet transfer channel
+
+- Per-daemon fleet SSH keypair (generated locally, public key registered with the hub, private key never leaves the machine).
+- Receiver: konsertd runs a minimal SSH endpoint (Go `x/crypto/ssh`) on demand, or uses the system sshd with a forced-command `authorized_keys` entry; the hub authorizes one sender key for one transfer with an expiry. Design spike decides between the two (Windows has OpenSSH server optional; a built-in endpoint avoids depending on it).
+- Reachability probe (Tailscale/LAN addresses reported in facts); transfer path selection git remote → direct → hub relay; audit of each transfer.
+- Exit: a repo bundle moves bocabox → bocamacmini directly, and via the hub when direct isn't reachable; keys are scoped and expire.
+
 ### Phase 11: Orchestrator scheduling
 
-- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, plus event notifications to the orchestrator chat for failure, stall, needs-input and completion of work it dispatched.
+- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, `request_override`, plus event notifications to the orchestrator chat for failure, stall, needs-input and completion of work it dispatched.
 - Ship the Konsert scheduler skill (installed for the orchestrator agent): reading the snapshot, trusting vs overriding the built-in scheduler, responding to failure categories, migrating, recording rules.
 - Evaluation suite: scripted fleets (mock engine with synthetic resource profiles) and scenarios the orchestrator must handle; track decisions over versions.
 - Exit: the orchestrator handles the OOM → migrate → pin scenario and a usage-limit → switch-account scenario end to end, and its learned rules survive a hub restart and a fresh orchestrator context.

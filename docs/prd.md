@@ -28,11 +28,12 @@ Visibility comes first: scheduling without it over- or under-commits machines.
 
 ## 3. Principles
 
-- **Hub and spoke, no peer-to-peer.** The hub (`konsert`) commands; daemons (`konsertd`) connect outbound, wait passively for work and report what they see. Daemons never talk to each other. Anything that must move between machines (code, context) goes through the hub or through a git remote both can reach.
+- **Hub-and-spoke control, direct data when it's cheaper.** The hub (`konsert`) commands; daemons (`konsertd`) connect outbound, wait passively for work and report what they see. Daemons never command each other. Bulk data that must move between machines (a repo bundle for migration) goes, in order of preference: through a git remote both can reach; directly daemon-to-daemon over SSH with fleet-managed keys, arranged by the hub, when the machines can reach each other (e.g. over Tailscale); relayed through the hub as a last resort. A laptop on hotel Wi-Fi shouldn't sit in the middle of a transfer between two desktops.
 - **Bring your own subscriptions.** Agents run on the user's logged-in CLI subscriptions; API keys are optional. Subscription limits are a fleet resource the scheduler must respect.
 - **Facts and memory in Konsert, judgment in the orchestrator, guardrails in Konsert.** Konsert collects facts, keeps history and enforces operator policy. The orchestrator agent makes placement and migration judgments through MCP, with that history at hand so restarts and context limits don't erase what was learned. Konsert also works without an orchestrator: a built-in deterministic scheduler places work by rules.
-- **Two tiers of control.** *Operator policy* (caps, reservations, allowed work) is hard: neither the scheduler nor the orchestrator can exceed it. *Placement* (which eligible machine) is soft: the scheduler proposes, the orchestrator may override within policy.
-- **Heavy data stays at the edge.** Daemons keep raw terminal output, transcripts and per-process samples locally and send them only when someone looks (as with today's on-demand PTY streaming). The hub stores events, summaries, aggregates and history.
+- **Two tiers of control, hard by default.** *Operator policy* (caps, reservations, allowed work) is hard: neither the scheduler nor the orchestrator can exceed it in normal operation. Agents forgetting established rules is the common failure, so rules are enforced by Konsert, not remembered by the agent. *Placement* (which eligible machine) is soft: the scheduler proposes, the orchestrator may override within policy.
+- **Break glass, measured.** Rarely, breaking a rule is right (an all-hands CVE fix). The orchestrator may request a time-boxed override of named rules with a justification; by default the user approves it, and the operator can allow orchestrator self-approval. Every block and every override is recorded with the orchestrator's stated intent, so we can measure how often the rules got in the way and refine them.
+- **Heavy data stays at the edge; transcripts are ephemeral.** Daemons keep raw terminal output, transcripts and per-process samples locally and send them only when someone looks (as with today's on-demand PTY streaming). Transcripts are fetched lazily when a user explicitly opens one, cached briefly for scrolling (default 30 minutes), then flushed; the source can always be streamed again. The hub keeps session metadata, status, summaries, aggregates and outcome history, not transcripts: they're useful while the work is live, rarely afterwards, and keeping them is a privacy risk with little value.
 - **Same user, own data.** The daemon runs as the same user as the agents and reads that user's agent data to provide visibility. That's not a privacy boundary, but data still leaves the machine only as needed (see edge principle) and access to the hub is authenticated.
 - **Opinionated over configurable** where it simplifies: one recommended isolation and enforcement setup per OS, with escape hatches.
 
@@ -71,7 +72,7 @@ A *session* is one agent conversation or run. Every session has an origin: **man
   3. Process scan as a fallback (existence, cwd, CPU).
   Desktop and IDE agents (Claude Desktop, Codex app, Cursor, Copilot in VS Code) count when they write a detectable session store.
 - **[gap]** Observed sessions appear in the same views as managed ones (read-only transcript built from normalized events), with the same status model, so a user sees *all* agent work in one place.
-- **[gap]** Full transcripts stay on the machine and are fetched on demand; the hub stores normalized events and summaries.
+- **[gap]** Transcripts stay on the machine and are fetched on demand, cached on the hub for a short TTL (default 30 minutes, configurable) and then purged. The hub persists only session metadata, status, summary, files touched and counts.
 
 ### 5.3 Processes and machine load
 
@@ -103,7 +104,7 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 
 - **[gap]** Attempts: a task can have several attempts; requeue creates a new attempt instead of overwriting history.
 - **[gap]** Failure-driven retry policy: on classified failures (OOM, disk full, timeout) the scheduler or orchestrator may retry on a larger machine; on usage limits, on another account; on auth, never (ask the user).
-- **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a hub-relayed git bundle; plus a handoff note (previous summary, failure, relevant context) given to the new session.
+- **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a git bundle sent directly A → B over SSH (fleet-managed keys, see §5.10) when B can reach A, else relayed through the hub; plus a handoff note (previous summary, failure, relevant context) given to the new session.
 - **[gap]** Learned pins: after a migration succeeds where the original failed, record a placement rule for that work key (provenance `learned`, with the evidence) so future work goes straight to the right machine class.
 
 ### 5.7 Policy and enforcement
@@ -117,6 +118,8 @@ A *session* is one agent conversation or run. Every session has an origin: **man
   - **Optional container tier:** rootless Podman per session or per project, for Linux workloads that need hard isolation or reproducible toolchains. Requires mounting the agent's login state; not available for agents whose logins live in a macOS keychain.
 - **[gap]** Observed sessions can't be capped; they're counted against headroom instead.
 - **[gap]** Policy is read-only over MCP. Changes happen in the UI or CLI and are audited.
+- **[gap]** Break glass: `request_override` (rules, scope, duration, justification) → user approval by default (approval card + notification), or orchestrator self-approval if the operator enabled it. Overrides expire automatically. Blocks and overrides are logged with intent and surfaced in a report ("rules that blocked work this week, and whether an override followed").
+- **[gap]** Container awareness: Konsert detects Podman/Docker and can run a project's work in a container when configured, but basic resource protection never requires one.
 
 ### 5.8 Orchestrator integration
 
@@ -124,6 +127,12 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 - **[gap]** Scheduling tools: fleet snapshot with headroom, running sessions (managed and observed), quotas and policies; explain placement (dry run); work profiles and history per work key; task attempts and failure categories; set/clear placement rules; requeue or migrate a task to a machine or class.
 - **[gap]** A shipped *Konsert scheduler skill* for orchestrator agents: how to read the snapshot, when to trust the built-in scheduler, how to respond to failure categories, when to migrate, and how to record learned rules. Konsert owns the facts and memory; the skill owns the playbook.
 - **[gap]** Notifications to the orchestrator when work it dispatched fails, stalls, needs input or completes, so it can react without polling.
+
+### 5.10 Fleet transfer channel
+
+- **[gap]** The hub manages a fleet SSH identity per daemon (keypair generated on the machine; public key registered with the hub; private key never leaves the machine). For a transfer, the hub tells the receiver to accept one specific key for one transfer and tells the sender where to connect; authorized keys are restricted to a single konsertd receive command, scoped and short-lived.
+- **[gap]** Reachability is probed, not assumed (Tailscale addresses, LAN); the hub picks git remote → direct SSH → hub relay.
+- **[gap]** Transfers are audited (who, what, bytes, path taken).
 
 ### 5.9 Human interface (PWA)
 
@@ -143,7 +152,7 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 
 ## 7. Non-goals (pre-1.0)
 
-- Peer-to-peer between daemons.
+- Daemons commanding each other, or any peer-to-peer channel other than hub-arranged SSH data transfers.
 - Live migration of running processes.
 - Multi-tenant SaaS, RBAC beyond a single operator or trusted team.
 - Preemption of running work.
