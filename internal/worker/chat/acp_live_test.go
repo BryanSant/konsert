@@ -47,7 +47,7 @@ func liveAccount(t *testing.T, agent string) Account {
 	return acct
 }
 
-func liveScratch(t *testing.T, agent string) string {
+func acpLiveScratch(t *testing.T, agent string) string {
 	t.Helper()
 	dir, err := ScratchDir(acpProbePrefix + "live-" + agent + "-")
 	if err != nil {
@@ -93,7 +93,7 @@ func TestLiveACPPrompt(t *testing.T) {
 	for _, agent := range liveAgents(t) {
 		t.Run(agent, func(t *testing.T) {
 			acct := liveAccount(t, agent)
-			dir := liveScratch(t, agent)
+			dir := acpLiveScratch(t, agent)
 			eng, _ := NewACPEngine(agent)
 			rec := newRecorder()
 			s, err := eng.Open(context.Background(), acct, protocol.AgentChatOpen{ChatID: "live", Agent: agent, Cwd: dir}, rec.emit)
@@ -141,7 +141,7 @@ func TestLiveACPElicitation(t *testing.T) {
 		t.Skip("set KONSERT_LIVE_ACP_ELICIT=<agent> to run the permission round trip")
 	}
 	acct := liveAccount(t, agent)
-	dir := liveScratch(t, agent)
+	dir := acpLiveScratch(t, agent)
 	eng, _ := NewACPEngine(agent)
 	rec := newRecorder()
 	s, err := eng.Open(context.Background(), acct, protocol.AgentChatOpen{ChatID: "live", Agent: agent, Cwd: dir, ApprovalMode: os.Getenv("KONSERT_LIVE_ACP_MODE")}, rec.emit)

@@ -13,7 +13,7 @@ import (
 
 // Kill must stop the whole process group (grandchildren included) and reap the leader.
 func TestProcKillGroupNoZombies(t *testing.T) {
-	isolateHome(t)
+	acpIsolateHome(t)
 	p, err := StartProc(ProcSpec{Binary: "/bin/sh", Args: []string{"-c", "sleep 60 & echo $!; echo started >&2; wait"}, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)

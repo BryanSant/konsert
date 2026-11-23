@@ -85,8 +85,8 @@ func dumpEvents(evs []protocol.AgentChatEvent) string {
 	return b.String()
 }
 
-// isolateHome points HOME/USERPROFILE at temp dirs so nothing touches the real home.
-func isolateHome(t *testing.T) string {
+// acpIsolateHome points HOME/USERPROFILE at temp dirs so nothing touches the real home.
+func acpIsolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -101,7 +101,7 @@ type fakeOpts struct {
 // fakeAccount runs this test binary as a fake ACP agent.
 func fakeAccount(t *testing.T, o fakeOpts) (Account, string) {
 	t.Helper()
-	isolateHome(t)
+	acpIsolateHome(t)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -391,7 +391,7 @@ func TestACPCrashOnStartRedactsStderr(t *testing.T) {
 }
 
 func TestACPNotInstalled(t *testing.T) {
-	isolateHome(t)
+	acpIsolateHome(t)
 	eng, _ := NewACPEngine("grok")
 	acct := Account{ID: "grok", Agent: "grok", Binary: filepath.Join(t.TempDir(), "no-such-grok")}
 	rec := newRecorder()
@@ -655,7 +655,7 @@ func TestACPProbe(t *testing.T) {
 }
 
 func TestACPRemoveSessionFiles(t *testing.T) {
-	home := isolateHome(t)
+	home := acpIsolateHome(t)
 	cwd := filepath.Join(t.TempDir(), acpProbePrefix+"x")
 	_ = os.MkdirAll(cwd, 0o700)
 	acct := Account{Env: map[string]string{"HOME": home}}
