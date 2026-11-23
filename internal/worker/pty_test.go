@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -149,12 +148,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	if err := runner2.ResizePty(taskID2, 100, 40); err != nil {
 		t.Fatalf("ResizePty failed: %v", err)
 	}
-	steer, nl := "exit", true
-	if runtime.GOOS == "windows" {
-		// ConPTY submits a line on CR; a bare LF does not end `set /p` input.
-		steer, nl = "exit\r", false
-	}
-	if err := runner2.SteerTask(taskID2, steer, nl); err != nil {
+	if err := runner2.SteerTask(taskID2, "exit", true); err != nil {
 		t.Fatalf("SteerTask failed: %v", err)
 	}
 

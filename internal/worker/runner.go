@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -672,11 +673,19 @@ func (r *Runner) WriteStdin(taskID string, data []byte) error {
 
 // SteerTask sends steering input (with optional trailing newline) into a running task's PTY.
 func (r *Runner) SteerTask(taskID, inputText string, appendNewline bool) error {
-	payload := inputText
-	if appendNewline && !strings.HasSuffix(payload, "\n") && !strings.HasSuffix(payload, "\r") {
-		payload += "\n"
+	return r.WriteStdin(taskID, []byte(steerPayload(inputText, appendNewline, runtime.GOOS)))
+}
+
+// steerPayload appends the line terminator that submits input on the given OS.
+// ConPTY-hosted programs submit on CR; a bare LF only moves the cursor.
+func steerPayload(inputText string, appendNewline bool, goos string) string {
+	if !appendNewline || strings.HasSuffix(inputText, "\n") || strings.HasSuffix(inputText, "\r") {
+		return inputText
 	}
-	return r.WriteStdin(taskID, []byte(payload))
+	if goos == "windows" {
+		return inputText + "\r"
+	}
+	return inputText + "\n"
 }
 
 // ResizePty updates the PTY window dimensions for taskID.
