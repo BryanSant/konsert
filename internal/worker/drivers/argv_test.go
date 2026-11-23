@@ -77,8 +77,9 @@ func TestClaudeAndCodexArgvExact(t *testing.T) {
 	if want := []string{"exec", "--sandbox", "workspace-write", "--", "--help"}; !slices.Equal(codex.Args, want) {
 		t.Fatalf("codex argv = %q, want %q", codex.Args, want)
 	}
-	grok := (&GrokDriver{}).BuildCommand(LaunchOptions{Prompt: "--yes", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionSandboxed})
-	if want := []string{"--single=--yes"}; !slices.Equal(grok.Args, want) {
+	gd := &GrokDriver{}
+	grok := gd.BuildCommand(LaunchOptions{TaskID: "t-argv", Prompt: "--yes", Mode: protocol.TaskModeOneshot, PermissionMode: protocol.PermissionSandboxed})
+	if want := []string{"--sandbox", "workspace", "--session-id", gd.sessionFor("t-argv"), "--single=--yes"}; !slices.Equal(grok.Args, want) {
 		t.Fatalf("grok argv = %q, want %q", grok.Args, want)
 	}
 }

@@ -79,6 +79,9 @@ func CollectSubscriptionQuotas(_ context.Context, homeDir, workerID string) []pr
 		{provider: "claude", windowLabel: "5h", relPath: filepath.Join(".claude", "rate-limit-cache.json")},
 		{provider: "codex", windowLabel: "5h", relPath: filepath.Join(".codex", "quota.json")},
 		{provider: "agy", windowLabel: "8h", relPath: filepath.Join(".gemini", "quota.json")},
+		// grok 1.0.92 keeps no local plan-usage cache (`grok usage` without a session ID
+		// says to run /usage inside the TUI; per-session token usage.json files carry no
+		// plan limit), so this only picks up a quota.json written by a hook or probe.
 		{provider: "grok", windowLabel: "", relPath: filepath.Join(".grok", "quota.json")},
 		{provider: "cursor", windowLabel: "", relPath: filepath.Join(".cursor", "quota.json")},
 	}
