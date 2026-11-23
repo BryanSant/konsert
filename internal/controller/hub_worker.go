@@ -102,6 +102,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		LastSeenAt:     now,
 		FactsJSON:      factsJSON,
 		FactsUpdatedAt: factsUpdatedAt,
+		Version:        strings.TrimSpace(hello.Worker.Version),
 	}
 	if err := h.store.UpsertWorker(ctx, wModel); err != nil {
 		h.logger.Error("upsert worker failed", "worker_id", wModel.ID, "err", err)

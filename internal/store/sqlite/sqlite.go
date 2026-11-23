@@ -138,8 +138,8 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO workers (id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workers (id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			host_group = excluded.host_group,
@@ -153,9 +153,10 @@ func (s *SQLiteStore) UpsertWorker(ctx context.Context, w store.Worker) error {
 			status = excluded.status,
 			last_seen_at = excluded.last_seen_at,
 			facts_json = CASE WHEN excluded.facts_json != '' THEN excluded.facts_json ELSE workers.facts_json END,
-			facts_updated_at = COALESCE(excluded.facts_updated_at, workers.facts_updated_at)
+			facts_updated_at = COALESCE(excluded.facts_updated_at, workers.facts_updated_at),
+			version = excluded.version
 	`, w.ID, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode),
-		string(agentsJSON), string(tagsJSON), w.MaxConcurrent, w.Status, formatTime(w.LastSeenAt), w.FactsJSON, factsUpdated)
+		string(agentsJSON), string(tagsJSON), w.MaxConcurrent, w.Status, formatTime(w.LastSeenAt), w.FactsJSON, factsUpdated, w.Version)
 	return err
 }
 
@@ -201,7 +202,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	)
 	if err := scanner.Scan(
 		&w.ID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
-		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated,
+		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound
@@ -228,7 +229,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 
 func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at
+		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
 		FROM workers WHERE id = ?
 	`, id)
 	return scanWorker(row)
@@ -236,7 +237,7 @@ func (s *SQLiteStore) GetWorker(ctx context.Context, id string) (store.Worker, e
 
 func (s *SQLiteStore) ListWorkers(ctx context.Context) ([]store.Worker, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at
+		SELECT id, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version
 		FROM workers ORDER BY host_group ASC, name ASC
 	`)
 	if err != nil {

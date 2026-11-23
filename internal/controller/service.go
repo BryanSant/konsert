@@ -43,6 +43,8 @@ type WorkerStatusView struct {
 	LastSeenAt     time.Time               `json:"last_seen_at"`
 	Metrics        *protocol.WorkerMetrics `json:"metrics,omitempty"`
 	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
+	// Version is the worker's konsertd build version ("" when unknown).
+	Version string `json:"version,omitempty"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -64,6 +66,7 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		LastSeenAt:     w.LastSeenAt,
 		Metrics:        metrics,
 		Facts:          decodeWorkerFacts(w.FactsJSON),
+		Version:        w.Version,
 	}
 }
 
@@ -81,6 +84,8 @@ func decodeWorkerFacts(raw string) *protocol.MachineFacts {
 type FleetStatusResult struct {
 	Workers          []WorkerStatusView `json:"workers"`
 	ActiveTasksCount int                `json:"active_tasks_count"`
+	// ControllerVersion is the hub's build version (set by GET /api/fleet).
+	ControllerVersion string `json:"controller_version,omitempty"`
 }
 
 func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, error) {

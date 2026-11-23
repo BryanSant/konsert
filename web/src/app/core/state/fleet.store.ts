@@ -51,6 +51,8 @@ export class FleetStore {
   private readonly api = inject(ApiClientService);
 
   readonly workers = signal<Worker[]>([]);
+  /** Hub build version from GET /api/fleet, for worker version-mismatch warnings. */
+  readonly controllerVersion = signal('');
   readonly tasks = signal<Task[]>([]);
   readonly spaces = signal<Space[]>([]);
   readonly workspaces = signal<Workspace[]>([]);
@@ -288,6 +290,7 @@ export class FleetStore {
       if (seq < this.appliedRefreshSeq) return;
       this.appliedRefreshSeq = seq;
       this.workers.set(snap.workers ?? []);
+      this.controllerVersion.set(snap.controller_version ?? '');
       this.tasks.set(snap.tasks ?? []);
       if (snap.spaces) {
         this.spaces.set(snap.spaces);

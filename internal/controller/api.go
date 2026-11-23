@@ -283,6 +283,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"spaces":             spaces,
 		"taxonomy":           taxonomy,
 		"usage":              usage,
+		"controller_version": s.version,
 	})
 }
 

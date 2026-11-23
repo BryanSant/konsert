@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -538,6 +539,19 @@ func NewRemoteFleetClient(baseURL, token string) *RemoteFleetClient {
 	}
 }
 
+// APIError is a non-2xx response from the konsert REST API.
+type APIError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	// Message is the server's {"error": ...} text, or the raw body if it was not JSON.
+	Message string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("konsert API %s %s failed (HTTP %d): %s", e.Method, e.Path, e.StatusCode, e.Message)
+}
+
 func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, reqBody any, out any) error {
 	var bodyReader io.Reader
 	if reqBody != nil {
@@ -551,8 +565,12 @@ func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, req
 	if err != nil {
 		return err
 	}
-	if reqBody != nil {
+	req.Header.Set("Accept", "application/json")
+	if reqBody != nil || (method != http.MethodGet && method != http.MethodHead) {
+		// The hub's CSRF guard requires a JSON body type or X-Konsert-Request on
+		// state-changing /api requests; send both.
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Konsert-Request", "1")
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -568,7 +586,14 @@ func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, req
 		return err
 	}
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("konsert API %s %s failed (HTTP %d): %s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
+		msg := strings.TrimSpace(string(raw))
+		var eb struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &eb) == nil && eb.Error != "" {
+			msg = eb.Error
+		}
+		return &APIError{Method: method, Path: path, StatusCode: resp.StatusCode, Message: msg}
 	}
 	if out != nil && len(raw) > 0 {
 		return json.Unmarshal(raw, out)
@@ -598,7 +623,7 @@ func (c *RemoteFleetClient) ListTasks(ctx context.Context, statusFilter, workerI
 }
 
 func (c *RemoteFleetClient) GetTaskResult(ctx context.Context, taskID string, wait bool, timeoutSeconds int) (TaskResult, error) {
-	q := fmt.Sprintf("/api/tasks/%s?wait=%t&timeout=%d", taskID, wait, timeoutSeconds)
+	q := fmt.Sprintf("/api/tasks/%s?wait=%t&timeout=%d", url.PathEscape(taskID), wait, timeoutSeconds)
 	var res TaskResult
 	err := c.doJSON(ctx, http.MethodGet, q, nil, &res)
 	return res, err
@@ -606,7 +631,7 @@ func (c *RemoteFleetClient) GetTaskResult(ctx context.Context, taskID string, wa
 
 func (c *RemoteFleetClient) SteerTask(ctx context.Context, taskID, inputText string, appendNewline bool) (ActionResult, error) {
 	var res ActionResult
-	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/tasks/%s/steer", taskID), map[string]any{
+	err := c.doJSON(ctx, http.MethodPost, "/api/tasks/"+url.PathEscape(taskID)+"/steer", map[string]any{
 		"input_text":     inputText,
 		"append_newline": appendNewline,
 	}, &res)
@@ -615,7 +640,7 @@ func (c *RemoteFleetClient) SteerTask(ctx context.Context, taskID, inputText str
 
 func (c *RemoteFleetClient) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
 	var res ActionResult
-	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/api/tasks/%s/cancel", taskID), nil, &res)
+	err := c.doJSON(ctx, http.MethodPost, "/api/tasks/"+url.PathEscape(taskID)+"/cancel", nil, &res)
 	return res, err
 }
 
@@ -660,7 +685,7 @@ func (c *RemoteFleetClient) ListTaskEvents(ctx context.Context, taskID string, a
 	var resp struct {
 		Events []store.TaskEvent `json:"events"`
 	}
-	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/tasks/%s/events?after_id=%d", taskID, afterID), nil, &resp)
+	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/tasks/%s/events?after_id=%d", url.PathEscape(taskID), afterID), nil, &resp)
 	return resp.Events, err
 }
 

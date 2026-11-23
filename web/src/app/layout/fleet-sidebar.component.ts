@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Project, Repo, Space, Task, Worker, Worktree } from '../core/models/konsert.models';
+import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
@@ -379,6 +380,15 @@ import { IconComponent } from '../shared/icon.component';
                       <span class="text-[9px] font-mono-ide text-[#86888f] shrink-0">ctr</span>
                     } @else if (node.worker.isolation === 'vm') {
                       <span class="text-[9px] font-mono-ide text-[#86888f] shrink-0">vm</span>
+                    }
+                    @if (hasVersionMismatch(node.worker)) {
+                      <span
+                        role="img"
+                        class="rounded px-1 text-[9px] font-mono-ide leading-[14px] text-[#e6b566] bg-[#d9a043]/15 shrink-0"
+                        [attr.title]="versionMismatchLabel(node.worker)"
+                        [attr.aria-label]="versionMismatchLabel(node.worker)"
+                        data-testid="version-mismatch-badge"
+                      >ver</span>
                     }
                   </button>
 
@@ -883,6 +893,15 @@ export class FleetSidebarComponent implements OnInit, OnDestroy {
   openWorktreeSession(repo: Repo, worktree: Worktree | null): void {
     this.worktreeSelected.emit({ repo, worktree });
     this.taskSelected.emit();
+  }
+
+  /** True when the worker's konsertd build differs from the hub's (dev/unknown never do). */
+  hasVersionMismatch(w: Worker): boolean {
+    return isVersionMismatch(this.fleet.controllerVersion(), w.version);
+  }
+
+  versionMismatchLabel(w: Worker): string {
+    return `Version mismatch: ${w.name} runs konsertd ${w.version}, hub is ${this.fleet.controllerVersion()}`;
   }
 
   workerIcon(w: Worker): string {

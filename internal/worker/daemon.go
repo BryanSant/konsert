@@ -37,6 +37,9 @@ type Daemon struct {
 	// machineID is the persisted per-installation UUID sent as WorkerInfo.MachineID.
 	machineID string
 
+	// version is konsertd's build version, reported as WorkerInfo.Version.
+	version string
+
 	// outbox keeps final task statuses until written to a hub connection (persisted).
 	outbox *statusOutbox
 
@@ -122,6 +125,11 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 // SetAllowSandboxShell opts a --sandbox worker in to the unrestricted shell driver.
 func (d *Daemon) SetAllowSandboxShell(allow bool) {
 	d.runner.SetAllowSandboxShell(allow)
+}
+
+// SetVersion records konsertd's build version for worker.hello. Call before Run.
+func (d *Daemon) SetVersion(v string) {
+	d.version = v
 }
 
 // advertisedAgents lists installed drivers that this worker will actually accept tasks for.
@@ -303,6 +311,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 			MaxConcurrent:  d.cfg.MaxConcurrent,
 			Facts:          &initialFacts,
 			MachineID:      d.machineID,
+			Version:        d.version,
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
 	}

@@ -190,6 +190,9 @@ type WorkerInfo struct {
 	// MachineID is a stable per-installation UUID persisted by konsertd; the hub
 	// prefers it over the name/host tuple for identity matching.
 	MachineID string `json:"machine_id,omitempty"`
+	// Version is konsertd's build version (ldflags main.version). Empty or "dev"
+	// means unknown and never counts as a mismatch with the hub.
+	Version string `json:"version,omitempty"`
 }
 
 // ActiveTaskInfo is sent in worker.hello so the controller can re-adopt in-flight tasks on restart.

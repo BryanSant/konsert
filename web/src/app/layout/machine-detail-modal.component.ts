@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { Worker } from '../core/models/konsert.models';
+import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
@@ -98,6 +99,26 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
           <app-icon name="copy" [size]="10" />
           <span>{{ copiedId() ? 'Copied' : 'Copy' }}</span>
         </button>
+      </div>
+
+      <!-- konsertd version row -->
+      <div
+        class="flex items-center justify-between gap-2 rounded-lg border border-[#262830] bg-[#141518] px-3 py-2 text-[11px]"
+        data-testid="worker-version"
+      >
+        <div class="min-w-0">
+          <span class="text-[#86888f] mr-2">konsertd version</span>
+          <span class="font-mono-ide text-[#c8cad0] break-all">{{ versionLabel() }}</span>
+        </div>
+        @if (versionMismatch()) {
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-[#d9a043]/15 px-2 py-0.5 text-[10.5px] font-medium text-[#e6b566] shrink-0"
+            [attr.title]="mismatchText()"
+            data-testid="worker-version-mismatch"
+          >
+            Differs from hub {{ fleet.controllerVersion() }}
+          </span>
+        }
       </div>
 
       <!-- Live Telemetry Metrics -->
@@ -269,7 +290,7 @@ export class MachineDetailModalComponent {
   readonly startTerminal = output<Worker>();
 
   private readonly api = inject(ApiClientService);
-  private readonly fleet = inject(FleetStore);
+  readonly fleet = inject(FleetStore);
   private readonly tabs = inject(TabsStore);
 
   readonly confirmRemove = signal(false);
@@ -289,6 +310,18 @@ export class MachineDetailModalComponent {
     const wid = this.worker().id;
     return this.fleet.spaces().filter((s) => s.worker_id === wid).length;
   });
+
+  /** The reported version, or "unknown" when the worker sent none. */
+  readonly versionLabel = computed(() => this.worker().version?.trim() || 'unknown');
+
+  readonly versionMismatch = computed(() =>
+    isVersionMismatch(this.fleet.controllerVersion(), this.worker().version),
+  );
+
+  readonly mismatchText = computed(
+    () =>
+      `konsertd version ${this.worker().version} differs from the hub version ${this.fleet.controllerVersion()}`,
+  );
 
   readonly toolEntries = computed(() => {
     const tools = this.worker().facts?.tools;

@@ -65,6 +65,8 @@ export interface Worker {
   last_seen_at: string;
   metrics?: WorkerMetrics;
   facts?: MachineFacts;
+  /** konsertd build version from worker.hello; empty when unknown. */
+  version?: string;
 }
 
 export interface GitSummary {
@@ -341,6 +343,8 @@ export interface FleetSnapshotResponse {
   spaces?: Space[];
   taxonomy?: TaxonomySnapshot;
   usage?: UsageSummary;
+  /** The hub's own build version ("dev" for unstamped local builds). */
+  controller_version?: string;
 }
 
 export interface DispatchTaskRequest {
