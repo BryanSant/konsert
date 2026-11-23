@@ -188,7 +188,73 @@ with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate machine.
 Agents run as the user konsertd runs as, with that user's CLI logins (`claude`, `grok`,
 ...), so run workers as your normal user rather than a system account.
 
-### Linux: systemd
+### `konsertd install` (recommended)
+
+`konsertd install` registers konsertd to start automatically **as the current user** and
+starts it now. It takes the same flags as `konsertd run`:
+
+```bash
+konsertd install --controller wss://konsert-hub.example-tailnet.ts.net/ws/worker --token-stdin < fleet-token.txt
+konsertd status        # installed? running? where are the config and logs?
+konsertd uninstall     # stop it and remove the unit/agent/task and its config
+```
+
+The flags (`--controller`, `--name`, `--sandbox`, `--tag`, `--allowed-roots`, ...) and the
+fleet token are written to a per-user config file that only you can read (mode 0600; on
+Windows an ACL granting only you and SYSTEM), and the daemon is started with
+`--config <that file>`. The token never appears in the unit, plist or task definition. Give
+it with `--token-stdin`, `KONSERT_FLEET_TOKEN=... konsertd install ...` or `--token`; a
+reinstall without one keeps the installed token. `--config file.yaml` merges an existing
+config into the installed one. `--dry-run` prints what would be installed, with the token
+redacted. Re-running `install` updates the instance in place.
+
+A `--name` other than the hostname installs a separate instance (`konsertd-<name>`), so
+several daemons (say, a normal and a `--sandbox` one) can run side by side; pass the same
+`--name` to `status` and `uninstall`.
+
+| OS | What `install` creates | Config | Logs |
+|---|---|---|---|
+| Linux | systemd user unit `~/.config/systemd/user/konsertd.service`, `systemctl --user enable` + restart; `loginctl enable-linger` so it runs while you are logged out (printed as a `sudo` command if polkit refuses; skip with `--no-linger`) | `~/.config/konsert/konsertd.yaml` | `journalctl --user -u konsertd` |
+| macOS | LaunchAgent `~/Library/LaunchAgents/dev.konsert.konsertd.plist` (`RunAtLoad`, `KeepAlive`), loaded with `launchctl bootstrap gui/$UID` | `~/Library/Application Support/konsert/konsertd.yaml` | `~/Library/Logs/konsert/konsertd.log` |
+| Windows | Scheduled Task `\konsertd`: at your logon, not elevated, no console window, no time limit, restarted within a minute if it exits | `%LOCALAPPDATA%\konsert\konsertd.yaml` | `%LOCALAPPDATA%\konsert\logs\konsertd.log` |
+
+The unit and the LaunchAgent record your current `PATH`, so agent CLIs installed under
+Homebrew, `~/.local/bin`, nvm and so on are found; re-run `install` after adding a new
+location. Install from the binary's permanent location: the definition runs that exact
+file. On Linux the user's systemd instance is required; in containers without one,
+`install` says so (use the Quadlet below or your own supervisor).
+
+**Windows details.** The task runs `conhost.exe --headless konsertd.exe run ...`: conhost
+is a GUI-subsystem program, so starting it shows nothing, and in headless mode it gives
+konsertd a console without a window. git and agent CLIs started by konsertd inherit that
+hidden console instead of opening windows of their own. konsertd stops cleanly when the
+task is ended. A logon task only runs while you are logged on to Windows (it starts at
+your next logon if you install it over SSH with nobody logged on).
+
+To run konsertd at boot without a logon, as a dedicated account, install a native
+service from an elevated ("Run as administrator") terminal:
+
+```powershell
+konsertd.exe install --service --user .\builder --controller wss://hub/ws/worker
+# prompts for builder's password (or pipe it with --password-stdin; pass the fleet token
+# with $env:KONSERT_FLEET_TOKEN), grants builder "Log on as a service", sets
+# restart-on-failure and starts the service
+konsertd.exe status --service
+konsertd.exe uninstall --service   # also revokes "Log on as a service" if install granted it
+```
+
+The service's config and logs are in `%ProgramData%\konsert` (config readable only by
+SYSTEM, Administrators and the service account). Agents use that account's CLI logins, so
+log in to `claude`, `codex`, ... as that account first. konsertd answers the service
+manager's Stop and Shutdown requests by stopping its agent sessions and releasing the
+wake lock.
+
+### Manual setup
+
+The templates below are an alternative to `konsertd install`, e.g. for a system-wide unit
+or a custom setup.
+
+#### Linux: systemd
 
 Install [`deploy/systemd/konsertd.service`](../deploy/systemd/konsertd.service). To run it as
 your user, either add `User=you` to the unit or install it as a user unit:
@@ -199,7 +265,7 @@ systemctl --user daemon-reload && systemctl --user enable --now konsertd
 loginctl enable-linger "$USER"     # keep it running while logged out
 ```
 
-### macOS: launchd
+#### macOS: launchd
 
 Copy [`deploy/launchd/dev.konsert.konsertd.plist`](../deploy/launchd/dev.konsert.konsertd.plist)
 to `~/Library/LaunchAgents/`, adjust the paths and add `KONSERT_FLEET_TOKEN` under
@@ -209,6 +275,11 @@ to `~/Library/LaunchAgents/`, adjust the paths and add `KONSERT_FLEET_TOKEN` und
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.konsert.konsertd.plist
 launchctl kickstart -k gui/$(id -u)/dev.konsert.konsertd
 ```
+
+#### Windows
+
+Run `konsertd.exe run --controller wss://... --token ...` from a terminal (add
+`--log-file` to log to a file). ConPTY and Job Objects are used automatically.
 
 ### Containers: Podman Quadlet
 
@@ -222,12 +293,6 @@ systemctl --user daemon-reload && systemctl --user start konsertd
 
 The image has no agent CLIs logged in; install and authenticate them in a derived image or
 mount their config directories.
-
-### Windows
-
-Run `konsertd.exe run --controller wss://... --token ...` from a terminal, or register it as a
-Task Scheduler task that runs at logon as your user. ConPTY and Job Objects are used
-automatically.
 
 ## 6. Host Keep Awake
 
