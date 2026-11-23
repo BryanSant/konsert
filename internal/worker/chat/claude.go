@@ -159,11 +159,20 @@ func (e *claudeEngine) Open(ctx context.Context, acct Account, opts protocol.Age
 		waiters: map[string]chan claudeCtlResult{},
 		stop:    make(chan struct{}),
 	}
-	if opts.AgentSessionID != "" {
+	resumeLost := false
+	if opts.AgentSessionID != "" && claudeTranscriptExists(acct, opts.Cwd, opts.AgentSessionID) {
 		s.sessionID = opts.AgentSessionID
 		s.hasTranscript = true
 	} else {
+		// No stored conversation to resume in this account (e.g. the chat moved from
+		// another Claude account, or the transcript was deleted): start a new one rather
+		// than failing with "No conversation found".
+		resumeLost = opts.AgentSessionID != ""
 		s.sessionID = uuid.NewString()
+	}
+	if resumeLost {
+		emit(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,
+			Text: "The previous conversation isn't available in " + claudeLabel(acct) + "; starting a new conversation."})
 	}
 	if err := s.ensureProc(ctx); err != nil {
 		s.emitStartError(err)
@@ -1727,6 +1736,28 @@ func claudeApprovalModes() []protocol.AgentApprovalMode {
 
 // claudeScratchName is the project directory name claude uses for a cwd (exported for
 // tests that clean up transcripts).
+// claudeTranscriptExists reports whether the account has a stored conversation
+// sessionID for cwd (claude keeps them in <config dir>/projects/<encoded cwd>/<id>.jsonl).
+// When the location can't be determined it assumes the transcript exists (resume as before).
+func claudeTranscriptExists(acct Account, cwd, sessionID string) bool {
+	if cwd == "" || sessionID == "" {
+		return true
+	}
+	cfg := acct.Env["CLAUDE_CONFIG_DIR"]
+	if cfg == "" {
+		cfg = os.Getenv("CLAUDE_CONFIG_DIR")
+	}
+	if cfg == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return true
+		}
+		cfg = filepath.Join(home, ".claude")
+	}
+	_, err := os.Stat(filepath.Join(cfg, "projects", claudeProjectDirName(cwd), sessionID+".jsonl"))
+	return err == nil
+}
+
 func claudeProjectDirName(cwd string) string {
 	if r, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = r

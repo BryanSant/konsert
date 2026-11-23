@@ -410,15 +410,22 @@ func (m *Manager) doOpen(c *chatState, o protocol.AgentChatOpen) {
 	}
 	c.mu.Lock()
 	prev := c.agentSessionID
-	if o.AgentSessionID == "" && c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID {
+	sameAgent := c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID && c.opts.Cwd == o.Cwd
+	if o.AgentSessionID == "" && sameAgent {
 		o.AgentSessionID = prev
+	}
+	if !sameAgent && o.AgentSessionID == "" {
+		// A conversation belongs to one agent account (claude keeps them per config
+		// dir): never resume another account's session after switching.
+		c.agentSessionID = ""
 	}
 	c.opts = o
 	if o.AgentSessionID != "" {
 		c.agentSessionID = o.AgentSessionID
 	}
 	c.mu.Unlock()
-	m.ensureOpen(c, "")
+	// The engine is started lazily by the next Prompt: the hub sends open right before
+	// prompt, and starting here too made one failure surface twice (and launch twice).
 }
 
 // ensureOpen starts the engine session if none is running. It reports success; on
@@ -485,7 +492,9 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 			err = errors.New("engine returned no session")
 		}
 		c.mu.Lock()
-		seen := c.errorSeen && c.gen == gen
+		// errorSeen is reset at the start of this attempt; an engine exit error bumps
+		// c.gen, so don't also require gen to match (that produced duplicate errors).
+		seen := c.errorSeen
 		c.gen++ // drop any late events of the failed attempt
 		c.mu.Unlock()
 		if !seen {

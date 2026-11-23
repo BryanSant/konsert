@@ -471,7 +471,9 @@ func TestManagerOpenErrors(t *testing.T) {
 	if ev.TurnID != "t1" {
 		t.Fatalf("error = %+v", ev)
 	}
+	// Open only records the target; the engine starts on the first prompt.
 	tm.Open(protocol.AgentChatOpen{ChatID: "c2", Agent: "nope"})
+	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c2", TurnID: "t2", Text: "hi"})
 	tm.col.waitFor(t, 0, "no engine", func(e protocol.AgentChatEvent) bool {
 		return e.ChatID == "c2" && e.Kind == protocol.EventError && e.Error.Kind == protocol.ErrKindNotFound
 	})
@@ -494,7 +496,9 @@ func TestManagerOpenFailureNotDuplicated(t *testing.T) {
 		o.Accounts = staticResolver{}
 		o.Engines = map[string]Engine{"failing": failingEngine{}}
 	})
+	// The hub sends open then prompt: one failure must surface exactly once.
 	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: "failing"})
+	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t1", Text: "hi"})
 	tm.col.waitFor(t, 0, "auth error", errKind(protocol.ErrKindAuth))
 	time.Sleep(30 * time.Millisecond)
 	n := 0
@@ -513,6 +517,7 @@ func TestManagerShutdownClosesSessions(t *testing.T) {
 	col := newCollector()
 	m := NewManager(ManagerOptions{Engines: map[string]Engine{"silent": eng}, Accounts: staticResolver{}, Sink: col.sink})
 	m.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: "silent"})
+	m.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t0", Text: "start"})
 	col.waitFor(t, 0, "ready", kind(protocol.EventSessionReady))
 	waitUntil(t, "open", func() bool { return len(m.Chats()) == 1 && m.Chats()[0].Open })
 	m.Shutdown(context.Background())

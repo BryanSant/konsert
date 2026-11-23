@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -162,14 +163,40 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 		t.Error("mcp config not removed on Close")
 	}
 
-	// Resume uses --resume with the given id.
-	s2, err := e.Open(context.Background(), acct, protocol.AgentChatOpen{Cwd: t.TempDir(), AgentSessionID: "abc"}, rec.emit)
+	// Resume uses --resume with the given id when the account has that transcript.
+	cfgDir := t.TempDir()
+	resumeCwd := t.TempDir()
+	tdir := filepath.Join(cfgDir, "projects", claudeProjectDirName(resumeCwd))
+	if err := os.MkdirAll(tdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tdir, "abc.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	racct := acct
+	racct.Env = map[string]string{"CLAUDE_CONFIG_DIR": cfgDir}
+	s2, err := e.Open(context.Background(), racct, protocol.AgentChatOpen{Cwd: resumeCwd, AgentSessionID: "abc"}, rec.emit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s2.Close() }()
 	if got := argValue(l.last().spec.Args, "--resume"); got != "abc" {
 		t.Fatalf("--resume = %q", got)
+	}
+
+	// Seen live: after switching a chat from claude2 to claude, resuming claude2's
+	// session failed with "No conversation found". Without a transcript in this
+	// account, start a new conversation instead.
+	s3, err := e.Open(context.Background(), racct, protocol.AgentChatOpen{Cwd: resumeCwd, AgentSessionID: "from-other-account"}, rec.emit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s3.Close() }()
+	if got := argValue(l.last().spec.Args, "--resume"); got != "" {
+		t.Fatalf("resumed a conversation this account doesn't have: --resume %q", got)
+	}
+	if argValue(l.last().spec.Args, "--session-id") == "" {
+		t.Fatal("expected a fresh --session-id")
 	}
 }
 

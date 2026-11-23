@@ -17,7 +17,9 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
   const now = ctx.now ?? new Date();
   switch (err.kind) {
     case 'usage_limit':
-      return { icon: 'clock', title: outOfUsageText(err.window, err.resets_at, now), detail: err.message, tone: 'amber' };
+      // With a known reset the title and countdown say it all (in local time); the agent's
+      // message repeats it in UTC, so only show the message when the reset is unknown.
+      return { icon: 'clock', title: outOfUsageText(err.window, err.resets_at, now), detail: err.resets_at ? '' : err.message, tone: 'amber' };
     case 'auth':
       return { icon: 'key', title: `${who} needs you to sign in again`, detail: err.message, tone: 'red' };
     case 'exit':
