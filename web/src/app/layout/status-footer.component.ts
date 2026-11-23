@@ -6,9 +6,10 @@ import { KonsertSocketService } from '../core/services/konsert-socket.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
+import { FooterUsageComponent } from './footer-usage.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
 
-type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | 'wake' | null;
+type FooterPopover = 'resources' | 'ports' | 'hosts' | 'wake' | null;
 
 /** Footer view of one online host's Keep Awake state. */
 export interface HostWakeRow {
@@ -28,7 +29,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 @Component({
   selector: 'app-status-footer',
   standalone: true,
-  imports: [TooltipDirective, IconComponent],
+  imports: [TooltipDirective, IconComponent, FooterUsageComponent],
   template: `
     <footer (keydown.escape)="openPopover.set(null)" class="relative h-7 flex items-center justify-between px-3 border-t border-[#26282e] bg-[#16171a] text-[11px] text-[#8e9098] select-none shrink-0 z-30">
       <!-- Backdrop to close open popover -->
@@ -48,40 +49,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
           <span class="hidden sm:inline text-[#a1a3ab]">{{ primaryHostLabel() }}</span>
         </span>
 
-        <button
-          type="button"
-          (click)="togglePopover('usage')"
-          ksTooltip="Subscription quotas & API token usage"
-          class="inline-flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer min-w-0 overflow-hidden"
-        >
-          <span class="text-[#86888f] shrink-0">Used</span>
-          @if (subscriptionQuotas().length > 0) {
-            <span class="inline-flex items-center gap-2.5 truncate">
-              @for (q of subscriptionQuotas(); track q.provider + ':' + (q.window_label || '')) {
-                <span class="inline-flex items-center gap-1 shrink-0">
-                  <app-icon [name]="q.provider" [size]="11" />
-                  <span class="text-[#b4b6be]">{{ q.label }}</span>
-                  @if (q.window_label) {
-                    <span class="font-mono-ide text-[#8a8c94]">{{ q.window_label }}</span>
-                  }
-                  <span
-                    class="font-mono-ide"
-                    [class.text-[#e05d5d]]="q.used_percent >= 90"
-                    [class.text-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
-                    [class.text-[#d4d4d8]]="q.used_percent < 70"
-                  >
-                    {{ formatPct(q.used_percent) }}
-                  </span>
-                </span>
-              }
-            </span>
-          } @else {
-            <span class="font-mono-ide text-[#b4b6be]">{{ formattedTotalTokens() }}</span>
-            @if (auth.provider()) {
-              <span class="hidden md:inline text-[#86888f]">· {{ auth.provider() }}</span>
-            }
-          }
-        </button>
+        <ks-footer-usage />
       </div>
 
       <!-- Right: Keep Awake, Resources, Ports, Hosts, Commands (Orca + Herdr) -->
@@ -128,6 +96,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('resources')"
+          data-testid="footer-resources"
           ksTooltip="Fleet Resource Manager & PTYs"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'resources'"
@@ -141,6 +110,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('ports')"
+          data-testid="footer-ports"
           ksTooltip="Listening ports across fleet"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'ports'"
@@ -154,6 +124,7 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <button
           type="button"
           (click)="togglePopover('hosts')"
+          data-testid="footer-hosts"
           ksTooltip="Connected fleet hosts"
           class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
           [class.bg-[#24262e]]="openPopover() === 'hosts'"
@@ -263,101 +234,6 @@ const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               Hosts stay awake via caffeinate (macOS), systemd-inhibit (Linux) or the Windows execution state, and are
               released if the hub stays unreachable for a few minutes.
             </p>
-          </div>
-        </div>
-      }
-
-      <!-- POPOVER: SUBSCRIPTION QUOTAS & API TOKEN USAGE -->
-      @if (openPopover() === 'usage') {
-        <div class="ks-popover absolute bottom-8 left-3 z-30 w-88 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
-            <span class="text-[12px] font-semibold text-[#ececed]">Subscription Quotas &amp; Usage</span>
-            <button
-              type="button"
-              (click)="fleet.refresh()"
-              class="text-[10.5px] text-[#8e9098] hover:text-[#ececed] cursor-pointer"
-            >
-              Refresh
-            </button>
-          </div>
-          <div class="p-3 space-y-3 text-[11px] max-h-80 overflow-y-auto">
-            <!-- Subscription Quotas (Primary) -->
-            <div class="space-y-1.5">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-[#86888f]">
-                Subscription Windows
-              </div>
-              @if (subscriptionQuotas().length === 0) {
-                <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#86888f]">
-                  No rolling subscription quotas reported yet. Active providers appear here automatically.
-                </div>
-              } @else {
-                <div class="space-y-2">
-                  @for (q of subscriptionQuotas(); track q.provider + ':' + (q.window_label || '')) {
-                    <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 space-y-1.5">
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="inline-flex items-center gap-1.5 text-[#e4e4e7] font-medium">
-                          <app-icon [name]="q.provider" [size]="12" />
-                          <span>{{ q.label }}</span>
-                          @if (q.window_label) {
-                            <span class="font-mono-ide text-[10px] text-[#8a8c94]">{{ q.window_label }}</span>
-                          }
-                        </span>
-                        <span
-                          class="font-mono-ide font-medium"
-                          [class.text-[#e05d5d]]="q.used_percent >= 90"
-                          [class.text-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
-                          [class.text-[#ececed]]="q.used_percent < 70"
-                        >
-                          {{ formatPct(q.used_percent) }}
-                        </span>
-                      </div>
-                      <div class="h-1.5 w-full rounded-full bg-[#24262c] overflow-hidden">
-                        <div
-                          class="h-full rounded-full transition-all"
-                          [class.bg-[#e05d5d]]="q.used_percent >= 90"
-                          [class.bg-[#d9a043]]="q.used_percent >= 70 && q.used_percent < 90"
-                          [class.bg-[#60a5fa]]="q.used_percent < 70"
-                          [style.width.%]="q.used_percent"
-                        ></div>
-                      </div>
-                      @if (q.reset_at) {
-                        <div class="text-[10px] font-mono-ide text-[#86888f]">
-                          {{ formatReset(q.reset_at) }}
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-            </div>
-
-            <!-- API Token Usage (Fallback / Secondary) -->
-            <div class="space-y-2 pt-2 border-t border-[#24262c]">
-              <div class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#86888f]">
-                <span>API Token Usage</span>
-                <span class="font-mono-ide font-normal">{{ fleet.usage().total_requests }} calls</span>
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                  <div class="text-[#86888f]">Input Tokens</div>
-                  <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_input_tokens) }}</div>
-                </div>
-                <div class="rounded-lg bg-[#121316] border border-[#23252b] p-2">
-                  <div class="text-[#86888f]">Output Tokens</div>
-                  <div class="font-mono-ide text-[13px] text-[#ececed]">{{ formatNum(fleet.usage().total_output_tokens) }}</div>
-                </div>
-              </div>
-              @if (fleet.usage().by_provider.length > 0) {
-                <div class="space-y-1">
-                  @for (b of fleet.usage().by_provider; track b.provider + b.model) {
-                    <div class="flex items-center justify-between rounded bg-[#121316] px-2.5 py-1.5 font-mono-ide">
-                      <span class="text-[#d4d4d8] truncate">{{ b.provider }}/{{ b.model }}</span>
-                      <span class="text-[#8e9098] shrink-0">{{ formatNum(b.input_tokens + b.output_tokens) }}</span>
-                    </div>
-                  }
-                </div>
-              }
-            </div>
           </div>
         </div>
       }
@@ -610,16 +486,6 @@ export class StatusFooterComponent implements OnDestroy {
   readonly activePtyTasks = computed(() =>
     this.fleet.tasks().filter((t) => t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned')
   );
-
-  readonly subscriptionQuotas = computed(() => this.fleet.usage().quotas ?? []);
-
-  readonly formattedTotalTokens = computed(() => {
-    const total = this.fleet.usage().total_input_tokens + this.fleet.usage().total_output_tokens;
-    if (total === 0) return '0 tok';
-    if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M tok`;
-    if (total >= 1_000) return `${(total / 1_000).toFixed(1)}k tok`;
-    return `${total} tok`;
-  });
 
   togglePopover(name: FooterPopover): void {
     this.openPopover.update((cur) => (cur === name ? null : name));
