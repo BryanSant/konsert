@@ -156,6 +156,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
                 [relogin]="relogin()"
                 [workerId]="workerId()"
                 [accountId]="accountId()"
+                [needsYouElsewhere]="needsYouElsewhere()"
                 (answer)="answer.emit($event)"
               />
             }
@@ -220,6 +221,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
             [relogin]="relogin()"
             [workerId]="workerId()"
             [accountId]="accountId()"
+            [needsYouElsewhere]="needsYouElsewhere()"
             (answer)="answer.emit($event)"
           />
         }
@@ -249,6 +251,8 @@ export class ChatTranscriptComponent {
   readonly accountId = input('');
   readonly relogin = input<AgentRelogin | undefined>(undefined);
   readonly alternatives = input<AgentAccount[]>([]);
+  /** Pending questions live in the page's Needs-you area: show pointers, not cards. */
+  readonly needsYouElsewhere = input(false);
 
   readonly answer = output<ElicitationAnswer>();
   readonly retry = output<void>();

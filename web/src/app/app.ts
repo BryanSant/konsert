@@ -1,13 +1,13 @@
-import { Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { NavigationError, Router, RouterOutlet } from '@angular/router';
 import { AppUpdateService } from './core/services/app-update.service';
 import { AuthService } from './core/services/auth.service';
 import { LoginViewComponent } from './features/auth/login-view.component';
-import { AppShellComponent } from './layout/app-shell.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [LoginViewComponent, AppShellComponent],
+  imports: [LoginViewComponent, RouterOutlet],
   template: `
     @if (auth.loading()) {
       <div class="h-screen w-screen flex items-center justify-center bg-[#111214] text-[#8e9098] text-[13px] font-mono-ide" role="status">
@@ -16,15 +16,10 @@ import { AppShellComponent } from './layout/app-shell.component';
     } @else if (!auth.authenticated()) {
       <app-login-view />
     } @else {
-      <!-- The shell (xterm, modals, stores' UI) is a separate lazy chunk: the login screen doesn't pay for it. -->
-      @defer (on immediate) {
-        <app-shell />
-      } @placeholder {
-        <div class="h-screen w-screen flex items-center justify-center bg-[#111214] text-[#8e9098] text-[13px] font-mono-ide" role="status">
-          Loading workspace...
-        </div>
-      } @error {
-        <div class="h-screen w-screen flex flex-col gap-3 items-center justify-center bg-[#111214] text-[#f09595] text-[13px]" role="alert">
+      <!-- Modes and the classic shell are lazy route chunks: the login screen doesn't pay for them. -->
+      <router-outlet />
+      @if (routeLoadFailed()) {
+        <div class="fixed inset-0 z-[70] flex flex-col gap-3 items-center justify-center bg-[#111214] text-[#f09595] text-[13px]" role="alert">
           <span>Konsert failed to load. The hub may have been upgraded.</span>
           <button type="button" (click)="updates.reload()" class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#ececed] cursor-pointer">Reload</button>
         </div>
@@ -53,6 +48,15 @@ export class App implements OnInit {
   readonly auth = inject(AuthService);
   readonly updates = inject(AppUpdateService);
   private readonly destroyRef = inject(DestroyRef);
+  /** A lazy route chunk failed to load (usually: the hub was upgraded under this page). */
+  readonly routeLoadFailed = signal(false);
+
+  constructor() {
+    const sub = inject(Router).events.subscribe((ev) => {
+      if (ev instanceof NavigationError) this.routeLoadFailed.set(true);
+    });
+    this.destroyRef.onDestroy(() => sub.unsubscribe());
+  }
 
   ngOnInit(): void {
     void this.auth.checkAuth();

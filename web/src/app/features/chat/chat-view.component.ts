@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, output, signal, untracked, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { AgentAccount, ChatStatus } from '../../core/models/agent-chat.models';
 import { accountHealth, alternativeAccounts } from '../../core/models/agent-usage';
 import { ChatSession } from '../../core/models/konsert.models';
@@ -82,7 +82,7 @@ export function chatTitleFrom(text: string): string {
           </form>
         } @else {
           <ks-popover label="Chats" placement="bottom-start" panelClass="w-[340px] max-h-[420px] overflow-y-auto" [(open)]="switcherOpen">
-            <button type="button" ksPopoverTrigger class="ks-btn gap-2 -ml-1.5 max-w-[38vw] sm:max-w-[46vw]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
+            <button type="button" ksPopoverTrigger class="ks-btn gap-2 -ml-1.5 max-w-[38vw] sm:max-w-[min(46vw,320px)]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
               @if (active(); as s) {
                 <app-icon [name]="s.agent || 'orchestrator'" [size]="14" />
               }
@@ -181,6 +181,7 @@ export function chatTitleFrom(text: string): string {
           [accountId]="s.account_id || ''"
           [relogin]="activeAccount()?.auth?.relogin"
           [alternatives]="alternatives()"
+          [needsYouElsewhere]="needsYouElsewhere()"
           (answer)="respond($event)"
           (retry)="retry()"
           (switchAccount)="switchTo($event)"
@@ -251,6 +252,8 @@ export function chatTitleFrom(text: string): string {
 })
 export class ChatViewComponent implements OnInit {
   readonly openNewTerminal = output<void>();
+  /** Command mode: pending questions are answered in the Needs-you rail, not inline. */
+  readonly needsYouElsewhere = input(false);
 
   readonly orch = inject(OrchestratorStore);
   readonly agentChat = inject(AgentChatStore);

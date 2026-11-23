@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { isPending } from '../../../core/models/question.models';
 import { QuestionsStore } from '../../../core/state/questions.store';
+import { NeedsYouStore } from '../../../core/state/needs-you.store';
 import { QuestionCardComponent } from '../../questions/question-card.component';
 import { AgentElicitationOption, AgentRelogin } from '../../../core/models/agent-chat.models';
 import { ElicitationItem } from '../../../core/state/chat-transcript';
@@ -25,6 +26,15 @@ export interface ElicitationAnswer {
   template: `
     @let el = item().elicitation;
     @if (linked(); as q) {
+      @if (needsYouElsewhere() && q.status === 'open') {
+        <div class="flex flex-wrap items-center gap-2 rounded-[var(--ks-radius-md)] border-l-2 border-[var(--ks-amber)] bg-[var(--ks-surface-1)] px-3 py-2 text-[12.5px]" data-testid="question-pointer" [attr.data-question]="q.sid">
+          <app-icon name="question" [size]="13" />
+          <span class="flex-1 min-w-0 text-[var(--ks-text-secondary)]">
+            Waiting for your answer: <span class="text-[var(--ks-text)]">{{ q.prompt }}</span>
+          </span>
+          <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="showInRail(q.id)">Answer in Needs you →</button>
+        </div>
+      } @else {
       <!-- A Konsert question: the same card as the Questions panel (stays until answered). -->
       <div [attr.data-elicitation-kind]="el.kind" [attr.data-elicitation-state]="item().state" class="space-y-2">
         @if (el.tool_call) {
@@ -32,6 +42,7 @@ export interface ElicitationAnswer {
         }
         <ks-question-card [question]="q" [compact]="true" />
       </div>
+      }
     } @else if (item().state === 'resolved' || item().state === 'expired') {
       <div class="flex items-center gap-2 px-1 text-[11.5px] text-[var(--ks-text-muted)]" [attr.data-elicitation-state]="item().state">
         <app-icon [name]="icon()" [size]="12" />
@@ -120,10 +131,20 @@ export class ElicitationCardComponent {
   readonly relogin = input<AgentRelogin | undefined>(undefined);
   readonly workerId = input('');
   readonly accountId = input('');
+  /**
+   * The page has one Needs-you area (Command's rail): show a pointer to it instead of a
+   * second copy of the question card.
+   */
+  readonly needsYouElsewhere = input(false);
   readonly answer = output<ElicitationAnswer>();
 
   readonly text = signal('');
   private readonly questions = inject(QuestionsStore);
+  private readonly needsYou = inject(NeedsYouStore);
+
+  showInRail(id: string): void {
+    this.needsYou.focus(id);
+  }
   /** The hub question this card shows, while it is pending (or just answered here). */
   readonly linked = computed(() => {
     const q = this.questions.question(this.item().elicitation.question_id);

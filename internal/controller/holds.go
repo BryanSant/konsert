@@ -599,3 +599,70 @@ func (s *Server) handleReleaseHold(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, hd)
 }
+
+// handleCreateHold places a hold the user asked for directly (the Hold button on a
+// session or machine): a session hold for a task or chat, else a machine hold. A hold
+// never suspends anything; it stops automatic actions there until it is released.
+func (s *Server) handleCreateHold(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TaskID   string `json:"task_id"`
+		ChatID   string `json:"chat_id"`
+		WorkerID string `json:"worker_id"`
+		Note     string `json:"note"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	ctx := r.Context()
+	cause := causeFrom(ctx)
+	if !isUserCause(cause) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only a user can place a hold"})
+		return
+	}
+	note := strings.TrimSpace(body.Note)
+	summary := func(label string) string {
+		if note != "" {
+			return "The user held " + label + ": " + note
+		}
+		return "The user held " + label
+	}
+	var spec holdSpec
+	var label string
+	switch {
+	case strings.TrimSpace(body.TaskID) != "":
+		t, err := s.store.GetTask(ctx, resolveRef(ctx, s.store, ids.Task, strings.TrimSpace(body.TaskID)))
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		label = fmt.Sprintf("task %s on %s", t.SID, s.hub.workerLabel(ctx, t.WorkerID))
+		spec = holdSpec{scope: store.HoldScopeSession, workerID: t.WorkerID, taskID: t.ID, summary: summary(label)}
+	case strings.TrimSpace(body.ChatID) != "":
+		cs, err := s.store.GetChatSession(ctx, resolveRef(ctx, s.store, ids.Chat, strings.TrimSpace(body.ChatID)))
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "chat not found"})
+			return
+		}
+		label = fmt.Sprintf("chat %s (%s)", cs.SID, cs.Title)
+		spec = holdSpec{scope: store.HoldScopeSession, workerID: cs.WorkerID, chatID: cs.ID, summary: summary(label)}
+	case strings.TrimSpace(body.WorkerID) != "":
+		wk, err := s.store.GetWorker(ctx, resolveRef(ctx, s.store, ids.Machine, strings.TrimSpace(body.WorkerID)))
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "machine not found"})
+			return
+		}
+		label = wk.Name
+		spec = holdSpec{scope: store.HoldScopeMachine, workerID: wk.ID, summary: summary(wk.Name)}
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task_id, chat_id or worker_id is required"})
+		return
+	}
+	hd, ok := s.hub.holdAfterIntervention(ctx, cause, spec)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not place the hold"})
+		return
+	}
+	s.hub.recordIntervention(ctx, cause, "hold", spec.workerID, spec.taskID, spec.chatID,
+		fmt.Sprintf("%s held %s", capitalize(describeActor(cause)), label))
+	writeJSON(w, http.StatusOK, hd)
+}

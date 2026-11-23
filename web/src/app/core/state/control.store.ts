@@ -187,6 +187,15 @@ export class ControlStore {
     return !!res;
   }
 
+  /** Holds a session (nothing automatic touches it until released); returns the hold. */
+  async holdSession(kind: 'task' | 'chat', id: string, note?: string): Promise<Hold | undefined> {
+    const res = await this.run(id, 'Could not place the hold', () =>
+      this.api.createHold(kind === 'task' ? { task_id: id, note } : { chat_id: id, note }),
+    );
+    if (res) this.applyHold(res);
+    return res;
+  }
+
   async resolveRequest(
     req: UserRequest,
     status: 'done' | 'declined',

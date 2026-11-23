@@ -31,18 +31,18 @@ import { SessionControlsComponent } from '../control/session-controls.component'
   standalone: true,
   imports: [TooltipDirective, IconComponent, SessionControlsComponent],
   template: `
-    <div class="h-full w-full flex flex-col" [class.p-2]="!embedded()" [class.bg-[#111214]]="true">
+    <div class="h-full w-full flex flex-col" [class.p-2]="framed()" [class.bg-[#111214]]="true">
       <!-- Herdr-style Framed Terminal Container -->
       <div
         class="flex flex-col flex-1 min-h-0 w-full bg-[#111214] overflow-hidden transition-colors"
-        [class.rounded-lg]="!embedded()"
-        [class.border]="!embedded()"
-        [class.border-[#4a668a]]="!embedded() && interactiveMode() && task()?.status !== 'waiting_input'"
-        [class.border-[#d9a043]/70]="!embedded() && task()?.status === 'waiting_input'"
-        [class.border-[#26282e]]="!embedded() && !interactiveMode() && task()?.status !== 'waiting_input'"
+        [class.rounded-lg]="framed()"
+        [class.border]="framed()"
+        [class.border-[#4a668a]]="framed() && interactiveMode() && task()?.status !== 'waiting_input'"
+        [class.border-[#d9a043]/70]="framed() && task()?.status === 'waiting_input'"
+        [class.border-[#26282e]]="framed() && !interactiveMode() && task()?.status !== 'waiting_input'"
       >
         <!-- Whisper-slim Frame Header (32px, Herdr style) -->
-        @if (!embedded()) {
+        @if (!embedded() && !bare()) {
           <div class="h-8 flex items-center justify-between gap-2 px-3 border-b border-[#22242a] bg-[#151619] shrink-0">
             <div class="flex items-center gap-2 min-w-0 text-[12px]">
               <app-icon [name]="task()?.agent || 'shell'" [size]="13" />
@@ -163,6 +163,10 @@ export class XtermPaneComponent implements OnDestroy {
   readonly taskId = input.required<string>();
   readonly visible = input<boolean>(true);
   readonly embedded = input<boolean>(false);
+  /** No frame header (the host shows its own, e.g. a Wall tile); Take Control still applies. */
+  readonly bare = input<boolean>(false);
+  /** The rounded frame and padding (classic tabs); hosts with their own frame drop it. */
+  readonly framed = computed(() => !this.embedded() && !this.bare());
 
   private readonly socket = inject(KonsertSocketService);
   private readonly api = inject(ApiClientService);
@@ -201,8 +205,7 @@ export class XtermPaneComponent implements OnDestroy {
   });
   readonly interactiveMode = computed(() => {
     if (this.embedded()) return true;
-    const tab = this.tabsStore.openTabs().find((t) => t.id === this.taskId());
-    return tab?.interactiveMode ?? false;
+    return this.tabsStore.isInteractive(this.taskId());
   });
   private readonly control = inject(ControlStore);
   /** The session hold on this task (e.g. placed by Take Control). */

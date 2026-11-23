@@ -464,6 +464,51 @@ func TestTakeControlHoldsSession(t *testing.T) {
 	}
 }
 
+func TestCreateHoldFromTheUI(t *testing.T) {
+	cs := newChatServer(t)
+	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
+	task := startTask(t, cs.svc, w, orchestratorCtx("orch"), "w1", "x", nil)
+
+	code, raw := cs.api(t, http.MethodPost, "/api/holds", map[string]string{"task_id": task.SID, "note": "let me look first"})
+	var hd store.Hold
+	_ = json.Unmarshal(raw, &hd)
+	if code != 200 || hd.ID == "" || hd.ScopeKind != store.HoldScopeSession || hd.TaskID != task.ID || !strings.Contains(hd.Summary, "let me look first") {
+		t.Fatalf("hold task: %d %s", code, raw)
+	}
+	if _, err := cs.svc.SteerTask(orchestratorCtx("orch"), task.ID, "ls", true); err == nil || !strings.Contains(err.Error(), "on hold") {
+		t.Fatalf("orchestrator steer on a held task: %v", err)
+	}
+	// Holding it again reuses the active hold.
+	_, raw = cs.api(t, http.MethodPost, "/api/holds", map[string]string{"task_id": task.ID})
+	var again store.Hold
+	_ = json.Unmarshal(raw, &again)
+	if again.ID != hd.ID {
+		t.Fatalf("second hold %s, want the existing %s", again.ID, hd.ID)
+	}
+	evs, _ := cs.st.ListFleetEvents(context.Background(), store.FleetEventFilter{Kind: store.EventKindAction})
+	found := false
+	for _, e := range evs {
+		if e.Action == "hold" && e.TaskID == task.ID && e.Cause.Actor == store.ActorUser {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no hold intervention event: %+v", evs)
+	}
+
+	code, raw = cs.api(t, http.MethodPost, "/api/holds", map[string]string{"worker_id": "w1"})
+	_ = json.Unmarshal(raw, &hd)
+	if code != 200 || hd.ScopeKind != store.HoldScopeMachine || hd.WorkerID != "w1" {
+		t.Fatalf("hold machine: %d %s", code, raw)
+	}
+	if code, _ := cs.api(t, http.MethodPost, "/api/holds", map[string]string{}); code != http.StatusBadRequest {
+		t.Fatalf("empty hold accepted: %d", code)
+	}
+	if code, _ := cs.api(t, http.MethodPost, "/api/holds", map[string]string{"task_id": "t-nope0"}); code != http.StatusNotFound {
+		t.Fatalf("hold on a missing task: %d", code)
+	}
+}
+
 // --- veto --------------------------------------------------------------------------------------
 
 func TestVetoCancelsAndIsRememberedForTheOrchestrator(t *testing.T) {

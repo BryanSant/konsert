@@ -67,8 +67,10 @@ export class KonsertSocketService {
 
   /** Chat session whose events this client wants (the active orchestrator session). */
   private desiredChatSession = '';
-  /** Chat session subscribed on the *current* socket ('' when none / not yet sent). */
-  private subscribedChatSession = '';
+  /** Other chats shown somewhere (Command tabs, Wall tiles), reference-counted. */
+  private readonly chatWatchers = new Map<string, number>();
+  /** Chat sessions subscribed on the *current* socket. */
+  private readonly subscribedChats = new Set<string>();
 
   constructor() {
     // The hub only fans chat.* events out to clients subscribed to that session, so
@@ -82,13 +84,43 @@ export class KonsertSocketService {
   /** Subscribes this socket to chat events for `sessionId` ('' to unsubscribe). */
   setChatSubscription(sessionId: string): void {
     this.desiredChatSession = sessionId;
-    if (this.subscribedChatSession === sessionId) return;
-    if (this.subscribedChatSession) {
-      this.sendJSON('chat.unsubscribe', { session_id: this.subscribedChatSession });
-      this.subscribedChatSession = '';
+    this.syncChatSubscriptions();
+  }
+
+  /**
+   * Receives a chat's events while it is shown outside the main chat view (a tab, a wall
+   * tile). Returns the function that stops watching; the last watcher unsubscribes.
+   */
+  watchChat(sessionId: string): () => void {
+    if (!sessionId) return () => undefined;
+    this.chatWatchers.set(sessionId, (this.chatWatchers.get(sessionId) ?? 0) + 1);
+    this.syncChatSubscriptions();
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const n = (this.chatWatchers.get(sessionId) ?? 1) - 1;
+      if (n <= 0) this.chatWatchers.delete(sessionId);
+      else this.chatWatchers.set(sessionId, n);
+      this.syncChatSubscriptions();
+    };
+  }
+
+  private syncChatSubscriptions(): void {
+    const want = new Set<string>(this.chatWatchers.keys());
+    if (this.desiredChatSession) want.add(this.desiredChatSession);
+    for (const id of [...this.subscribedChats]) {
+      if (!want.has(id)) {
+        this.sendJSON('chat.unsubscribe', { session_id: id });
+        this.subscribedChats.delete(id);
+      }
     }
-    if (sessionId && this.sendJSON('chat.subscribe', { session_id: sessionId })) {
-      this.subscribedChatSession = sessionId;
+    // The active session first, so the main view's frames go out before the watchers'.
+    const order = [this.desiredChatSession, ...this.chatWatchers.keys()].filter((id) => id && want.has(id));
+    for (const id of new Set(order)) {
+      if (!this.subscribedChats.has(id) && this.sendJSON('chat.subscribe', { session_id: id })) {
+        this.subscribedChats.add(id);
+      }
     }
   }
 
@@ -142,13 +174,14 @@ export class KonsertSocketService {
       if (isReconnect) {
         void this.orchestratorStore.onReconnected();
         void this.agentChat.onReconnected();
+        for (const id of this.chatWatchers.keys()) void this.agentChat.catchUp(id);
         void this.telemetryStore.onReconnected();
         void this.controlStore.load();
         void this.questionsStore.load();
       }
       // A new socket starts with no subscriptions: re-subscribe the active chat session.
-      this.subscribedChatSession = '';
-      this.setChatSubscription(this.desiredChatSession);
+      this.subscribedChats.clear();
+      this.syncChatSubscriptions();
       // Re-subscribe any open terminal panes after reconnect.
       for (const taskId of this.ptyListeners.keys()) {
         this.sendJSON('pty.subscribe', { task_id: taskId });
