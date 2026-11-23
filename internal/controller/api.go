@@ -501,10 +501,7 @@ func (s *Server) handleSSHHosts(w http.ResponseWriter, r *http.Request) {
 	for _, h := range hosts {
 		added := false
 		for _, wk := range workers {
-			if strings.EqualFold(wk.SSHTarget, h.Alias) ||
-				strings.EqualFold(wk.Name, h.Alias) ||
-				strings.EqualFold(wk.HostGroup, h.Alias) ||
-				(h.HostName != "" && strings.EqualFold(wk.Name, h.HostName)) {
+			if workerMatchesSSHHost(wk, h) {
 				added = true
 				break
 			}
@@ -512,6 +509,19 @@ func (s *Server) handleSSHHosts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, hostView{SSHHost: h, Added: added})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"hosts": out})
+}
+
+// workerMatchesSSHHost reports whether a machine is the ~/.ssh/config host h. A machine
+// the hub installed over SSH matches exactly its target; one started by hand matches by
+// name, host group or HostName (several aliases can share a HostName, e.g. containers or
+// WSL on other ports, so the SSH target is preferred whenever it is known).
+func workerMatchesSSHHost(wk store.Worker, h sshutil.SSHHost) bool {
+	if wk.SSHTarget != "" {
+		return strings.EqualFold(wk.SSHTarget, h.Alias)
+	}
+	return strings.EqualFold(wk.Name, h.Alias) ||
+		strings.EqualFold(wk.HostGroup, h.Alias) ||
+		(h.HostName != "" && strings.EqualFold(wk.Name, h.HostName))
 }
 
 func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {

@@ -28,8 +28,9 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
 export function workerMatchesHost(w: Worker, host: SSHHost): boolean {
   const alias = host.alias.toLowerCase();
+  // A machine the hub installed over ssh is exactly its target (aliases may share a HostName).
+  if (w.ssh_target) return w.ssh_target.toLowerCase() === alias;
   return (
-    (w.ssh_target ?? '').toLowerCase() === alias ||
     w.name.toLowerCase() === alias ||
     w.host_group.toLowerCase() === alias ||
     (!!host.hostname && w.name.toLowerCase() === host.hostname.toLowerCase())

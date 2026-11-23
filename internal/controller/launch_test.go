@@ -440,6 +440,19 @@ func TestSSHBootstrapRecordsLaunch(t *testing.T) {
 	}
 }
 
+func TestWorkerMatchesSSHHost(t *testing.T) {
+	pc := sshutil.SSHHost{Alias: "pc", HostName: "pc"}
+	wsl := sshutil.SSHHost{Alias: "pc-wsl", HostName: "pc"}
+	installed := store.Worker{Name: "pc", HostGroup: "pc", SSHTarget: "pc"}
+	if !workerMatchesSSHHost(installed, pc) || workerMatchesSSHHost(installed, wsl) {
+		t.Fatal("an SSH-installed machine must match exactly its target, not every alias of its HostName")
+	}
+	manual := store.Worker{Name: "pc", HostGroup: "pc"}
+	if !workerMatchesSSHHost(manual, pc) || !workerMatchesSSHHost(manual, wsl) {
+		t.Fatal("a hand-started machine still matches by name / HostName")
+	}
+}
+
 func TestLocalControllerURL(t *testing.T) {
 	lt := newLaunchTest(t)
 	cases := map[string]string{

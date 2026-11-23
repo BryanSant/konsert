@@ -74,7 +74,9 @@ type windowsShell struct{}
 
 // encodePS wraps a PowerShell script as a command line both cmd.exe and PowerShell run.
 func encodePS(script string) string {
-	u := utf16.Encode([]rune(script))
+	// Without this, Windows PowerShell writes progress records ("Preparing modules for
+	// first use") to a redirected stderr as CLIXML, burying real error messages.
+	u := utf16.Encode([]rune(psPrelude + script))
 	b := make([]byte, 2*len(u))
 	for i, c := range u {
 		b[2*i] = byte(c)
@@ -83,7 +85,10 @@ func encodePS(script string) string {
 	return "powershell -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(b)
 }
 
-// decodePS returns the script inside an encodePS command line, if it is one.
+const psPrelude = "$ProgressPreference = 'SilentlyContinue'\n"
+
+// decodePS returns the script inside an encodePS command line, if it is one (without
+// the prelude encodePS adds).
 func decodePS(cmd string) (string, bool) {
 	const prefix = "powershell -NoProfile -NonInteractive -EncodedCommand "
 	if !strings.HasPrefix(cmd, prefix) {
@@ -97,7 +102,7 @@ func decodePS(cmd string) (string, bool) {
 	for i := range u {
 		u[i] = uint16(b[2*i]) | uint16(b[2*i+1])<<8
 	}
-	return string(utf16.Decode(u)), true
+	return strings.TrimPrefix(string(utf16.Decode(u)), psPrelude), true
 }
 
 // windowsProbeScript prints the OS platform and processor architecture, one per line.
