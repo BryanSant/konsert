@@ -74,6 +74,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		sendCh:      make(chan wsFrame, 512),
 		cancel:      cancel,
 		activeTasks: make(map[string]bool),
+		baseURL:     workerBaseURLFrom(ctx),
 	}
 
 	// Register worker in SQLite and Hub.
@@ -210,6 +211,9 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	helloView := toWorkerView(wModel, wc.activeCount(), nil)
 	helloView.Facts = hello.Worker.Facts
 	h.broadcastFleetUpdate("worker", helloView)
+
+	// Agent chats that were working on this worker lost their turn with the old connection.
+	h.failInterruptedChats(ctx, wc)
 
 	// Drain any queued tasks that can now run on this worker.
 	h.kickScheduler()
@@ -363,6 +367,10 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onTaskEvent(ctx, wc, env)
 	case protocol.MsgHostWakeLockState:
 		h.onHostWakeLockState(ctx, wc, env)
+	case protocol.MsgAgentChatEvent:
+		h.onAgentChatEvent(ctx, wc, env)
+	case protocol.MsgAgentCapabilities:
+		h.onAgentCapabilities(ctx, wc, env)
 	}
 }
 

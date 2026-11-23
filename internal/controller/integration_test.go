@@ -826,7 +826,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
 	_ = repoResp.Body.Close()
 
-	// 3. Session defaults cascade: localhost machine + smart first-run guess
+	// 3. Session defaults cascade: localhost machine; no guessed model (no capabilities reported)
 	defResp, err := http.Get(ts.URL + "/api/sessions/defaults")
 	if err != nil || defResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/sessions/defaults failed: %v", err)
@@ -834,7 +834,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var defs SessionDefaultsResult
 	_ = json.NewDecoder(defResp.Body).Decode(&defs)
 	_ = defResp.Body.Close()
-	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent == "" || defs.Model == "" {
+	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent == "" || defs.Model != "" {
 		t.Fatalf("unexpected initial session defaults: %+v", defs)
 	}
 

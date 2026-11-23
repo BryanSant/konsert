@@ -122,31 +122,11 @@ type SessionDefaultsResult struct {
 	Agent           string   `json:"agent"`
 	AgentSource     string   `json:"agent_source"` // "explicit" | "default" | "last_used" | "guess"
 	Model           string   `json:"model"`
-	ModelSource     string   `json:"model_source"` // "explicit" | "default" | "last_used" | "guess"
+	ModelSource     string   `json:"model_source"` // "explicit" | "default" | "last_used" | "capabilities" | "" (agent default)
 	AvailableAgents []string `json:"available_agents"`
 }
 
 var preferredAgentOrder = []string{"agy", "claude", "codex", "grok", "mock"}
-
-func guessModelForAgent(agent, fallbackModel string) string {
-	switch strings.ToLower(strings.TrimSpace(agent)) {
-	case "claude":
-		return "claude-sonnet-4-5"
-	case "agy":
-		return "gemini-2.5-pro"
-	case "codex":
-		return "o4-mini"
-	case "grok":
-		return "grok-code-fast-1"
-	case "mock":
-		return "mock-default"
-	default:
-		if fallbackModel != "" {
-			return fallbackModel
-		}
-		return "gpt-4o"
-	}
-}
 
 func isLocalhostWorker(w store.Worker, localHostname string) bool {
 	name := strings.ToLower(strings.TrimSpace(w.Name))
@@ -177,7 +157,7 @@ func workerHasAgent(w store.Worker, agent string) bool {
 }
 
 // ResolveSessionDefaults resolves Machine (default localhost), Agent (default -> last used -> guess),
-// and Model (default -> last used -> guess) for a new Chat session.
+// and Model (default -> last used -> the agent account's reported default) for a new Chat session.
 func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, reqAgent, reqModel string) (SessionDefaultsResult, error) {
 	saved, _ := s.store.GetAllSettings(ctx)
 	workers, err := s.store.ListWorkers(ctx)
@@ -276,7 +256,7 @@ func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, r
 		}
 	}
 
-	// 3. Model cascade: explicit -> configured default -> last used -> smart guess per agent
+	// 3. Model cascade: explicit -> configured default -> last used -> capabilities
 	if mod := strings.TrimSpace(reqModel); mod != "" {
 		res.Model = mod
 		res.ModelSource = "explicit"
@@ -286,9 +266,13 @@ func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, r
 	} else if lastM := strings.TrimSpace(saved["last_used_model"]); lastM != "" {
 		res.Model = lastM
 		res.ModelSource = "last_used"
-	} else {
-		res.Model = guessModelForAgent(res.Agent, strings.TrimSpace(saved["llm_model"]))
-		res.ModelSource = "guess"
+	} else if chosenWorker != nil {
+		// No guesses: the agent's own reported default model (capabilities), else
+		// empty so the agent CLI uses its default.
+		if a, ok := s.hub.lookupAccount(ctx, chosenWorker.ID, res.Agent, ""); ok && a.DefaultModel != "" {
+			res.Model = a.DefaultModel
+			res.ModelSource = "capabilities"
+		}
 	}
 
 	return res, nil
@@ -313,6 +297,11 @@ type DispatchRequest struct {
 	PermissionMode string         `json:"permission_mode,omitempty"`
 	OrphanPolicy   string         `json:"orphan_policy,omitempty"`
 	TimeoutSeconds *int           `json:"timeout_seconds,omitempty"`
+	// AccountID selects the worker-local agent account ("" = the agent's default);
+	// ApprovalMode and Effort are the agent's own approval mode and effort IDs.
+	AccountID    string `json:"account_id,omitempty" jsonschema:"Agent account on the worker (see GET /api/agents/accounts); empty = the agent's default account"`
+	ApprovalMode string `json:"approval_mode,omitempty" jsonschema:"The agent's approval mode ID (from its capabilities); empty = the account default"`
+	Effort       string `json:"effort,omitempty" jsonschema:"Reasoning effort ID of the model (from capabilities); empty = the model default"`
 }
 
 type DispatchResult struct {
@@ -328,6 +317,8 @@ type DispatchResult struct {
 	Model            string `json:"model,omitempty"`
 	Status           string `json:"status"`
 	WorkdirEffective string `json:"workdir_effective"`
+	// Warnings are non-fatal notes, e.g. the account's usage window is exhausted.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
@@ -482,7 +473,31 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	}
 
 	counts := s.hub.ActiveTaskCounts()
+	req.AccountID = strings.TrimSpace(req.AccountID)
 	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
+	if ok {
+		// Never start work on a logged-out account: place it elsewhere if the
+		// selector allows, otherwise refuse with the re-login hint.
+		if loggedOut := s.hub.checkAccountLoggedIn(ctx, selected.ID, req.Agent, req.AccountID); loggedOut != nil {
+			eligible := make([]store.Worker, 0, len(onlineWorkers))
+			for _, w := range onlineWorkers {
+				if s.hub.checkAccountLoggedIn(ctx, w.ID, req.Agent, req.AccountID) == nil {
+					eligible = append(eligible, w)
+				}
+			}
+			if selected, ok = SelectWorker(eligible, counts, req.WorkerSelector, req.Agent, permMode); !ok {
+				return DispatchResult{}, loggedOut
+			}
+		}
+	}
+	var warnings []string
+	if ok {
+		if a, found := s.hub.lookupAccount(ctx, selected.ID, req.Agent, req.AccountID); found {
+			if u, exhausted := exhaustedWindow(a, time.Now()); exhausted {
+				warnings = append(warnings, exhaustedWarning(a, u))
+			}
+		}
+	}
 
 	task := store.Task{
 		ID:             taskID,
@@ -543,6 +558,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		Mode:           mode,
 		PermissionMode: string(permMode),
 		TimeoutSeconds: timeoutSecs,
+		AccountID:      req.AccountID,
+		ApprovalMode:   strings.TrimSpace(req.ApprovalMode),
+		Effort:         strings.TrimSpace(req.Effort),
 	}
 
 	// Persist the selector and full start payload so a queued (or later requeued)
@@ -585,6 +603,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		Model:            task.Model,
 		Status:           task.Status,
 		WorkdirEffective: task.EffectiveDir,
+		Warnings:         warnings,
 	}, nil
 }
 

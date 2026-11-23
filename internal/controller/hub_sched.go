@@ -148,6 +148,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		if !ok {
 			continue
 		}
+		if h.checkAccountLoggedIn(ctx, w.ID, payload.Agent, payload.AccountID) != nil {
+			// Leave it queued: the account must sign in again first.
+			continue
+		}
 		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID)
 		if err != nil || !claimed {
 			continue

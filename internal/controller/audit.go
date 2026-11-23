@@ -23,12 +23,18 @@ const (
 	AuditSettingsUpdate = "settings.update"
 	AuditWakeLockFleet  = "wakelock.fleet"
 	AuditWakeLockHost   = "wakelock.host"
+	// Agent chat (KON-TY1XP): settings changes and answers to agent requests.
+	AuditChatModel        = "chat.model"
+	AuditChatApprovalMode = "chat.approval_mode"
+	AuditChatAccount      = "chat.account"
+	AuditChatRespond      = "chat.respond"
 )
 
 // Audit sources: the path an action arrived through.
 const (
 	auditSourceREST         = "rest"
 	auditSourceCLI          = "cli"
+	auditSourceWS           = "ws"
 	auditSourceMCP          = "mcp"
 	auditSourceOrchestrator = "orchestrator"
 )
