@@ -491,3 +491,37 @@ func IsTerminalTaskStatus(status string) bool {
 		return false
 	}
 }
+
+// Host wake lock (Keep Awake) control plane. Both messages are additive: hubs that never
+// send host.wakelock and workers that never report host.wakelock.state are unaffected,
+// and older peers ignore message types they do not know.
+const (
+	// MsgHostWakeLock (hub → worker) asks konsertd to hold or release an OS-level
+	// idle-sleep inhibitor. konsertd answers with MsgHostWakeLockState.
+	MsgHostWakeLock = "host.wakelock"
+	// MsgHostWakeLockState (worker → hub) reports the current wake lock state. konsertd
+	// sends it right after every worker.hello (so the hub learns the state after a
+	// reconnect) and whenever the state changes.
+	MsgHostWakeLockState = "host.wakelock.state"
+)
+
+// HostWakeLockPayload is the hub → worker request carried by MsgHostWakeLock.
+type HostWakeLockPayload struct {
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// HostWakeLockState is the worker → hub report carried by MsgHostWakeLockState.
+type HostWakeLockState struct {
+	// Active reports whether an inhibitor is currently held.
+	Active bool `json:"active"`
+	// Method names the mechanism: "caffeinate", "systemd-inhibit" or
+	// "SetThreadExecutionState" (empty when the platform has none).
+	Method string `json:"method,omitempty"`
+	// Error explains why the last enable request failed or why a held lock was lost.
+	Error string `json:"error,omitempty"`
+	// Reason echoes the reason the current lock was taken with.
+	Reason string `json:"reason,omitempty"`
+	// Since is when the current lock was acquired (nil while inactive).
+	Since *time.Time `json:"since,omitempty"`
+}

@@ -45,6 +45,8 @@ type WorkerStatusView struct {
 	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
 	// Version is the worker's konsertd build version ("" when unknown).
 	Version string `json:"version,omitempty"`
+	// WakeLock is the host Keep Awake state (nil until reported or requested).
+	WakeLock *WorkerWakeLockView `json:"wake_lock,omitempty"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -105,6 +107,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		}
 		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
 		view.Status = st
+		view.WakeLock = s.hub.workerWakeLockView(w.ID)
 		views = append(views, view)
 	}
 	return FleetStatusResult{

@@ -361,6 +361,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onTaskStatus(ctx, wc, env)
 	case protocol.MsgTaskEvent:
 		h.onTaskEvent(ctx, wc, env)
+	case protocol.MsgHostWakeLockState:
+		h.onHostWakeLockState(ctx, wc, env)
 	}
 }
 

@@ -7,14 +7,29 @@ import { FleetStore } from '../core/state/fleet.store';
 import { TabsStore } from '../core/state/tabs.store';
 import { IconComponent } from '../shared/icon.component';
 
-type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
+type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | 'wake' | null;
+
+/** Footer view of one online host's Keep Awake state. */
+export interface HostWakeRow {
+  worker: Worker;
+  supported: boolean;
+  /** What the hub wants (falls back to the reported state). */
+  on: boolean;
+  active: boolean;
+  /** Wanted but not (yet) held: starting, or failed with an error. */
+  pending: boolean;
+  label: string;
+  error?: string;
+}
+
+const HOST_WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
 @Component({
   selector: 'app-status-footer',
   standalone: true,
   imports: [IconComponent],
   template: `
-    <footer class="relative h-7 flex items-center justify-between px-3 border-t border-[#26282e] bg-[#16171a] text-[11px] text-[#8e9098] select-none shrink-0 z-30">
+    <footer (keydown.escape)="openPopover.set(null)" class="relative h-7 flex items-center justify-between px-3 border-t border-[#26282e] bg-[#16171a] text-[11px] text-[#8e9098] select-none shrink-0 z-30">
       <!-- Backdrop to close open popover -->
       @if (openPopover()) {
         <div class="fixed inset-0 z-20" (click)="openPopover.set(null)"></div>
@@ -70,19 +85,43 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
 
       <!-- Right: Keep Awake, Resources, Ports, Hosts, Commands (Orca + Herdr) -->
       <div class="relative z-30 flex items-center gap-1 shrink-0">
-        <!-- Keep Awake (Built-in Caffeine) -->
-        <button
-          type="button"
-          (click)="toggleWakeLock()"
-          title="Keep display awake while monitoring fleet"
-          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[#22242a] transition cursor-pointer"
-          [class.text-[#e6b763]]="keepAwake()"
-          [class.text-[#8e9098]]="!keepAwake()"
-        >
-          <app-icon name="coffee" [size]="12" />
-          <span class="hidden sm:inline">{{ keepAwake() ? 'On' : 'Off' }}</span>
-          <span class="h-1.5 w-1.5 rounded-full" [class.bg-[#69b879]]="keepAwake()" [class.bg-[#5e6068]]="!keepAwake()"></span>
-        </button>
+        <!-- Keep Awake: browser screen wake lock + host wake locks (caffeinate / systemd-inhibit) -->
+        <span class="inline-flex items-center rounded" [class.bg-[#24262e]]="openPopover() === 'wake'">
+          <button
+            type="button"
+            data-testid="keep-awake-toggle"
+            (click)="toggleWakeLock()"
+            [attr.aria-pressed]="anyAwake()"
+            [attr.aria-label]="wakeAriaLabel()"
+            [title]="wakeAriaLabel()"
+            class="inline-flex items-center gap-1 rounded-l px-1.5 py-0.5 hover:bg-[#22242a] transition cursor-pointer"
+            [class.text-[#e6b763]]="anyAwake()"
+            [class.text-[#8e9098]]="!anyAwake()"
+          >
+            <app-icon name="coffee" [size]="12" />
+            <span class="hidden sm:inline" data-testid="keep-awake-label">{{ wakeLabel() }}</span>
+            <span
+              class="h-1.5 w-1.5 rounded-full"
+              [class.bg-[#69b879]]="wakeIndicator() === 'on'"
+              [class.bg-[#d9a043]]="wakeIndicator() === 'partial'"
+              [class.bg-[#5e6068]]="wakeIndicator() === 'off'"
+            ></span>
+          </button>
+          <button
+            type="button"
+            data-testid="keep-awake-details"
+            (click)="togglePopover('wake')"
+            aria-label="Keep Awake details per host"
+            title="Keep Awake details per host"
+            aria-haspopup="dialog"
+            [attr.aria-expanded]="openPopover() === 'wake'"
+            class="inline-flex items-center rounded-r px-0.5 py-0.5 text-[#8e9098] hover:bg-[#22242a] hover:text-[#ececed] transition cursor-pointer"
+          >
+            <svg aria-hidden="true" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 6.5 5 3.5l3 3" />
+            </svg>
+          </button>
+        </span>
 
         <!-- Resource Manager Trigger -->
         <button
@@ -134,6 +173,98 @@ type FooterPopover = 'usage' | 'resources' | 'ports' | 'hosts' | null;
           <span>commands</span>
         </button>
       </div>
+
+      <!-- POPOVER: KEEP AWAKE (browser + hosts) -->
+      @if (openPopover() === 'wake') {
+        <div
+          role="dialog"
+          aria-label="Keep Awake"
+          data-testid="keep-awake-popover"
+          class="ks-popover absolute bottom-8 right-40 z-30 w-80 max-w-[92vw] rounded-xl border border-[#2c2e36] overflow-hidden"
+        >
+          <div class="flex items-center justify-between px-3 py-2 border-b border-[#24262c]">
+            <span class="text-[12px] font-semibold text-[#ececed]">Keep Awake</span>
+            <button
+              type="button"
+              (click)="toggleWakeLock()"
+              class="text-[10.5px] text-[#8e9098] hover:text-[#ececed] cursor-pointer"
+            >
+              {{ anyAwake() ? 'Turn all off' : 'Turn all on' }}
+            </button>
+          </div>
+          <div class="p-2 space-y-1 text-[11px] max-h-80 overflow-y-auto">
+            <label class="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-[#1c1d22] cursor-pointer">
+              <span class="min-w-0">
+                <span class="block text-[#e4e4e7] font-medium">This browser</span>
+                <span class="block text-[10px] text-[#86888f]">
+                  {{ keepAwake() ? (browserLockHeld() ? 'Screen kept on' : 'On (screen wake lock unavailable here)') : 'Off' }}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                data-testid="browser-wake-switch"
+                class="accent-[#e6b763] h-3.5 w-3.5 cursor-pointer"
+                [checked]="keepAwake()"
+                (change)="setBrowserWakeLock(!keepAwake())"
+                aria-label="Keep this browser's screen awake"
+              />
+            </label>
+
+            <div class="flex items-center justify-between px-2 pt-2 pb-0.5">
+              <span class="text-[10px] font-semibold uppercase tracking-wider text-[#86888f]">Hosts</span>
+              <span class="font-mono-ide text-[10px] text-[#86888f]">{{ hostsAwake() }}/{{ hostWakeRows().length }} awake</span>
+            </div>
+            @if (hostWakeRows().length === 0) {
+              <div class="rounded-lg bg-[#121316] border border-[#23252b] px-2.5 py-2 text-[#86888f]">No online hosts.</div>
+            }
+            @for (row of hostWakeRows(); track row.worker.id) {
+              <label
+                class="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                [class.hover:bg-[#1c1d22]]="row.supported"
+                [class.cursor-pointer]="row.supported"
+                [attr.data-testid]="'host-wake-' + row.worker.id"
+              >
+                <span class="min-w-0">
+                  <span class="flex items-center gap-1.5 text-[#e4e4e7] font-medium">
+                    <span
+                      class="h-1.5 w-1.5 rounded-full shrink-0"
+                      [class.bg-[#69b879]]="row.active"
+                      [class.bg-[#d9a043]]="row.pending"
+                      [class.bg-[#5e6068]]="!row.active && !row.pending"
+                    ></span>
+                    <span class="truncate">{{ row.worker.name }}</span>
+                  </span>
+                  <span
+                    class="block text-[10px] truncate"
+                    [class.text-[#e05d5d]]="!!row.error"
+                    [class.text-[#86888f]]="!row.error"
+                    [title]="row.error || row.label"
+                  >
+                    {{ row.error || row.label }}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  class="accent-[#e6b763] h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                  [checked]="row.on"
+                  [disabled]="!row.supported"
+                  (change)="setHostWakeLock(row.worker, !row.on)"
+                  [attr.aria-label]="'Keep ' + row.worker.name + ' awake'"
+                />
+              </label>
+            }
+            @if (wakeError()) {
+              <div role="alert" class="rounded-lg bg-[#2a1717] border border-[#4a2323] px-2.5 py-1.5 text-[#f0a0a0]">{{ wakeError() }}</div>
+            }
+            <p class="px-2 pt-1 text-[10px] leading-snug text-[#6e7078]">
+              Hosts stay awake via caffeinate (macOS), systemd-inhibit (Linux) or the Windows execution state, and are
+              released if the hub stays unreachable for a few minutes.
+            </p>
+          </div>
+        </div>
+      }
 
       <!-- POPOVER: SUBSCRIPTION QUOTAS & API TOKEN USAGE -->
       @if (openPopover() === 'usage') {
@@ -422,9 +553,49 @@ export class StatusFooterComponent implements OnDestroy {
 
   readonly openPopover = signal<FooterPopover>(null);
   readonly resourceTab = signal<'resources' | 'ptys'>('resources');
+  /** Browser screen wake lock wanted (held when the Screen Wake Lock API allows it). */
   readonly keepAwake = signal(false);
+  readonly browserLockHeld = signal(false);
+  readonly wakeError = signal('');
 
   private wakeLock: { release(): Promise<void> } | null = null;
+
+  /** Online hosts with their Keep Awake state, by name. */
+  readonly hostWakeRows = computed<HostWakeRow[]>(() =>
+    this.fleet
+      .workers()
+      .filter((w) => w.status === 'online')
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((w) => hostWakeRow(w)),
+  );
+  readonly hostsAwake = computed(() => this.hostWakeRows().filter((r) => r.active).length);
+  private readonly hostsWanted = computed(() => this.hostWakeRows().filter((r) => r.on).length);
+
+  /** Anything (browser or a host) is kept awake or asked to be. */
+  readonly anyAwake = computed(() => this.keepAwake() || this.hostsAwake() > 0 || this.hostsWanted() > 0);
+
+  /** Green when everything asked for is held, amber while a host is pending or failed. */
+  readonly wakeIndicator = computed<'on' | 'partial' | 'off'>(() => {
+    if (!this.anyAwake()) return 'off';
+    return this.hostWakeRows().some((r) => r.pending) ? 'partial' : 'on';
+  });
+
+  readonly wakeLabel = computed(() => {
+    const total = this.hostWakeRows().length;
+    const awake = this.hostsAwake();
+    if (!this.anyAwake()) return 'Off';
+    if (total === 0) return 'Awake';
+    if (!this.keepAwake()) return `Hosts ${awake}/${total}`;
+    return `Awake · ${awake}/${total} hosts`;
+  });
+
+  readonly wakeAriaLabel = computed(() => {
+    const total = this.hostWakeRows().length;
+    const browser = this.keepAwake() ? 'browser on' : 'browser off';
+    const hosts = total === 0 ? 'no online hosts' : `${this.hostsAwake()} of ${total} hosts awake`;
+    const action = this.anyAwake() ? 'activate to turn all off' : 'activate to keep this browser and all hosts awake';
+    return `Keep Awake: ${browser}, ${hosts}; ${action}`;
+  });
 
   readonly primaryHostLabel = computed(() => {
     const tab = this.tabs.activeTab();
@@ -458,32 +629,59 @@ export class StatusFooterComponent implements OnDestroy {
     this.openMachineDetails.emit(w);
   }
 
+  /** Main toggle: everything off if anything is awake, else browser plus all hosts on. */
   async toggleWakeLock(): Promise<void> {
-    if (this.keepAwake()) {
-      await this.releaseWakeLock();
+    const enable = !this.anyAwake();
+    this.wakeError.set('');
+    await Promise.all([this.setBrowserWakeLock(enable), this.setAllHostsWakeLock(enable)]);
+  }
+
+  async setBrowserWakeLock(enable: boolean): Promise<void> {
+    if (!enable) {
       this.keepAwake.set(false);
+      await this.releaseWakeLock();
       return;
     }
+    this.keepAwake.set(true);
     try {
       const nav = navigator as Navigator & { wakeLock?: { request(type: string): Promise<{ release(): Promise<void> }> } };
-      if (nav.wakeLock) {
+      if (nav.wakeLock && !this.wakeLock) {
         this.wakeLock = await nav.wakeLock.request('screen');
+        this.browserLockHeld.set(true);
       }
-      this.keepAwake.set(true);
     } catch {
-      // Fallback visual toggle even on non-HTTPS localhost
-      this.keepAwake.set(true);
+      // Not allowed here (e.g. insecure origin or hidden tab): the hosts still get theirs.
+      this.browserLockHeld.set(false);
+    }
+  }
+
+  async setAllHostsWakeLock(enable: boolean): Promise<void> {
+    try {
+      await this.api.setFleetWakeLock(enable, HOST_WAKE_REASON);
+    } catch (e) {
+      this.wakeError.set(`Could not ${enable ? 'enable' : 'disable'} host Keep Awake: ${errorMessage(e)}`);
+    }
+  }
+
+  async setHostWakeLock(w: Worker, enable: boolean): Promise<void> {
+    this.wakeError.set('');
+    try {
+      await this.api.setWorkerWakeLock(w.id, enable, HOST_WAKE_REASON);
+    } catch (e) {
+      this.wakeError.set(`Could not update ${w.name}: ${errorMessage(e)}`);
     }
   }
 
   private async releaseWakeLock(): Promise<void> {
-    if (this.wakeLock) {
+    const lock = this.wakeLock;
+    this.wakeLock = null;
+    this.browserLockHeld.set(false);
+    if (lock) {
       try {
-        await this.wakeLock.release();
+        await lock.release();
       } catch {
         // ignore
       }
-      this.wakeLock = null;
     }
   }
 
@@ -529,4 +727,22 @@ export class StatusFooterComponent implements OnDestroy {
   ngOnDestroy(): void {
     void this.releaseWakeLock();
   }
+}
+
+function hostWakeRow(w: Worker): HostWakeRow {
+  const wl = w.wake_lock;
+  const supported = !!wl?.supported;
+  const active = !!wl?.active;
+  const on = wl?.desired ?? active;
+  const pending = supported && on && !active;
+  let label: string;
+  if (!supported) label = 'Not supported by this konsertd';
+  else if (active) label = wl?.method ? `Awake · ${wl.method}` : 'Awake';
+  else if (pending) label = 'Starting…';
+  else label = 'Off';
+  return { worker: w, supported, on, active, pending, label, error: pending ? wl?.error || undefined : undefined };
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
