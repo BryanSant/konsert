@@ -78,6 +78,7 @@ import { IconComponent } from '../shared/icon.component';
           <!-- Workspace (Space) Selector Row -->
           <div class="flex items-center gap-1 px-1 pb-1">
             <select
+              aria-label="Space"
               class="flex-1 min-w-0 rounded-md border border-[#262830] bg-[#1b1c20] px-2 py-1 text-[11.5px] font-medium text-[#e4e4e7] focus:border-[#4a668a] focus:outline-none"
               [ngModel]="activeWorkspaceId()"
               (ngModelChange)="selectedWorkspaceId.set($event)"
@@ -189,6 +190,7 @@ import { IconComponent } from '../shared/icon.component';
                 <form (ngSubmit)="submitCreateRepo(proj.id)" class="mx-2 mb-1 rounded-md border border-[#2d3039] bg-[#131418] p-2 space-y-1.5 text-[11px]">
                   <select
                     name="repoWorker"
+                    aria-label="Machine"
                     [ngModel]="formWorkerId()"
                     (ngModelChange)="formWorkerId.set($event)"
                     class="w-full rounded border border-[#2c2e36] bg-[#111214] px-2 py-1 text-[#ececed]"
@@ -406,6 +408,8 @@ import { IconComponent } from '../shared/icon.component';
                     <button
                       type="button"
                       (click)="toggleWorker(node.worker.id)"
+                      [attr.aria-label]="(isCollapsed(node.worker.id) ? 'Expand ' : 'Collapse ') + node.worker.name"
+                      [attr.aria-expanded]="!isCollapsed(node.worker.id)"
                       class="text-[#686a72] hover:text-[#b4b6be] cursor-pointer transition-transform duration-150"
                       [class.-rotate-90]="isCollapsed(node.worker.id)"
                     >

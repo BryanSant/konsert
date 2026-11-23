@@ -96,6 +96,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
               <input
                 type="text"
                 name="renameTitle"
+                aria-label="Session title"
                 [ngModel]="renameDraft()"
                 (ngModelChange)="renameDraft.set($event)"
                 (keydown.escape)="renaming.set(false)"
@@ -118,6 +119,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
             </form>
           } @else {
             <select
+              aria-label="Chat session"
               class="rounded-md border border-[#2a2c33] bg-[#1b1c20] px-2.5 py-1 text-[12px] text-[#e4e4e7] focus:border-[#4a668a] focus:outline-none max-w-[220px]"
               [ngModel]="orch.activeSessionId()"
               (ngModelChange)="orch.selectSession($event)"
@@ -370,6 +372,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                     <button
                       type="button"
                       (click)="removeAttachment(att.remotePath)"
+                      [attr.aria-label]="'Remove attachment ' + att.remotePath"
                       class="text-[#6d7078] hover:text-[#f09595] cursor-pointer"
                     >
                       <app-icon name="close" [size]="10" />
@@ -421,6 +424,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Permission Mode Selector -->
                 <select
                   name="composerPerm"
+                  aria-label="Permission mode"
                   [ngModel]="fleet.settings().default_permission_mode"
                   (ngModelChange)="onPermissionModeChange($event)"
                   title="Default permission mode for fleet dispatch"
@@ -437,6 +441,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Machine Selector (default localhost) -->
                 <select
                   name="composerMachine"
+                  aria-label="Machine"
                   [ngModel]="selectedMachineId()"
                   (ngModelChange)="onComposerMachineChange($event)"
                   title="Target machine (defaults to localhost)"
@@ -453,6 +458,7 @@ export function extractTaskIdsFromToolPayload(raw: unknown): string[] {
                 <!-- Live Agent Selector (default -> last used -> guess) -->
                 <select
                   name="composerAgent"
+                  aria-label="Agent"
                   [ngModel]="selectedAgent()"
                   (ngModelChange)="onComposerAgentChange($event)"
                   title="Preferred coding agent"

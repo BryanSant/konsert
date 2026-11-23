@@ -117,6 +117,7 @@ let nextPickerId = 0;
               <button
                 type="button"
                 (click)="browseOpen.set(false)"
+                aria-label="Close folder browser"
                 class="rounded p-0.5 text-[#6d7078] hover:text-[#ececed] cursor-pointer"
               >
                 <app-icon name="close" [size]="11" />

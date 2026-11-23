@@ -86,7 +86,8 @@ export class ModalDialogComponent implements OnDestroy {
 
   private focusInitial(dialog: HTMLDialogElement): void {
     const target =
-      dialog.querySelector<HTMLElement>('[autofocus]') ?? dialog.querySelector<HTMLElement>(FOCUSABLE);
+      dialog.querySelector<HTMLElement>('[autofocus]') ??
+      dialog.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
   }
 
