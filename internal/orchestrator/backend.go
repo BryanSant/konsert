@@ -54,6 +54,10 @@ type Message struct {
 	ToolName     string     `json:"tool_name,omitempty"`
 	InputTokens  int64      `json:"input_tokens,omitempty"`
 	OutputTokens int64      `json:"output_tokens,omitempty"`
+	// AnthropicContent holds the raw assistant content blocks (including
+	// signed thinking blocks) so a tool-use turn can be continued exactly as
+	// the Anthropic API requires. It lives only in memory for the current turn.
+	AnthropicContent json.RawMessage `json:"-"`
 }
 
 // Provider implements a direct LLM API client.
@@ -84,16 +88,25 @@ type Service struct {
 	store    store.Store
 	executor ToolExecutor
 	provider Provider
+	// maxTokens caps output tokens per LLM call; 0 means provider defaults
+	// (DefaultMaxTokens for Anthropic, unset for OpenAI/Gemini).
+	maxTokens int
 }
 
-func buildProvider(cfg config.OrchestratorConfig) Provider {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+func buildProvider(cfg config.OrchestratorConfig, maxTokens int) Provider {
+	switch normalizeProvider(cfg.Provider) {
 	case "anthropic":
-		return NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewAnthropicProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p
 	case "gemini":
-		return NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewGeminiProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p
 	default:
-		return NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
+		p := NewOpenAIProvider(cfg.APIKey, cfg.BaseURL)
+		p.MaxTokens = maxTokens
+		return p
 	}
 }
 
@@ -103,7 +116,7 @@ func NewService(cfg config.OrchestratorConfig, st store.Store, executor ToolExec
 		cfg:      cfg,
 		store:    st,
 		executor: executor,
-		provider: buildProvider(cfg),
+		provider: buildProvider(cfg, 0),
 	}
 }
 
@@ -112,7 +125,20 @@ func (s *Service) UpdateConfig(cfg config.OrchestratorConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cfg = cfg
-	s.provider = buildProvider(cfg)
+	s.provider = buildProvider(cfg, s.maxTokens)
+}
+
+// SetMaxTokens sets the per-call output token ceiling (0 restores provider
+// defaults) and rebuilds the provider. It exists until OrchestratorConfig grows
+// a max_tokens field that NewService/UpdateConfig can read directly.
+func (s *Service) SetMaxTokens(n int) {
+	if n < 0 {
+		n = 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxTokens = n
+	s.provider = buildProvider(s.cfg, n)
 }
 
 // SetProvider replaces the LLM provider (useful for tests).
@@ -203,6 +229,9 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 	model := cfg.Model
 	if model == "" {
 		model = sess.Model
+	}
+	if model == "" {
+		model = DefaultModel(cfg.Provider)
 	}
 	tools := s.executor.ToolDefinitions()
 

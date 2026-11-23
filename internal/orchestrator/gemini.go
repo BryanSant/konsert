@@ -16,6 +16,8 @@ import (
 type GeminiProvider struct {
 	apiKey  string
 	baseURL string
+	// MaxTokens, when >0, is sent as generationConfig.maxOutputTokens.
+	MaxTokens int
 	httpOpts
 }
 
@@ -35,7 +37,7 @@ func (p *GeminiProvider) Name() string { return "gemini" }
 
 func (p *GeminiProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = "gemini-2.5-pro"
+		model = DefaultGeminiModel
 	}
 
 	var contents []map[string]any
@@ -89,6 +91,9 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 
 	reqBody := map[string]any{
 		"contents": contents,
+	}
+	if p.MaxTokens > 0 {
+		reqBody["generationConfig"] = map[string]any{"maxOutputTokens": p.MaxTokens}
 	}
 	if system != "" {
 		reqBody["systemInstruction"] = map[string]any{

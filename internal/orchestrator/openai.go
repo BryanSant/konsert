@@ -16,6 +16,8 @@ import (
 type OpenAIProvider struct {
 	apiKey  string
 	baseURL string
+	// MaxTokens, when >0, is sent as max_completion_tokens.
+	MaxTokens int
 	httpOpts
 }
 
@@ -35,7 +37,7 @@ func (p *OpenAIProvider) Name() string { return "openai" }
 
 func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, messages []Message, tools []ToolDef, onDelta func(string)) (Message, error) {
 	if model == "" {
-		model = "gpt-4o"
+		model = DefaultOpenAIModel
 	}
 	apiMsgs := make([]map[string]any, 0, len(messages)+1)
 	if system != "" {
@@ -72,6 +74,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		"messages":       apiMsgs,
 		"stream":         true,
 		"stream_options": map[string]any{"include_usage": true},
+	}
+	if p.MaxTokens > 0 {
+		reqBody["max_completion_tokens"] = p.MaxTokens
 	}
 	if len(tools) > 0 {
 		apiTools := make([]map[string]any, 0, len(tools))
