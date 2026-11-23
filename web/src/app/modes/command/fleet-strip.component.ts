@@ -11,7 +11,7 @@ import { machineLoadLabel, occupiesSlot } from '../../core/state/work-logic';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink],
-  host: { class: 'block shrink-0' },
+  host: { class: 'hidden md:block shrink-0' },
   template: `
     <footer class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 text-[12px] text-[var(--ks-text-secondary)] bg-[var(--ks-bg-chrome)] border-t border-[var(--ks-hairline)]" aria-label="Fleet and quota" data-testid="fleet-strip">
       @if (machines().length === 0) {

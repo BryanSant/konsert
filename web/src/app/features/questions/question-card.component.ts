@@ -209,7 +209,7 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
           }
           @if (compact()) {
             <span class="flex-1"></span>
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="question-open-queue" (click)="store.open(q.id)">Open in Questions</button>
+            <button type="button" class="ks-btn ks-btn-sm" data-testid="question-open-queue" (click)="store.open(q.id)">Open in Needs you</button>
           }
         </div>
       }

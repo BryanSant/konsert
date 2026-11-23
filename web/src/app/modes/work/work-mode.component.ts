@@ -9,6 +9,7 @@ import { NeedsYouStore } from '../../core/state/needs-you.store';
 import { IconComponent } from '../../shared/icon.component';
 import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
+import { isPhoneWidth } from '../../app.routes';
 import { ReviewPanelComponent } from './review-panel.component';
 
 export const COLUMN_LABELS: Record<WorkColumn, string> = {
@@ -217,7 +218,8 @@ export class WorkModeComponent {
   readonly labels = COLUMN_LABELS;
 
   readonly sid = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('sid') ?? '')), { initialValue: '' });
-  readonly view = signal<'board' | 'list'>(loadView());
+  // A phone gets the list: the board needs a wide screen.
+  readonly view = signal<'board' | 'list'>(isPhoneWidth() ? 'list' : loadView());
   readonly board = this.work.board;
   readonly cap = this.work.capacity;
 
