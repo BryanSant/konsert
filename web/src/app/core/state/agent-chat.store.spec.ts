@@ -126,14 +126,15 @@ describe('AgentChatStore', () => {
     store.respond(FIXTURE_CHAT_ID, 'el1', { optionId: 'allow_once', label: 'Allow once' });
     store.respond(FIXTURE_CHAT_ID, 'el1', { text: 'use main', label: 'use main' });
     expect(frames(ws, CHAT_PROTOCOL.wsRespond)).toEqual([
-      { chat_id: FIXTURE_CHAT_ID, elicitation_id: 'el1', option_id: 'allow_once' },
-      { chat_id: FIXTURE_CHAT_ID, elicitation_id: 'el1', text: 'use main' },
+      // The hub keys these frames on session_id.
+      { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, elicitation_id: 'el1', option_id: 'allow_once' },
+      { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, elicitation_id: 'el1', text: 'use main' },
     ]);
     store.cancel(FIXTURE_CHAT_ID);
     store.control(FIXTURE_CHAT_ID, { model: 'opus', effort: 'high', approval_mode: '' });
     expect(frames(ws, CHAT_PROTOCOL.wsControl)).toEqual([
-      { chat_id: FIXTURE_CHAT_ID, cancel: true },
-      { chat_id: FIXTURE_CHAT_ID, model: 'opus', effort: 'high' },
+      { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, cancel: true },
+      { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, model: 'opus', effort: 'high' },
     ]);
     expect(TestBed.inject(OrchestratorStore).sessions()[0]).toMatchObject({ model: 'opus', effort: 'high' });
   });

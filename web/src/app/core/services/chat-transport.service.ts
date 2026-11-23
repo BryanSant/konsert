@@ -45,11 +45,12 @@ export class ChatTransportService {
     return this.socket.sendFrame(CHAT_PROTOCOL.wsSend, frame);
   }
 
+  // The hub keys chat.respond / chat.control on session_id (chat_id kept for clarity).
   respond(frame: ChatRespondFrame): boolean {
-    return this.socket.sendFrame(CHAT_PROTOCOL.wsRespond, frame);
+    return this.socket.sendFrame(CHAT_PROTOCOL.wsRespond, { ...frame, session_id: frame.chat_id });
   }
 
   control(frame: ChatControlFrame): boolean {
-    return this.socket.sendFrame(CHAT_PROTOCOL.wsControl, frame);
+    return this.socket.sendFrame(CHAT_PROTOCOL.wsControl, { ...frame, session_id: frame.chat_id });
   }
 }

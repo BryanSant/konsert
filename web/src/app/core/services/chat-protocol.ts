@@ -12,9 +12,9 @@ export const CHAT_PROTOCOL = {
   // WebSocket, browser -> hub
   /** {session_id, chat_id, turn_id, content, attachments?} */
   wsSend: 'chat.send',
-  /** {chat_id, elicitation_id, option_id?, text?} */
+  /** {session_id, chat_id, elicitation_id, option_id?, text?} (the hub reads session_id) */
   wsRespond: 'chat.respond',
-  /** {chat_id, cancel?, model?, effort?, approval_mode?} */
+  /** {session_id, chat_id, cancel?, model?, effort?, approval_mode?} (the hub reads session_id) */
   wsControl: 'chat.control',
   /** Existing per-session fan-out scoping. */
   wsSubscribe: 'chat.subscribe',
