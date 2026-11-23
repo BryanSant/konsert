@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -545,12 +545,12 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Connection", "keep-alive")
 			w.WriteHeader(http.StatusOK)
 			opts.OnStage = func(stage, label, detail string) {
-				b, _ := json.Marshal(map[string]any{"type": "stage", "stage": stage, "label": label, "detail": detail})
+				b, _ := json.Marshal(map[string]any{"type": "stage", "stage": stage, "label": label, "detail": detail}, protocol.JSONOptions)
 				_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 				flusher.Flush()
 			}
 			res := sshutil.BootstrapRemoteWorker(r.Context(), opts)
-			b, _ := json.Marshal(map[string]any{"type": "done", "result": res})
+			b, _ := json.Marshal(map[string]any{"type": "done", "result": res}, protocol.JSONOptions)
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 			flusher.Flush()
 			return
@@ -1155,5 +1155,7 @@ func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	// Invalid UTF-8 (file names, command output) is replaced with U+FFFD rather than
+	// failing the response.
+	_ = json.MarshalWrite(w, v, protocol.JSONOptions)
 }

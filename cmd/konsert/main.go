@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -279,17 +278,13 @@ func newDispatchCmd() *cobra.Command {
 				return err
 			}
 			if !wait {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(res)
+				return writeJSONOut(os.Stdout, res)
 			}
 			final, err := client.GetTaskResult(context.Background(), res.TaskID, true, 300)
 			if err != nil {
 				return err
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(final)
+			return writeJSONOut(os.Stdout, final)
 		},
 	}
 	cmd.Flags().StringVar(&url, "url", "", "Konsert controller HTTP URL")

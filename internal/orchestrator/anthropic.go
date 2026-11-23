@@ -3,7 +3,8 @@ package orchestrator
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -87,10 +88,10 @@ func anthropicMessages(messages []Message) []map[string]any {
 }
 
 // toolInputObject returns args as a JSON object, or {} if they are not one.
-func toolInputObject(args json.RawMessage) json.RawMessage {
+func toolInputObject(args jsontext.Value) jsontext.Value {
 	var obj map[string]any
 	if len(args) == 0 || json.Unmarshal(args, &obj) != nil || obj == nil {
-		return json.RawMessage("{}")
+		return jsontext.Value("{}")
 	}
 	return args
 }
@@ -125,7 +126,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, model, system string, 
 		reqBody["tools"] = apiTools
 	}
 
-	raw, err := json.Marshal(reqBody)
+	raw, err := json.Marshal(reqBody, requestJSONOpts)
 	if err != nil {
 		return Message{}, err
 	}
@@ -156,7 +157,7 @@ type anthropicBlock struct {
 	ID        string
 	Name      string
 	InputJSON strings.Builder
-	StartIn   json.RawMessage // input from content_block_start (complete for non-streamed inputs)
+	StartIn   jsontext.Value // input from content_block_start (complete for non-streamed inputs)
 	Thinking  strings.Builder
 	Signature string
 	Data      string // redacted_thinking payload
@@ -199,14 +200,14 @@ func parseAnthropicStream(r io.Reader, onDelta func(string)) (Message, error) {
 				} `json:"usage"`
 			} `json:"message"`
 			ContentBlock *struct {
-				Type      string          `json:"type"`
-				Text      string          `json:"text"`
-				ID        string          `json:"id"`
-				Name      string          `json:"name"`
-				Input     json.RawMessage `json:"input"`
-				Thinking  string          `json:"thinking"`
-				Signature string          `json:"signature"`
-				Data      string          `json:"data"`
+				Type      string         `json:"type"`
+				Text      string         `json:"text"`
+				ID        string         `json:"id"`
+				Name      string         `json:"name"`
+				Input     jsontext.Value `json:"input"`
+				Thinking  string         `json:"thinking"`
+				Signature string         `json:"signature"`
+				Data      string         `json:"data"`
 			} `json:"content_block"`
 			Delta *struct {
 				Type        string `json:"type"`
@@ -321,7 +322,7 @@ func parseAnthropicStream(r io.Reader, onDelta func(string)) (Message, error) {
 			textParts = append(textParts, t)
 			replay = append(replay, map[string]any{"type": "text", "text": t})
 		case "tool_use":
-			args := json.RawMessage(strings.TrimSpace(b.InputJSON.String()))
+			args := jsontext.Value(strings.TrimSpace(b.InputJSON.String()))
 			if len(args) == 0 {
 				args = b.StartIn
 			}
@@ -337,7 +338,7 @@ func parseAnthropicStream(r io.Reader, onDelta func(string)) (Message, error) {
 	out.Content = strings.Join(textParts, "\n")
 	if len(out.ToolCalls) > 0 && len(replay) > 0 {
 		// Only needed to continue a tool-use turn; plain answers are replayed from Content.
-		if b, err := json.Marshal(replay); err == nil {
+		if b, err := json.Marshal(replay, storeJSONOpts); err == nil {
 			out.AnthropicContent = b
 		}
 	}

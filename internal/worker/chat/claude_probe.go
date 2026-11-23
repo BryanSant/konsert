@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -134,7 +134,7 @@ func claudeParseAuth(stdout []byte, code int, acct Account, now time.Time) claud
 		SubscriptionType string  `json:"subscriptionType"`
 		PlanTier         string  `json:"planTier"`
 	}
-	parseErr := json.Unmarshal(stdout, &st)
+	parseErr := unmarshal(stdout, &st)
 	if code != 0 || (parseErr == nil && !st.LoggedIn) {
 		return claudeAuth{AgentAuthStatus: protocol.AgentAuthStatus{
 			State:   protocol.AuthLoggedOut,
@@ -191,7 +191,7 @@ type claudeInitResponse struct {
 // probeInit runs a short-lived stream-json process that never receives a user message:
 // initialize gives the models; get_usage (when wantUsage) the subscription windows, read
 // by the CLI with its own (refreshed) credentials.
-func (e *claudeEngine) probeInit(ctx context.Context, acct Account, wantUsage bool) (claudeInitResponse, json.RawMessage, error) {
+func (e *claudeEngine) probeInit(ctx context.Context, acct Account, wantUsage bool) (claudeInitResponse, jsontext.Value, error) {
 	var init claudeInitResponse
 	cctx, cancel := context.WithTimeout(ctx, e.initTimeout)
 	defer cancel()
@@ -206,29 +206,29 @@ func (e *claudeEngine) probeInit(ctx context.Context, acct Account, wantUsage bo
 	type resp struct {
 		id   string
 		ok   bool
-		body json.RawMessage
+		body jsontext.Value
 	}
 	ch := make(chan resp, 4)
 	go func() {
 		sc := ccLineReader(proc.Stdout())
 		for sc.Scan() {
 			var l claudeLine
-			if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "control_response" {
+			if unmarshal(sc.Bytes(), &l) != nil || l.Type != "control_response" {
 				continue
 			}
 			var r struct {
-				Subtype   string          `json:"subtype"`
-				RequestID string          `json:"request_id"`
-				Response  json.RawMessage `json:"response"`
+				Subtype   string         `json:"subtype"`
+				RequestID string         `json:"request_id"`
+				Response  jsontext.Value `json:"response"`
 			}
-			if json.Unmarshal(l.Response, &r) == nil {
+			if unmarshal(l.Response, &r) == nil {
 				ch <- resp{id: r.RequestID, ok: r.Subtype == "success", body: r.Response}
 			}
 		}
 		close(ch)
 	}()
 	send := func(id, subtype string) error {
-		b, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": id, "request": map[string]any{"subtype": subtype}})
+		b, _ := marshalLine(map[string]any{"type": "control_request", "request_id": id, "request": map[string]any{"subtype": subtype}})
 		_, err := proc.Stdin().Write(append(b, '\n'))
 		return err
 	}
@@ -257,10 +257,10 @@ func (e *claudeEngine) probeInit(ctx context.Context, acct Account, wantUsage bo
 	if !r.ok {
 		return init, nil, errors.New("initialize failed")
 	}
-	if err := json.Unmarshal(r.body, &init); err != nil {
+	if err := unmarshal(r.body, &init); err != nil {
 		return init, nil, err
 	}
-	var usage json.RawMessage
+	var usage jsontext.Value
 	if wantUsage {
 		if send("probe-usage", "get_usage") == nil {
 			if r, err := wait("probe-usage"); err == nil && r.ok {
@@ -322,7 +322,7 @@ func (e *claudeEngine) usageDue(acctID string) bool {
 
 // usage returns the account's windows: a fresh fetch when due (get_usage from the probe
 // process, else the OAuth usage endpoint), merged with what sessions reported in-stream.
-func (e *claudeEngine) usage(ctx context.Context, acct Account, fromCLI json.RawMessage) ([]protocol.AgentRateLimit, string) {
+func (e *claudeEngine) usage(ctx context.Context, acct Account, fromCLI jsontext.Value) ([]protocol.AgentRateLimit, string) {
 	if !e.usageDisabled() && e.usageDue(acct.ID) {
 		var limits []protocol.AgentRateLimit
 		note := ""
@@ -444,15 +444,15 @@ func claudePercentState(pct float64) string {
 
 // claudeParseUsageBuckets maps the /api/oauth/usage shape (also inside get_usage's
 // rate_limits) to windows.
-func claudeParseUsageBuckets(raw json.RawMessage) ([]protocol.AgentRateLimit, error) {
-	var buckets map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &buckets); err != nil {
+func claudeParseUsageBuckets(raw jsontext.Value) ([]protocol.AgentRateLimit, error) {
+	var buckets map[string]jsontext.Value
+	if err := unmarshal(raw, &buckets); err != nil {
 		return nil, fmt.Errorf("unexpected usage response")
 	}
 	var out []protocol.AgentRateLimit
 	for _, w := range claudeBucketWindows {
 		var b claudeUsageBucket
-		if v, ok := buckets[w]; !ok || string(v) == "null" || json.Unmarshal(v, &b) != nil {
+		if v, ok := buckets[w]; !ok || string(v) == "null" || unmarshal(v, &b) != nil {
 			continue
 		}
 		if rl, ok := claudeBucketLimit(w, &b); ok {
@@ -465,7 +465,7 @@ func claudeParseUsageBuckets(raw json.RawMessage) ([]protocol.AgentRateLimit, er
 			DisplayName string `json:"display_name"`
 			claudeUsageBucket
 		}
-		if json.Unmarshal(v, &scoped) == nil {
+		if unmarshal(v, &scoped) == nil {
 			for _, s := range scoped {
 				name := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s.DisplayName), " ", "_"))
 				if name == "" {
@@ -488,12 +488,12 @@ func claudeParseUsageBuckets(raw json.RawMessage) ([]protocol.AgentRateLimit, er
 }
 
 // claudeParseCLIUsage reads the get_usage control response.
-func claudeParseCLIUsage(raw json.RawMessage) ([]protocol.AgentRateLimit, error) {
+func claudeParseCLIUsage(raw jsontext.Value) ([]protocol.AgentRateLimit, error) {
 	var r struct {
-		Available  *bool           `json:"rate_limits_available"`
-		RateLimits json.RawMessage `json:"rate_limits"`
+		Available  *bool          `json:"rate_limits_available"`
+		RateLimits jsontext.Value `json:"rate_limits"`
 	}
-	if err := json.Unmarshal(raw, &r); err != nil {
+	if err := unmarshal(raw, &r); err != nil {
 		return nil, err
 	}
 	if (r.Available != nil && !*r.Available) || len(r.RateLimits) == 0 || string(r.RateLimits) == "null" {
@@ -580,7 +580,7 @@ func claudeTokenFromCredentials(data []byte) (string, error) {
 			AccessToken string `json:"accessToken"`
 		} `json:"claudeAiOauth"`
 	}
-	if err := json.Unmarshal(data, &c); err != nil || c.ClaudeAiOauth.AccessToken == "" {
+	if err := unmarshal(data, &c); err != nil || c.ClaudeAiOauth.AccessToken == "" {
 		return "", errors.New("credentials hold no OAuth access token")
 	}
 	return c.ClaudeAiOauth.AccessToken, nil

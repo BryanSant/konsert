@@ -1,8 +1,10 @@
 package controller
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/json/v2"
 	"errors"
+	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -176,7 +178,21 @@ func (s *Server) guard(next http.Handler) http.Handler {
 // decodeJSON decodes the request body into v, writing 413 when the body exceeds the
 // limit and 400 for malformed JSON. It reports whether decoding succeeded.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	return decodeJSONBody(w, r, v, false)
+}
+
+// decodeJSONBody is decodeJSON; with allowEmpty an empty (or all-whitespace) body
+// succeeds and leaves v untouched. The whole body must be one JSON value: trailing
+// data is rejected.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any, allowEmpty bool) bool {
+	b, err := io.ReadAll(r.Body)
+	if err == nil {
+		if allowEmpty && len(bytes.TrimSpace(b)) == 0 {
+			return true
+		}
+		err = json.Unmarshal(b, v)
+	}
+	if err != nil {
 		if isBodyTooLarge(err) {
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 			return false

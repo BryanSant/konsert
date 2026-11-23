@@ -2,7 +2,8 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,12 +42,12 @@ func fakeClaudeHandler(t *testing.T, o fakeClaudeOpts) func(p *ccFakeProc, msg m
 			}
 			switch req["subtype"] {
 			case "initialize":
-				ok(json.RawMessage(initBody))
+				ok(jsontext.Value(initBody))
 			case "get_usage":
 				if o.usage == "" {
 					ok(map[string]any{"rate_limits_available": false, "rate_limits": nil})
 				} else {
-					ok(json.RawMessage(o.usage))
+					ok(jsontext.Value(o.usage))
 				}
 			case "interrupt":
 				ok(map[string]any{"still_queued": []any{}})

@@ -10,7 +10,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -189,7 +189,7 @@ func codexListModels(ctx context.Context, c *codexConn) ([]protocol.AgentModel, 
 			Data       []codexModel `json:"data"`
 			NextCursor *string      `json:"nextCursor"`
 		}
-		if err := json.Unmarshal(raw, &r); err != nil {
+		if err := unmarshal(raw, &r); err != nil {
 			return out, def, err
 		}
 		for _, m := range r.Data {
@@ -331,7 +331,7 @@ func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAcc
 	defer proc.Kill()
 	conn := newCodexConn(proc)
 	conn.trace = e.trace
-	conn.onRequest = func(id json.RawMessage, _ string, _ json.RawMessage) {
+	conn.onRequest = func(id jsontext.Value, _ string, _ jsontext.Value) {
 		_ = conn.respondError(id, -32601, "not supported while probing")
 	}
 	go conn.serve()
@@ -342,7 +342,7 @@ func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAcc
 	}
 	if raw, err := conn.call(cctx, "account/read", map[string]any{"refreshToken": false}); err == nil {
 		var ar codexAccountRead
-		if json.Unmarshal(raw, &ar) == nil {
+		if unmarshal(raw, &ar) == nil {
 			if ar.Account == nil && ar.RequiresOpenaiAuth {
 				out.Auth = protocol.AgentAuthStatus{State: protocol.AuthLoggedOut, Detail: "Not signed in.", Relogin: codexRelogin(acct)}
 			} else if ar.Account != nil {
@@ -374,7 +374,7 @@ func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAcc
 	var rr struct {
 		RateLimits *codexRateSnapshot `json:"rateLimits"`
 	}
-	if json.Unmarshal(raw, &rr) == nil {
+	if unmarshal(raw, &rr) == nil {
 		out.Usage = codexLimits(rr.RateLimits)
 		if out.Plan == "" && rr.RateLimits != nil {
 			out.Plan = rr.RateLimits.PlanType
@@ -435,10 +435,10 @@ func (e *codexStartError) Error() string { return e.cerr.Message }
 
 type codexPending struct {
 	elicID      string
-	rpcID       json.RawMessage
+	rpcID       jsontext.Value
 	method      string
 	kind        string
-	permissions json.RawMessage
+	permissions jsontext.Value
 	questionIDs []string
 	options     []string // option labels of the first question
 }
@@ -510,8 +510,8 @@ func (s *codexSession) ensureProc(ctx context.Context) error {
 	}
 	conn := newCodexConn(proc)
 	conn.trace = s.eng.trace
-	conn.onNotify = func(m string, p json.RawMessage) { s.onNotify(gen, m, p) }
-	conn.onRequest = func(id json.RawMessage, m string, p json.RawMessage) { s.onRequest(gen, id, m, p) }
+	conn.onNotify = func(m string, p jsontext.Value) { s.onNotify(gen, m, p) }
+	conn.onRequest = func(id jsontext.Value, m string, p jsontext.Value) { s.onRequest(gen, id, m, p) }
 	conn.onActive = func() {
 		s.mu.Lock()
 		if gen == s.procGen {
@@ -551,7 +551,7 @@ func (s *codexSession) ensureProc(ctx context.Context) error {
 		return fail(&protocol.AgentChatError{Kind: protocol.ErrKindProtocol, Message: "codex account/read failed: " + err.Error()})
 	}
 	var ar codexAccountRead
-	_ = json.Unmarshal(raw, &ar)
+	_ = unmarshal(raw, &ar)
 	if ar.Account == nil && ar.RequiresOpenaiAuth {
 		return fail(s.eng.authError(s.acct, codexLabel(s.acct)+" is not signed in"))
 	}
@@ -594,7 +594,7 @@ func (s *codexSession) ensureProc(ctx context.Context) error {
 		Model           string  `json:"model"`
 		ReasoningEffort *string `json:"reasoningEffort"`
 	}
-	_ = json.Unmarshal(raw, &tr)
+	_ = unmarshal(raw, &tr)
 	s.mu.Lock()
 	if tr.Thread.ID != "" {
 		s.threadID = tr.Thread.ID
@@ -699,7 +699,7 @@ func (s *codexSession) Prompt(ctx context.Context, p protocol.AgentChatPrompt) e
 			ID string `json:"id"`
 		} `json:"turn"`
 	}
-	_ = json.Unmarshal(raw, &r)
+	_ = unmarshal(raw, &r)
 	s.mu.Lock()
 	if s.turn == t && t.codexID == "" {
 		t.codexID = r.Turn.ID
@@ -760,7 +760,7 @@ func codexAnswer(p *codexPending, r protocol.AgentChatRespond) any {
 			return map[string]any{"decision": "decline"}
 		}
 	case "item/permissions/requestApproval":
-		perms := json.RawMessage(`{}`)
+		perms := jsontext.Value(`{}`)
 		scope := "turn"
 		switch r.OptionID {
 		case "allow_once", "allow":
@@ -788,18 +788,18 @@ func codexAnswer(p *codexPending, r protocol.AgentChatRespond) any {
 }
 
 // codexGranted turns a requested permission profile into a granted one (drops nulls).
-func codexGranted(requested json.RawMessage) json.RawMessage {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(requested, &m) != nil {
-		return json.RawMessage(`{}`)
+func codexGranted(requested jsontext.Value) jsontext.Value {
+	var m map[string]jsontext.Value
+	if unmarshal(requested, &m) != nil {
+		return jsontext.Value(`{}`)
 	}
-	out := map[string]json.RawMessage{}
+	out := map[string]jsontext.Value{}
 	for k, v := range m {
 		if string(v) != "null" {
 			out[k] = v
 		}
 	}
-	b, _ := json.Marshal(out)
+	b, _ := marshalLine(out)
 	return b
 }
 
@@ -966,19 +966,19 @@ func (s *codexSession) handleExit(gen, code int, stderr string) {
 // --- notifications ------------------------------------------------------------------------
 
 type codexItem struct {
-	Type             string          `json:"type"`
-	ID               string          `json:"id"`
-	Text             string          `json:"text"`
-	Command          string          `json:"command"`
-	Cwd              string          `json:"cwd"`
-	Status           string          `json:"status"`
-	AggregatedOutput *string         `json:"aggregatedOutput"`
-	ExitCode         *int            `json:"exitCode"`
-	Changes          []codexChange   `json:"changes"`
-	Server           string          `json:"server"`
-	Tool             string          `json:"tool"`
-	Arguments        json.RawMessage `json:"arguments"`
-	Result           json.RawMessage `json:"result"`
+	Type             string         `json:"type"`
+	ID               string         `json:"id"`
+	Text             string         `json:"text"`
+	Command          string         `json:"command"`
+	Cwd              string         `json:"cwd"`
+	Status           string         `json:"status"`
+	AggregatedOutput *string        `json:"aggregatedOutput"`
+	ExitCode         *int           `json:"exitCode"`
+	Changes          []codexChange  `json:"changes"`
+	Server           string         `json:"server"`
+	Tool             string         `json:"tool"`
+	Arguments        jsontext.Value `json:"arguments"`
+	Result           jsontext.Value `json:"result"`
 	Error            *struct {
 		Message string `json:"message"`
 	} `json:"error"`
@@ -996,9 +996,9 @@ type codexChange struct {
 }
 
 type codexTurnError struct {
-	Message           string          `json:"message"`
-	CodexErrorInfo    json.RawMessage `json:"codexErrorInfo"`
-	AdditionalDetails *string         `json:"additionalDetails"`
+	Message           string         `json:"message"`
+	CodexErrorInfo    jsontext.Value `json:"codexErrorInfo"`
+	AdditionalDetails *string        `json:"additionalDetails"`
 }
 
 // current returns the active turn if the notification belongs to the live process.
@@ -1011,7 +1011,7 @@ func (s *codexSession) current(gen int) (*codexTurn, bool) {
 	return s.turn, true
 }
 
-func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) {
+func (s *codexSession) onNotify(gen int, method string, params jsontext.Value) {
 	t, live := s.current(gen)
 	if !live {
 		return
@@ -1021,7 +1021,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 		var n struct {
 			RateLimits *codexRateSnapshot `json:"rateLimits"`
 		}
-		if json.Unmarshal(params, &n) != nil {
+		if unmarshal(params, &n) != nil {
 			return
 		}
 		limits := codexLimits(n.RateLimits)
@@ -1048,7 +1048,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 				ID string `json:"id"`
 			} `json:"turn"`
 		}
-		if json.Unmarshal(params, &n) == nil {
+		if unmarshal(params, &n) == nil {
 			s.mu.Lock()
 			if t.codexID == "" {
 				t.codexID = n.Turn.ID
@@ -1060,7 +1060,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 			ItemID string `json:"itemId"`
 			Delta  string `json:"delta"`
 		}
-		if json.Unmarshal(params, &n) == nil && n.Delta != "" {
+		if unmarshal(params, &n) == nil && n.Delta != "" {
 			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: t.id, MessageID: n.ItemID, Text: n.Delta})
 		}
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
@@ -1068,14 +1068,14 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 			ItemID string `json:"itemId"`
 			Delta  string `json:"delta"`
 		}
-		if json.Unmarshal(params, &n) == nil && n.Delta != "" {
+		if unmarshal(params, &n) == nil && n.Delta != "" {
 			s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: t.id, MessageID: n.ItemID, Text: n.Delta})
 		}
 	case "item/started", "item/completed":
 		var n struct {
 			Item codexItem `json:"item"`
 		}
-		if json.Unmarshal(params, &n) != nil {
+		if unmarshal(params, &n) != nil {
 			return
 		}
 		s.handleItem(t, n.Item, method == "item/completed")
@@ -1086,7 +1086,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 				Status string `json:"status"`
 			} `json:"plan"`
 		}
-		if json.Unmarshal(params, &n) == nil && len(n.Plan) > 0 {
+		if unmarshal(params, &n) == nil && len(n.Plan) > 0 {
 			plan := make([]protocol.AgentPlanItem, 0, len(n.Plan))
 			for _, p := range n.Plan {
 				st := p.Status
@@ -1109,7 +1109,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 				} `json:"last"`
 			} `json:"tokenUsage"`
 		}
-		if json.Unmarshal(params, &n) == nil {
+		if unmarshal(params, &n) == nil {
 			l := n.TokenUsage.Last
 			s.mu.Lock()
 			t.usage = &protocol.AgentTokenUsage{InputTokens: l.InputTokens, OutputTokens: l.OutputTokens + l.ReasoningOutputTokens, CacheReadTokens: l.CachedInputTokens, CacheCreateTokens: l.CacheWriteInputTokens}
@@ -1120,7 +1120,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 			Error     codexTurnError `json:"error"`
 			WillRetry bool           `json:"willRetry"`
 		}
-		if json.Unmarshal(params, &n) != nil {
+		if unmarshal(params, &n) != nil {
 			return
 		}
 		cerr := s.turnError(n.Error)
@@ -1141,7 +1141,7 @@ func (s *codexSession) onNotify(gen int, method string, params json.RawMessage) 
 				Error  *codexTurnError `json:"error"`
 			} `json:"turn"`
 		}
-		if json.Unmarshal(params, &n) != nil {
+		if unmarshal(params, &n) != nil {
 			return
 		}
 		s.mu.Lock()
@@ -1205,17 +1205,17 @@ func (s *codexSession) killProc(gen int) {
 // codexErrorInfo extracts the error code name and an HTTP status from codexErrorInfo,
 // which is a string ("usageLimitExceeded") or a one-key object
 // ({"httpConnectionFailed": {"httpStatusCode": 401}}).
-func codexErrorInfo(raw json.RawMessage) (name string, status int) {
+func codexErrorInfo(raw jsontext.Value) (name string, status int) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", 0
 	}
-	if json.Unmarshal(raw, &name) == nil {
+	if unmarshal(raw, &name) == nil {
 		return name, 0
 	}
 	var obj map[string]struct {
 		HTTPStatusCode *int `json:"httpStatusCode"`
 	}
-	if json.Unmarshal(raw, &obj) == nil {
+	if unmarshal(raw, &obj) == nil {
 		for k, v := range obj {
 			name = k
 			if v.HTTPStatusCode != nil {
@@ -1399,14 +1399,14 @@ func codexToolCall(it codexItem) *protocol.AgentToolCall {
 	return tc
 }
 
-func codexMCPResultText(raw json.RawMessage) string {
+func codexMCPResultText(raw jsontext.Value) string {
 	var r struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
-	if json.Unmarshal(raw, &r) == nil && len(r.Content) > 0 {
+	if unmarshal(raw, &r) == nil && len(r.Content) > 0 {
 		var parts []string
 		for _, c := range r.Content {
 			if c.Type == "text" {
@@ -1420,7 +1420,7 @@ func codexMCPResultText(raw json.RawMessage) string {
 
 // --- server requests ------------------------------------------------------------------------
 
-func (s *codexSession) onRequest(gen int, id json.RawMessage, method string, params json.RawMessage) {
+func (s *codexSession) onRequest(gen int, id jsontext.Value, method string, params jsontext.Value) {
 	s.mu.Lock()
 	live := gen == s.procGen
 	conn := s.conn
@@ -1443,7 +1443,7 @@ func (s *codexSession) onRequest(gen int, id json.RawMessage, method string, par
 		Command *string `json:"command"`
 		Cwd     *string `json:"cwd"`
 	}
-	_ = json.Unmarshal(params, &common)
+	_ = unmarshal(params, &common)
 	reason := ""
 	if common.Reason != nil {
 		reason = *common.Reason
@@ -1485,9 +1485,9 @@ func (s *codexSession) onRequest(gen int, id json.RawMessage, method string, par
 		el.ToolCall, el.Title, el.Options, el.Detail = tc, "Allow "+tc.Title+"?", permOptions, reason
 	case "item/permissions/requestApproval":
 		var pp struct {
-			Permissions json.RawMessage `json:"permissions"`
+			Permissions jsontext.Value `json:"permissions"`
 		}
-		_ = json.Unmarshal(params, &pp)
+		_ = unmarshal(params, &pp)
 		p.permissions = pp.Permissions
 		el.Title = "Allow codex extra permissions?"
 		el.Detail = strings.TrimSpace(reason + "\n" + ccTruncate(string(pp.Permissions), 500))
@@ -1507,7 +1507,7 @@ func (s *codexSession) onRequest(gen int, id json.RawMessage, method string, par
 				} `json:"options"`
 			} `json:"questions"`
 		}
-		if json.Unmarshal(params, &q) != nil || len(q.Questions) == 0 {
+		if unmarshal(params, &q) != nil || len(q.Questions) == 0 {
 			_ = conn.respondError(id, -32602, "no questions")
 			return
 		}

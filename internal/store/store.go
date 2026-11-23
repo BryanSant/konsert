@@ -39,7 +39,7 @@ type Worker struct {
 	Status         string            `json:"status"` // "online", "offline"
 	LastSeenAt     time.Time         `json:"last_seen_at"`
 	FactsJSON      string            `json:"facts_json,omitempty"`
-	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitempty"`
+	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitzero"`
 	// Version is the konsertd build version last reported in worker.hello.
 	Version string `json:"version,omitempty"`
 }
@@ -132,10 +132,10 @@ type Task struct {
 	Status         string         `json:"status"` // "queued","assigned","running","waiting_input","completed","failed","canceled"
 	Summary        string         `json:"summary"`
 	GitSummaryJSON string         `json:"git_summary_json,omitempty"`
-	ExitCode       *int           `json:"exit_code,omitempty"`
+	ExitCode       *int           `json:"exit_code,omitzero"`
 	CreatedAt      time.Time      `json:"created_at"`
-	StartedAt      *time.Time     `json:"started_at,omitempty"`
-	CompletedAt    *time.Time     `json:"completed_at,omitempty"`
+	StartedAt      *time.Time     `json:"started_at,omitzero"`
+	CompletedAt    *time.Time     `json:"completed_at,omitzero"`
 }
 
 // TaskStartSpec is the persisted placement and launch specification of a task:
@@ -144,7 +144,7 @@ type Task struct {
 type TaskStartSpec struct {
 	SelectorJSON string `json:"selector_json,omitempty"`
 	PayloadJSON  string `json:"payload_json,omitempty"`
-	WorkerPinned bool   `json:"worker_pinned,omitempty"`
+	WorkerPinned bool   `json:"worker_pinned,omitzero"`
 }
 
 type TaskEvent struct {
@@ -266,7 +266,7 @@ type SubscriptionQuota struct {
 	Label       string     `json:"label"`
 	WindowLabel string     `json:"window_label,omitempty"`
 	UsedPercent float64    `json:"used_percent"`
-	ResetAt     *time.Time `json:"reset_at,omitempty"`
+	ResetAt     *time.Time `json:"reset_at,omitzero"`
 	Source      string     `json:"source,omitempty"`
 	WorkerID    string     `json:"worker_id,omitempty"`
 	UpdatedAt   time.Time  `json:"updated_at"`

@@ -3,7 +3,6 @@ package chat
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -36,7 +35,7 @@ func CLIStatus(ctx context.Context, acct Account) protocol.AgentAccount {
 			LoginExpiresAt   *string `json:"loginExpiresAt"`
 			SubscriptionType string  `json:"subscriptionType"`
 		}
-		if jerr := json.Unmarshal(out, &st); jerr == nil {
+		if jerr := unmarshal(out, &st); jerr == nil {
 			a.Auth.Method = st.AuthMethod
 			a.Plan = st.SubscriptionType
 			if st.LoggedIn {
@@ -68,7 +67,7 @@ func CLIStatus(ctx context.Context, acct Account) protocol.AgentAccount {
 		var st struct {
 			IsAuthenticated *bool `json:"isAuthenticated"`
 		}
-		if json.Unmarshal(out, &st) == nil && st.IsAuthenticated != nil {
+		if unmarshal(out, &st) == nil && st.IsAuthenticated != nil {
 			a.Auth.State = protocol.AuthLoggedOut
 			if *st.IsAuthenticated {
 				a.Auth.State = protocol.AuthOK

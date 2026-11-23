@@ -3,7 +3,7 @@ package chat
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"os"
 	"strings"

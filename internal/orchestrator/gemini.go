@@ -2,7 +2,8 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -114,7 +115,7 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 		}
 	}
 
-	raw, err := json.Marshal(reqBody)
+	raw, err := json.Marshal(reqBody, requestJSONOpts)
 	if err != nil {
 		return Message{}, err
 	}
@@ -152,8 +153,8 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 				Parts []struct {
 					Text         string `json:"text"`
 					FunctionCall *struct {
-						Name string          `json:"name"`
-						Args json.RawMessage `json:"args"`
+						Name string         `json:"name"`
+						Args jsontext.Value `json:"args"`
 					} `json:"functionCall"`
 				} `json:"parts"`
 			} `json:"content"`
@@ -182,7 +183,7 @@ func (p *GeminiProvider) Complete(ctx context.Context, model, system string, mes
 		if part.FunctionCall != nil {
 			args := part.FunctionCall.Args
 			if len(args) == 0 {
-				args = json.RawMessage("{}")
+				args = jsontext.Value("{}")
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
 				ID:        "call_" + strings.ReplaceAll(ids.UUID(), "-", ""),

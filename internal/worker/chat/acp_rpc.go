@@ -9,7 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -19,9 +19,9 @@ import (
 
 // rpcError is a JSON-RPC error object returned by the agent.
 type rpcError struct {
-	Code    int             `json:"code"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Code    int            `json:"code"`
+	Message string         `json:"message"`
+	Data    jsontext.Value `json:"data,omitzero"`
 }
 
 func (e *rpcError) Error() string {
@@ -38,14 +38,14 @@ func (e *rpcError) dataText() string {
 		return ""
 	}
 	var s string
-	if json.Unmarshal(e.Data, &s) == nil {
+	if unmarshal(e.Data, &s) == nil {
 		return s
 	}
 	var o struct {
 		Message string `json:"message"`
 		Details string `json:"details"`
 	}
-	if json.Unmarshal(e.Data, &o) == nil && (o.Message != "" || o.Details != "") {
+	if unmarshal(e.Data, &o) == nil && (o.Message != "" || o.Details != "") {
 		if o.Message == "" {
 			return o.Details
 		}
@@ -64,16 +64,16 @@ const (
 )
 
 type rpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      jsontext.Value `json:"id,omitzero"`
+	Method  string         `json:"method,omitempty"`
+	Params  jsontext.Value `json:"params,omitzero"`
+	Result  jsontext.Value `json:"result,omitzero"`
+	Error   *rpcError      `json:"error,omitzero"`
 }
 
 type rpcResult struct {
-	result json.RawMessage
+	result jsontext.Value
 	err    error
 }
 
@@ -82,7 +82,7 @@ var errRPCClosed = errors.New("agent connection closed")
 
 // rpcHandler receives agent-initiated messages. id is nil for notifications. It runs on
 // the read loop and must not block.
-type rpcHandler func(method string, id json.RawMessage, params json.RawMessage)
+type rpcHandler func(method string, id jsontext.Value, params jsontext.Value)
 
 type rpcConn struct {
 	w       io.Writer
@@ -124,8 +124,9 @@ func (c *rpcConn) readLoop(r io.Reader) {
 }
 
 func (c *rpcConn) dispatch(line []byte) {
+	line = validUTF8(line)
 	var m rpcMessage
-	if err := json.Unmarshal(line, &m); err != nil || (m.Method == "" && len(m.ID) == 0) {
+	if err := unmarshal(line, &m); err != nil || (m.Method == "" && len(m.ID) == 0) {
 		c.mu.Lock()
 		c.badLines++
 		c.lastBad = truncate(string(bytes.TrimSpace(line)), 300)
@@ -165,20 +166,21 @@ func (c *rpcConn) shutdown() {
 	close(c.done)
 }
 
-func idKey(id json.RawMessage) string {
-	var n json.Number
-	if json.Unmarshal(id, &n) == nil {
-		return n.String()
+// idKey normalizes a JSON-RPC id: numbers keep their literal text, strings are
+// prefixed so "1" and 1 cannot collide.
+func idKey(id jsontext.Value) string {
+	v := jsontext.Value(bytes.TrimSpace(id))
+	if v.Kind() == '"' {
+		var s string
+		if unmarshal(v, &s) == nil {
+			return "s:" + s
+		}
 	}
-	var s string
-	if json.Unmarshal(id, &s) == nil {
-		return "s:" + s
-	}
-	return string(id)
+	return string(v)
 }
 
 func (c *rpcConn) write(v any) error {
-	b, err := json.Marshal(v)
+	b, err := marshalLine(v)
 	if err != nil {
 		return err
 	}
@@ -217,7 +219,7 @@ func (c *rpcConn) Call(ctx context.Context, method string, params any, result an
 			return r.err
 		}
 		if result != nil && len(r.result) > 0 && string(r.result) != "null" {
-			if err := json.Unmarshal(r.result, result); err != nil {
+			if err := unmarshal(r.result, result); err != nil {
 				return &protocolError{msg: fmt.Sprintf("decode %s result: %v", method, err)}
 			}
 		}
@@ -239,7 +241,7 @@ func (c *rpcConn) Notify(method string, params any) error {
 }
 
 // Reply answers an agent request.
-func (c *rpcConn) Reply(id json.RawMessage, result any) error {
+func (c *rpcConn) Reply(id jsontext.Value, result any) error {
 	if result == nil {
 		result = struct{}{}
 	}
@@ -247,7 +249,7 @@ func (c *rpcConn) Reply(id json.RawMessage, result any) error {
 }
 
 // ReplyError answers an agent request with an error.
-func (c *rpcConn) ReplyError(id json.RawMessage, code int, msg string) error {
+func (c *rpcConn) ReplyError(id jsontext.Value, code int, msg string) error {
 	return c.write(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
 }
 

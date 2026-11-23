@@ -2,7 +2,7 @@ package drivers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,8 +176,8 @@ func (d *CopilotDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, e
 
 // copilotEvent is one events.jsonl record: {"type":..,"data":{..},"id":..,"timestamp":..}.
 type copilotEvent struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type string         `json:"type"`
+	Data jsontext.Value `json:"data"`
 }
 
 type copilotUsage struct {
@@ -193,7 +193,7 @@ type copilotUsage struct {
 
 func (d *CopilotDriver) parseEvent(t *copilotTask, raw []byte, emit func(TelemetryEvent)) {
 	var ev copilotEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	if err := unmarshal(raw, &ev); err != nil {
 		return
 	}
 	switch ev.Type {
@@ -207,10 +207,10 @@ func (d *CopilotDriver) parseEvent(t *copilotTask, raw []byte, emit func(Telemet
 		d.mu.Unlock()
 	case "assistant.message":
 		var m struct {
-			Content      string            `json:"content"`
-			ToolRequests []json.RawMessage `json:"toolRequests"`
+			Content      string           `json:"content"`
+			ToolRequests []jsontext.Value `json:"toolRequests"`
 		}
-		if json.Unmarshal(ev.Data, &m) != nil {
+		if unmarshal(ev.Data, &m) != nil {
 			return
 		}
 		d.mu.Lock()
@@ -224,21 +224,21 @@ func (d *CopilotDriver) parseEvent(t *copilotTask, raw []byte, emit func(Telemet
 			ToolName  string         `json:"toolName"`
 			Arguments map[string]any `json:"arguments"`
 		}
-		if json.Unmarshal(ev.Data, &m) == nil && m.ToolName != "" {
+		if unmarshal(ev.Data, &m) == nil && m.ToolName != "" {
 			emit(copilotToolEvent(m.ToolName, m.Arguments))
 		}
 	case "session.usage_record":
 		var m struct {
 			Usage copilotUsage `json:"usage"`
 		}
-		if json.Unmarshal(ev.Data, &m) == nil && (m.Usage.InputTokens > 0 || m.Usage.OutputTokens > 0) {
+		if unmarshal(ev.Data, &m) == nil && (m.Usage.InputTokens > 0 || m.Usage.OutputTokens > 0) {
 			emit(copilotUsageEvent(m.Usage))
 		}
 	case "permission.requested":
 		var m struct {
 			PermissionRequest map[string]any `json:"permissionRequest"`
 		}
-		_ = json.Unmarshal(ev.Data, &m)
+		_ = unmarshal(ev.Data, &m)
 		msg := "copilot is asking for permission"
 		if s := firstString(m.PermissionRequest, "intention", "fullCommandText", "kind"); s != "" {
 			msg += ": " + truncateRunes(s, 200)
@@ -248,7 +248,7 @@ func (d *CopilotDriver) parseEvent(t *copilotTask, raw []byte, emit func(Telemet
 		var m struct {
 			Message string `json:"message"`
 		}
-		if json.Unmarshal(ev.Data, &m) == nil && m.Message != "" {
+		if unmarshal(ev.Data, &m) == nil && m.Message != "" {
 			emit(TelemetryEvent{Kind: "error", Message: truncateRunes(m.Message, 300)})
 		}
 	case "assistant.turn_end":
@@ -275,7 +275,7 @@ func (d *CopilotDriver) parseEvent(t *copilotTask, raw []byte, emit func(Telemet
 				} `json:"codeChanges"`
 			} `json:"accountingSnapshot"`
 		}
-		if json.Unmarshal(ev.Data, &m) != nil {
+		if unmarshal(ev.Data, &m) != nil {
 			return
 		}
 		d.emitQuotas(t, emit) // in case the cache was refreshed during the session

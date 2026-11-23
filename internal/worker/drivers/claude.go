@@ -3,7 +3,7 @@ package drivers
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"os"
@@ -242,9 +242,9 @@ func (d *ClaudeDriver) WatchTelemetry(ctx context.Context, opts WatchOptions, em
 type claudeJSONLLine struct {
 	Type    string `json:"type"`
 	Message *struct {
-		Role    string          `json:"role"`
-		Model   string          `json:"model"`
-		Content json.RawMessage `json:"content"`
+		Role    string         `json:"role"`
+		Model   string         `json:"model"`
+		Content jsontext.Value `json:"content"`
 	} `json:"message"`
 	ModelUsage map[string]struct {
 		InputTokens              int64 `json:"inputTokens"`
@@ -293,7 +293,7 @@ func (d *ClaudeDriver) pollJSONLFile(taskID, path string, offset int64, emit fun
 
 func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(TelemetryEvent)) {
 	var rec claudeJSONLLine
-	if err := json.Unmarshal(raw, &rec); err != nil {
+	if err := unmarshal(raw, &rec); err != nil {
 		return
 	}
 
@@ -324,7 +324,7 @@ func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(Telem
 
 	// Content may be a JSON string or an array of content blocks.
 	var textOnly string
-	if err := json.Unmarshal(rec.Message.Content, &textOnly); err == nil {
+	if err := unmarshal(rec.Message.Content, &textOnly); err == nil {
 		if t := strings.TrimSpace(textOnly); t != "" {
 			d.setLastSummary(taskID, t)
 		}
@@ -332,7 +332,7 @@ func (d *ClaudeDriver) parseJSONLLine(taskID string, raw []byte, emit func(Telem
 	}
 
 	var blocks []claudeContentBlock
-	if err := json.Unmarshal(rec.Message.Content, &blocks); err != nil {
+	if err := unmarshal(rec.Message.Content, &blocks); err != nil {
 		return
 	}
 	var textParts []string

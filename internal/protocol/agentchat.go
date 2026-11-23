@@ -81,7 +81,7 @@ type AgentChatRespond struct {
 // AgentChatControl adjusts a live session. Empty fields are left unchanged.
 type AgentChatControl struct {
 	ChatID       string `json:"chat_id"`
-	Cancel       bool   `json:"cancel,omitempty"` // interrupt the in-flight turn
+	Cancel       bool   `json:"cancel,omitzero"` // interrupt the in-flight turn
 	Model        string `json:"model,omitempty"`
 	Effort       string `json:"effort,omitempty"`
 	ApprovalMode string `json:"approval_mode,omitempty"`
@@ -133,12 +133,12 @@ type AgentChatEvent struct {
 	MessageID      string `json:"message_id,omitempty"`
 	Text           string `json:"text,omitempty"`
 
-	ToolCall    *AgentToolCall    `json:"tool_call,omitempty"`
+	ToolCall    *AgentToolCall    `json:"tool_call,omitzero"`
 	Plan        []AgentPlanItem   `json:"plan,omitempty"`
-	Elicitation *AgentElicitation `json:"elicitation,omitempty"`
-	Usage       *AgentTokenUsage  `json:"usage,omitempty"`
-	RateLimit   *AgentRateLimit   `json:"rate_limit,omitempty"`
-	Error       *AgentChatError   `json:"error,omitempty"`
+	Elicitation *AgentElicitation `json:"elicitation,omitzero"`
+	Usage       *AgentTokenUsage  `json:"usage,omitzero"`
+	RateLimit   *AgentRateLimit   `json:"rate_limit,omitzero"`
+	Error       *AgentChatError   `json:"error,omitzero"`
 
 	// StopReason on turn_end: end_turn, max_tokens, refusal, cancelled, error.
 	StopReason string `json:"stop_reason,omitempty"`
@@ -180,10 +180,10 @@ type AgentElicitation struct {
 	Kind     string                   `json:"kind"`
 	Title    string                   `json:"title"`
 	Detail   string                   `json:"detail,omitempty"`
-	ToolCall *AgentToolCall           `json:"tool_call,omitempty"`
+	ToolCall *AgentToolCall           `json:"tool_call,omitzero"`
 	Options  []AgentElicitationOption `json:"options,omitempty"`
 	// AllowText means a free-form answer is accepted (questions).
-	AllowText bool `json:"allow_text,omitempty"`
+	AllowText bool `json:"allow_text,omitzero"`
 }
 
 // AgentElicitationOption is one choice; Kind hints the UI: allow_once, allow_always,
@@ -196,18 +196,18 @@ type AgentElicitationOption struct {
 
 // AgentTokenUsage is token accounting for a turn (when the CLI reports it).
 type AgentTokenUsage struct {
-	InputTokens       int64   `json:"input_tokens,omitempty"`
-	OutputTokens      int64   `json:"output_tokens,omitempty"`
-	CacheReadTokens   int64   `json:"cache_read_tokens,omitempty"`
-	CacheCreateTokens int64   `json:"cache_create_tokens,omitempty"`
-	CostUSD           float64 `json:"cost_usd,omitempty"` // API-equivalent cost, informational
+	InputTokens       int64   `json:"input_tokens,omitzero"`
+	OutputTokens      int64   `json:"output_tokens,omitzero"`
+	CacheReadTokens   int64   `json:"cache_read_tokens,omitzero"`
+	CacheCreateTokens int64   `json:"cache_create_tokens,omitzero"`
+	CostUSD           float64 `json:"cost_usd,omitzero"` // API-equivalent cost, informational
 }
 
 // AgentRateLimit is one subscription window as reported by the CLI or a usage probe.
 type AgentRateLimit struct {
-	Window      string     `json:"window"`                 // five_hour, seven_day, seven_day_opus, monthly, daily, ...
-	UsedPercent float64    `json:"used_percent,omitempty"` // 0-100
-	ResetsAt    *time.Time `json:"resets_at,omitempty"`
+	Window      string     `json:"window"`                // five_hour, seven_day, seven_day_opus, monthly, daily, ...
+	UsedPercent float64    `json:"used_percent,omitzero"` // 0-100
+	ResetsAt    *time.Time `json:"resets_at,omitzero"`
 	// State: ok, warning (approaching), exhausted (requests rejected until ResetsAt).
 	State string `json:"state,omitempty"`
 }
@@ -229,14 +229,14 @@ const (
 type AgentChatError struct {
 	Kind     string     `json:"kind"`
 	Message  string     `json:"message"`
-	ExitCode *int       `json:"exit_code,omitempty"`
-	Stderr   string     `json:"stderr,omitempty"`    // tail, secrets redacted
-	ResetsAt *time.Time `json:"resets_at,omitempty"` // usage_limit
-	Window   string     `json:"window,omitempty"`    // usage_limit: five_hour, seven_day, monthly...
+	ExitCode *int       `json:"exit_code,omitzero"`
+	Stderr   string     `json:"stderr,omitempty"`   // tail, secrets redacted
+	ResetsAt *time.Time `json:"resets_at,omitzero"` // usage_limit
+	Window   string     `json:"window,omitempty"`   // usage_limit: five_hour, seven_day, monthly...
 	// Relogin is set for auth errors: how to fix it on that host.
-	Relogin *AgentRelogin `json:"relogin,omitempty"`
+	Relogin *AgentRelogin `json:"relogin,omitzero"`
 	// Retryable means sending the message again may succeed (transient errors).
-	Retryable bool `json:"retryable,omitempty"`
+	Retryable bool `json:"retryable,omitzero"`
 }
 
 // AgentRelogin tells the user how to re-authenticate an account on its host.
@@ -290,9 +290,9 @@ type AgentAuthStatus struct {
 	State     string        `json:"state"`            // AuthOK, AuthLoggedOut, AuthExpiring, AuthUnknown
 	Method    string        `json:"method,omitempty"` // oauth, setup_token, api_key, keychain
 	Email     string        `json:"email,omitempty"`  // shown to the owner only; may be empty
-	ExpiresAt *time.Time    `json:"expires_at,omitempty"`
+	ExpiresAt *time.Time    `json:"expires_at,omitzero"`
 	Detail    string        `json:"detail,omitempty"`
-	Relogin   *AgentRelogin `json:"relogin,omitempty"`
+	Relogin   *AgentRelogin `json:"relogin,omitzero"`
 }
 
 // AgentModel is one selectable model with its effort levels.
@@ -300,10 +300,10 @@ type AgentModel struct {
 	ID            string        `json:"id"`
 	DisplayName   string        `json:"display_name"`
 	Description   string        `json:"description,omitempty"`
-	IsDefault     bool          `json:"is_default,omitempty"`
+	IsDefault     bool          `json:"is_default,omitzero"`
 	Efforts       []AgentEffort `json:"efforts,omitempty"`
 	DefaultEffort string        `json:"default_effort,omitempty"`
-	ContextTokens int64         `json:"context_tokens,omitempty"`
+	ContextTokens int64         `json:"context_tokens,omitzero"`
 }
 
 // AgentEffort is one reasoning-effort level of a model.

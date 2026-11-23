@@ -2,7 +2,7 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -124,7 +124,7 @@ func (c *Capabilities) loadOverlays() {
 		return
 	}
 	var saved []persistedOverlay
-	if err := json.Unmarshal(raw, &saved); err != nil {
+	if err := unmarshal(raw, &saved); err != nil {
 		c.opts.Logger.Warn("ignoring unreadable usage cache", "path", c.opts.PersistPath, "err", err)
 		return
 	}

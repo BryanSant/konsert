@@ -3,7 +3,8 @@ package orchestrator
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -93,7 +94,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		reqBody["tools"] = apiTools
 	}
 
-	raw, err := json.Marshal(reqBody)
+	raw, err := json.Marshal(reqBody, requestJSONOpts)
 	if err != nil {
 		return Message{}, err
 	}
@@ -248,7 +249,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, model, system string, mes
 		out.ToolCalls = append(out.ToolCalls, ToolCall{
 			ID:        acc.id,
 			Name:      acc.name,
-			Arguments: json.RawMessage(argStr),
+			Arguments: jsontext.Value(argStr),
 		})
 	}
 	return out, nil

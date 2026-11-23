@@ -2,9 +2,10 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -34,6 +35,11 @@ func TestInstallAgentHooksIdempotentAndPreservesExistingSettings(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The rewrite is stable: indented, with sorted keys (encoding/json/v2 does not
+	// sort map keys by default), so re-installing does not reshuffle the file.
+	if !strings.HasPrefix(string(raw), "{\n  \"customFlag\": true,\n  \"hooks\": {") || !strings.HasSuffix(string(raw), "\"theme\": \"dark\"\n}\n") {
+		t.Fatalf("settings.json layout:\n%s", raw)
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {

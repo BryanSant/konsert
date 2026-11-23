@@ -2,7 +2,8 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"sort"
@@ -41,12 +42,12 @@ type WorkerStatusView struct {
 	Status         string                  `json:"status"`
 	ActiveTasks    int                     `json:"active_tasks"`
 	LastSeenAt     time.Time               `json:"last_seen_at"`
-	Metrics        *protocol.WorkerMetrics `json:"metrics,omitempty"`
-	Facts          *protocol.MachineFacts  `json:"facts,omitempty"`
+	Metrics        *protocol.WorkerMetrics `json:"metrics,omitzero"`
+	Facts          *protocol.MachineFacts  `json:"facts,omitzero"`
 	// Version is the worker's konsertd build version ("" when unknown).
 	Version string `json:"version,omitempty"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
-	WakeLock *WorkerWakeLockView `json:"wake_lock,omitempty"`
+	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -279,7 +280,7 @@ func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, r
 }
 
 type DispatchRequest struct {
-	WorkerSelector WorkerSelector `json:"worker_selector,omitempty"`
+	WorkerSelector WorkerSelector `json:"worker_selector,omitzero"`
 	SpaceID        string         `json:"space_id,omitempty"`
 	WorkspaceID    string         `json:"workspace_id,omitempty"`
 	ProjectID      string         `json:"project_id,omitempty"`
@@ -290,13 +291,13 @@ type DispatchRequest struct {
 	Model          string         `json:"model,omitempty"`
 	RepoPath       string         `json:"repo_path"`
 	Branch         string         `json:"branch,omitempty"`
-	UseWorktree    *bool          `json:"use_worktree,omitempty"`
+	UseWorktree    *bool          `json:"use_worktree,omitzero"`
 	Prompt         string         `json:"prompt"`
 	Mode           string         `json:"mode,omitempty"`
 	Origin         string         `json:"origin,omitempty"` // "orchestrator" | "direct" | "scratch"
 	PermissionMode string         `json:"permission_mode,omitempty"`
 	OrphanPolicy   string         `json:"orphan_policy,omitempty"`
-	TimeoutSeconds *int           `json:"timeout_seconds,omitempty"`
+	TimeoutSeconds *int           `json:"timeout_seconds,omitzero"`
 	// AccountID selects the worker-local agent account ("" = the agent's default);
 	// ApprovalMode and Effort are the agent's own approval mode and effort IDs.
 	AccountID    string `json:"account_id,omitempty" jsonschema:"Agent account on the worker (see GET /api/agents/accounts); empty = the agent's default account"`
@@ -570,10 +571,10 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	// task keeps its constraints and launch options across controller restarts.
 	pinned := strings.TrimSpace(req.WorkerSelector.WorkerID) != ""
 	spec := store.TaskStartSpec{WorkerPinned: pinned}
-	if b, mErr := json.Marshal(req.WorkerSelector); mErr == nil {
+	if b, mErr := json.Marshal(req.WorkerSelector, protocol.JSONOptions); mErr == nil {
 		spec.SelectorJSON = string(b)
 	}
-	if b, mErr := json.Marshal(startPayload); mErr == nil {
+	if b, mErr := json.Marshal(startPayload, protocol.JSONOptions); mErr == nil {
 		spec.PayloadJSON = string(b)
 	}
 	if err := s.store.SetTaskStartSpec(ctx, taskID, spec); err != nil {
@@ -671,10 +672,10 @@ type TaskResult struct {
 	WorkerID         string               `json:"worker_id,omitempty"`
 	Agent            string               `json:"agent"`
 	Status           string               `json:"status"`
-	ExitCode         *int                 `json:"exit_code,omitempty"`
+	ExitCode         *int                 `json:"exit_code,omitzero"`
 	DurationSeconds  int64                `json:"duration_seconds"`
 	Summary          string               `json:"summary"`
-	GitSummary       *protocol.GitSummary `json:"git_summary,omitempty"`
+	GitSummary       *protocol.GitSummary `json:"git_summary,omitzero"`
 	RecentMilestones []string             `json:"recent_milestones,omitempty"`
 }
 
@@ -1186,7 +1187,7 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 	}
 }
 
-func (s *FleetService) ExecuteTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsontext.Value) (any, error) {
 	// Tool calls made by the Orchestrator LLM are audited as "orchestrator".
 	ctx = withDefaultAuditActor(ctx, auditSourceOrchestrator, auditSourceOrchestrator)
 	switch name {
@@ -1206,7 +1207,7 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args json.R
 			WorkerID   string                 `json:"worker_id"`
 			WorkerName string                 `json:"worker_name"`
 			Status     string                 `json:"status"`
-			Facts      *protocol.MachineFacts `json:"facts,omitempty"`
+			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
 		}
 		var out []factRow
 		for _, w := range fs.Workers {

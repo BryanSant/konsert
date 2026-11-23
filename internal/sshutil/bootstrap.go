@@ -47,13 +47,13 @@ type BootstrapResult struct {
 	RemoteArch     string           `json:"remote_arch,omitempty"`
 	Stage          string           `json:"stage,omitempty"`
 	Stages         []BootstrapStage `json:"stages,omitempty"`
-	HooksInstalled bool             `json:"hooks_installed,omitempty"`
+	HooksInstalled bool             `json:"hooks_installed,omitzero"`
 	ServiceMode    string           `json:"service_mode,omitempty"` // "systemd" | "launchd" | "nohup"
 	Message        string           `json:"message,omitempty"`
 	Error          string           `json:"error,omitempty"`
 	// HostKeyConfirmationRequired is set (with HostKeys) when the remote host key is
 	// unknown. Re-submit with accept_host_key set to the confirmed fingerprint.
-	HostKeyConfirmationRequired bool      `json:"host_key_confirmation_required,omitempty"`
+	HostKeyConfirmationRequired bool      `json:"host_key_confirmation_required,omitzero"`
 	HostKeys                    []HostKey `json:"host_keys,omitempty"`
 }
 

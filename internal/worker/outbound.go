@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -177,7 +177,7 @@ func (o *statusOutbox) persistLocked() {
 		}
 		return
 	}
-	raw, err := json.Marshal(o.entries)
+	raw, err := json.Marshal(o.entries, protocol.JSONOptions)
 	if err != nil {
 		return
 	}

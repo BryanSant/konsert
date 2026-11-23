@@ -1,12 +1,15 @@
 package worker
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/BryanSant/konsert/internal/protocol"
 )
 
 // HookInstallReport summarizes idempotent Konsert agent hook/skill installation on a host.
@@ -69,7 +72,7 @@ func RecordHookEvent(homeDir string, ev HookEvent) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	b, err := json.Marshal(ev)
+	b, err := json.Marshal(ev, protocol.JSONOptions)
 	if err != nil {
 		return err
 	}
@@ -184,7 +187,9 @@ func installClaudeHooks(homeDir, konsertdBin string) error {
 	}
 	root["hooks"] = hooksMap
 
-	out, err := json.MarshalIndent(root, "", "  ")
+	// Deterministic sorts map keys so rewriting the user's settings keeps a stable layout
+	// (v1 sorted map keys implicitly; v2 does not).
+	out, err := json.Marshal(root, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return err
 	}

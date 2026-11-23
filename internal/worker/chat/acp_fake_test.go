@@ -7,7 +7,8 @@ package chat
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,17 +28,17 @@ type fakeAgent struct {
 	out      *bufio.Writer
 	mu       sync.Mutex
 	log      *os.File
-	fixture  map[string]json.RawMessage
+	fixture  map[string]jsontext.Value
 	scenario string
 	nextID   int
-	replies  map[string]chan json.RawMessage
+	replies  map[string]chan jsontext.Value
 	cancel   chan struct{}
 	session  string
 }
 
 func runFakeACP() {
 	f := &fakeAgent{out: bufio.NewWriter(os.Stdout), scenario: os.Getenv("FAKE_ACP_SCENARIO"),
-		replies: map[string]chan json.RawMessage{}, cancel: make(chan struct{}, 1), session: "sess-1"}
+		replies: map[string]chan jsontext.Value{}, cancel: make(chan struct{}, 1), session: "sess-1"}
 	if p := os.Getenv("FAKE_ACP_LOG"); p != "" {
 		f.log, _ = os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		f.logf("argv %s", strings.Join(os.Args[1:], " "))
@@ -79,11 +80,11 @@ func (f *fakeAgent) send(v any) {
 	f.out.Flush()
 }
 
-func (f *fakeAgent) result(id json.RawMessage, v any) {
+func (f *fakeAgent) result(id jsontext.Value, v any) {
 	f.send(map[string]any{"jsonrpc": "2.0", "id": id, "result": v})
 }
 
-func (f *fakeAgent) fail(id json.RawMessage, code int, msg string, data any) {
+func (f *fakeAgent) fail(id jsontext.Value, code int, msg string, data any) {
 	e := map[string]any{"code": code, "message": msg}
 	if data != nil {
 		e["data"] = data
@@ -100,11 +101,11 @@ func (f *fakeAgent) chunk(kind, text string) {
 }
 
 // request sends an agent→client request and waits for the reply.
-func (f *fakeAgent) request(method string, params any) json.RawMessage {
+func (f *fakeAgent) request(method string, params any) jsontext.Value {
 	f.mu.Lock()
 	f.nextID++
 	id := fmt.Sprintf("srv-%d", f.nextID)
-	ch := make(chan json.RawMessage, 1)
+	ch := make(chan jsontext.Value, 1)
 	f.replies[id] = ch
 	f.mu.Unlock()
 	f.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
@@ -116,10 +117,10 @@ func (f *fakeAgent) request(method string, params any) json.RawMessage {
 	}
 }
 
-func (f *fakeAgent) fixtureResult(key string) (json.RawMessage, json.RawMessage) {
+func (f *fakeAgent) fixtureResult(key string) (jsontext.Value, jsontext.Value) {
 	var msg struct {
-		Result json.RawMessage `json:"result"`
-		Error  json.RawMessage `json:"error"`
+		Result jsontext.Value `json:"result"`
+		Error  jsontext.Value `json:"error"`
 	}
 	if raw, ok := f.fixture[key]; ok {
 		_ = json.Unmarshal(raw, &msg)
@@ -129,11 +130,11 @@ func (f *fakeAgent) fixtureResult(key string) (json.RawMessage, json.RawMessage)
 
 func (f *fakeAgent) dispatch(line []byte) {
 	var m struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
-		Result json.RawMessage `json:"result"`
-		Error  json.RawMessage `json:"error"`
+		ID     jsontext.Value `json:"id"`
+		Method string         `json:"method"`
+		Params jsontext.Value `json:"params"`
+		Result jsontext.Value `json:"result"`
+		Error  jsontext.Value `json:"error"`
 	}
 	if json.Unmarshal(line, &m) != nil {
 		return
@@ -237,7 +238,7 @@ func (f *fakeAgent) dispatch(line []byte) {
 	}
 }
 
-func (f *fakeAgent) prompt(id json.RawMessage, params json.RawMessage) {
+func (f *fakeAgent) prompt(id jsontext.Value, params jsontext.Value) {
 	switch f.scenario {
 	case "basic", "":
 		f.chunk("agent_thought_chunk", "thinking…")

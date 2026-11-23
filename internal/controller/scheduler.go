@@ -19,9 +19,9 @@ type WorkerSelector struct {
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm"
 	RequiredTools  map[string]string `json:"required_tools,omitempty"` // e.g. {"postgres": "18", "gcloud": ""}
 	RequiredAuth   []string          `json:"required_auth,omitempty"`  // e.g. ["gcloud", "gh"]
-	MinRAMMB       uint64            `json:"min_ram_mb,omitempty"`
-	MinDiskFreeGB  uint64            `json:"min_disk_free_gb,omitempty"`
-	TmpTmpfs       *bool             `json:"tmp_tmpfs,omitempty"`
+	MinRAMMB       uint64            `json:"min_ram_mb,omitzero"`
+	MinDiskFreeGB  uint64            `json:"min_disk_free_gb,omitzero"`
+	TmpTmpfs       *bool             `json:"tmp_tmpfs,omitzero"`
 	Tags           map[string]string `json:"tags,omitempty"`
 }
 

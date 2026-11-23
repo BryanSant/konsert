@@ -278,9 +278,12 @@ func ccNonSecretEnv(env map[string]string, keys ...string) map[string]string {
 }
 
 // ccLineReader returns a scanner for newline-delimited JSON with a large buffer.
+// Lines are repaired to valid UTF-8 so one bad byte in agent output cannot make
+// a whole protocol line undecodable.
 func ccLineReader(r io.Reader) *bufio.Scanner {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 256<<10), 64<<20)
+	sc.Split(scanValidUTF8Lines)
 	return sc
 }
 

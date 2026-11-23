@@ -1,7 +1,6 @@
 package drivers
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,7 +98,7 @@ func readCopilotQuotas(cacheDir string) []copilotQuota {
 			} `json:"response"`
 		} `json:"copilotUserCache"`
 	}
-	if json.Unmarshal([]byte(body.String()), &cache) != nil {
+	if unmarshal([]byte(body.String()), &cache) != nil {
 		return nil
 	}
 	// One entry per signed-in account; report the most recently refreshed one.

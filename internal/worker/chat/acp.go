@@ -8,7 +8,7 @@ package chat
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"mime"
@@ -127,7 +127,7 @@ func mcpServers(init *acpInitResult, servers []protocol.AgentMCPServer) []any {
 			return out
 		}
 		for _, s := range servers {
-			hdr, _ := json.Marshal(s.Headers)
+			hdr, _ := marshalLine(s.Headers)
 			out = append(out, map[string]any{
 				"name":    s.Name,
 				"command": exe,
@@ -153,7 +153,7 @@ func mcpServers(init *acpInitResult, servers []protocol.AgentMCPServer) []any {
 // --- session ----------------------------------------------------------------------------
 
 type acpPerm struct {
-	rpcID   json.RawMessage
+	rpcID   jsontext.Value
 	options []protocol.AgentElicitationOption
 	tool    *protocol.AgentToolCall
 }
@@ -464,7 +464,7 @@ func (s *acpSession) applyModel(ctx context.Context) error {
 	}
 	sel, ok := cat.resolve(model, effort)
 	if !ok {
-		return &rpcError{Code: rpcInvalidParams, Message: "Invalid model", Data: json.RawMessage(strconv.Quote("unknown model " + model))}
+		return &rpcError{Code: rpcInvalidParams, Message: "Invalid model", Data: jsontext.Value(strconv.Quote("unknown model " + model))}
 	}
 	if sel.ModelID != "" && sel.ModelID != curID {
 		var err error
@@ -616,15 +616,15 @@ func (s *acpSession) AgentSessionID() string {
 
 // --- agent → client traffic -------------------------------------------------------------
 
-func (s *acpSession) handle(method string, id json.RawMessage, params json.RawMessage) {
+func (s *acpSession) handle(method string, id jsontext.Value, params jsontext.Value) {
 	switch method {
 	case "session/update":
 		var p acpUpdateParams
-		if json.Unmarshal(params, &p) != nil {
+		if unmarshal(params, &p) != nil {
 			return
 		}
 		var u acpUpdate
-		if json.Unmarshal(p.Update, &u) != nil {
+		if unmarshal(p.Update, &u) != nil {
 			return
 		}
 		s.onUpdate(&u)
@@ -761,7 +761,7 @@ func mergeToolCall(tc *protocol.AgentToolCall, u *acpUpdate) {
 	if tc.Name == "" {
 		for _, k := range []string{"toolName", "tool_name", "name"} {
 			var n string
-			if raw, ok := u.Meta[k]; ok && json.Unmarshal(raw, &n) == nil && n != "" {
+			if raw, ok := u.Meta[k]; ok && unmarshal(raw, &n) == nil && n != "" {
 				tc.Name = n
 				break
 			}
@@ -770,7 +770,7 @@ func mergeToolCall(tc *protocol.AgentToolCall, u *acpUpdate) {
 			var cc struct {
 				ToolName string `json:"toolName"`
 			}
-			if raw, ok := u.Meta["claudeCode"]; ok && json.Unmarshal(raw, &cc) == nil {
+			if raw, ok := u.Meta["claudeCode"]; ok && unmarshal(raw, &cc) == nil {
 				tc.Name = cc.ToolName
 			}
 		}
@@ -802,23 +802,23 @@ func contains(xs []string, x string) bool {
 	return false
 }
 
-func compactJSON(raw json.RawMessage) string {
+func compactJSON(raw jsontext.Value) string {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if unmarshal(raw, &s) == nil {
 		return s
 	}
-	var v any
-	if json.Unmarshal(raw, &v) == nil {
-		if b, err := json.Marshal(v); err == nil {
-			return string(b)
-		}
+	// Compact in place of a decode/re-encode round trip: keeps the agent's member
+	// order and does not HTML-escape.
+	v := raw.Clone()
+	if v.Compact(agentDecodeOpts) == nil {
+		return string(v)
 	}
 	return string(raw)
 }
 
-func rawOutputText(raw json.RawMessage) string {
+func rawOutputText(raw jsontext.Value) string {
 	var o map[string]any
-	if json.Unmarshal(raw, &o) == nil {
+	if unmarshal(raw, &o) == nil {
 		for _, k := range []string{"output", "stdout", "content", "text", "result"} {
 			if v, ok := o[k].(string); ok && v != "" {
 				return v
@@ -829,9 +829,9 @@ func rawOutputText(raw json.RawMessage) string {
 }
 
 // blockText extracts text from one ContentBlock.
-func blockText(raw json.RawMessage) string {
+func blockText(raw jsontext.Value) string {
 	var b acpContentBlock
-	if json.Unmarshal(raw, &b) != nil {
+	if unmarshal(raw, &b) != nil {
 		return ""
 	}
 	if b.Type == "text" || b.Type == "" {
@@ -841,12 +841,12 @@ func blockText(raw json.RawMessage) string {
 }
 
 // toolContentText renders ToolCallContent[] (content blocks, diffs, terminals) as text.
-func toolContentText(raw json.RawMessage) string {
+func toolContentText(raw jsontext.Value) string {
 	if len(raw) == 0 || raw[0] != '[' {
 		return ""
 	}
 	var items []acpContentBlock
-	if json.Unmarshal(raw, &items) != nil {
+	if unmarshal(raw, &items) != nil {
 		return ""
 	}
 	var parts []string
@@ -876,9 +876,9 @@ func diffSummary(d acpContentBlock) string {
 	return fmt.Sprintf("edited %s (-%d +%d lines)", d.Path, strings.Count(*d.OldText, "\n")+1, strings.Count(d.NewText, "\n")+1)
 }
 
-func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
+func (s *acpSession) onPermission(id jsontext.Value, params jsontext.Value) {
 	var p acpPermissionParams
-	if json.Unmarshal(params, &p) != nil {
+	if unmarshal(params, &p) != nil {
 		s.mu.Lock()
 		c := s.conn
 		s.mu.Unlock()
@@ -888,14 +888,14 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 		return
 	}
 	var u acpUpdate
-	_ = json.Unmarshal(p.ToolCall, &u)
+	_ = unmarshal(p.ToolCall, &u)
 	tc := &protocol.AgentToolCall{ID: u.ToolCallID, Status: "pending"}
 	mergeToolCall(tc, &u)
 
 	s.mu.Lock()
 	s.permN++
 	eid := fmt.Sprintf("perm-%d", s.permN)
-	perm := &acpPerm{rpcID: append(json.RawMessage{}, id...), tool: tc}
+	perm := &acpPerm{rpcID: append(jsontext.Value{}, id...), tool: tc}
 	for _, o := range p.Options {
 		perm.options = append(perm.options, protocol.AgentElicitationOption{ID: o.OptionID, Label: o.Name, Kind: o.Kind})
 	}
@@ -952,7 +952,7 @@ func (s *acpSession) onPermission(id json.RawMessage, params json.RawMessage) {
 // request is for a tool of a Konsert-provided MCP server, or "" to ask the user. Agents
 // identify MCP tools differently (cursor: rawInput providerIdentifier; others: names like
 // "mcp__konsert__ask_user" or titles like "konsert: ask_user"). Caller holds s.mu.
-func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json.RawMessage, opts []protocol.AgentElicitationOption) string {
+func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw jsontext.Value, opts []protocol.AgentElicitationOption) string {
 	if len(s.opts.MCPServers) == 0 {
 		return ""
 	}
@@ -962,14 +962,14 @@ func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json
 			ToolName           string `json:"tool_name"`
 		} `json:"rawInput"`
 	}
-	_ = json.Unmarshal(raw, &probe)
+	_ = unmarshal(raw, &probe)
 	// The merged tool call's input is the agent's rawInput (e.g. cursor:
 	// {"args":…,"providerIdentifier":"konsert","toolName":"ask_user"}).
 	var merged struct {
 		ProviderIdentifier string `json:"providerIdentifier"`
 		ToolName           string `json:"toolName"`
 	}
-	_ = json.Unmarshal([]byte(tc.Input), &merged)
+	_ = unmarshal([]byte(tc.Input), &merged)
 	trusted := false
 	for _, srv := range s.opts.MCPServers {
 		name := strings.ToLower(strings.TrimSpace(srv.Name))

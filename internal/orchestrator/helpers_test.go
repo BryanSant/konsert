@@ -2,7 +2,7 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -23,7 +23,7 @@ func (f *fakeExecutor) ToolDefinitions() []ToolDef {
 	return []ToolDef{{Name: "fleet_status", Description: "status", Parameters: map[string]any{"type": "object"}}}
 }
 
-func (f *fakeExecutor) ExecuteTool(_ context.Context, name string, args json.RawMessage) (any, error) {
+func (f *fakeExecutor) ExecuteTool(_ context.Context, name string, args jsontext.Value) (any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, name)

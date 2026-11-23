@@ -4,14 +4,20 @@ package chat
 // the ACP engine uses. Unknown fields are ignored; agent-specific extensions live in _meta.
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 )
 
 type acpPresence struct{ set bool }
 
-func (p *acpPresence) UnmarshalJSON(b []byte) error {
-	p.set = string(b) != "null" && string(b) != "false"
+func (p *acpPresence) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	v, err := dec.ReadValue()
+	if err != nil {
+		return err
+	}
+	k := v.Kind()
+	p.set = k != 'n' && k != 'f'
 	return nil
 }
 
@@ -34,15 +40,15 @@ type acpInitResult struct {
 			Load   acpPresence `json:"load"`
 			List   acpPresence `json:"list"`
 		} `json:"sessionCapabilities"`
-		Meta map[string]json.RawMessage `json:"_meta"`
+		Meta map[string]jsontext.Value `json:"_meta"`
 	} `json:"agentCapabilities"`
 	AgentInfo *struct {
 		Name    string `json:"name"`
 		Title   string `json:"title"`
 		Version string `json:"version"`
 	} `json:"agentInfo"`
-	AuthMethods []acpAuthMethod            `json:"authMethods"`
-	Meta        map[string]json.RawMessage `json:"_meta"`
+	AuthMethods []acpAuthMethod           `json:"authMethods"`
+	Meta        map[string]jsontext.Value `json:"_meta"`
 }
 
 func (r *acpInitResult) version() string {
@@ -51,7 +57,7 @@ func (r *acpInitResult) version() string {
 	}
 	var v string
 	if raw, ok := r.Meta["agentVersion"]; ok {
-		_ = json.Unmarshal(raw, &v)
+		_ = unmarshal(raw, &v)
 	}
 	return v
 }
@@ -68,14 +74,14 @@ func (r *acpInitResult) systemPromptAppend() bool {
 			Append bool `json:"append"`
 		} `json:"systemPrompt"`
 	}
-	return json.Unmarshal(raw, &ag) == nil && ag.SystemPrompt.Append
+	return unmarshal(raw, &ag) == nil && ag.SystemPrompt.Append
 }
 
 type acpAuthMethod struct {
-	ID          string                     `json:"id"`
-	Name        string                     `json:"name"`
-	Description string                     `json:"description"`
-	Meta        map[string]json.RawMessage `json:"_meta"`
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	Meta        map[string]jsontext.Value `json:"_meta"`
 }
 
 // terminalAuth returns the login command an agent advertises via _meta["terminal-auth"]
@@ -89,7 +95,7 @@ func (m acpAuthMethod) terminalAuth() (string, bool) {
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
 	}
-	if json.Unmarshal(raw, &ta) != nil || ta.Command == "" {
+	if unmarshal(raw, &ta) != nil || ta.Command == "" {
 		return "", false
 	}
 	return strings.TrimSpace(ta.Command + " " + strings.Join(ta.Args, " ")), true
@@ -100,7 +106,7 @@ type acpSessionResult struct {
 	Models        *acpModelState    `json:"models"`
 	Modes         *acpModeState     `json:"modes"`
 	ConfigOptions []acpConfigOption `json:"configOptions"`
-	Meta          json.RawMessage   `json:"_meta"`
+	Meta          jsontext.Value    `json:"_meta"`
 }
 
 type acpModelState struct {
@@ -139,7 +145,7 @@ type acpConfigOption struct {
 	Name         string           `json:"name"`
 	Category     string           `json:"category"`
 	Type         string           `json:"type"`
-	CurrentValue json.RawMessage  `json:"currentValue"`
+	CurrentValue jsontext.Value   `json:"currentValue"`
 	Options      []acpConfigValue `json:"options"`
 }
 
@@ -149,14 +155,14 @@ type acpConfigValue struct {
 	Description string `json:"description"`
 }
 
-// UnmarshalJSON flattens grouped select options ({group, name, options:[...]}).
-func (o *acpConfigOption) UnmarshalJSON(b []byte) error {
+// UnmarshalJSONFrom flattens grouped select options ({group, name, options:[...]}).
+func (o *acpConfigOption) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	type plain acpConfigOption
 	var aux struct {
 		plain
-		Options []json.RawMessage `json:"options"`
+		Options []jsontext.Value `json:"options"`
 	}
-	if err := json.Unmarshal(b, &aux); err != nil {
+	if err := json.UnmarshalDecode(dec, &aux); err != nil {
 		return err
 	}
 	*o = acpConfigOption(aux.plain)
@@ -166,7 +172,7 @@ func (o *acpConfigOption) UnmarshalJSON(b []byte) error {
 			acpConfigValue
 			Options []acpConfigValue `json:"options"`
 		}
-		if json.Unmarshal(raw, &g) != nil {
+		if unmarshal(raw, &g) != nil {
 			continue
 		}
 		if len(g.Options) > 0 {
@@ -180,7 +186,7 @@ func (o *acpConfigOption) UnmarshalJSON(b []byte) error {
 
 func (o acpConfigOption) current() string {
 	var s string
-	if json.Unmarshal(o.CurrentValue, &s) == nil {
+	if unmarshal(o.CurrentValue, &s) == nil {
 		return s
 	}
 	return strings.Trim(string(o.CurrentValue), `"`)
@@ -215,22 +221,22 @@ func findConfig(opts []acpConfigOption, idOrCategory ...string) (acpConfigOption
 // --- session/update -------------------------------------------------------------------
 
 type acpUpdateParams struct {
-	SessionID string          `json:"sessionId"`
-	Update    json.RawMessage `json:"update"`
+	SessionID string         `json:"sessionId"`
+	Update    jsontext.Value `json:"update"`
 }
 
 type acpUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"`
 
 	// agent_message_chunk / agent_thought_chunk / user_message_chunk
-	Content json.RawMessage `json:"content"`
+	Content jsontext.Value `json:"content"`
 	// tool_call / tool_call_update
-	ToolCallID string          `json:"toolCallId"`
-	Title      *string         `json:"title"`
-	Kind       *string         `json:"kind"`
-	Status     *string         `json:"status"`
-	RawInput   json.RawMessage `json:"rawInput"`
-	RawOutput  json.RawMessage `json:"rawOutput"`
+	ToolCallID string         `json:"toolCallId"`
+	Title      *string        `json:"title"`
+	Kind       *string        `json:"kind"`
+	Status     *string        `json:"status"`
+	RawInput   jsontext.Value `json:"rawInput"`
+	RawOutput  jsontext.Value `json:"rawOutput"`
 	Locations  []struct {
 		Path string `json:"path"`
 		Line *int   `json:"line"`
@@ -250,7 +256,7 @@ type acpUpdate struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	} `json:"availableCommands"`
-	Meta map[string]json.RawMessage `json:"_meta"`
+	Meta map[string]jsontext.Value `json:"_meta"`
 }
 
 // acpContentBlock is one ContentBlock (text, image, resource, resource_link) or one
@@ -267,8 +273,8 @@ type acpContentBlock struct {
 }
 
 type acpPermissionParams struct {
-	SessionID string          `json:"sessionId"`
-	ToolCall  json.RawMessage `json:"toolCall"`
+	SessionID string         `json:"sessionId"`
+	ToolCall  jsontext.Value `json:"toolCall"`
 	Options   []struct {
 		OptionID string `json:"optionId"`
 		Name     string `json:"name"`

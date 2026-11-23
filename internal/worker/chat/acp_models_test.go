@@ -1,7 +1,8 @@
 package chat
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -273,11 +274,11 @@ func TestClassifyAndUsageWindow(t *testing.T) {
 
 func TestClassifyErrors(t *testing.T) {
 	ec := errContext{ad: cursorAdapter, acct: Account{Label: "Cursor", Binary: "/opt/bin/cursor-agent", Env: map[string]string{"CURSOR_API_KEY": "key-abcdefgh123", "CURSOR_CONFIG_DIR": "/c"}}}
-	e := ec.classify(&rpcError{Code: -32000, Message: "Authentication required", Data: json.RawMessage(`{"message":"Please run 'agent login' first"}`)})
+	e := ec.classify(&rpcError{Code: -32000, Message: "Authentication required", Data: jsontext.Value(`{"message":"Please run 'agent login' first"}`)})
 	if e.Kind != protocol.ErrKindAuth || e.Relogin.Command != "cursor-agent login" || e.Relogin.Env["CURSOR_CONFIG_DIR"] != "/c" || e.Relogin.Env["CURSOR_API_KEY"] != "" {
 		t.Errorf("auth = %+v %+v", e, e.Relogin)
 	}
-	if e := ec.classify(&rpcError{Code: -32602, Message: "Invalid params", Data: json.RawMessage(`{"message":"Invalid model value: x"}`)}); e.Kind != protocol.ErrKindModel {
+	if e := ec.classify(&rpcError{Code: -32602, Message: "Invalid params", Data: jsontext.Value(`{"message":"Invalid model value: x"}`)}); e.Kind != protocol.ErrKindModel {
 		t.Errorf("model = %+v", e)
 	}
 	if e := ec.classify(&protocolError{msg: "bad json"}); e.Kind != protocol.ErrKindProtocol {

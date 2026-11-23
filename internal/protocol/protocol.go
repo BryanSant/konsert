@@ -1,7 +1,8 @@
 package protocol
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 )
@@ -97,35 +98,42 @@ const (
 
 // Envelope is the JSON text frame wrapper used on both /ws/worker and /ws/client.
 type Envelope struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id,omitempty"`
-	TS      time.Time       `json:"ts"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type    string         `json:"type"`
+	ID      string         `json:"id,omitempty"`
+	TS      time.Time      `json:"ts"`
+	Payload jsontext.Value `json:"payload,omitzero"`
 }
 
-// NewEnvelope marshals a typed control-plane message into JSON bytes.
+// JSONOptions are the options for JSON Konsert exchanges over its wire
+// protocols and REST API. Strings that come from the outside world (file
+// names, command and agent output) are not guaranteed to be valid UTF-8; v2
+// rejects invalid UTF-8 by default, which would drop a whole frame or
+// response, so invalid bytes are replaced with U+FFFD (as v1 did).
+var JSONOptions = jsontext.AllowInvalidUTF8(true)
+
+// outEnvelope is Envelope with the payload marshaled in place (one encoding
+// pass instead of marshaling the payload and then re-validating it).
+type outEnvelope struct {
+	Type    string    `json:"type"`
+	ID      string    `json:"id,omitempty"`
+	TS      time.Time `json:"ts"`
+	Payload any       `json:"payload,omitzero"`
+}
+
+// NewEnvelope marshals a typed control-plane message into JSON bytes. A nil
+// payload is omitted.
 func NewEnvelope(msgType, id string, payload any) ([]byte, error) {
-	var raw json.RawMessage
-	if payload != nil {
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return nil, fmt.Errorf("marshal payload for %s: %w", msgType, err)
-		}
-		raw = b
+	b, err := json.Marshal(outEnvelope{Type: msgType, ID: id, TS: time.Now().UTC(), Payload: payload}, JSONOptions)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload for %s: %w", msgType, err)
 	}
-	env := Envelope{
-		Type:    msgType,
-		ID:      id,
-		TS:      time.Now().UTC(),
-		Payload: raw,
-	}
-	return json.Marshal(env)
+	return b, nil
 }
 
 // DecodeEnvelope unmarshals a JSON text frame into an Envelope.
 func DecodeEnvelope(data []byte) (Envelope, error) {
 	var env Envelope
-	if err := json.Unmarshal(data, &env); err != nil {
+	if err := json.Unmarshal(data, &env, JSONOptions); err != nil {
 		return Envelope{}, fmt.Errorf("decode envelope: %w", err)
 	}
 	if env.Type == "" {
@@ -140,7 +148,7 @@ func DecodePayload[T any](env Envelope) (T, error) {
 	if len(env.Payload) == 0 {
 		return out, nil
 	}
-	if err := json.Unmarshal(env.Payload, &out); err != nil {
+	if err := json.Unmarshal(env.Payload, &out, JSONOptions); err != nil {
 		return out, fmt.Errorf("decode payload for %s: %w", env.Type, err)
 	}
 	return out, nil
@@ -186,7 +194,7 @@ type WorkerInfo struct {
 	Agents         []string          `json:"agents"`
 	Tags           map[string]string `json:"tags"`
 	MaxConcurrent  int               `json:"max_concurrent"`
-	Facts          *MachineFacts     `json:"facts,omitempty"`
+	Facts          *MachineFacts     `json:"facts,omitzero"`
 	// MachineID is a stable per-installation UUID persisted by konsertd; the hub
 	// prefers it over the name/host tuple for identity matching.
 	MachineID string `json:"machine_id,omitempty"`
@@ -218,18 +226,18 @@ type WorkerMetrics struct {
 	CPUPercent     float64         `json:"cpu_percent"`
 	MemUsedMB      uint64          `json:"mem_used_mb"`
 	MemTotalMB     uint64          `json:"mem_total_mb"`
-	SwapUsedMB     uint64          `json:"swap_used_mb,omitempty"`
-	SwapTotalMB    uint64          `json:"swap_total_mb,omitempty"`
-	DiskFreeGB     uint64          `json:"disk_free_gb,omitempty"`
-	DiskTotalGB    uint64          `json:"disk_total_gb,omitempty"`
+	SwapUsedMB     uint64          `json:"swap_used_mb,omitzero"`
+	SwapTotalMB    uint64          `json:"swap_total_mb,omitzero"`
+	DiskFreeGB     uint64          `json:"disk_free_gb,omitzero"`
+	DiskTotalGB    uint64          `json:"disk_total_gb,omitzero"`
 	LoadAvg        float64         `json:"load_avg"`
 	ListeningPorts []ListeningPort `json:"listening_ports,omitempty"`
 }
 
 type WorkerHeartbeatPayload struct {
 	ActiveTaskIDs []string       `json:"active_task_ids"`
-	LoadAvg       float64        `json:"load_avg,omitempty"`
-	Metrics       *WorkerMetrics `json:"metrics,omitempty"`
+	LoadAvg       float64        `json:"load_avg,omitzero"`
+	Metrics       *WorkerMetrics `json:"metrics,omitzero"`
 }
 
 type SubscriptionQuota struct {
@@ -237,7 +245,7 @@ type SubscriptionQuota struct {
 	Label       string     `json:"label"`                  // "Claude", "Antigravity", "Codex", "Grok", "Cursor Models"
 	WindowLabel string     `json:"window_label,omitempty"` // "5h", "8h", "7d", ""
 	UsedPercent float64    `json:"used_percent"`           // 0..100
-	ResetAt     *time.Time `json:"reset_at,omitempty"`
+	ResetAt     *time.Time `json:"reset_at,omitzero"`
 	Source      string     `json:"source,omitempty"` // "probe" | "hook" | "manual"
 	WorkerID    string     `json:"worker_id,omitempty"`
 	UpdatedAt   time.Time  `json:"updated_at"`
@@ -289,8 +297,8 @@ type TaskStartPayload struct {
 	Mode           string `json:"mode"`
 	PermissionMode string `json:"permission_mode"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
-	Cols           uint16 `json:"cols,omitempty"`
-	Rows           uint16 `json:"rows,omitempty"`
+	Cols           uint16 `json:"cols,omitzero"`
+	Rows           uint16 `json:"rows,omitzero"`
 	// AccountID selects a worker-local agent account (AgentAccount.ID); "" = the
 	// daemon's own environment (the agent's default login).
 	AccountID string `json:"account_id,omitempty"`
@@ -323,9 +331,9 @@ type TaskStatusPayload struct {
 	TaskID       string      `json:"task_id"`
 	Status       string      `json:"status"`
 	EffectiveDir string      `json:"effective_dir,omitempty"`
-	ExitCode     *int        `json:"exit_code,omitempty"`
+	ExitCode     *int        `json:"exit_code,omitzero"`
 	Summary      string      `json:"summary,omitempty"`
-	GitSummary   *GitSummary `json:"git_summary,omitempty"`
+	GitSummary   *GitSummary `json:"git_summary,omitzero"`
 }
 
 type TaskEventPayload struct {
@@ -363,14 +371,14 @@ type ChatToolPayload struct {
 	SessionID string `json:"session_id"`
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
-	Args      any    `json:"args,omitempty"`
-	Result    any    `json:"result,omitempty"`
+	Args      any    `json:"args,omitzero"`
+	Result    any    `json:"result,omitzero"`
 	Status    string `json:"status"` // "running" | "completed" | "error"
 }
 
 type ChatDonePayload struct {
 	SessionID string `json:"session_id"`
-	MessageID int64  `json:"message_id,omitempty"`
+	MessageID int64  `json:"message_id,omitzero"`
 }
 
 type ChatErrorPayload struct {
@@ -380,21 +388,21 @@ type ChatErrorPayload struct {
 
 type FleetUpdatePayload struct {
 	Kind      string `json:"kind"` // "worker" | "task" | "event" | "space" | "workspace" | "project" | "repo" | "worktree" | "*_deleted"
-	Worker    any    `json:"worker,omitempty"`
-	Task      any    `json:"task,omitempty"`
-	Event     any    `json:"event,omitempty"`
-	Space     any    `json:"space,omitempty"`
-	Workspace any    `json:"workspace,omitempty"`
-	Project   any    `json:"project,omitempty"`
-	Repo      any    `json:"repo,omitempty"`
-	Worktree  any    `json:"worktree,omitempty"`
+	Worker    any    `json:"worker,omitzero"`
+	Task      any    `json:"task,omitzero"`
+	Event     any    `json:"event,omitzero"`
+	Space     any    `json:"space,omitzero"`
+	Workspace any    `json:"workspace,omitzero"`
+	Project   any    `json:"project,omitzero"`
+	Repo      any    `json:"repo,omitzero"`
+	Worktree  any    `json:"worktree,omitzero"`
 	// Audit carries a new fleet audit log entry when Kind is "audit" (additive).
-	Audit any `json:"audit,omitempty"`
+	Audit any `json:"audit,omitzero"`
 	// Accounts carries a worker's agent accounts when Kind is "agent_accounts" (additive).
-	Accounts any `json:"accounts,omitempty"`
+	Accounts any `json:"accounts,omitzero"`
 	// ChatSession carries a created/updated chat (status, title, settings) when Kind is
 	// "chat_session"; "chat_session_deleted" uses DeletedID (additive).
-	ChatSession any    `json:"chat_session,omitempty"`
+	ChatSession any    `json:"chat_session,omitzero"`
 	DeletedID   string `json:"deleted_id,omitempty"`
 	// WorkerID names the worker for worker-scoped kinds such as "agent_accounts" (additive).
 	WorkerID string `json:"worker_id,omitempty"`
@@ -450,7 +458,7 @@ type FSEntry struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
 	IsDir     bool   `json:"is_dir"`
-	IsGitRepo bool   `json:"is_git_repo,omitempty"`
+	IsGitRepo bool   `json:"is_git_repo,omitzero"`
 }
 
 type FSListRequest struct {
@@ -495,7 +503,7 @@ type FileUploadResult struct {
 	OK         bool   `json:"ok"`
 	RemotePath string `json:"remote_path,omitempty"`
 	Filename   string `json:"filename,omitempty"`
-	Size       int64  `json:"size,omitempty"`
+	Size       int64  `json:"size,omitzero"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -540,5 +548,5 @@ type HostWakeLockState struct {
 	// Reason echoes the reason the current lock was taken with.
 	Reason string `json:"reason,omitempty"`
 	// Since is when the current lock was acquired (nil while inactive).
-	Since *time.Time `json:"since,omitempty"`
+	Since *time.Time `json:"since,omitzero"`
 }

@@ -3,7 +3,8 @@ package controller
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -410,7 +411,7 @@ func (m *mockLLMProvider) Complete(_ context.Context, _, _ string, _ []orchestra
 		return orchestrator.Message{
 			Role: "assistant",
 			ToolCalls: []orchestrator.ToolCall{
-				{ID: "call_1", Name: "fleet_status", Arguments: json.RawMessage(`{}`)},
+				{ID: "call_1", Name: "fleet_status", Arguments: jsontext.Value(`{}`)},
 			},
 		}, nil
 	}
@@ -504,7 +505,7 @@ func TestSpacesRESTAndTaskAssociation(t *testing.T) {
 		Name     string `json:"name"`
 		Path     string `json:"path"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil || created.ID == "" {
+	if err := json.UnmarshalRead(resp.Body, &created); err != nil || created.ID == "" {
 		t.Fatalf("decode space failed: %+v err=%v", created, err)
 	}
 	_ = resp.Body.Close()
@@ -535,7 +536,7 @@ func TestSpacesRESTAndTaskAssociation(t *testing.T) {
 	var listOut struct {
 		Spaces []map[string]any `json:"spaces"`
 	}
-	_ = json.NewDecoder(listResp.Body).Decode(&listOut)
+	_ = json.UnmarshalRead(listResp.Body, &listOut)
 	_ = listResp.Body.Close()
 	if len(listOut.Spaces) != 1 {
 		t.Fatalf("expected 1 space, got %d", len(listOut.Spaces))
@@ -623,7 +624,7 @@ func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 		t.Fatalf("GET /api/git/inspect failed: resp=%v err=%v", inspResp, err)
 	}
 	var insp protocol.GitInspectResult
-	if err := json.NewDecoder(inspResp.Body).Decode(&insp); err != nil {
+	if err := json.UnmarshalRead(inspResp.Body, &insp); err != nil {
 		t.Fatal(err)
 	}
 	_ = inspResp.Body.Close()
@@ -642,7 +643,7 @@ func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 		t.Fatalf("POST /api/git/commit failed: resp=%v err=%v", cResp, err)
 	}
 	var cRes protocol.GitCommitResult
-	_ = json.NewDecoder(cResp.Body).Decode(&cRes)
+	_ = json.UnmarshalRead(cResp.Body, &cRes)
 	_ = cResp.Body.Close()
 	if !cRes.OK || cRes.CommitSHA == "" {
 		t.Fatalf("expected successful commit RPC, got %+v", cRes)
@@ -700,7 +701,7 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 		t.Fatalf("GET /api/fs/list failed: resp=%v err=%v", fsResp, err)
 	}
 	var fsRes protocol.FSListResult
-	if err := json.NewDecoder(fsResp.Body).Decode(&fsRes); err != nil {
+	if err := json.UnmarshalRead(fsResp.Body, &fsRes); err != nil {
 		t.Fatal(err)
 	}
 	_ = fsResp.Body.Close()
@@ -715,7 +716,7 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 		t.Fatalf("GET /api/fs/list type-ahead failed: resp=%v err=%v", taResp, err)
 	}
 	var taRes protocol.FSListResult
-	if err := json.NewDecoder(taResp.Body).Decode(&taRes); err != nil {
+	if err := json.UnmarshalRead(taResp.Body, &taRes); err != nil {
 		t.Fatal(err)
 	}
 	_ = taResp.Body.Close()
@@ -749,7 +750,7 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 	var fleetOut struct {
 		Workers []map[string]any `json:"workers"`
 	}
-	_ = json.NewDecoder(fleetResp.Body).Decode(&fleetOut)
+	_ = json.UnmarshalRead(fleetResp.Body, &fleetOut)
 	_ = fleetResp.Body.Close()
 	if len(fleetOut.Workers) != 0 {
 		t.Fatalf("expected 0 workers after delete, got %d", len(fleetOut.Workers))
@@ -802,7 +803,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		Workspaces []map[string]any `json:"workspaces"`
 		Projects   []map[string]any `json:"projects"`
 	}
-	_ = json.NewDecoder(taxResp.Body).Decode(&tax)
+	_ = json.UnmarshalRead(taxResp.Body, &tax)
 	_ = taxResp.Body.Close()
 	if len(tax.Workspaces) != 1 || len(tax.Projects) != 1 {
 		t.Fatalf("expected Default workspace and project, got %+v", tax)
@@ -816,7 +817,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var wsObj struct {
 		ID string `json:"id"`
 	}
-	_ = json.NewDecoder(wsResp.Body).Decode(&wsObj)
+	_ = json.UnmarshalRead(wsResp.Body, &wsObj)
 	_ = wsResp.Body.Close()
 
 	projResp, err := http.Post(ts.URL+"/api/projects", "application/json", strings.NewReader(`{"workspace_id":"`+wsObj.ID+`","name":"Platform"}`))
@@ -826,7 +827,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var projObj struct {
 		ID string `json:"id"`
 	}
-	_ = json.NewDecoder(projResp.Body).Decode(&projObj)
+	_ = json.UnmarshalRead(projResp.Body, &projObj)
 	_ = projResp.Body.Close()
 
 	repoDir := t.TempDir()
@@ -844,7 +845,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var repoObj struct {
 		ID string `json:"id"`
 	}
-	_ = json.NewDecoder(repoResp.Body).Decode(&repoObj)
+	_ = json.UnmarshalRead(repoResp.Body, &repoObj)
 	_ = repoResp.Body.Close()
 
 	// 3. Session defaults cascade: localhost machine; the model comes from the
@@ -856,7 +857,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		t.Fatalf("GET /api/sessions/defaults failed: %v", err)
 	}
 	var defs SessionDefaultsResult
-	_ = json.NewDecoder(defResp.Body).Decode(&defs)
+	_ = json.UnmarshalRead(defResp.Body, &defs)
 	_ = defResp.Body.Close()
 	if defs.MachineID != "w-local-1" || defs.MachineSource != "localhost" || defs.Agent != "mock" || defs.Model != "mock-smart" || defs.ModelSource != "capabilities" {
 		t.Fatalf("unexpected initial session defaults: %+v", defs)
@@ -877,7 +878,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		t.Fatalf("POST /api/sessions failed: resp=%v err=%v", sessResp, err)
 	}
 	var disp DispatchResult
-	_ = json.NewDecoder(sessResp.Body).Decode(&disp)
+	_ = json.UnmarshalRead(sessResp.Body, &disp)
 	_ = sessResp.Body.Close()
 	if disp.WorkspaceID != wsObj.ID || disp.ProjectID != projObj.ID || disp.RepoID != repoObj.ID || disp.Model != "claude-sonnet-4-5" {
 		t.Fatalf("unexpected unified session result: %+v", disp)
@@ -889,7 +890,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		t.Fatalf("GET /api/sessions/defaults (2) failed: %v", err)
 	}
 	var defs2 SessionDefaultsResult
-	_ = json.NewDecoder(defResp2.Body).Decode(&defs2)
+	_ = json.UnmarshalRead(defResp2.Body, &defs2)
 	_ = defResp2.Body.Close()
 	if defs2.Agent != "mock" || defs2.AgentSource != "last_used" || defs2.Model != "claude-sonnet-4-5" || defs2.ModelSource != "last_used" {
 		t.Fatalf("expected last_used cascade after session start, got %+v", defs2)
@@ -906,7 +907,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 
 	defResp3, _ := http.Get(ts.URL + "/api/sessions/defaults")
 	var defs3 SessionDefaultsResult
-	_ = json.NewDecoder(defResp3.Body).Decode(&defs3)
+	_ = json.UnmarshalRead(defResp3.Body, &defs3)
 	_ = defResp3.Body.Close()
 	if defs3.Agent != "mock" || defs3.AgentSource != "default" || defs3.Model != "gemini-2.5-pro" || defs3.ModelSource != "default" {
 		t.Fatalf("expected configured default to override last_used, got %+v", defs3)
@@ -989,7 +990,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 		WorkerID string                 `json:"worker_id"`
 		Facts    *protocol.MachineFacts `json:"facts"`
 	}
-	if err := json.NewDecoder(fResp.Body).Decode(&fOut); err != nil {
+	if err := json.UnmarshalRead(fResp.Body, &fOut); err != nil {
 		t.Fatal(err)
 	}
 	_ = fResp.Body.Close()
@@ -998,7 +999,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 	}
 
 	// 2. Deterministic daemon-first tool: scan_temp_worktrees finds epic-123 worktree with 0 agent LLM calls
-	scanRes, err := srv.Service().ExecuteTool(ctx, "scan_temp_worktrees", json.RawMessage(`{"query":"epic-123"}`))
+	scanRes, err := srv.Service().ExecuteTool(ctx, "scan_temp_worktrees", jsontext.Value(`{"query":"epic-123"}`))
 	if err != nil {
 		t.Fatalf("scan_temp_worktrees failed: %v", err)
 	}
@@ -1008,7 +1009,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 	}
 
 	// 3. Deterministic save_memory + Orchestrator context-window compaction checkpointing
-	if _, err := srv.Service().ExecuteTool(ctx, "save_memory", json.RawMessage(`{"scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
+	if _, err := srv.Service().ExecuteTool(ctx, "save_memory", jsontext.Value(`{"scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
 		t.Fatalf("save_memory failed: %v", err)
 	}
 
@@ -1088,7 +1089,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		t.Fatalf("POST /api/fleet/fanout failed: resp=%v err=%v", fResp, err)
 	}
 	var fanOut FanOutResult
-	if err := json.NewDecoder(fResp.Body).Decode(&fanOut); err != nil {
+	if err := json.UnmarshalRead(fResp.Body, &fanOut); err != nil {
 		t.Fatal(err)
 	}
 	_ = fResp.Body.Close()
@@ -1103,7 +1104,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		t.Fatalf("POST /api/usage/quotas failed: resp=%v err=%v", qResp, err)
 	}
 	var usageOut store.UsageSummary
-	if err := json.NewDecoder(qResp.Body).Decode(&usageOut); err != nil {
+	if err := json.UnmarshalRead(qResp.Body, &usageOut); err != nil {
 		t.Fatal(err)
 	}
 	_ = qResp.Body.Close()
@@ -1280,7 +1281,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 		t.Fatalf("POST /api/chat/sessions failed: resp=%v err=%v", createResp, err)
 	}
 	var cs store.ChatSession
-	_ = json.NewDecoder(createResp.Body).Decode(&cs)
+	_ = json.UnmarshalRead(createResp.Body, &cs)
 	_ = createResp.Body.Close()
 
 	patchReq, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/chat/sessions/"+cs.ID, strings.NewReader(`{"title":"Renamed Thread"}`))
@@ -1290,7 +1291,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 		t.Fatalf("PATCH /api/chat/sessions failed: resp=%v err=%v", patchResp, err)
 	}
 	var renamed store.ChatSession
-	_ = json.NewDecoder(patchResp.Body).Decode(&renamed)
+	_ = json.UnmarshalRead(patchResp.Body, &renamed)
 	_ = patchResp.Body.Close()
 	if renamed.Title != "Renamed Thread" {
 		t.Fatalf("expected Renamed Thread, got %q", renamed.Title)
@@ -1316,7 +1317,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 		Filename   string `json:"filename"`
 		Size       int64  `json:"size"`
 	}
-	_ = json.NewDecoder(attResp.Body).Decode(&attOut)
+	_ = json.UnmarshalRead(attResp.Body, &attOut)
 	_ = attResp.Body.Close()
 	if !attOut.OK || attOut.WorkerID != "w-att-1" || attOut.RemotePath == "" || attOut.Size != 14 {
 		t.Fatalf("unexpected attachment upload response: %+v", attOut)
@@ -1503,7 +1504,7 @@ func TestAuditLogEndToEndWithRealWorker(t *testing.T) {
 
 	resp := doReq(t, http.MethodGet, ts.URL+"/api/audit?task_id="+disp.TaskID, nil, nil)
 	var out AuditListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &out); err != nil {
 		t.Fatal(err)
 	}
 	var actions []string

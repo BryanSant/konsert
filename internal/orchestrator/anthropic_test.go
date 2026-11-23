@@ -2,7 +2,8 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -172,7 +173,7 @@ func TestAnthropicServiceStreamsAndReplaysThinking(t *testing.T) {
 func TestAnthropicMessagesGroupsToolResults(t *testing.T) {
 	out := anthropicMessages([]Message{
 		{Role: "user", Content: "hi"},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "a", Name: "x", Arguments: json.RawMessage(`{}`)}, {ID: "b", Name: "x", Arguments: json.RawMessage(`not json`)}}},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "a", Name: "x", Arguments: jsontext.Value(`{}`)}, {ID: "b", Name: "x", Arguments: jsontext.Value(`not json`)}}},
 		{Role: "tool", ToolCallID: "a", Content: "1"},
 		{Role: "tool", ToolCallID: "b", Content: "2"},
 		{Role: "assistant", Content: ""},
