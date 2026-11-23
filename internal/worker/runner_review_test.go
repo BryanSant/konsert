@@ -45,7 +45,7 @@ func TestRunnerSandboxedRefusesShellUnlessOptedIn(t *testing.T) {
 		t.Fatal("sandboxed runner must not allow the shell driver by default")
 	}
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID:         "TASK-E4RKJ",
+		TaskID:         "task-e4rkj",
 		Agent:          drivers.ShellDriverName,
 		Workdir:        workdir,
 		Prompt:         "id",

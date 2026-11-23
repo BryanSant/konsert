@@ -48,7 +48,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	}, nil)
 
 	// 1. Run a oneshot task with STREAM_LINES=5 and verify zero PTY frames while unsubscribed.
-	taskID := "TASK-TX8W4"
+	taskID := "task-tx8w4"
 	err := runner.StartTask(ctx, protocol.TaskStartPayload{
 		TaskID:         taskID,
 		Agent:          "mock",
@@ -115,7 +115,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 		},
 	}, nil)
 
-	taskID2 := "TASK-5HH0K"
+	taskID2 := "task-5hh0k"
 	if err := runner2.StartTask(ctx, protocol.TaskStartPayload{
 		TaskID:         taskID2,
 		Agent:          "mock",
@@ -181,7 +181,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 		},
 	}, nil)
 
-	taskID3 := "TASK-PY1D2"
+	taskID3 := "task-py1d2"
 	if err := runner3.StartTask(ctx, protocol.TaskStartPayload{
 		TaskID:         taskID3,
 		Agent:          "mock",
@@ -217,7 +217,7 @@ func TestRunnerSandboxedRefusesFullAccess(t *testing.T) {
 	}, nil)
 
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID:         "TASK-WVHWR",
+		TaskID:         "task-wvhwr",
 		Agent:          "mock",
 		Workdir:        workdir,
 		Prompt:         "hello",

@@ -91,7 +91,7 @@ func TestDiscoveryDeliversHookEventsWrittenWhileDisconnected(t *testing.T) {
 
 func TestRecordHookEventSkipsManagedTasks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(ManagedTaskEnv, "TASK-NCFFA")
+	t.Setenv(ManagedTaskEnv, "task-ncffa")
 	if err := RecordHookEvent(home, HookEvent{Agent: "claude", Event: "PreToolUse"}); err != nil {
 		t.Fatal(err)
 	}

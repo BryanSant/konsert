@@ -3,7 +3,7 @@
 // Two kinds exist:
 //
 //   - User-facing records (tasks, chats, workspaces, projects, repos, worktrees, spaces) get
-//     short, typed, ka-style IDs: a kind prefix plus random Crockford base32, e.g. TASK-7QK3M.
+//     short, typed, ka-style IDs: a kind prefix plus random Crockford base32, e.g. task-7qk3m.
 //     The hub is the only minter and checks each candidate against the database, so a short
 //     suffix is safe; it grows by one character when collisions get frequent.
 //   - Everything that must be a UUID (worker/machine identity minted offline, protocol request
@@ -24,20 +24,21 @@ import (
 type Kind string
 
 const (
-	Task      Kind = "TASK"
-	Chat      Kind = "CHAT"
-	Workspace Kind = "WS"
-	Project   Kind = "PRJ"
-	Repo      Kind = "REPO"
-	Worktree  Kind = "WT"
-	Space     Kind = "SPC"
+	Task      Kind = "task"
+	Chat      Kind = "chat"
+	Workspace Kind = "ws"
+	Project   Kind = "prj"
+	Repo      Kind = "repo"
+	Worktree  Kind = "wt"
+	Space     Kind = "spc"
 )
 
 // Kinds lists every user-facing kind.
 var Kinds = []Kind{Task, Chat, Workspace, Project, Repo, Worktree, Space}
 
-// Alphabet is Crockford base32: digits and upper-case letters without I, L, O, U.
-const Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+// Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
+// IDs are lower case because they appear in URLs (https://…/chat-yvp2f).
+const Alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
 
 // SuffixLength is the starting length of the random part.
 const SuffixLength = 5
@@ -45,7 +46,7 @@ const SuffixLength = 5
 // maxTriesPerLength is how many collisions are tolerated before the suffix grows.
 const maxTriesPerLength = 8
 
-var idRe = regexp.MustCompile(`^([A-Z]{2,4})-([0-9A-HJKMNP-TV-Z]{5,12})$`)
+var idRe = regexp.MustCompile(`^([a-z]{2,4})-([0-9a-hjkmnp-tv-z]{5,12})$`)
 
 // Default IDs of the built-in workspace and project. All-zero suffixes are never minted
 // (see lowEntropy), so they cannot collide.

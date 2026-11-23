@@ -28,11 +28,11 @@ func TestNewFormatAndParse(t *testing.T) {
 		if !ok || got != k || len(sfx) != SuffixLength {
 			t.Fatalf("New(%s) = %q; Parse = %v %q %v", k, id, got, sfx, ok)
 		}
-		if !Valid(k, id) || Valid(Chat, "TASK-7QK3M") {
+		if !Valid(k, id) || Valid(Chat, "task-7qk3m") {
 			t.Fatalf("Valid mismatch for %q", id)
 		}
 	}
-	for _, bad := range []string{"", "task-7qk3m", "TASK-7QK3", "TASK-7QK3I", "NOPE-7QK3M", "75cca373-29b6-4692-840b-bd942267949f"} {
+	for _, bad := range []string{"", "TASK-7QK3M", "task-7qk3", "task-7qk3i", "nope-7qk3m", "75cca373-29b6-4692-840b-bd942267949f"} {
 		if _, _, ok := Parse(bad); ok {
 			t.Errorf("Parse(%q) accepted", bad)
 		}
@@ -58,7 +58,7 @@ func TestNewRetriesAndGrows(t *testing.T) {
 }
 
 func TestLowEntropy(t *testing.T) {
-	for s, want := range map[string]bool{"00000": true, "AAAAB": true, "01234": true, "ZYXWV": true, "7QK3M": false, "W47XK": false} {
+	for s, want := range map[string]bool{"00000": true, "aaaab": true, "01234": true, "zyxwv": true, "7qk3m": false, "w47xk": false} {
 		if got := lowEntropy(s); got != want {
 			t.Errorf("lowEntropy(%q) = %v, want %v", s, got, want)
 		}

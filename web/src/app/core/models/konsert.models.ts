@@ -487,4 +487,4 @@ export const FRAME_TASK_ID_SIZE = 24;
 export const FRAME_HEADER_SIZE = 1 + FRAME_TASK_ID_SIZE;
 
 /** ID of the built-in Default project (Go: ids.DefaultProject). */
-export const DEFAULT_PROJECT_ID = 'PRJ-00000';
+export const DEFAULT_PROJECT_ID = 'prj-00000';

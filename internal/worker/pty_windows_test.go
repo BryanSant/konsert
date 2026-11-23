@@ -17,7 +17,7 @@ func TestConPtyTaskCompletes(t *testing.T) {
 	rec := newStatusRecorder()
 	runner := NewRunner(drivers.DefaultRegistry, false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
 	err := runner.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID:  "TASK-2B0MK",
+		TaskID:  "task-2b0mk",
 		Agent:   "mock",
 		Workdir: t.TempDir(),
 		Prompt:  "EXIT=0",

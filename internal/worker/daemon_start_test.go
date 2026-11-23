@@ -17,7 +17,7 @@ func TestDaemonReadLoopResponsiveDuringSlowWorktree(t *testing.T) {
 	c := hub.accept(t)
 	c.waitFor(t, 10*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
 
-	const id = "TASK-BY2AJ"
+	const id = "task-by2aj"
 	c.send(t, protocol.MsgTaskStart, "", protocol.TaskStartPayload{
 		TaskID: id, Agent: "mock", Workdir: repo, Branch: "slow", UseWorktree: true,
 		Prompt: "EXIT=0", Mode: protocol.TaskModeOneshot,

@@ -1,8 +1,8 @@
 -- Konsert schema. Pre-1.0 there is exactly one migration: schema changes edit this file and
 -- older databases are refused (see migrate.go) rather than upgraded.
 --
--- IDs: user-facing records use typed ka-style IDs minted by internal/ids (TASK-7QK3M,
--- CHAT-W47XK, WS-…, PRJ-…, REPO-…, WT-…, SPC-…); workers use their self-minted UUIDv7.
+-- IDs: user-facing records use typed ka-style IDs minted by internal/ids (task-7qk3m,
+-- chat-w47xk, WS-…, PRJ-…, REPO-…, WT-…, SPC-…); workers use their self-minted UUIDv7.
 
 CREATE TABLE workers (
     id               TEXT PRIMARY KEY,
@@ -79,8 +79,8 @@ CREATE TABLE tasks (
     worker_id          TEXT REFERENCES workers(id),
     worker_pinned      INTEGER NOT NULL DEFAULT 0,
     selector_json      TEXT NOT NULL DEFAULT '',
-    workspace_id       TEXT NOT NULL DEFAULT 'WS-00000',
-    project_id         TEXT NOT NULL DEFAULT 'PRJ-00000',
+    workspace_id       TEXT NOT NULL DEFAULT 'ws-00000',
+    project_id         TEXT NOT NULL DEFAULT 'prj-00000',
     repo_id            TEXT NOT NULL DEFAULT '',
     worktree_id        TEXT NOT NULL DEFAULT '',
     space_id           TEXT NOT NULL DEFAULT '',
