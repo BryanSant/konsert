@@ -35,7 +35,12 @@ type Server struct {
 	orch    *orchestrator.Service
 	logger  *slog.Logger
 	mux     *http.ServeMux
+	handler http.Handler
 	version string
+
+	// originPatterns are the extra browser origins allowed besides the request Host.
+	originPatterns []string
+	loginLimiter   *auth.LoginLimiter
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -69,17 +74,21 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		logger:  logger,
 		mux:     http.NewServeMux(),
 		version: version,
+
+		originPatterns: buildOriginPatterns(cfg),
+		loginLimiter:   auth.NewLoginLimiter(),
 	}
 	s.registerRoutes()
+	s.handler = s.guard(s.mux)
 	return s
 }
 
-func (s *Server) Hub() *Hub                        { return s.hub }
-func (s *Server) Service() *FleetService           { return s.service }
+func (s *Server) Hub() *Hub                           { return s.hub }
+func (s *Server) Service() *FleetService              { return s.service }
 func (s *Server) Orchestrator() *orchestrator.Service { return s.orch }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) registerRoutes() {
@@ -184,14 +193,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	ip := clientIP(r)
+	if ok, wait := s.loginLimiter.Allow(ip); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many failed login attempts; try again later"})
+		return
+	}
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if !s.auth.CheckAdminToken(body.Token) {
+		s.loginLimiter.Failure(ip)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 		return
 	}
+	s.loginLimiter.Success(ip)
 	s.auth.SetSessionCookie(w, r, "operator")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
@@ -267,8 +283,7 @@ func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
 		Path     string `json:"path"`
 		Branch   string `json:"branch"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	body.WorkerID = strings.TrimSpace(body.WorkerID)
@@ -419,8 +434,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		Sandbox       bool   `json:"sandbox"`
 		EnableMock    bool   `json:"enable_mock"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.Target) == "" {
@@ -572,8 +586,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		NotifySound           *bool   `json:"notify_sound"`
 		NotifyDesktop         *bool   `json:"notify_desktop"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -704,8 +717,7 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		Message  string `json:"message"`
 		StageAll *bool  `json:"stage_all"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, body.SpaceID)
@@ -754,8 +766,7 @@ func (s *Server) handleGitWorktreeCleanup(w http.ResponseWriter, r *http.Request
 		Workdir  string `json:"workdir"`
 		TaskID   string `json:"task_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, "")
@@ -794,8 +805,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	var req DispatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	res, err := s.service.DispatchTask(r.Context(), req)
@@ -829,8 +839,7 @@ func (s *Server) handleSteerTask(w http.ResponseWriter, r *http.Request) {
 		InputText     string `json:"input_text"`
 		AppendNewline *bool  `json:"append_newline"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	appendNL := true
@@ -940,8 +949,7 @@ func (s *Server) handleRenameChatSession(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Title string `json:"title"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	if !decodeJSON(w, r, &body) {
 		return
 	}
 	title := strings.TrimSpace(body.Title)
@@ -990,6 +998,10 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		if err := r.ParseMultipartForm(worker.MaxAttachmentBytes + 1024*1024); err != nil {
+			if isBodyTooLarge(err) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid multipart upload: " + err.Error()})
 			return
 		}
@@ -1020,8 +1032,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			Filename   string `json:"filename"`
 			DataBase64 string `json:"data_base64"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 20*1024*1024)).Decode(&body); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		if !decodeJSON(w, r, &body) {
 			return
 		}
 		workerID = strings.TrimSpace(body.WorkerID)
@@ -1127,8 +1138,16 @@ func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		return
 	}
+	// Browser sockets carry ambient cookie credentials, so the Origin must be this
+	// controller (request Host) or an explicitly configured origin. Non-browser
+	// clients that send no Origin are unaffected.
+	if allowed, _ := checkOrigin(r, s.originPatterns); !allowed {
+		s.logger.Warn("rejected cross-origin /ws/client upgrade", "origin", r.Header.Get("Origin"), "host", r.Host)
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin websocket rejected"})
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
+		OriginPatterns: s.originPatterns,
 	})
 	if err != nil {
 		s.logger.Warn("accept client ws failed", "err", err)

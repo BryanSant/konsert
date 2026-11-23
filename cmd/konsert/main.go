@@ -51,6 +51,8 @@ func newServeCmd() *cobra.Command {
 		adminToken            string
 		mcpToken              string
 		tokensFile            string
+		publicURL             string
+		allowedOrigins        []string
 		noAuth                bool
 		trustTailscaleHeaders bool
 		enableMCPHTTP         bool
@@ -90,6 +92,12 @@ func newServeCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("tokens-file") {
 				cfg.TokensFile = tokensFile
+			}
+			if cmd.Flags().Changed("public-url") {
+				cfg.PublicURL = publicURL
+			}
+			if cmd.Flags().Changed("allowed-origin") {
+				cfg.AllowedOrigins = allowedOrigins
 			}
 
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -146,6 +154,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (isolated local development only; binds to loopback by default)")
 	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve (honored only from loopback peers)")
 	cmd.Flags().BoolVar(&enableMCPHTTP, "enable-mcp-http", true, "Enable Streamable HTTP/SSE MCP endpoint at /mcp")
+	cmd.Flags().StringVar(&publicURL, "public-url", "", "Externally reachable base URL of this controller (e.g. https://konsert.example.ts.net); used for SSH-bootstrapped workers and as an allowed browser origin")
+	cmd.Flags().StringSliceVar(&allowedOrigins, "allowed-origin", nil, "Extra browser origin allowed to use the REST API and /ws/client (repeatable; e.g. http://localhost:4200)")
 
 	return cmd
 }
