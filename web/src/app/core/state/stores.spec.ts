@@ -37,7 +37,7 @@ describe('FleetStore (Zoneless Signals)', () => {
         mem_used_mb: 4096,
         mem_total_mb: 16384,
         load_avg: 1.2,
-        listening_ports: [{ port: 8420, process: 'konsert', address: '127.0.0.1' }],
+
       },
     };
     const w2: Worker = {

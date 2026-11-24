@@ -20,6 +20,13 @@ type fakeHub struct {
 	srv    *httptest.Server
 	conns  chan *hubConn
 	reject atomic.Bool // when set, connection attempts get HTTP 503
+	// silent: new connections go silent after worker.hello (the hub stops reading and
+	// writing, as a half-open link or a stopped hub process would), until the test ends.
+	silent atomic.Bool
+	// pingEvery, when set, makes the hub ping every connection that often (as the real
+	// hub does when it is quiet).
+	pingEvery atomic.Int64 // nanoseconds
+	stop      chan struct{}
 }
 
 // hubConn is one accepted worker connection with its decoded text envelopes.
@@ -31,8 +38,8 @@ type hubConn struct {
 
 func newFakeHub(t *testing.T) *fakeHub {
 	t.Helper()
-	h := &fakeHub{conns: make(chan *hubConn, 8)}
-	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := &fakeHub{conns: make(chan *hubConn, 8), stop: make(chan struct{})}
+	h.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.reject.Load() {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
 			return
@@ -45,6 +52,33 @@ func newFakeHub(t *testing.T) *fakeHub {
 		hc := &hubConn{conn: c, msgs: make(chan protocol.Envelope, 1024), done: make(chan struct{})}
 		h.conns <- hc
 		defer close(hc.done)
+		if h.silent.Load() {
+			if _, data, err := c.Read(context.Background()); err == nil {
+				if env, err := protocol.DecodeEnvelope(data); err == nil {
+					hc.msgs <- env
+				}
+			}
+			<-h.stop
+			return
+		}
+		if every := time.Duration(h.pingEvery.Load()); every > 0 {
+			pctx, pcancel := context.WithCancel(context.Background())
+			defer pcancel()
+			go func() {
+				t := time.NewTicker(every)
+				defer t.Stop()
+				for {
+					select {
+					case <-pctx.Done():
+						return
+					case <-t.C:
+						ctx, cancel := context.WithTimeout(pctx, time.Second)
+						_ = c.Ping(ctx)
+						cancel()
+					}
+				}
+			}()
+		}
 		for {
 			typ, data, err := c.Read(context.Background())
 			if err != nil {
@@ -61,7 +95,12 @@ func newFakeHub(t *testing.T) *fakeHub {
 			}
 		}
 	}))
-	t.Cleanup(h.srv.Close)
+	h.srv.Start()
+	t.Cleanup(func() {
+		close(h.stop)
+		h.srv.CloseClientConnections()
+		h.srv.Close()
+	})
 	return h
 }
 

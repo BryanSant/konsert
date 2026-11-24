@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
@@ -28,6 +30,7 @@ func (h *Hub) disconnectWorkerWith(workerID string, code int, reason string) {
 	delete(h.workerMetrics, workerID)
 	h.mu.Unlock()
 	h.forgetHeat(workerID)
+	h.ports.forget(workerID)
 	if ok && wc != nil {
 		// Send the WebSocket close frame BEFORE canceling connCtx so coder/websocket doesn't hard-abort TCP with EOF.
 		_ = wc.conn.Close(websocket.StatusCode(code), reason)
@@ -234,6 +237,24 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	// Drain any queued tasks that can now run on this worker.
 	h.kickScheduler()
 
+	// Liveness (KON-G8WA3): ping when the hub has sent nothing for LinkQuiet; a link on
+	// which nothing (data or pong) arrived for LinkDead is dead. konsertd sends a vitals
+	// heartbeat whenever it is quiet, so a live daemon is always heard from.
+	lv := linkwatch.New(linkwatch.Config{QuietAfter: h.LinkQuiet, DeadAfter: h.LinkDead}, nil)
+	var dead atomic.Bool
+	go lv.Monitor(connCtx, func() {
+		go func() {
+			pctx, pcancel := context.WithTimeout(connCtx, lv.Config().DeadAfter)
+			defer pcancel()
+			if conn.Ping(pctx) == nil {
+				lv.Received()
+			}
+		}()
+	}, func() {
+		dead.Store(true)
+		cancel()
+	})
+
 	// Writer goroutine
 	go func() {
 		for {
@@ -248,6 +269,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 					cancel()
 					return
 				}
+				lv.Sent()
 			}
 		}
 	}()
@@ -258,6 +280,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		if err != nil {
 			break
 		}
+		lv.Received()
 		switch mt {
 		case websocket.MessageBinary:
 			h.handleWorkerBinary(data)
@@ -273,11 +296,64 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	// Disconnect cleanup: remove active conn, keep DB status until reaper marks offline
 	// OR if no active tasks, mark offline promptly while preserving restart re-adoption window.
 	h.mu.Lock()
-	if h.workers[wModel.ID] == wc {
+	current := h.workers[wModel.ID] == wc
+	if current {
 		delete(h.workers, wModel.ID)
 	}
 	h.mu.Unlock()
+	if dead.Load() && current {
+		h.logger.Warn("link to "+wModel.Name+" is dead: nothing received for "+lv.Config().DeadAfter.String()+"; marking it offline", "worker_id", wModel.ID)
+		h.markLinkDead(wModel.ID)
+		return
+	}
 	h.logger.Info("worker disconnected", "worker_id", wModel.ID)
+}
+
+// markLinkDead marks a worker whose link died offline at once (the reaper would only do
+// so after StaleWorkerTimeout). Its tasks are left alone for the rest of that window, as
+// after any disconnect: the daemon keeps them running and re-adopts them in worker.hello;
+// if it has not come back by then, the orphan policies apply.
+func (h *Hub) markLinkDead(workerID string) {
+	ctx, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+	changed, err := h.store.MarkWorkerOffline(ctx, workerID)
+	if err == nil && changed {
+		if w, err := h.store.GetWorker(ctx, workerID); err == nil {
+			h.broadcastFleetUpdate("worker", toWorkerView(w, 0, nil))
+		}
+	}
+	cancel()
+	h.forgetHeat(workerID)
+	if !changed {
+		return
+	}
+	grace := h.StaleWorkerTimeout - effectiveDeadAfter(h.LinkDead)
+	h.goBackground(func(ctx context.Context) {
+		t := time.NewTimer(max(grace, 0))
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		h.mu.RLock()
+		_, back := h.workers[workerID]
+		h.mu.RUnlock()
+		if back {
+			return
+		}
+		if w, err := h.store.GetWorker(ctx, workerID); err != nil || w.Status != "offline" {
+			return
+		}
+		h.handleOrphanTasks(ctx, workerID)
+	})
+}
+
+// effectiveDeadAfter is the effective dead-link timeout for a configured value (0: the default).
+func effectiveDeadAfter(d time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return linkwatch.DefaultDeadAfter
 }
 
 // supersedePingTimeout bounds the liveness ping sent to an existing connection
@@ -307,6 +383,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 	switch env.Type {
 	case protocol.MsgWorkerHeartbeat:
 		h.onWorkerHeartbeat(ctx, wc, env)
+	case protocol.MsgWorkerPorts:
+		h.onWorkerPorts(wc, env)
 	case protocol.MsgWorkerFacts:
 		h.onWorkerFacts(ctx, wc, env)
 	case protocol.MsgWorkerQuotas:

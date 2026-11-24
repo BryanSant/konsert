@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/hubkey"
+	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/coder/websocket"
 )
@@ -37,13 +38,18 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+protocol.AttachPath, func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, nil)
+		lv := linkwatch.New(d.linkConfig(), nil)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			OnPingReceived: func(context.Context, []byte) bool { lv.Received(); return true },
+			OnPongReceived: func(context.Context, []byte) { lv.Received() },
+		})
 		if err != nil {
 			d.logger.Warn("attach: websocket upgrade failed", "err", err)
 			return
 		}
 		hubID := r.Header.Get(protocol.HubIDHeader)
-		if d.serveAttached(ctx, srvCtx, conn) {
+		peer := linkPeer{transport: attachTransport(r.Header.Get(protocol.TransportHeader)), addr: "local socket"}
+		if d.serveAttached(ctx, srvCtx, conn, peer, lv) {
 			d.dropHubGrant(hubID)
 			removedOnce.Do(func() { close(removed) })
 		}
@@ -56,6 +62,7 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
 	d.logger.Info("listening on " + path)
+	d.link.waiting("")
 
 	var runErr error
 	select {
@@ -76,7 +83,7 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 
 // serveAttached serves one attached connection, replacing the current one. It reports
 // whether the hub removed this machine.
-func (d *Daemon) serveAttached(daemonCtx, srvCtx context.Context, conn *websocket.Conn) bool {
+func (d *Daemon) serveAttached(daemonCtx, srvCtx context.Context, conn *websocket.Conn, peer linkPeer, lv *linkwatch.Liveness) bool {
 	connCtx, cancel := context.WithCancel(srvCtx)
 	done := make(chan struct{})
 	d.attachMu.Lock()
@@ -99,17 +106,41 @@ func (d *Daemon) serveAttached(daemonCtx, srvCtx context.Context, conn *websocke
 		close(done)
 	}()
 
-	err := d.serveConn(daemonCtx, connCtx, conn, "local socket")
+	err := d.serveConn(daemonCtx, connCtx, conn, peer, lv)
 	if websocket.CloseStatus(err) == websocket.StatusCode(protocol.WSCloseWorkerRemoved) {
 		return true
 	}
 	if daemonCtx.Err() == nil {
 		// Keep a host wake lock through short outages; drop it if the hub stays away.
 		d.wake.Disconnected(d.WakeLockGrace)
-		d.logger.Info("hub detached; waiting for it to attach again")
+		msg := "hub detached; waiting for it to attach again"
+		if errors.Is(err, errLinkDead) {
+			msg = "hub link dead (" + err.Error() + "); waiting for it to attach again"
+		}
+		d.logger.Info(msg)
 		d.logger.Debug("attach ended", "err", err)
+		// A newer attach may already have replaced this one.
+		d.attachMu.Lock()
+		current := d.attachDone == done
+		d.attachMu.Unlock()
+		if current {
+			errText := ""
+			if err != nil {
+				errText = err.Error()
+			}
+			d.link.waiting(errText)
+		}
 	}
 	return false
+}
+
+// attachTransport names the transport an attaching hub reported (ssh or local).
+func attachTransport(h string) string {
+	switch h {
+	case "ssh", "local":
+		return h
+	}
+	return "local socket"
 }
 
 // dropHubGrant removes this identity from hubID's authorized_keys line, so the hub

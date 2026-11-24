@@ -154,3 +154,28 @@ func deterministicWorkerID(name, hostGroup, isolation string) string {
 	u[8] = (u[8] & 0x3f) | 0x80 // RFC 9562 variant
 	return u.String()
 }
+
+// LookupWorkerID is WorkerIDFor without creating anything: the explicit worker_id, else
+// the persisted identity for cfg's name and isolation if there is one.
+func LookupWorkerID(cfg config.WorkerConfig) (string, bool) {
+	if id := strings.TrimSpace(cfg.WorkerID); id != "" {
+		return id, true
+	}
+	dir := defaultStateDir()
+	if dir == "" {
+		return "", false
+	}
+	name := cfg.Name
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, workerIDFilename(name, cfg.Isolation)))
+	if err != nil {
+		return "", false
+	}
+	var rec identityRecord
+	if json.Unmarshal(raw, &rec) != nil || !ids.IsUUIDv7(rec.ID) {
+		return "", false
+	}
+	return rec.ID, true
+}

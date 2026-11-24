@@ -112,6 +112,11 @@ type Hub struct {
 	StaleWorkerTimeout time.Duration
 	ReapInterval       time.Duration
 
+	// LinkQuiet and LinkDead override the worker link liveness intervals (linkwatch:
+	// ping after 15 s quiet, dead after 45 s silent). Tests shorten them.
+	LinkQuiet time.Duration
+	LinkDead  time.Duration
+
 	// LostTaskGrace is how long a task may be missing from a connected worker's
 	// hello/heartbeat active list before the hub treats it as lost. konsertd
 	// re-sends buffered final statuses right after hello, so this must comfortably
@@ -142,6 +147,7 @@ type Hub struct {
 	// worker's smoothed load score (heat.go).
 	activity activityState
 	heat     heatState
+	ports    portsCache
 	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
 	KaPath string
 	// kaShowFn and ghPRFn replace ka/gh in tests.
@@ -170,7 +176,7 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		chatSessions:       make(map[string]*chatSession),
 		agentChats:         make(map[string]*agentChatRT),
 		hostname:           func() string { h, _ := os.Hostname(); return h },
-		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
+		StaleWorkerTimeout: 150 * time.Second, // > 2x the longest heartbeat gap (60 s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
 		LostTaskGrace:      45 * time.Second,
 		ChatTurnTimeout:    15 * time.Minute,

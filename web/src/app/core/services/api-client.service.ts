@@ -19,6 +19,7 @@ import {
   JoinCode,
   JoinCodeStatus,
   MachineCredentialInfo,
+  WorkerPorts,
   RotationResponse,
   SSHHost,
   SessionDefaults,
@@ -691,6 +692,11 @@ export class ApiClientService {
 
   getJoinCode(id: string): Promise<JoinCodeStatus> {
     return this.request(`/api/machines/join-codes/${encodeURIComponent(id)}`);
+  }
+
+  /** Asks the machine for its listening ports now (falls back to the last list it sent). */
+  getWorkerPorts(workerId: string): Promise<WorkerPorts> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/ports`);
   }
 
   getMachineCredential(workerId: string): Promise<MachineCredentialInfo> {

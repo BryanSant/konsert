@@ -443,6 +443,9 @@ type Store interface {
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error
 	MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error)
+	// MarkWorkerOffline flips one online worker to offline and reports whether it changed
+	// (its link died).
+	MarkWorkerOffline(ctx context.Context, id string) (bool, error)
 
 	CreateSpace(ctx context.Context, sp Space) error
 	GetSpace(ctx context.Context, id string) (Space, error)

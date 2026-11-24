@@ -11,13 +11,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/gitutil"
+	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/activity"
 	"github.com/BryanSant/konsert/internal/worker/chat"
@@ -89,9 +92,22 @@ type Daemon struct {
 	// CapabilitiesInterval overrides DefaultCapabilitiesInterval (tests).
 	CapabilitiesInterval time.Duration
 
-	// Test hooks: optional custom heartbeat & facts refresh intervals.
+	// HeartbeatInterval is the vitals cadence while sessions run (10 s); FactsInterval
+	// the machine facts refresh (5 min). Tests shorten them.
 	HeartbeatInterval time.Duration
 	FactsInterval     time.Duration
+	// metrics samples heartbeat vitals (metrics.go).
+	metrics *metricsSampler
+
+	// Link liveness (linkwatch): LinkQuiet and LinkDead override the 15 s / 45 s
+	// defaults, WatchEvery how often wake and network changes are checked (5 s), and
+	// WatchAddrs replaces the network fingerprint. Tests set them.
+	LinkQuiet  time.Duration
+	LinkDead   time.Duration
+	WatchEvery time.Duration
+	WatchAddrs func() (string, error)
+	// link keeps the link state for `konsertd status` and keeps reconnect logs quiet.
+	link *linkTracker
 	// WakeLockGrace is how long a host wake lock outlives a lost hub connection
 	// (DefaultWakeLockGrace when zero).
 	WakeLockGrace time.Duration
@@ -141,7 +157,13 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
+		metrics:           newMetricsSampler(),
 	}
+	transport := "outbound"
+	if strings.TrimSpace(cfg.ControllerURL) == "" {
+		transport = "local socket"
+	}
+	d.link = newLinkTracker(logger, LinkStatusPath(defaultStateDir(), cfg.WorkerID), cfg.WorkerID, cfg.Name, transport)
 
 	d.activity = activity.NewPublisher(activity.PublisherOptions{}, func(a protocol.SessionActivity) {
 		d.sendJSON(protocol.MsgSessionActivity, a)
@@ -292,15 +314,39 @@ func (d *Daemon) reloadCredential() bool {
 	return true
 }
 
+// Reconnect backoff: 1 s doubling to 30 s, plus up to 25 % jitter, forever.
+const (
+	minBackoff = time.Second
+	maxBackoff = 30 * time.Second
+)
+
+// linkConfig is the liveness configuration of every hub link.
+func (d *Daemon) linkConfig() linkwatch.Config {
+	return linkwatch.Config{QuietAfter: d.LinkQuiet, DeadAfter: d.LinkDead}
+}
+
+// errLinkDead reports a link on which nothing arrived for the liveness timeout.
+var errLinkDead = errors.New("no traffic from the hub")
+
 // Run runs the reconnect loop until ctx is canceled.
 // Active tasks stay alive across transient controller disconnects and are re-adopted on reconnect.
 func (d *Daemon) Run(ctx context.Context) error {
+	defer d.link.stopped()
 	if strings.TrimSpace(d.cfg.ControllerURL) == "" {
 		return d.runLocal(ctx)
 	}
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
+	// A wake from sleep or a network change drops the link (or the wait for the next
+	// attempt) and redials at once with the backoff reset.
+	kick := make(chan string, 1)
+	w := &linkwatch.Watcher{Every: d.WatchEvery, Addrs: d.WatchAddrs}
+	go w.Watch(ctx, func(reason string) {
+		select {
+		case kick <- reason:
+		default:
+		}
+	})
 
+	backoff := minBackoff
 	for {
 		if ctx.Err() != nil {
 			d.shutdown()
@@ -308,10 +354,28 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 
 		d.helloAt = time.Time{}
-		err := d.connectAndServe(ctx)
+		attemptCtx, cancelAttempt := context.WithCancel(ctx)
+		var redial atomic.Pointer[string]
+		attemptDone := make(chan struct{})
+		go func() {
+			select {
+			case r := <-kick:
+				redial.Store(&r)
+				cancelAttempt()
+			case <-attemptDone:
+			}
+		}()
+		err := d.connectAndServe(ctx, attemptCtx)
+		close(attemptDone)
+		cancelAttempt()
 		if ctx.Err() != nil {
 			d.shutdown()
 			return ctx.Err()
+		}
+		wasUp := !d.helloAt.IsZero()
+		if r := redial.Load(); r != nil {
+			err = fmt.Errorf("%s", *r)
+			backoff = minBackoff
 		}
 		// Only an operator removal (4001) stops the daemon. Every other close, including a
 		// normal 1000 (superseded connection) and 1013 (try again later: another live
@@ -322,11 +386,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.shutdown()
 			return nil
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
-			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
+			err = errors.New("the hub asked to retry later (another live connection uses this identity)")
 		case websocket.StatusCode(protocol.WSCloseCredentialRevoked):
 			// Retry slowly: `konsertd join` (or the hub, over SSH) saves a new credential,
 			// which the next attempt picks up.
-			d.logger.Error("credential revoked by the hub; re-join: konsertd join")
+			err = errors.New("credential revoked by the hub; re-join: konsertd join")
 			if !d.reloadCredential() {
 				backoff = maxBackoff
 			}
@@ -344,7 +408,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// A revoked or replaced credential: keep retrying at the slowest backoff,
 			// re-reading the saved credential (a re-join or re-provision replaces it).
 			if aerr.credSet && !d.reloadCredential() {
-				d.logger.Error(aerr.Error()+"; re-join: konsertd join", "retry_in", maxBackoff)
+				err = errors.New(aerr.Error() + "; re-join: konsertd join")
 				backoff = maxBackoff
 			}
 		}
@@ -352,41 +416,50 @@ func (d *Daemon) Run(ctx context.Context) error {
 		// Reset backoff only after a session that got past worker.hello and lasted > 10 s.
 		// The timestamp is taken after hello, so a slow or failing 15 s dial never counts
 		// as a long session.
-		if !d.helloAt.IsZero() && time.Since(d.helloAt) > 10*time.Second {
-			backoff = time.Second
+		if wasUp && time.Since(d.helloAt) > 10*time.Second {
+			backoff = minBackoff
 		}
 
 		// Keep a host wake lock through short outages; drop it if the hub stays away.
 		d.wake.Disconnected(d.WakeLockGrace)
 
-		jitter := time.Duration(rand.Int64N(int64(backoff/4 + 1)))
-		sleepDur := backoff + jitter
-		d.logger.Warn("disconnected from controller; reconnecting", "err", err, "backoff", sleepDur)
+		sleepDur := backoff + time.Duration(rand.Int64N(int64(backoff/4+1)))
+		if redial.Load() != nil {
+			sleepDur = 0
+		}
+		d.link.failed(err, sleepDur)
 
+		timer := time.NewTimer(sleepDur)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			d.shutdown()
 			return ctx.Err()
-		case <-time.After(sleepDur):
-		}
-
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
+		case <-timer.C:
+			backoff = min(backoff*2, maxBackoff)
+		case r := <-kick:
+			timer.Stop()
+			d.logger.Info(r + ": redialing now")
+			backoff = minBackoff
 		}
 	}
 }
 
-func (d *Daemon) connectAndServe(ctx context.Context) error {
+// connectAndServe dials the hub and serves the connection until it ends. daemonCtx
+// bounds what outlives the connection; connCtx ends this attempt.
+func (d *Daemon) connectAndServe(daemonCtx, connCtx context.Context) error {
 	headers := http.Header{}
 	cred := d.credential()
 	if cred != "" {
 		headers.Set("Authorization", "Bearer "+cred)
 	}
 
-	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
+	lv := linkwatch.New(d.linkConfig(), nil)
+	dialCtx, dialCancel := context.WithTimeout(connCtx, 15*time.Second)
 	conn, resp, err := websocket.Dial(dialCtx, d.cfg.ControllerURL, &websocket.DialOptions{
-		HTTPHeader: headers,
+		HTTPHeader:     headers,
+		OnPingReceived: func(context.Context, []byte) bool { lv.Received(); return true },
+		OnPongReceived: func(context.Context, []byte) { lv.Received() },
 	})
 	dialCancel()
 	if err != nil {
@@ -395,13 +468,20 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}
-	return d.serveConn(ctx, ctx, conn, d.cfg.ControllerURL)
+	return d.serveConn(daemonCtx, connCtx, conn, linkPeer{transport: "outbound", addr: d.cfg.ControllerURL}, lv)
+}
+
+// linkPeer describes the other end of a hub link (for logs and `konsertd status`).
+type linkPeer struct {
+	transport string // outbound, ssh or local
+	addr      string
 }
 
 // serveConn speaks the worker protocol on one hub connection, outbound or attached,
 // until it ends. daemonCtx bounds what outlives the connection (tasks it starts);
-// connParent ends the connection (a newer attach supersedes an older one).
-func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocket.Conn, peer string) error {
+// connParent ends the connection (a newer attach supersedes an older one). lv tracks the
+// link's liveness: the caller wires the connection's ping and pong callbacks to it.
+func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocket.Conn, peer linkPeer, lv *linkwatch.Liveness) error {
 	ctx := daemonCtx
 	conn.SetReadLimit(20 * 1024 * 1024)
 	defer conn.Close(websocket.StatusNormalClosure, "shutdown")
@@ -456,6 +536,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	if err := conn.Write(connCtx, websocket.MessageText, helloBytes); err != nil {
 		return fmt.Errorf("write worker.hello: %w", err)
 	}
+	lv.Sent()
 	d.helloAt = time.Now()
 	// Report the host wake lock state right after hello so the hub knows it after every
 	// reconnect (the writer below sends queued control messages after hello).
@@ -466,8 +547,8 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	for _, a := range d.activity.Snapshot() {
 		d.sendJSON(protocol.MsgSessionActivity, a)
 	}
-	d.logger.Info("connected to hub",
-		"via", peer,
+	d.link.up(peer.transport, peer.addr)
+	d.logger.Debug("worker.hello sent",
 		"worker_id", d.cfg.WorkerID,
 		"agents", hello.Worker.Agents,
 		"permission_mode", permMode,
@@ -480,12 +561,31 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		if err := d.writeLoop(connCtx, queues, func(msg outboundMsg) error {
 			wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
 			defer wCancel()
-			return conn.Write(wCtx, msg.msgType, msg.data)
+			if err := conn.Write(wCtx, msg.msgType, msg.data); err != nil {
+				return err
+			}
+			lv.Sent()
+			return nil
 		}); err != nil && connCtx.Err() == nil {
-			d.logger.Warn("write to controller failed", "err", err)
+			d.logger.Debug("write to the hub failed", "err", err)
 		}
 		connCancel()
 	}()
+
+	// Liveness: when this side has been quiet, the heartbeat goroutine sends a vitals
+	// heartbeat (the hub pings when it is quiet, so a live hub is always heard from);
+	// when nothing arrived for LinkDead, the link is dead.
+	hbKick := make(chan struct{}, 1)
+	var dead atomic.Bool
+	go lv.Monitor(connCtx, func() {
+		select {
+		case hbKick <- struct{}{}:
+		default:
+		}
+	}, func() {
+		dead.Store(true)
+		connCancel()
+	})
 
 	// hello carried cached facts; send fresh ones as soon as they are collected.
 	if cached {
@@ -497,37 +597,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		}()
 	}
 
-	// Adaptive delta-throttled heartbeat goroutine (faster when active, gentle when idle).
-	go func() {
-		base := d.HeartbeatInterval
-		if base <= 0 {
-			base = 10 * time.Second
-		}
-		throttle := NewTelemetryThrottle(base)
-		sendIfNeeded := func(force bool) {
-			metrics := CollectMetrics(connCtx)
-			activeIDs := d.runner.ActiveTaskIDs()
-			if force || throttle.ShouldSend(time.Now().UTC(), activeIDs, metrics) {
-				d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
-					ActiveTaskIDs: activeIDs,
-					LoadAvg:       metrics.LoadAvg,
-					Metrics:       metrics,
-				})
-			}
-		}
-		sendIfNeeded(true)
-		for {
-			waitDur := throttle.NextInterval(len(d.runner.ActiveTaskIDs()))
-			timer := time.NewTimer(waitDur)
-			select {
-			case <-connCtx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-				sendIfNeeded(false)
-			}
-		}
-	}()
+	go d.heartbeatLoop(connCtx, hbKick, lv.Config().QuietAfter*4)
 
 	// Agent capabilities (and the legacy worker.quotas derived from them).
 	go d.capabilitiesLoop(connCtx)
@@ -551,6 +621,20 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		}
 	}()
 
+	// Listening ports every portsEvery (and on request: worker.ports.request).
+	go func() {
+		ticker := time.NewTicker(portsEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-connCtx.Done():
+				return
+			case <-ticker.C:
+				d.sendPorts(connCtx, "")
+			}
+		}
+	}()
+
 	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
 	go d.discovery.Run(connCtx)
 
@@ -562,8 +646,12 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		msgType, data, err := conn.Read(connCtx)
 		if err != nil {
 			connCancel()
+			if dead.Load() {
+				return fmt.Errorf("%w for %s", errLinkDead, lv.Config().DeadAfter)
+			}
 			return err
 		}
+		lv.Received()
 
 		switch msgType {
 		case websocket.MessageBinary:
@@ -589,6 +677,79 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	}
 }
 
+// heartbeatLoop sends vitals heartbeats: every HeartbeatInterval while sessions run or
+// when the set of active tasks changed, when the liveness monitor reports a quiet link
+// (kick), and at least every maxIdle.
+func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdle time.Duration) {
+	every := d.HeartbeatInterval
+	if every <= 0 {
+		every = 10 * time.Second
+	}
+	var lastIDs []string
+	var lastAt time.Time
+	send := func(ids []string, active bool) {
+		now := time.Now()
+		m := d.metrics.collect(ctx, active, now)
+		if ctx.Err() != nil {
+			return
+		}
+		d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
+			ActiveTaskIDs: ids,
+			LoadAvg:       m.LoadAvg,
+			Metrics:       m,
+		})
+		lastIDs, lastAt = ids, now
+	}
+	ids := d.runner.ActiveTaskIDs()
+	send(ids, d.sessionsActive(ids))
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ids := d.runner.ActiveTaskIDs()
+			active := d.sessionsActive(ids)
+			if active || !slices.Equal(ids, lastIDs) || time.Since(lastAt) >= maxIdle {
+				send(ids, active)
+			}
+		case <-kick:
+			ids := d.runner.ActiveTaskIDs()
+			send(ids, d.sessionsActive(ids))
+		}
+	}
+}
+
+// sessionsActive reports whether anything is running: a PTY task or an agent chat turn.
+func (d *Daemon) sessionsActive(activeTaskIDs []string) bool {
+	if len(activeTaskIDs) > 0 {
+		return true
+	}
+	if d.chat == nil {
+		return false
+	}
+	for _, c := range d.chat.Chats() {
+		if c.TurnActive {
+			return true
+		}
+	}
+	return false
+}
+
+// sendPorts collects the listening ports and sends them (as the reply to request reqID,
+// or unsolicited when reqID is "").
+func (d *Daemon) sendPorts(ctx context.Context, reqID string) {
+	ports := collectPorts(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	if ports == nil {
+		ports = []protocol.ListeningPort{}
+	}
+	d.sendJSONWithID(protocol.MsgWorkerPorts, reqID, protocol.WorkerPortsPayload{Ports: ports, CollectedAt: time.Now().UTC()})
+}
+
 func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.Envelope) {
 	if d.handleChatMessage(env) {
 		return
@@ -609,6 +770,9 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		}); err != nil {
 			d.logger.Error("start task rejected", "task_id", taskID, "err", err)
 		}
+
+	case protocol.MsgWorkerPortsRequest:
+		go d.sendPorts(daemonCtx, env.ID)
 
 	case protocol.MsgTaskCancel:
 		p, err := protocol.DecodePayload[protocol.TaskCancelPayload](env)

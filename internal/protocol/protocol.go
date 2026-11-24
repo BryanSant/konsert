@@ -14,6 +14,10 @@ const (
 	MsgWorkerFacts     = "worker.facts"
 	MsgWorkerQuotas    = "worker.quotas"
 	MsgExternalSession = "worker.external_session"
+	// MsgWorkerPorts carries the listening ports (WorkerPortsPayload): sent every few
+	// minutes and as the reply (same envelope id) to MsgWorkerPortsRequest.
+	MsgWorkerPorts        = "worker.ports"
+	MsgWorkerPortsRequest = "worker.ports.request"
 
 	MsgTaskStart  = "task.start"
 	MsgTaskCancel = "task.cancel"
@@ -72,6 +76,9 @@ const (
 	// HubIDHeader carries the attaching hub's id, so konsertd knows which
 	// authorized_keys line to drop when that hub removes the machine.
 	HubIDHeader = "X-Konsert-Hub"
+	// TransportHeader names the transport the hub attaches over ("ssh" or "local"), for
+	// `konsertd status`.
+	TransportHeader = "X-Konsert-Transport"
 )
 
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
@@ -239,19 +246,29 @@ type ListeningPort struct {
 	Address string `json:"address,omitempty"`
 }
 
+// WorkerMetrics are the vitals in every heartbeat, read without a subprocess (see
+// internal/worker/metrics.go). Disk free is a machine fact; listening ports come in
+// worker.ports.
 type WorkerMetrics struct {
+	// CPUPercent is the busy share since the previous sample (Linux, Windows) or the
+	// load average over the core count (macOS).
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemUsedMB   uint64  `json:"mem_used_mb"`
 	MemTotalMB  uint64  `json:"mem_total_mb"`
 	SwapUsedMB  uint64  `json:"swap_used_mb,omitzero"`
 	SwapTotalMB uint64  `json:"swap_total_mb,omitzero"`
-	DiskFreeGB  uint64  `json:"disk_free_gb,omitzero"`
-	DiskTotalGB uint64  `json:"disk_total_gb,omitzero"`
-	LoadAvg     float64 `json:"load_avg"`
-	// GPUPercent is GPU utilization 0-100 when the platform reports it cheaply (macOS
-	// IOAccelerator statistics, nvidia-smi on Linux); nil when unknown.
-	GPUPercent     *float64        `json:"gpu_percent,omitzero"`
-	ListeningPorts []ListeningPort `json:"listening_ports,omitempty"`
+	// LoadAvg is the 1-minute load average (0 on Windows, which has none).
+	LoadAvg float64 `json:"load_avg"`
+	// GPUPercent is GPU utilization 0-100 when the platform reports it (macOS
+	// IOAccelerator statistics, nvidia-smi on Linux); nil when unknown. Read on every
+	// heartbeat while sessions run, otherwise every 5 minutes.
+	GPUPercent *float64 `json:"gpu_percent,omitzero"`
+}
+
+// WorkerPortsPayload is a machine's listening TCP ports (worker.ports).
+type WorkerPortsPayload struct {
+	Ports       []ListeningPort `json:"ports"`
+	CollectedAt time.Time       `json:"collected_at"`
 }
 
 type WorkerHeartbeatPayload struct {

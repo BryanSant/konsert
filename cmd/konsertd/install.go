@@ -245,6 +245,7 @@ func printInstallStatus(ctx context.Context, w io.Writer, name string, service b
 		return err
 	}
 	writeStatus(w, st)
+	printLinkStatus(w, st.ConfigPath)
 	return nil
 }
 

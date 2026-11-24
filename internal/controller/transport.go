@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/hubkey"
 	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
@@ -140,6 +142,10 @@ type attacher struct {
 	dialLocal func(ctx context.Context, workerID string) (net.Conn, error)
 
 	minBackoff, maxBackoff time.Duration
+	// watchEvery and watchAddrs override the wake / network watcher (tests).
+	watchEvery time.Duration
+	watchAddrs func() (string, error)
+	watchOnce  sync.Once
 
 	mu    sync.Mutex
 	loops map[string]*attachLoop
@@ -176,7 +182,7 @@ func (a *attacher) ensure(w store.Worker) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	loop := &attachLoop{cancel: cancel}
+	loop := &attachLoop{cancel: cancel, redial: make(chan struct{}, 1)}
 	a.loops[w.ID] = loop
 	if !a.s.hub.goBackground(func(hctx context.Context) {
 		stop := context.AfterFunc(hctx, cancel)
@@ -189,14 +195,41 @@ func (a *attacher) ensure(w store.Worker) {
 			}
 			a.mu.Unlock()
 		}()
-		a.run(ctx, w.ID)
+		a.run(ctx, w.ID, loop.redial)
 	}) {
 		delete(a.loops, w.ID)
 		cancel()
 	}
 }
 
-type attachLoop struct{ cancel context.CancelFunc }
+type attachLoop struct {
+	cancel context.CancelFunc
+	// redial asks the loop to drop its link (or its wait) and dial again at once.
+	redial chan struct{}
+}
+
+// redialAll asks every attach loop to redial now: the hub's machine woke from sleep or
+// its network changed, so SSH links are probably dead (local socket links are not
+// affected, and a redial costs them nothing but a fresh worker.hello).
+func (a *attacher) redialAll(reason string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.loops) > 0 {
+		a.s.logger.Info(reason + ": re-dialing machine links")
+	}
+	for _, l := range a.loops {
+		select {
+		case l.redial <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// watch redials every link on a wake from sleep or a network change until ctx ends.
+func (a *attacher) watch(ctx context.Context) {
+	w := &linkwatch.Watcher{Every: a.watchEvery, Addrs: a.watchAddrs}
+	w.Watch(ctx, a.redialAll)
+}
 
 // stop ends workerID's attach loop (and its link), if any.
 func (a *attacher) stop(workerID string) {
@@ -219,10 +252,15 @@ func (a *attacher) running(workerID string) bool {
 
 // run attaches to workerID until ctx ends or the machine is removed or no longer uses
 // a hub-dialed transport, re-dialing with backoff (reset after a link that lasted).
-func (a *attacher) run(ctx context.Context, workerID string) {
+func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struct{}) {
 	backoff := a.minBackoff
 	failures := 0
 	for ctx.Err() == nil {
+		// Drop any redial request that came in while nothing was up.
+		select {
+		case <-redial:
+		default:
+		}
 		w, err := a.s.store.GetWorker(ctx, workerID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) || ctx.Err() != nil {
@@ -234,9 +272,27 @@ func (a *attacher) run(ctx context.Context, workerID string) {
 				return
 			}
 			start := time.Now()
-			up, err := a.attachOnce(ctx, w)
+			attemptCtx, cancelAttempt := context.WithCancel(ctx)
+			var redialed atomic.Bool
+			attemptDone := make(chan struct{})
+			go func() {
+				select {
+				case <-redial:
+					redialed.Store(true)
+					cancelAttempt()
+				case <-attemptDone:
+				}
+			}()
+			up, err := a.attachOnce(attemptCtx, w)
+			close(attemptDone)
+			cancelAttempt()
 			if ctx.Err() != nil {
 				return
+			}
+			if redialed.Load() {
+				// Wake or network change: dial again at once.
+				backoff, failures = a.minBackoff, 0
+				continue
 			}
 			if up && time.Since(start) > 10*time.Second {
 				backoff = a.minBackoff
@@ -257,10 +313,16 @@ func (a *attacher) run(ctx context.Context, workerID string) {
 			}
 		}
 		wait := backoff + time.Duration(rand.Int64N(int64(backoff/4+1)))
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(wait):
+		case <-redial:
+			timer.Stop()
+			backoff, failures = a.minBackoff, 0
+			continue
+		case <-timer.C:
 		}
 		backoff = min(backoff*2, a.maxBackoff)
 	}
@@ -305,7 +367,7 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	ws, _, err := websocket.Dial(dialCtx, "ws://konsertd"+protocol.AttachPath, &websocket.DialOptions{
 		HTTPClient: hc,
-		HTTPHeader: http.Header{protocol.HubIDHeader: []string{hubID}},
+		HTTPHeader: http.Header{protocol.HubIDHeader: []string{hubID}, protocol.TransportHeader: []string{t}},
 	})
 	cancel()
 	if err != nil {
@@ -356,6 +418,9 @@ func (s *Server) workerHubURL(w store.Worker) string {
 
 // startAttachers starts the attach loop of every ssh and local machine.
 func (s *Server) startAttachers(ctx context.Context) {
+	s.attach.watchOnce.Do(func() {
+		s.hub.goBackground(s.attach.watch)
+	})
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
 		s.logger.Warn("list machines to attach failed", "err", err)
