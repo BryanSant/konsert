@@ -219,6 +219,22 @@ export class ApiClientService {
     });
   }
 
+  /**
+   * Fleet shell cleanup: kill shells of a task or chat (konsertd terminates each one's
+   * process tree), or ask its agent to stop them. No shells listed: all of them.
+   */
+  shellAction(
+    kind: 'task' | 'chat',
+    id: string,
+    action: 'kill' | 'ask',
+    shells: Array<{ pid: number; started_at: string }> = [],
+  ): Promise<{ ok: boolean; shells: number; delivery?: 'now' | 'after_turn' }> {
+    return this.request(`/api/${kind === 'task' ? 'tasks' : 'chats'}/${encodeURIComponent(id)}/shells/${action}`, {
+      method: 'POST',
+      body: JSON.stringify(shells.length ? { shells } : {}),
+    });
+  }
+
   /** The task's acceptance criteria: its ka ticket's items, else its prompt's bullets. */
   getTaskAcceptance(taskId: string): Promise<Acceptance> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/acceptance`);

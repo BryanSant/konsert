@@ -231,22 +231,46 @@ func (c *Chat) onSubagent(ev protocol.AgentChatEvent, now time.Time) bool {
 			return true
 		}
 		q := firstNonEmpty(el.Title, el.Detail, el.Kind)
+		main := q
+		if _, rest, named := strings.Cut(q, subagentAsks); named && strings.HasPrefix(q, "Sub-agent") {
+			q = rest // already named (SubagentQuestion)
+		} else {
+			main = SubagentQuestion(s.title, q)
+		}
 		s.pending[el.ID] = q
 		c.elicitSub[el.ID] = s.id
 		// The whole session waits for the user: the main state asks too, naming the
 		// sub-agent (the Needs-you item shows it).
-		c.pending[el.ID] = subagentQuestion(s.title, q)
+		c.pending[el.ID] = main
 		s.settle(now)
 		c.settle()
 	}
 	return true
 }
 
-func subagentQuestion(title, q string) string {
+const subagentAsks = " asks: "
+
+// SubagentQuestion names the sub-agent that asks q: "Sub-agent “Docs” asks: Allow …?".
+func SubagentQuestion(title, q string) string {
 	if title == "" {
-		return "Sub-agent asks: " + q
+		return "Sub-agent" + subagentAsks + q
 	}
-	return "Sub-agent “" + title + "” asks: " + q
+	return "Sub-agent “" + title + "”" + subagentAsks + q
+}
+
+// SubagentTitle is the title of the sub-agent started by tool call id ("" if unknown).
+func (c *Chat) SubagentTitle(id string) string {
+	for _, s := range c.subs {
+		if s.id == id {
+			return s.title
+		}
+	}
+	for _, t := range c.tools {
+		if t.id == id {
+			return subagentTitle(t.label)
+		}
+	}
+	return ""
 }
 
 // sub returns the sub-agent started by tool call id (created on its first event).

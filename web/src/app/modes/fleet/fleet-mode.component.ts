@@ -16,7 +16,26 @@ import { SpinnerLegendComponent } from '../../shared/spinner-legend.component';
 import { SPINNER_LABEL_COLORS, SPINNER_WORDS, heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ModeUiStore } from '../mode-ui.store';
-import { HEAT_RANGES, HEAT_STRIP_POINTS, HeatRange, MachineRow, MachineSession, describeStrip, heatStrip, machineRows, queueReasons, stripTicks } from './fleet-logic';
+import {
+  HEAT_RANGES,
+  HEAT_STRIP_POINTS,
+  HeatRange,
+  MachineRow,
+  MachineSession,
+  ShellRow,
+  askAvailability,
+  describeStrip,
+  heatStrip,
+  machineRows,
+  queueReasons,
+  shellChip,
+  shellRows,
+  shortAge,
+  stripTicks,
+  subagentChip,
+  subagentText,
+} from './fleet-logic';
+import { SubagentActivity } from '../../core/models/activity.models';
 
 const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
 
@@ -144,9 +163,9 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               <div class="flex flex-col gap-2 min-w-0">
                 <ul class="m-0 p-0 list-none flex flex-wrap gap-2" [attr.aria-label]="'Sessions on ' + r.w.name">
                   @for (s of r.sessions; track s.key) {
-                    <li class="ks-sess-li" [class.opacity-70]="s.done">
-                      <button type="button" class="ks-focusable ks-sess" [attr.data-session]="s.sid" [attr.data-state]="s.state" [disabled]="!s.item" (click)="open(s)">
-                        <ks-spinner [state]="s.state" [machines]="[machineOf(r)]" [glyph]="true" [agent]="s.agent" [coarse]="s.coarse" [tps]="s.tps" />
+                    <li class="ks-sess-li" [class.ks-sess-li-wide]="!!s.detail" [class.ks-sess-done]="s.done" [attr.data-session-card]="s.sid">
+                      <button type="button" class="ks-focusable ks-sess" [class.ks-sess-left]="s.done && !!s.detail?.shells" [attr.data-session]="s.sid" [attr.data-state]="s.state" [disabled]="!s.item" (click)="open(s)">
+                        <ks-spinner [state]="s.state" [machines]="[machineOf(r)]" [glyph]="true" [agent]="s.agent" [coarse]="s.coarse" [tps]="s.tps" [detail]="s.detail" />
                         <span class="min-w-0 flex-1">
                           <span class="flex items-center gap-1.5 text-[11px] text-[var(--ks-text-secondary)] min-w-0">
                             <span class="w-[7px] h-[7px] rounded-[2px] shrink-0" [style.background]="s.projectColor" aria-hidden="true"></span>
@@ -156,6 +175,71 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                           <span class="block truncate text-[11.5px]" [style.color]="colors[s.state]" [ksTooltip]="s.nowTitle" data-testid="fleet-now"><span class="ks-sr-only">{{ words[s.state] }}: </span>{{ s.now }}</span>
                         </span>
                       </button>
+                      @if (s.detail) {
+                        <div class="ks-sess-detail" data-testid="session-detail">
+                          <div class="flex flex-wrap gap-1.5">
+                            @if (shellChip(s); as c) {
+                              <span class="ks-chip" [class.ks-chip-left]="s.done" data-testid="shell-chip">{{ c }}</span>
+                            }
+                            @if (subChip(s); as c) {
+                              <span class="ks-chip ks-chip-sub" data-testid="subagent-chip">{{ c }}</span>
+                            }
+                          </div>
+                          @if (s.shellList.length || s.subagents.length) {
+                            <ul class="m-0 p-0 list-none grid gap-1" [attr.aria-label]="'Shells and sub-agents of ' + s.title">
+                              @for (sh of rowsOf(s); track sh.pid) {
+                                <li class="ks-row" data-testid="shell-row" [attr.data-pid]="sh.pid">
+                                  <span class="ks-row-dot ks-row-shell" [class.ks-row-busy]="sh.busy" aria-hidden="true"></span>
+                                  <span class="ks-row-kind">shell</span>
+                                  <span class="ks-row-text" [ksTooltip]="sh.title">{{ sh.text }}</span>
+                                  <span class="ks-row-age"><span class="ks-sr-only">{{ sh.busy ? 'busy for' : '' }} </span>{{ sh.age }}</span>
+                                  <span class="flex gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      class="ks-btn ks-btn-sm ks-row-btn"
+                                      data-testid="shell-ask"
+                                      [disabled]="!askOf(s).ok || busy(s.key)"
+                                      [ksTooltip]="askOf(s).why"
+                                      [attr.aria-label]="'Ask the agent to stop ' + sh.text"
+                                      (click)="ask(s, [sh])"
+                                    >
+                                      Ask to stop
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="ks-btn ks-btn-sm ks-row-btn ks-row-kill"
+                                      data-testid="shell-kill"
+                                      [disabled]="busy(s.key)"
+                                      [ksTooltip]="'Kill pid ' + sh.pid + ' and everything it started'"
+                                      [attr.aria-label]="'Kill ' + sh.text"
+                                      (click)="kill(s, [sh])"
+                                    >
+                                      Kill
+                                    </button>
+                                  </span>
+                                </li>
+                              }
+                              @for (a of s.subagents; track a.id) {
+                                <li class="ks-row" data-testid="subagent-row" [attr.data-subagent]="a.id">
+                                  <span class="ks-row-dot ks-row-sub" [attr.data-dot]="a.state" aria-hidden="true"></span>
+                                  <span class="ks-row-kind" [style.color]="colors[a.state]">sub-agent</span>
+                                  <span class="ks-row-text" [ksTooltip]="subText(a)"><span class="ks-sr-only">{{ words[a.state] }}: </span>{{ subText(a) }}</span>
+                                  <span class="ks-row-age">{{ ageOf(a.since) }}</span>
+                                </li>
+                              }
+                            </ul>
+                          }
+                          @if ((s.detail.shells ?? 0) > 1) {
+                            <div class="flex flex-wrap items-center gap-1.5">
+                              <button type="button" class="ks-btn ks-btn-sm ks-row-kill" data-testid="shell-kill-all" [disabled]="busy(s.key)" (click)="kill(s, [])">Clean up all ({{ s.detail.shells }})</button>
+                              <button type="button" class="ks-btn ks-btn-sm" data-testid="shell-ask-all" [disabled]="!askOf(s).ok || busy(s.key)" [ksTooltip]="askOf(s).why" (click)="ask(s, [])">Ask the agent to clean up</button>
+                            </div>
+                          }
+                          @if (notes()[s.key]; as n) {
+                            <p class="m-0 text-[11.5px]" [class.text-[#f3a5a5]]="n.error" [class.text-[var(--ks-text-secondary)]]="!n.error" role="status" data-testid="shell-note">{{ n.text }}</p>
+                          }
+                        </div>
+                      }
                     </li>
                   }
                   @if (r.next) {
@@ -248,9 +332,132 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
     }
     .ks-sess-li {
       display: flex;
+      flex-direction: column;
       flex: 1 1 230px;
       min-width: 230px;
       max-width: 320px;
+      border-radius: 10px;
+      background: #1c1d21;
+    }
+    .ks-sess-li-wide {
+      flex: 1 1 380px;
+      max-width: 560px;
+    }
+    .ks-sess-done > .ks-sess {
+      opacity: 0.7;
+    }
+    .ks-sess-li:has(.ks-sess-left) {
+      box-shadow: inset 0 0 0 1px rgba(224, 168, 76, 0.25);
+    }
+    .ks-sess-detail {
+      display: grid;
+      gap: 6px;
+      padding: 0 12px 10px 50px;
+    }
+    .ks-chip {
+      font: 11px/1.5 'JetBrains Mono', ui-monospace, monospace;
+      padding: 1px 8px;
+      border-radius: 10px;
+      background: rgba(230, 232, 238, 0.08);
+      color: #ececed;
+      white-space: nowrap;
+    }
+    .ks-chip-sub {
+      background: rgba(185, 168, 255, 0.12);
+      color: #c9bcff;
+    }
+    .ks-chip-left {
+      background: rgba(224, 168, 76, 0.14);
+      color: #e9c27f;
+    }
+    .ks-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-size: 12px;
+    }
+    .ks-row-dot {
+      width: 8px;
+      height: 8px;
+      flex: none;
+    }
+    .ks-row-shell {
+      border-radius: 2px;
+      background: #e6e8ee;
+      opacity: 0.45;
+    }
+    .ks-row-shell.ks-row-busy {
+      opacity: 1;
+      animation: ks-row-blink 0.8s ease-in-out infinite;
+    }
+    .ks-row-sub {
+      border-radius: 50%;
+    }
+    .ks-row-sub[data-dot='thinking'] {
+      background: #b9a8ff;
+      animation: ks-row-breath 2s ease-in-out infinite;
+    }
+    .ks-row-sub[data-dot='working'] {
+      background: #e6e8ee;
+      animation: ks-row-blink 0.8s ease-in-out infinite;
+    }
+    .ks-row-sub[data-dot='speaking'] {
+      background: #8fe0b0;
+    }
+    .ks-row-sub[data-dot='asking'] {
+      background: #e0a84c;
+    }
+    .ks-row-kind {
+      width: 62px;
+      flex: none;
+      font: 11px 'JetBrains Mono', ui-monospace, monospace;
+      color: #c9cbd1;
+    }
+    .ks-row-text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #c9cbd1;
+    }
+    .ks-row-age {
+      width: 34px;
+      flex: none;
+      text-align: right;
+      font: 11px 'JetBrains Mono', ui-monospace, monospace;
+      color: #8f9199;
+    }
+    .ks-row-btn {
+      padding: 1px 7px;
+      font-size: 11px;
+    }
+    .ks-row-kill {
+      color: #f3a3a3;
+    }
+    @keyframes ks-row-blink {
+      0%,
+      100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.35;
+      }
+    }
+    @keyframes ks-row-breath {
+      0%,
+      100% {
+        opacity: 0.4;
+      }
+      50% {
+        opacity: 1;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ks-row-dot {
+        animation: none !important;
+      }
     }
     .ks-sess {
       display: flex;
@@ -261,7 +468,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       padding: 8px 12px 8px 10px;
       border: 0;
       border-radius: 10px;
-      background: #1c1d21;
+      background: transparent;
       color: var(--ks-text);
       text-align: left;
       cursor: pointer;
@@ -354,6 +561,8 @@ export class FleetModeComponent {
   readonly range = signal<HeatRange>('12h');
   private readonly rangeTitle = computed(() => HEAT_RANGES.find((r) => r.id === this.range())!.title);
   private readonly now = signal(Date.now());
+  /** A faster clock for shell and sub-agent ages (the rows tick while a command runs). */
+  readonly clock = signal(Date.now());
   readonly history = signal<HeatHistory | null>(null);
   readonly wakeError = signal('');
   readonly wakeCapable = computed(() => this.fleet.workers().some((w) => w.status === 'online' && w.wake_lock?.supported));
@@ -401,7 +610,11 @@ export class FleetModeComponent {
       untracked(() => void this.loadHistory(r));
     });
     const t = setInterval(() => this.now.set(Date.now()), 60_000);
-    inject(DestroyRef).onDestroy(() => clearInterval(t));
+    const c = setInterval(() => this.clock.set(Date.now()), 5_000);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(t);
+      clearInterval(c);
+    });
     // /fleet/<sid> scrolls that machine into view.
     afterRenderEffect(() => {
       const sid = this.selectedSid();
@@ -478,5 +691,78 @@ export class FleetModeComponent {
 
   open(s: MachineSession): void {
     if (s.item) this.ui.openInCommand(s.item);
+  }
+
+  // --- shells and sub-agents ------------------------------------------------------------
+
+  /** Per-session result of the last cleanup action (keyed by session key). */
+  readonly notes = signal<Record<string, { text: string; error: boolean }>>({});
+  private readonly pending = signal<Record<string, boolean>>({});
+
+  shellChip(s: MachineSession): string {
+    return shellChip(s.detail, s.done);
+  }
+
+  subChip(s: MachineSession): string {
+    return subagentChip(s.detail);
+  }
+
+  rowsOf(s: MachineSession): ShellRow[] {
+    return shellRows(s.shellList, this.clock());
+  }
+
+  subText(a: SubagentActivity): string {
+    return subagentText(a);
+  }
+
+  ageOf(since: string): string {
+    return shortAge(this.clock() - (Date.parse(since) || this.clock()));
+  }
+
+  askOf(s: MachineSession) {
+    return askAvailability(s);
+  }
+
+  busy(key: string): boolean {
+    return !!this.pending()[key];
+  }
+
+  /** Ask the session's agent to stop shells (all of them with an empty list). */
+  async ask(s: MachineSession, shells: ShellRow[]): Promise<void> {
+    const res = await this.shellAction(s, 'ask', shells);
+    if (res) {
+      const what = shells.length === 1 ? shells[0].text : 'its shells';
+      this.note(s.key, res.delivery === 'after_turn' ? `The agent will be asked to stop ${what} when its turn ends.` : `Asked the agent to stop ${what}.`);
+    }
+  }
+
+  /** Kill shells (all of them with an empty list) after a confirmation. */
+  async kill(s: MachineSession, shells: ShellRow[]): Promise<void> {
+    const n = shells.length || s.detail?.shells || 0;
+    const what = shells.length === 1 ? `${shells[0].text} (pid ${shells[0].pid})` : `all ${n} shells`;
+    if (!window.confirm(`Kill ${what} of “${s.title}” and every process it started?`)) return;
+    const res = await this.shellAction(s, 'kill', shells);
+    if (res) this.note(s.key, shells.length === 1 ? `Killing ${shells[0].text}…` : `Killing ${res.shells} shells…`);
+  }
+
+  private async shellAction(s: MachineSession, action: 'kill' | 'ask', shells: ShellRow[]) {
+    this.pending.update((p) => ({ ...p, [s.key]: true }));
+    try {
+      return await this.api.shellAction(
+        s.kind,
+        s.id,
+        action,
+        shells.map((x) => ({ pid: x.pid, started_at: x.startedAt })),
+      );
+    } catch (e) {
+      this.note(s.key, e instanceof Error ? e.message : String(e), true);
+      return null;
+    } finally {
+      this.pending.update((p) => ({ ...p, [s.key]: false }));
+    }
+  }
+
+  private note(key: string, text: string, error = false): void {
+    this.notes.update((n) => ({ ...n, [key]: { text, error } }));
   }
 }

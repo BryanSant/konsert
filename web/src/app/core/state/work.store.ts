@@ -10,7 +10,7 @@ import { OrchestratorStore } from './orchestrator.store';
 import { QuestionsStore } from './questions.store';
 import { TakenControlStore } from './taken-control.store';
 import { AgentChatStore } from './agent-chat.store';
-import { SPINNER_WORDS, SpinnerMachine, SpinnerState, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
+import { SPINNER_WORDS, SpinnerDetail, SpinnerMachine, SpinnerState, spinnerDetailOf, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
 import { ProjectGroup, WorkColumn, WorkItem, buildWorkItems, groupByProject } from './work-logic';
 
 /** The spinner inputs for one work item. */
@@ -21,6 +21,8 @@ export interface ItemSpinner {
   tps?: number;
   /** The activity word shown next to it. */
   word: string;
+  /** Shells and sub-agents (badge and orbiting dots). */
+  detail?: SpinnerDetail | null;
 }
 
 /**
@@ -149,6 +151,7 @@ export class WorkStore {
         coarse: !!a?.coarse && it.observed,
         tps: a?.state === 'speaking' ? a.tokens_per_sec : undefined,
         word: SPINNER_WORDS[state],
+        detail: spinnerDetailOf(a),
       };
     }
     return out;

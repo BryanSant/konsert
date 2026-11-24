@@ -180,12 +180,12 @@ func (h *Hub) AskStopShells(ctx context.Context, taskID, chatID string, idents [
 	h.recordIntervention(ctx, cause, "shell_ask", workerID, a.TaskID, a.ChatID,
 		fmt.Sprintf("%s asked the agent of %s to stop %s", capitalize(describeActor(cause)), label, what))
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditShellAsk, WorkerID: workerID, TaskID: a.TaskID,
-		Message: "Asked the agent of " + label + " to stop " + what,
+		Message:  "Asked the agent of " + label + " to stop " + what,
 		MetaJSON: auditMeta(map[string]any{"chat_id": a.ChatID, "pids": shellPIDs(list), "delivery": res.Delivery})})
 	return res, nil
 }
 
-// sendFollowUps sends what was queued for a chat while it was mid-turn (rt.mu held).
+// takeFollowUpsLocked sends what was queued for a chat while it was mid-turn (rt.mu held).
 func (h *Hub) takeFollowUpsLocked(rt *agentChatRT, chatID string) {
 	if len(rt.followUps) == 0 {
 		return

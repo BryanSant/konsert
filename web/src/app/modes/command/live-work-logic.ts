@@ -1,7 +1,7 @@
 import { OTHER_WORK_KEY, OTHER_WORK_NAME, ProjectGroup, WorkItem as ActivityItem, WorkerHeat } from '../../core/models/activity.models';
 import { Worker } from '../../core/models/konsert.models';
 import { WorkItem } from '../../core/state/work-logic';
-import { SpinnerMachine, SpinnerState, activityPhrase, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
+import { SpinnerDetail, SpinnerMachine, SpinnerState, activityPhrase, spinnerDetailOf, spinnerMachine, spinnerStateOf, withDetail } from '../../shared/spinner-logic';
 
 /**
  * Command's "Live work" story (signed-off design): per project its name, the orchestrator's
@@ -29,6 +29,8 @@ export interface StoryLine {
   tps?: number;
   agent: string;
   machines: SpinnerMachine[];
+  /** Shells and sub-agents (compact badges on the spinner). */
+  detail: SpinnerDetail | null;
   /** 1 = fully visible; done lines fade toward 0.35 before they drop out. */
   opacity: number;
   observed: boolean;
@@ -86,6 +88,8 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
   let now = it.now;
   if (state === 'queued' && !it.workerId && it.nowSource !== 'orchestrator') now = it.activity.label || 'Waiting for a machine';
   else if (it.nowSource !== 'orchestrator' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.summary || it.activity.label, inp.now - doneAt(it, mi)) || now;
+  const detail = spinnerDetailOf(it.activity);
+  if (it.nowSource !== 'orchestrator') now = withDetail(now, state, detail);
   return {
     key: `${it.kind}:${it.id}`,
     id: it.id,
@@ -100,6 +104,7 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
     tps: it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined,
     agent: it.agent || mi?.agent || '',
     machines: machinesFor(it.workerId, inp),
+    detail,
     opacity,
     observed: it.observed,
     terminal: false,
@@ -121,6 +126,7 @@ function terminalLine(mi: WorkItem, inp: StoryInputs): StoryLine {
     coarse: !you,
     agent: 'terminal',
     machines: machinesFor(mi.workerId, inp),
+    detail: null,
     opacity: 1,
     observed: false,
     terminal: true,
@@ -146,7 +152,8 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
         const at = doneAt(it, inp.items[it.id]);
         // Only work Konsert ran counts toward the bar (an idle observed session isn't "done").
         if (at >= inp.today && !it.observed) doneToday++;
-        if (inp.now - at < DONE_FADE_MS && !it.observed) done.push(lineFor(it, inp));
+        // Shells still running after the end keep the line until they exit.
+        if ((inp.now - at < DONE_FADE_MS || (it.activity.shells ?? 0) > 0) && !it.observed) done.push(lineFor(it, inp));
         continue;
       }
       if (it.bucket === 'queued') queued.push(lineFor(it, inp));

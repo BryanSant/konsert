@@ -1,7 +1,7 @@
 # Live work data: session activity, machine heat, project narration (design)
 
 Status: active (pre-alpha). Tickets: KON-NAYVC (activity), KON-RJ8P7 (heat), KON-H5BXK
-(narration), under the UI rebuild KON-88NN9. This is the data layer only; the Work, Command
+(narration), KON-ZAY87 (shells and sub-agents), under the UI rebuild KON-88NN9. This is the data layer only; the Work, Command
 and Fleet modes render it.
 
 ## Session activity
@@ -19,7 +19,20 @@ What each session is doing right now, as one of eight states:
 | `done` | the turn or task ended normally (also: cancelled, the engine came up idle) | `label` ("Cancelled", "Ready") |
 | `error` | the turn or task failed | `label` (the error) |
 
-Every activity also carries `since` (when the state began), `at`, `source` and `coarse`.
+Every activity also carries `since` (when the state began), `at`, `source` and `coarse`,
+and what runs beside the main loop (see [Shells and sub-agents](#shells-and-sub-agents)):
+
+| Field | Meaning |
+|---|---|
+| `shells` | shell processes under the session's agent, from its process tree (background ones included; dangling ones after the session ended too) |
+| `shells_busy` | how many of them run a command |
+| `shell_list` | up to 12 of them: `pid`, `command` (cleaned), `summary` (hub, nowline), `started_at`, `busy`, `since` (busy last changed), `dangling` |
+| `subagents` | running sub-agents: `id` (the parent's tool call id), `title`, `state` (thinking / working / speaking / asking), `label`, `since` |
+| `waiting` | the parent only waits on its sub-agents (every running tool call starts one) |
+
+`state` stays the parent loop's state, with one exception: a sub-agent waiting for the user
+makes the whole session `asking`, its label naming the sub-agent ("Sub-agent “Docs for cache
+flags” asks: Allow Write: docs/flags.md?").
 
 ### Readable now lines (`summary`)
 
@@ -74,6 +87,66 @@ hub: task status (queued/suspended/final), observed        │                  
   report for sessions that worker hosts, ignores reports older than what it has, and never
   revives a finished task.
 
+### Shells and sub-agents
+
+**Shells come from processes, not events** (`internal/worker/shells`). konsertd knows each
+hosted session's agent process: chat engines (`chat.Manager.ProcessIDs`, every real engine's
+session implements `ProcessID`) and PTY agent tasks (`Runner.SessionPIDs`; scratch terminals
+are not agent sessions). Every second (`DefaultShellInterval`) it takes **one process-table
+snapshot shared by every session**, none at all while nothing is hosted or dangling:
+
+| OS | Process table | Command line | CPU (for busy) |
+|---|---|---|---|
+| Linux | `/proc/*/stat` (pid, ppid, pgrp, state, utime+stime, starttime + `btime`) | `/proc/<pid>/cmdline` | ✓ utime+stime |
+| macOS | `sysctl kern.proc.all` (`x/sys/unix`), no process spawned | `sysctl kern.procargs2` | ✗ (needs cgo `proc_pid_rusage`): busy = has a child |
+| Windows | Toolhelp32 snapshot (pid, parent, image) | `NtQueryInformationProcess(ProcessCommandLineInformation)` | ✓ `GetProcessTimes`; start time too, read only for processes of a session's tree |
+| other | not supported (no shells reported) | | |
+
+Counting: walking down from the agent, the **first shell on each path** counts (`sh`, `bash`,
+`zsh`, `fish`, `dash`, `ksh`, `mksh`, `ash`, `csh`, `tcsh`, `nu`, `pwsh`, `powershell`,
+`cmd`); shells nested in it belong to it. Members of the agent's process group that lost
+their parent count too, shell or not (`sleep 300 &` in a tool call: the shell exited, the
+job runs on). A shell is **busy** when a non-shell process runs under it, or (Linux,
+Windows) its tree used ≥ 5 % of the tick on the CPU. A child that started before its
+"parent" is a stale parent link (Windows pid reuse) and is skipped. Each shell is
+identified by pid + start time, so a reused pid is never mistaken for it.
+
+**Dangling shells**: a shell that is no longer under the agent (the session ended, the agent
+let go of it) but still runs keeps being tracked and reported for its session (`dangling:
+true`) until it exits; then one last report with zero, and the session is forgotten. The
+publisher doesn't prune a finished session while it has shells, and the hub keeps konsertd's
+shells when it derives a state itself (a task's final status).
+
+Commands are cleaned for people: the script of `sh -c …` / `bash -lc …` / `pwsh -Command`
+/ `cmd /c`, without claude's wrapper (`source …/shell-snapshots/…`, `setopt`/`shopt`,
+`eval '…' \< /dev/null`, `pwd -P >| …`); capped at 300 characters. The hub adds each
+shell's `summary` with `internal/nowline`.
+
+**The detail list is inline** (`shell_list`, at most 12; `shells` stays exact): a frame
+with 12 shells is about 2 KB and changes at most a few times a second per session (below),
+so a separate message wasn't worth a second store and ordering problem.
+
+**Sub-agents come from the stream.** claude lines with `parent_tool_use_id` belong to the
+sub-agent started by that Task/Agent tool call. The engine marks their events with
+`AgentChatEvent.parent_tool_call_id` (stream deltas used to be dropped); the chat manager
+feeds a sub-agent's text and thoughts only to the activity deriver (never the transcript),
+while its tool calls stay in the transcript as before. `activity.Chat` keeps one state per
+sub-agent, from its Task call (title = the Task's `description`, thinking) until the Task's
+tool result: thought → thinking, text → speaking, tool call → working (label = the call),
+permission prompt → asking. A sub-agent's permission prompt is named ("Sub-agent “…”
+asks: …") in the transcript, the Needs-you item and the session's label. Codex and ACP
+agents expose no sub-agent signal: they report none.
+
+**Cleanup** (Fleet): `POST /api/tasks/{id}/shells/kill`, `POST /api/chats/{id}/shells/kill`
+with `{"shells": [{"pid", "started_at"}]}` (no list: all of them). The hub checks each shell
+is in the session's current `shell_list` and sends `session.shell.kill` to the hosting
+konsertd, which kills only processes it still attributes to that session with the same
+start time, each with its whole tree (SIGTERM, SIGKILL after 2 s for survivors; Windows
+TerminateProcess). `POST …/shells/ask` asks the agent instead: typed into a running PTY
+task (steer), sent as a follow-up message to an idle chat, queued for a chat mid-turn and
+sent when its turn ends; a finished task or a suspended session can't be asked (409). Both
+are audited (`session.shell_kill`, `session.shell_ask`) and recorded in the fleet timeline.
+
 ### Rate limiting
 
 `activity.Publisher` (one per konsertd) publishes per session:
@@ -86,25 +159,30 @@ hub: task status (queued/suspended/final), observed        │                  
   changes still shows about once a second), **output-rate-only updates at most once a second**;
 * the latest activity always wins (a held-back change is replaced, never queued); a task's final
   state is flushed at once; the last state of each session is re-sent after a reconnect (the hub
-  keeps activity in memory only).
+  keeps activity in memory only);
+* **shell and sub-agent changes** are debounced like a transient state (out 300 ms after the
+  change, within 1 s under a stream of changes): the poller hands each session's shells to
+  `Publisher.SetShells`, which republishes the session's latest activity with them, so a count
+  change reaches the browser within ~1.3 s of the process starting or exiting.
 
 Token deltas never reach the hub as activity: a 2,000-update burst over 2 s publishes ≤ 10 times
-(`TestPublisherBoundsAFlood`).
+(`TestPublisherBoundsAFlood`); 2,000 shell-count and sub-agent changes over 2 s also publish
+≤ 10 times, ≥ 300 ms apart, the latest of both landing (`TestPublisherBoundsAShellAndSubagentFlood`).
 
 ### Per-agent fidelity
 
 Verified live: claude (haiku) chat sessions. The rest follows from each engine's protocol
 mapping (unit-tested with fake engines) and should be confirmed live when those agents are used.
 
-| Agent (path) | thinking | working + label | speaking + tok/s | asking | blocked | queued | done / error | Notes |
-|---|---|---|---|---|---|---|---|---|
-| claude chat (`-p` stream-json) | ✓ `thinking_delta`, and waiting on the model | ✓ `tool_use` (title from the input: "Run: …", "Edit: …") | ✓ `text_delta`, estimated rate | ✓ `can_use_tool` permission, `ask_user` (hub), `request_user_action` | ✓ suspend | ✓ engine start | ✓ `result` | A tool shows once its input is complete (assistant line); while a long tool input streams (a big Write) the previous state stays. |
-| codex chat (app-server) | ✓ reasoning summary deltas when codex sends them; otherwise waiting on the model | ✓ commandExecution / fileChange / mcpToolCall items | ✓ `item/agentMessage/delta` | ✓ exec/patch/permission approvals, `requestUserInput`, MCP elicitations, `ask_user` | ✓ | ✓ | ✓ `turn/completed`, errors | |
-| grok, agy, copilot, cursor chat (ACP) | ✓ `agent_thought_chunk` when the agent streams thoughts (agent-dependent); otherwise waiting on the model | ✓ `tool_call` / `tool_call_update` with status; label = the agent's title | ✓ `agent_message_chunk` | ✓ `session/request_permission`, `ask_user` (name or title match) | ✓ | ✓ | ✓ stop reason, errors | Tool names come from `_meta`; ask_user is also matched by title. |
-| mock chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Prompt `activity` walks thinking → working → speaking → done with 1.2 s per state; `ask`/`permission` → asking; suspend → blocked; `crash`/`fail auth` → error. |
-| PTY tasks (all drivers) | coarse: after start, after a tool, on usage records | coarse: tool_call / file_edit telemetry (claude, grok, copilot, cursor session logs; codex/agy PTY lines) | ✗ (session logs hold whole messages) | coarse: trust/permission prompts in the PTY | ✓ suspend, Pause everything | ✓ (hub) | ✓ exit status | `coarse: true`, `source: session_log`. |
-| Observed claude (hooks installed) | coarse: PostToolUse, prompt submit | coarse: PreToolUse with the tool and its command/file | ✗ | coarse: Notification | ✗ | ✗ | coarse: Stop → done | `konsertd hook-event` reads the hook JSON on stdin (session, cwd, tool). |
-| Observed sessions without hooks | ✗ | coarse: process seen busy (no tool) | ✗ | ✗ | ✗ | ✗ | coarse: process gone → done | Process scan every 12 s; `source: passive`. |
+| Agent (path) | thinking | working + label | speaking + tok/s | asking | blocked | queued | done / error | shells | sub-agents | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| claude chat (`-p` stream-json) | ✓ `thinking_delta`, and waiting on the model | ✓ `tool_use` (title from the input: "Run: …", "Edit: …") | ✓ `text_delta`, estimated rate | ✓ `can_use_tool` permission, `ask_user` (hub), `request_user_action` | ✓ suspend | ✓ engine start | ✓ `result` | ✓ process tree (incl. `run_in_background`) | ✓ `parent_tool_use_id` lines: thinking / working / speaking / asking + label, until the Task result | A tool shows once its input is complete (assistant line); while a long tool input streams (a big Write) the previous state stays. |
+| codex chat (app-server) | ✓ reasoning summary deltas when codex sends them; otherwise waiting on the model | ✓ commandExecution / fileChange / mcpToolCall items | ✓ `item/agentMessage/delta` | ✓ exec/patch/permission approvals, `requestUserInput`, MCP elicitations, `ask_user` | ✓ | ✓ | ✓ `turn/completed`, errors | ✓ process tree (incl. background terminals) | ✗ no signal on the wire | |
+| grok, agy, copilot, cursor chat (ACP) | ✓ `agent_thought_chunk` when the agent streams thoughts (agent-dependent); otherwise waiting on the model | ✓ `tool_call` / `tool_call_update` with status; label = the agent's title | ✓ `agent_message_chunk` | ✓ `session/request_permission`, `ask_user` (name or title match) | ✓ | ✓ | ✓ stop reason, errors | ✓ process tree | ✗ no signal in ACP | Tool names come from `_meta`; ask_user is also matched by title. |
+| mock chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ (in-process) | ✓ prompt `subagents` | Prompt `activity` walks thinking → working → speaking → done with 1.2 s per state; `subagents` runs two sub-agents, one asks a permission; `ask`/`permission` → asking; suspend → blocked; `crash`/`fail auth` → error. |
+| PTY tasks (all drivers) | coarse: after start, after a tool, on usage records | coarse: tool_call / file_edit telemetry (claude, grok, copilot, cursor session logs; codex/agy PTY lines) | ✗ (session logs hold whole messages) | coarse: trust/permission prompts in the PTY | ✓ suspend, Pause everything | ✓ (hub) | ✓ exit status | ✓ process tree (mock: `BG_SHELL=<secs>`) | ✗ | `coarse: true`, `source: session_log`. |
+| Observed claude (hooks installed) | coarse: PostToolUse, prompt submit | coarse: PreToolUse with the tool and its command/file | ✗ | coarse: Notification | ✗ | ✗ | coarse: Stop → done | ✗ | ✗ | `konsertd hook-event` reads the hook JSON on stdin (session, cwd, tool). |
+| Observed sessions without hooks | ✗ | coarse: process seen busy (no tool) | ✗ | ✗ | ✗ | ✗ | coarse: process gone → done | ✗ | ✗ | Process scan every 12 s; `source: passive`. |
 
 ### Web store
 
@@ -207,12 +285,28 @@ amber → red, hot drifts faster), the ring around it is the activity.
 | queued | `queued` | hollow avatar, dotted ring |
 | done | `done` | grey ring, green check, neutral avatar |
 | error | `error` | red, "!" badge |
+| waiting | `working` with `waiting` (the parent only waits on sub-agents) | plain grey ring; the sub-agent dots carry the motion |
+
+Shells and sub-agents ride on the same spinner (KON-ZAY87): a **shell badge** `❯N` at the
+avatar's bottom-left (its outline pulses while any shell is busy, still when idle), and up to
+**four sub-agent dots orbiting the ring** (one turn per 9 s) in their own state colours
+(violet breathing = thinking, white blinking = working, green = speaking, amber = asking),
+"+N" top-right beyond four. Any sub-agent asking turns the whole ring amber with the "?"
+badge. Counts appear only when non-zero; the hover text adds them ("desk · warm 55% · cpu —
+thinking · 3 shells (2 busy) · 2 sub-agents"). Fleet session cards spell it out: chips
+"❯ 3 shells · 2 busy" / "◉ 2 sub-agents" ("❯ 2 shells left running" after the end), a row per
+shell (command, how long it has run a command or "idle", **Ask to stop** / **Kill** with a
+confirmation) and per sub-agent (state dot, title · label, age), and **Clean up all** /
+**Ask the agent to clean up** with two or more shells. A finished session with shells still
+running keeps its card (and its Command line) until they exit. Command's live-work lines
+use the compact badges and mention the counts ("3 shells · 2 sub-agents", "done 3m ago · 1
+shell left running").
 
 Observed sessions (`coarse` and started outside Konsert) draw the ring at half strength. A
 second machine peeks out behind the first (the component supports it; no task reports a
 second machine yet). The hover tooltip and the accessible name say the activity word, the
 machine(s), heat % and cause; every caller also shows a text label, never colour alone.
-`prefers-reduced-motion` stops all animation (static rings and fills). Fleet rows put the
+`prefers-reduced-motion` stops all animation (static rings and fills; no orbit, no pulse, no blink). Fleet rows put the
 agent's mark in the centre instead of initials, since the row is the machine.
 
 Used in Command's Live work (the project story, `modes/command/live-work-logic.ts`: project

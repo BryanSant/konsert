@@ -1,4 +1,4 @@
-import { ActivityState, HeatCause, SessionActivity, WorkerHeat } from '../core/models/activity.models';
+import { ActivityState, HeatCause, SessionActivity, SubagentState, WorkerHeat } from '../core/models/activity.models';
 import { heatLevelOf } from '../core/state/activity-logic';
 import { ControlLabel } from '../core/state/work-logic';
 
@@ -8,8 +8,22 @@ import { ControlLabel } from '../core/state/work-logic';
  * component is shared/activity-spinner.component.ts.
  */
 
-/** The ring states: the eight activity states, with blocked split into held and "you". */
-export type SpinnerState = 'thinking' | 'working' | 'speaking' | 'asking' | 'held' | 'you' | 'queued' | 'done' | 'error';
+/**
+ * The ring states: the eight activity states, with blocked split into held and "you", and
+ * working split off as waiting when the parent only waits on its sub-agents.
+ */
+export type SpinnerState = 'thinking' | 'working' | 'waiting' | 'speaking' | 'asking' | 'held' | 'you' | 'queued' | 'done' | 'error';
+
+/** Shells and sub-agents drawn around the ring (badge and orbiting dots). */
+export interface SpinnerDetail {
+  shells: number;
+  shellsBusy: number;
+  /** Sub-agent states, in start order. */
+  subs: SubagentState[];
+}
+
+/** At most this many sub-agent dots orbit the ring; the rest show as "+N". */
+export const MAX_DOTS = 4;
 
 /** One machine as the avatar shows it. */
 export interface SpinnerMachine {
@@ -23,6 +37,7 @@ export interface SpinnerMachine {
 export const SPINNER_WORDS: Record<SpinnerState, string> = {
   thinking: 'thinking',
   working: 'working',
+  waiting: 'waiting on sub-agents',
   speaking: 'writing',
   asking: 'asks you',
   held: 'held',
@@ -36,6 +51,7 @@ export const SPINNER_WORDS: Record<SpinnerState, string> = {
 export const SPINNER_LABEL_COLORS: Record<SpinnerState, string> = {
   thinking: '#c9bcff',
   working: '#c9cbd1',
+  waiting: '#9a9ca4',
   speaking: '#a8e8c2',
   asking: '#e9c27f',
   held: '#9ec5ff',
@@ -45,13 +61,69 @@ export const SPINNER_LABEL_COLORS: Record<SpinnerState, string> = {
   error: '#f3a3a3',
 };
 
-/** The ring state for a session from its activity and its control annunciator. */
-export function spinnerStateOf(activity: Pick<SessionActivity, 'state'> | undefined, control?: ControlLabel): SpinnerState {
+/**
+ * The ring state for a session from its activity and its control annunciator. A sub-agent
+ * asking turns the whole ring amber (asking); a parent that only waits on its sub-agents
+ * shows a plain grey ring (waiting) and lets the dots carry the motion.
+ */
+export function spinnerStateOf(activity: Pick<SessionActivity, 'state' | 'waiting' | 'subagents'> | undefined, control?: ControlLabel): SpinnerState {
   if (control === 'YOU') return 'you';
   if (control === 'HELD' || control === 'SUSPENDED') return 'held';
   const s: ActivityState = activity?.state ?? 'done';
   if (s === 'blocked') return 'held';
+  if (s === 'done' || s === 'error' || s === 'queued') return s;
+  if (activity?.subagents?.some((x) => x.state === 'asking')) return 'asking';
+  if (s === 'working' && activity?.waiting) return 'waiting';
   return s;
+}
+
+/** The shells and sub-agents of a session for its spinner; null when it has none. */
+export function spinnerDetailOf(a: Pick<SessionActivity, 'state' | 'shells' | 'shells_busy' | 'subagents'> | undefined | null): SpinnerDetail | null {
+  if (!a) return null;
+  const shells = a.shells ?? 0;
+  const live = a.state !== 'done' && a.state !== 'error';
+  const subs = live ? (a.subagents ?? []).map((s) => s.state) : [];
+  if (!shells && !subs.length) return null;
+  return { shells, shellsBusy: Math.min(a.shells_busy ?? 0, shells), subs };
+}
+
+/**
+ * The counts a live-work line mentions: "3 shells · 2 sub-agents" (with "left running"
+ * once the session is done). '' when none.
+ */
+export function detailPhrase(d: SpinnerDetail | null | undefined, done = false): string {
+  if (!d) return '';
+  const parts: string[] = [];
+  if (d.shells) parts.push(`${d.shells} ${d.shells === 1 ? 'shell' : 'shells'}${done ? ' left running' : ''}`);
+  if (d.subs.length) parts.push(`${d.subs.length} ${d.subs.length === 1 ? 'sub-agent' : 'sub-agents'}`);
+  return parts.join(' · ');
+}
+
+/**
+ * A line's now text with its shells and sub-agents: a generic phrase ("thinking…",
+ * "waiting on sub-agents") gives way to the counts, anything specific keeps them after it.
+ */
+export function withDetail(now: string, state: SpinnerState, d: SpinnerDetail | null | undefined): string {
+  const counts = detailPhrase(d, state === 'done' || state === 'error');
+  if (!counts || state === 'asking') return now;
+  if (!now || now === 'thinking…' || now === 'waiting on sub-agents' || now === 'working') return counts;
+  return `${now} · ${counts}`;
+}
+
+/** "3 shells (2 busy) · 2 sub-agents" ('' when none); counts appear only when non-zero. */
+export function describeDetail(d: SpinnerDetail | null | undefined): string {
+  if (!d) return '';
+  const parts: string[] = [];
+  if (d.shells) parts.push(`${d.shells} ${d.shells === 1 ? 'shell' : 'shells'}${d.shellsBusy ? ` (${d.shellsBusy} busy)` : ''}`);
+  if (d.subs.length) parts.push(`${d.subs.length} ${d.subs.length === 1 ? 'sub-agent' : 'sub-agents'}`);
+  return parts.join(' · ');
+}
+
+/** The orbiting dots: up to MAX_DOTS, evenly spread, plus how many more there are. */
+export function orbitDots(subs: readonly SubagentState[]): { dots: Array<{ state: SubagentState; angle: number }>; more: number } {
+  const shown = subs.slice(0, MAX_DOTS);
+  const step = shown.length ? 360 / shown.length : 0;
+  return { dots: shown.map((state, k) => ({ state, angle: Math.round(k * step + 30) })), more: Math.max(0, subs.length - MAX_DOTS) };
 }
 
 /** Two-letter machine initials: "mini-pc" → "mp", "desk" → "dk", "mac" → "mc". */
@@ -104,14 +176,22 @@ export function describeMachine(m: SpinnerMachine): string {
   return `${m.name} · ${heatLevelOf(m.heat)} ${Math.round(m.heat * 100)}%${m.cause ? ` · ${m.cause}` : ''}`;
 }
 
-/** The hover text and accessible name: "working · desk · warm 55% · cpu". */
-export function describeSpinner(state: SpinnerState, machines: readonly SpinnerMachine[], opts: { coarse?: boolean; tps?: number; agent?: string } = {}): string {
+/**
+ * The hover text and accessible name: "desk · warm 55% · cpu — thinking · 3 shells (2
+ * busy) · 2 sub-agents" (the machine, then what the agent does).
+ */
+export function describeSpinner(
+  state: SpinnerState,
+  machines: readonly SpinnerMachine[],
+  opts: { coarse?: boolean; tps?: number; agent?: string; detail?: SpinnerDetail | null } = {},
+): string {
   let word = SPINNER_WORDS[state];
   if (state === 'speaking' && opts.tps) word += ` ${Math.round(opts.tps)} tok/s`;
   if (opts.coarse) word += ' (observed, coarse)';
   const who = opts.agent ? `${opts.agent} ` : '';
-  const where = machines.length ? machines.map(describeMachine).join(' + ') : state === 'queued' ? 'not placed yet' : '';
-  return [`${who}${word}`.trim(), where].filter(Boolean).join(' · ');
+  const what = [`${who}${word}`.trim(), describeDetail(opts.detail)].filter(Boolean).join(' · ');
+  if (!machines.length) return state === 'queued' ? `${what} · not placed yet` : what;
+  return `${machines.map(describeMachine).join(' + ')} — ${what}`;
 }
 
 /** The machine as the avatar shows it, from a worker and its heat. */
@@ -133,6 +213,8 @@ export function activityPhrase(state: SpinnerState, tps: number | undefined, lab
   switch (state) {
     case 'thinking':
       return 'thinking…';
+    case 'waiting':
+      return 'waiting on sub-agents';
     case 'speaking':
       return tps ? `writing · ${Math.round(tps)} tok/s` : 'writing…';
     case 'working':
@@ -144,7 +226,8 @@ export function activityPhrase(state: SpinnerState, tps: number | undefined, lab
     case 'held':
       return label || 'held';
     case 'asking':
-      return label ? `asks you: ${label}` : 'asks you';
+      // A sub-agent's question already names who asks.
+      return label ? (label.startsWith('Sub-agent') ? label : `asks you: ${label}`) : 'asks you';
     default:
       return '';
   }

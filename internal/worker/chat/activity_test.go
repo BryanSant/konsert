@@ -96,8 +96,8 @@ func TestManagerSubagentActivity(t *testing.T) {
 	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: t.TempDir()})
 	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t1", Text: "use subagents"})
 	el, _ := tm.col.waitFor(t, 0, "sub-agent permission", kind(protocol.EventElicitation))
-	if el.ParentToolCallID != "task-b-t1" {
-		t.Fatalf("elicitation parent %q", el.ParentToolCallID)
+	if el.ParentToolCallID != "task-b-t1" || el.Elicitation.Title != "Sub-agent “Docs for cache flags” asks: Allow Write: docs/flags.md?" {
+		t.Fatalf("elicitation parent %q, title %q", el.ParentToolCallID, el.Elicitation.Title)
 	}
 	waitUntil(t, "asking", func() bool { return log.seen(protocol.ActivityAsking) })
 	tm.Respond(protocol.AgentChatRespond{ChatID: "c1", ElicitationID: el.Elicitation.ID, OptionID: "allow_once"})

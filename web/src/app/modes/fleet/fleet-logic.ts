@@ -1,8 +1,8 @@
-import { HeatHistory, HeatSample, ProjectGroup, WorkerHeat } from '../../core/models/activity.models';
+import { HeatHistory, HeatSample, ProjectGroup, ShellInfo, SubagentActivity, WorkerHeat } from '../../core/models/activity.models';
 import { Task, Worker } from '../../core/models/konsert.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
-import { SpinnerState, activityPhrase, heatSolid, spinnerStateOf } from '../../shared/spinner-logic';
+import { SpinnerDetail, SpinnerState, activityPhrase, heatSolid, spinnerDetailOf, spinnerStateOf } from '../../shared/spinner-logic';
 
 /** Fleet mode (signed-off "machines first" design): pure helpers; see fleet-mode.component.ts. */
 
@@ -82,6 +82,81 @@ export interface MachineSession {
   tps?: number;
   done: boolean;
   item?: WorkItem;
+  kind: 'task' | 'chat';
+  /** Shells and sub-agents for the spinner. */
+  detail: SpinnerDetail | null;
+  /** The shells in detail (up to 12; detail.shells is the exact count). */
+  shellList: ShellInfo[];
+  subagents: SubagentActivity[];
+}
+
+/** A shell row on a Fleet session card. */
+export interface ShellRow {
+  pid: number;
+  text: string;
+  /** The full command (hover). */
+  title: string;
+  busy: boolean;
+  dangling: boolean;
+  /** "41s" (running a command for), "idle", or "idle 3m". */
+  age: string;
+  startedAt: string;
+}
+
+/** "41s", "12m", "3h", "2d". */
+export function shortAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+/** The shell rows of a session card: busy ones show how long the command runs, idle ones "idle". */
+export function shellRows(list: readonly ShellInfo[], now: number): ShellRow[] {
+  return list.map((s) => ({
+    pid: s.pid,
+    text: s.command,
+    title: `${s.summary && s.summary !== s.command ? `${s.summary}: ` : ''}${s.command} (pid ${s.pid}${s.dangling ? ', left running' : ''})`,
+    busy: !!s.busy,
+    dangling: !!s.dangling,
+    age: s.busy ? shortAge(now - (Date.parse(s.since) || now)) : 'idle',
+    startedAt: s.started_at,
+  }));
+}
+
+/** "❯ 3 shells · 2 busy" / "❯ 2 shells left running" ('' when none). */
+export function shellChip(d: SpinnerDetail | null, done: boolean): string {
+  if (!d?.shells) return '';
+  const n = `${d.shells} ${d.shells === 1 ? 'shell' : 'shells'}`;
+  if (done) return `❯ ${n} left running`;
+  return `❯ ${n}${d.shellsBusy ? ` · ${d.shellsBusy} busy` : ''}`;
+}
+
+/** "◉ 2 sub-agents" ('' when none). */
+export function subagentChip(d: SpinnerDetail | null): string {
+  const n = d?.subs.length ?? 0;
+  return n ? `◉ ${n} ${n === 1 ? 'sub-agent' : 'sub-agents'}` : '';
+}
+
+/** A sub-agent row's text: "S3 client tests · running go test" (title, then what it does). */
+export function subagentText(s: SubagentActivity): string {
+  const doing = s.label || (s.state === 'speaking' ? 'writing' : s.state);
+  return [s.title || 'sub-agent', doing].filter(Boolean).join(' · ');
+}
+
+/**
+ * Whether the session's agent can be asked to stop a shell, and why not: a finished or
+ * suspended task can't (its agent is gone or frozen); a chat always can (an idle chat gets
+ * a follow-up message, a chat mid-turn gets it when the turn ends).
+ */
+export function askAvailability(s: Pick<MachineSession, 'kind' | 'done' | 'state'>): { ok: boolean; why: string } {
+  if (s.state === 'held') return { ok: false, why: 'The session is suspended: resume it first, or kill the shell' };
+  if (s.kind === 'task' && s.done) return { ok: false, why: 'The session has ended, so its agent can’t be asked: kill the shell instead' };
+  if (s.kind === 'chat' && !s.done) return { ok: true, why: 'Ask the agent to stop it (sent when its current turn ends)' };
+  return { ok: true, why: s.kind === 'chat' ? 'Ask the agent to stop it (a follow-up message)' : 'Ask the agent to stop it (typed into its session)' };
 }
 
 export interface MachineRow {
@@ -134,7 +209,8 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       if (it.bucket === 'done') {
         if (it.observed) continue;
         const at = Date.parse(mi?.finishedAt || it.activity.since || '') || 0;
-        if (inp.now - at >= FLEET_DONE_MS) continue;
+        // Shells left running keep the card (to clean them up) until they exit.
+        if (inp.now - at >= FLEET_DONE_MS && !(it.activity.shells ?? 0)) continue;
       }
       const state = spinnerStateOf(it.activity, mi?.control);
       const doneAgo = inp.now - (Date.parse(mi?.finishedAt || it.activity.since || '') || inp.now);
@@ -157,6 +233,10 @@ export function machineRows(inp: RowInputs): MachineRow[] {
         tps: it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined,
         done: it.bucket === 'done',
         item: mi,
+        kind: it.kind,
+        detail: spinnerDetailOf(it.activity),
+        shellList: it.activity.shell_list ?? [],
+        subagents: it.bucket === 'done' ? [] : (it.activity.subagents ?? []),
       });
     }
   }
@@ -176,6 +256,10 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       coarse: !you,
       done: false,
       item: mi,
+      kind: 'task',
+      detail: null,
+      shellList: [],
+      subagents: [],
     });
   }
   const suspended = new Map<string, number>();

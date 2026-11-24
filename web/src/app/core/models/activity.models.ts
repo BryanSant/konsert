@@ -42,10 +42,52 @@ export interface SessionActivity {
   /** Best-effort state from a weak signal (session log, hooks, process inspection). */
   coarse?: boolean;
   source?: ActivitySource | string;
+  /** The parent only waits on its sub-agents (every running tool call starts one). */
+  waiting?: boolean;
+  /**
+   * Shell processes under the session's agent (from its process tree, background ones
+   * included; they keep counting after the session ended until they exit), how many run
+   * a command, and up to 12 of them in detail.
+   */
+  shells?: number;
+  shells_busy?: number;
+  shell_list?: ShellInfo[];
+  /** Running sub-agents (claude Task calls), each with its own state. */
+  subagents?: SubagentActivity[];
   /** When the current state began. */
   since: string;
   /** When this was derived. */
   at: string;
+}
+
+/** One shell process of a session (SessionActivity.shell_list). */
+export interface ShellInfo {
+  pid: number;
+  /** The command line, cleaned of agent wrappers. */
+  command: string;
+  /** Its readable line ("running tests"), from the hub. */
+  summary?: string;
+  started_at: string;
+  /** Runs a command (a child process, or CPU use). */
+  busy?: boolean;
+  /** When busy last changed. */
+  since: string;
+  /** No longer under the agent (the session ended) but still running. */
+  dangling?: boolean;
+}
+
+/** The states a sub-agent reports. */
+export type SubagentState = 'thinking' | 'working' | 'speaking' | 'asking';
+
+/** One running sub-agent (SessionActivity.subagents). */
+export interface SubagentActivity {
+  /** The parent's tool call id that started it. */
+  id: string;
+  title?: string;
+  state: SubagentState;
+  /** The tool call it runs, or its question. */
+  label?: string;
+  since: string;
 }
 
 export type HeatLevel = 'cool' | 'warm' | 'hot';

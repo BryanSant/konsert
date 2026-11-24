@@ -994,6 +994,12 @@ func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
 		}
 		return
 	}
+	if ev.Kind == protocol.EventElicitation && ev.ParentToolCallID != "" && ev.Elicitation != nil && c.act != nil {
+		// A sub-agent asks: the prompt (and the Needs-you item made from it) names it.
+		el := *ev.Elicitation
+		el.Title = activity.SubagentQuestion(c.act.SubagentTitle(ev.ParentToolCallID), firstNonEmpty(el.Title, "needs a decision"))
+		ev.Elicitation = &el
+	}
 	c.seq++
 	ev.Seq = c.seq
 	ev.ChatID = c.id
