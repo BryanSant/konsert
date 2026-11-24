@@ -5,7 +5,7 @@ import { ChatSession, Project, Task, Worker } from '../core/models/konsert.model
 import { groupWork } from '../core/state/activity-logic';
 import { WorkItem, buildWorkItems } from '../core/state/work-logic';
 import { ActivitySpinnerComponent } from '../shared/activity-spinner.component';
-import { describeSpinner, heatFill, machineInitials, rippleSeconds, spinnerStateOf } from '../shared/spinner-logic';
+import { activityPhrase, describeSpinner, heatFill, machineInitials, rippleSeconds, spinnerStateOf } from '../shared/spinner-logic';
 import { DONE_FADE_MS, buildStory, queuedLabel } from './command/live-work-logic';
 import { describeStrip, heatStrip, heatText, machineBadge, machineRows, queueReasons } from './fleet/fleet-logic';
 
@@ -58,6 +58,11 @@ describe('spinner logic', () => {
     expect(describeSpinner('working', [{ name: 'desk', heat: 0.55, cause: 'cpu' }])).toBe('working · desk · warm 55% · cpu');
     expect(describeSpinner('queued', [])).toBe('queued · not placed yet');
     expect(describeSpinner('speaking', [{ name: 'mac', heat: 0.9 }], { tps: 38.4 })).toContain('writing 38 tok/s');
+    expect(activityPhrase('thinking', undefined, undefined, 0)).toBe('thinking…');
+    expect(activityPhrase('speaking', 38.4, undefined, 0)).toBe('writing · 38 tok/s');
+    expect(activityPhrase('done', undefined, 'Ready', 3 * 60_000)).toBe('done 3m ago');
+    expect(activityPhrase('done', undefined, 'Cancelled', 0)).toBe('Cancelled · done just now');
+    expect(activityPhrase('queued', undefined, undefined, 0)).toBe('');
     expect(rippleSeconds(80)).toBe(0.5);
     expect(rippleSeconds(0)).toBe(1.5);
   });
