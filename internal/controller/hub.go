@@ -182,6 +182,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		ChatTurnTimeout:    15 * time.Minute,
 	}
 	h.questions.init()
+	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
+	h.goBackground(h.vitalsLoop)
 	return h
 }
 
@@ -209,8 +211,8 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.closed = true
 	h.mu.Unlock()
-	// Keep the in-progress heat minute across a restart.
-	h.flushHeat(ctx)
+	// Keep the in-progress history buckets across a restart.
+	h.flushVitals(ctx, true)
 	h.cancel()
 
 	h.mu.Lock()

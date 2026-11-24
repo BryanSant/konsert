@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/store"
 )
 
 // Machine heat (KON-RJ8P7): one smoothed 0..1 load score per machine and its dominant
@@ -142,25 +143,26 @@ func SmoothHeat(prev float64, hasPrev bool, raw float64, dt time.Duration) float
 type heatEntry struct {
 	heat WorkerHeat
 	at   time.Time
-	// minute accumulates the current 1-minute history bucket (see heat_history.go).
-	minute heatMinute
+	// bucket accumulates the current 15-second history bucket (see heat_history.go).
+	bucket vitalsBucket
 }
 
 type heatState struct {
 	mu      sync.Mutex
 	workers map[string]heatEntry
-	// lastPrune is when old history buckets were last pruned.
-	lastPrune time.Time
+	// pending holds finished history buckets until the next flush (heat_history.go).
+	pending []store.VitalsSample
 }
 
-// updateHeat folds a heartbeat into a worker's heat and returns it. The smoothed score is
-// also folded into the worker's current history minute; a finished minute is written to
-// the store in the background.
+// updateHeat folds a heartbeat into a worker's heat and returns it. The heartbeat's
+// vitals and the smoothed score are also folded into the worker's current history bucket;
+// a finished bucket waits in pending for the next flush.
 func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, active, maxConcurrent int, now time.Time) WorkerHeat {
 	comps := HeatComponents(m, cores, active, maxConcurrent)
 	raw, cause := rawHeat(comps)
 	full := comps[HeatCauseSlots] >= 1
 	h.heat.mu.Lock()
+	defer h.heat.mu.Unlock()
 	if h.heat.workers == nil {
 		h.heat.workers = map[string]heatEntry{}
 	}
@@ -175,11 +177,10 @@ func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, acti
 		Score: score, Raw: math.Round(raw*1000) / 1000, Level: HeatLevel(score), Cause: cause,
 		Components: comps, Full: full, UpdatedAt: now.UTC(),
 	}
-	minute, finished := prev.minute.add(now, score, cause)
-	h.heat.workers[workerID] = heatEntry{heat: wh, at: now, minute: minute}
-	h.heat.mu.Unlock()
+	bucket, finished := prev.bucket.add(now, m, score, cause)
+	h.heat.workers[workerID] = heatEntry{heat: wh, at: now, bucket: bucket}
 	if finished.n > 0 {
-		h.persistHeatMinute(workerID, finished, now)
+		h.heat.pending = append(h.heat.pending, finished.sample(workerID))
 	}
 	return wh
 }
@@ -196,9 +197,13 @@ func (h *Hub) workerHeat(workerID string) *WorkerHeat {
 	return &wh
 }
 
-// forgetHeat drops a worker's heat (disconnected or removed).
+// forgetHeat drops a worker's heat (disconnected or removed). Its in-progress history
+// bucket still goes out with the next flush (dropped by the store if the machine is gone).
 func (h *Hub) forgetHeat(workerID string) {
 	h.heat.mu.Lock()
+	if e, ok := h.heat.workers[workerID]; ok && e.bucket.n > 0 {
+		h.heat.pending = append(h.heat.pending, e.bucket.sample(workerID))
+	}
 	delete(h.heat.workers, workerID)
 	h.heat.mu.Unlock()
 }

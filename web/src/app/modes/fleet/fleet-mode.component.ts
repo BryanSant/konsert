@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterRender
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
-import { HeatHistory } from '../../core/models/activity.models';
+import { HeatHistory, MACHINE_HISTORY_RETENTION } from '../../core/models/activity.models';
 import { Worker } from '../../core/models/konsert.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { isVersionMismatch } from '../../core/models/version';
@@ -61,7 +61,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
         <h2 id="ks-fleet-machines" class="m-0 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Machines · {{ rows().length }}</h2>
         <span class="hidden lg:inline text-[var(--ks-text-secondary)]">Each row is a machine, with the project work running on it.</span>
         <span class="flex-1"></span>
-        <span class="text-[var(--ks-text-secondary)]" id="ks-heat-range-label">Heat over the last</span>
+        <span class="text-[var(--ks-text-secondary)] cursor-help underline decoration-dotted decoration-[var(--ks-text-muted)] underline-offset-2" id="ks-heat-range-label" [ksTooltip]="retention()" data-testid="heat-retention">Heat over the last</span>
         <div class="inline-flex gap-1" role="radiogroup" aria-labelledby="ks-heat-range-label">
           @for (r of ranges; track r.id) {
             <button
@@ -576,6 +576,8 @@ export class FleetModeComponent {
   /** A faster clock for shell and sub-agent ages (the rows tick while a command runs). */
   readonly clock = signal(Date.now());
   readonly history = signal<HeatHistory | null>(null);
+  /** How long machine history is kept, in plain words (tooltip on the range label). */
+  readonly retention = computed(() => this.history()?.retention || MACHINE_HISTORY_RETENTION);
   readonly wakeError = signal('');
   readonly wakeCapable = computed(() => this.fleet.workers().some((w) => w.status === 'online' && w.wake_lock?.supported));
   readonly allAwake = computed(() => {

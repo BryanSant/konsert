@@ -8,19 +8,20 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
 
-// Heat history: each worker's smoothed heat is downsampled to one bucket per minute (max,
-// mean, cause at the max), accumulated in memory and written to SQLite when the minute is
-// over, kept HeatRetention. GET /api/fleet/heat aggregates those minutes into a fixed
-// number of points for the fleet heat strips.
+// Vitals and heat history (KON-WY5F2). Every heartbeat's vitals and smoothed heat are
+// folded into the machine's current 15-second bucket in memory; finished buckets are
+// written to the raw tier once a minute (and at shutdown). Once an hour the store rolls
+// complete hours up into hourly rows and complete days into daily rows and prunes each
+// tier past its retention (12 h raw, 30 days hourly, 365 days daily). GET /api/fleet/heat
+// reads the finest tier that covers its range: raw for 12h, hourly for 24h, 3d and 1w.
 
 const (
-	// HeatRetention is how long minute buckets are kept (the longest range plus a day).
-	HeatRetention = 8 * 24 * time.Hour
-	// heatPruneEvery is how often old buckets are pruned (on the next flush).
-	heatPruneEvery = time.Hour
+	// vitalsFlushEvery is how often finished buckets are written.
+	vitalsFlushEvery = time.Minute
 
 	heatDefaultRange  = "12h"
 	heatDefaultPoints = 48
@@ -28,115 +29,165 @@ const (
 	heatMaxPoints     = 336
 )
 
+// VitalsRetentionText says how long machine history is kept, in plain words (shown with
+// the heat strips).
+const VitalsRetentionText = "Machine history keeps every sample for 12 hours, hourly summaries for 30 days and daily summaries for a year."
+
+// heatRange is a GET /api/fleet/heat range and the tier it reads.
+type heatRange struct {
+	span   time.Duration
+	hourly bool // read hourly roll-ups (points are whole hours); else the raw tier
+}
+
 // heatRanges are the ranges GET /api/fleet/heat accepts.
-var heatRanges = map[string]time.Duration{
-	"12h": 12 * time.Hour,
-	"24h": 24 * time.Hour,
-	"3d":  3 * 24 * time.Hour,
-	"1w":  7 * 24 * time.Hour,
+var heatRanges = map[string]heatRange{
+	"12h": {span: 12 * time.Hour},
+	"24h": {span: 24 * time.Hour, hourly: true},
+	"3d":  {span: 3 * 24 * time.Hour, hourly: true},
+	"1w":  {span: 7 * 24 * time.Hour, hourly: true},
 }
 
-// heatMinute accumulates one worker's heat over the current minute.
-type heatMinute struct {
-	start time.Time // start of the minute, UTC
-	max   float64
-	sum   float64
-	n     int
-	cause string // cause at max
+// vitalsBucket accumulates one machine's heartbeats over the current VitalsBucket.
+type vitalsBucket struct {
+	start                      time.Time // bucket start, UTC
+	n                          int
+	cpu, load, mem, swap, heat float64 // sums
+	memTotal                   uint64
+	gpu                        float64 // sum over gpuN heartbeats
+	gpuN                       int
+	heatMax                    float64
+	cause                      string // cause at heatMax
 }
 
-// add folds a smoothed score at now into the minute. When now falls in a different minute
-// the accumulated one is returned as finished (n > 0) and a new one starts.
-func (m heatMinute) add(now time.Time, score float64, cause string) (cur, finished heatMinute) {
-	start := now.UTC().Truncate(time.Minute)
-	if m.n > 0 && !m.start.Equal(start) {
-		finished, m = m, heatMinute{}
+// add folds one heartbeat at now into the bucket. When now falls in a later bucket the
+// accumulated one is returned as finished (n > 0) and a new one starts.
+func (b vitalsBucket) add(now time.Time, m *protocol.WorkerMetrics, score float64, cause string) (cur, finished vitalsBucket) {
+	start := now.UTC().Truncate(store.VitalsBucket)
+	if b.n > 0 && !b.start.Equal(start) {
+		finished, b = b, vitalsBucket{}
 	}
-	if m.n == 0 {
-		m.start = start
+	if b.n == 0 {
+		b.start = start
 	}
-	m.sum += score
-	m.n++
-	if m.n == 1 || score > m.max {
-		m.max, m.cause = score, cause
+	if m != nil {
+		b.cpu += m.CPUPercent
+		b.load += m.LoadAvg
+		b.mem += float64(m.MemUsedMB)
+		b.swap += float64(m.SwapUsedMB)
+		if m.MemTotalMB > 0 {
+			b.memTotal = m.MemTotalMB
+		}
+		if m.GPUPercent != nil {
+			b.gpu += *m.GPUPercent
+			b.gpuN++
+		}
 	}
-	return m, finished
+	b.heat += score
+	b.n++
+	if b.n == 1 || score > b.heatMax {
+		b.heatMax, b.cause = score, cause
+	}
+	return b, finished
 }
 
-func (m heatMinute) sample(workerID string) store.HeatSample {
-	return store.HeatSample{
-		WorkerID: workerID, BucketStart: m.start, ScoreMax: m.max,
-		ScoreAvg: m.sum / float64(m.n), Samples: m.n, Cause: m.cause,
+// sample is the bucket as a raw-tier row (means).
+func (b vitalsBucket) sample(workerID string) store.VitalsSample {
+	n := float64(b.n)
+	s := store.VitalsSample{
+		WorkerID: workerID, At: b.start, N: b.n,
+		CPU: b.cpu / n, Load: b.load / n, Mem: b.mem / n, MemTotal: b.memTotal, Swap: b.swap / n,
+		Heat: b.heat / n, HeatMax: b.heatMax, Cause: b.cause,
 	}
+	if b.gpuN > 0 {
+		g := b.gpu / float64(b.gpuN)
+		s.GPU, s.GPUN = &g, b.gpuN
+	}
+	return s
 }
 
-// persistHeatMinute writes a finished minute in the background (off the heartbeat path)
-// and prunes buckets past HeatRetention at most once per heatPruneEvery.
-func (h *Hub) persistHeatMinute(workerID string, m heatMinute, now time.Time) {
+// vitalsLoop writes finished buckets every vitalsFlushEvery and rolls up once an hour
+// (and once at start, catching up after a restart or a long gap) until the hub stops.
+func (h *Hub) vitalsLoop(ctx context.Context) {
 	if h.store == nil {
 		return
 	}
-	h.heat.mu.Lock()
-	prune := now.Sub(h.heat.lastPrune) >= heatPruneEvery
-	if prune {
-		h.heat.lastPrune = now
-	}
-	h.heat.mu.Unlock()
-	s := m.sample(workerID)
-	h.goBackground(func(ctx context.Context) {
-		// Not bound to the hub lifetime: Shutdown waits for this write to finish.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		// Fails only for a worker removed meanwhile (foreign key): nothing to keep.
-		if err := h.store.UpsertHeatSample(ctx, s); err != nil {
-			h.logger.Debug("heat sample not stored", "worker_id", workerID, "err", err)
-		}
-		if prune {
-			if _, err := h.store.PruneHeatSamples(ctx, now.Add(-HeatRetention)); err != nil {
-				h.logger.Warn("prune heat samples", "err", err)
+	h.rollupVitals(ctx, time.Now())
+	t := time.NewTicker(vitalsFlushEvery)
+	defer t.Stop()
+	lastHour := time.Now().Truncate(time.Hour)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			h.flushVitals(ctx, false)
+			if hr := now.Truncate(time.Hour); hr.After(lastHour) {
+				lastHour = hr
+				h.rollupVitals(ctx, now)
 			}
 		}
-	})
+	}
 }
 
-// flushHeat writes every worker's in-progress minute (at shutdown, so a restart keeps it;
-// the restarted hub's partial minute merges into the same row) and resets them.
-func (h *Hub) flushHeat(ctx context.Context) {
+// rollupVitals runs the store's roll-up and retention.
+func (h *Hub) rollupVitals(ctx context.Context, now time.Time) {
+	res, err := h.store.RollupVitals(ctx, now)
+	if err != nil {
+		if ctx.Err() == nil {
+			h.logger.Warn("machine history roll-up failed", "err", err)
+		}
+		return
+	}
+	h.logger.Debug("machine history rolled up", "hourly", res.Hourly, "daily", res.Daily, "pruned", res.Pruned)
+}
+
+// flushVitals writes the finished buckets, and with current also every machine's
+// in-progress bucket (at shutdown, so a restart keeps it: the restarted hub's partial
+// bucket merges into the same row).
+func (h *Hub) flushVitals(ctx context.Context, current bool) {
 	if h.store == nil {
 		return
 	}
 	h.heat.mu.Lock()
-	var pending []store.HeatSample
-	for id, e := range h.heat.workers {
-		if e.minute.n > 0 {
-			pending = append(pending, e.minute.sample(id))
-			e.minute = heatMinute{}
-			h.heat.workers[id] = e
+	pending := h.heat.pending
+	h.heat.pending = nil
+	if current {
+		for id, e := range h.heat.workers {
+			if e.bucket.n > 0 {
+				pending = append(pending, e.bucket.sample(id))
+				e.bucket = vitalsBucket{}
+				h.heat.workers[id] = e
+			}
 		}
 	}
 	h.heat.mu.Unlock()
-	for _, s := range pending {
-		if err := h.store.UpsertHeatSample(ctx, s); err != nil {
-			h.logger.Debug("heat sample not stored", "worker_id", s.WorkerID, "err", err)
-		}
+	if len(pending) == 0 {
+		return
+	}
+	// Not bound to the hub lifetime: Shutdown flushes after canceling it.
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := h.store.UpsertVitals(wctx, pending); err != nil {
+		h.logger.Warn("machine history not stored", "samples", len(pending), "err", err)
 	}
 }
 
-// liveHeatMinutes returns the in-progress minute of every worker that has one.
-func (h *Hub) liveHeatMinutes() []store.HeatSample {
+// liveVitals returns the buckets not yet written: finished ones waiting for the next
+// flush and every machine's in-progress bucket.
+func (h *Hub) liveVitals() []store.VitalsSample {
 	h.heat.mu.Lock()
 	defer h.heat.mu.Unlock()
-	var out []store.HeatSample
+	out := append([]store.VitalsSample(nil), h.heat.pending...)
 	for id, e := range h.heat.workers {
-		if e.minute.n > 0 {
-			out = append(out, e.minute.sample(id))
+		if e.bucket.n > 0 {
+			out = append(out, e.bucket.sample(id))
 		}
 	}
 	return out
 }
 
-// HeatPoint is one aggregated point of a heat strip: the mean of the minute means, the max
-// of the minute maxes and the cause at that max.
+// HeatPoint is one aggregated point of a heat strip: the sample-weighted mean heat, the
+// highest heat and the cause at that maximum.
 type HeatPoint struct {
 	Score float64 `json:"score"`
 	Max   float64 `json:"max"`
@@ -152,27 +203,47 @@ type WorkerHeatHistory struct {
 
 // HeatHistory is the GET /api/fleet/heat response.
 type HeatHistory struct {
-	Range       string              `json:"range"`
-	Start       time.Time           `json:"start"`
-	End         time.Time           `json:"end"`
-	StepSeconds int64               `json:"step_seconds"`
-	Workers     []WorkerHeatHistory `json:"workers"`
+	Range       string    `json:"range"`
+	Start       time.Time `json:"start"`
+	End         time.Time `json:"end"`
+	StepSeconds int64     `json:"step_seconds"`
+	// Tier is the history tier the points come from: raw or hourly.
+	Tier      string              `json:"tier"`
+	Retention string              `json:"retention"`
+	Workers   []WorkerHeatHistory `json:"workers"`
 }
 
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
 
-// bucketHeat aggregates one worker's minute samples into points buckets of step starting
-// at start (bucket i covers [start+i*step, start+(i+1)*step)), oldest first. Samples
-// outside the window are ignored; empty buckets are nil.
-func bucketHeat(samples []store.HeatSample, start time.Time, step time.Duration, points int) []*HeatPoint {
-	type acc struct {
-		sum, max float64
-		n        int
-		cause    string
+// heatCell is one stored (or live) bucket's heat: n samples summing to sum, peak max.
+type heatCell struct {
+	at    time.Time
+	n     int
+	sum   float64
+	max   float64
+	cause string
+}
+
+func cellOf(s store.VitalsSample) heatCell {
+	n := max(s.N, 1)
+	return heatCell{at: s.At, n: n, sum: s.Heat * float64(n), max: s.HeatMax, cause: s.Cause}
+}
+
+func (a *heatCell) merge(b heatCell) {
+	if a.n == 0 || b.max > a.max {
+		a.max, a.cause = b.max, b.cause
 	}
-	accs := make([]acc, points)
-	for _, s := range samples {
-		d := s.BucketStart.Sub(start)
+	a.sum += b.sum
+	a.n += b.n
+}
+
+// bucketHeat aggregates one worker's cells into points buckets of step starting at start
+// (bucket i covers [start+i*step, start+(i+1)*step)), oldest first. Cells outside the
+// window are ignored; empty buckets are nil.
+func bucketHeat(cells []heatCell, start time.Time, step time.Duration, points int) []*HeatPoint {
+	accs := make([]heatCell, points)
+	for _, c := range cells {
+		d := c.at.Sub(start)
 		if d < 0 || step <= 0 {
 			continue
 		}
@@ -180,12 +251,7 @@ func bucketHeat(samples []store.HeatSample, start time.Time, step time.Duration,
 		if i >= points {
 			continue
 		}
-		a := &accs[i]
-		if a.n == 0 || s.ScoreMax > a.max {
-			a.max, a.cause = s.ScoreMax, s.Cause
-		}
-		a.sum += s.ScoreAvg
-		a.n++
+		accs[i].merge(c)
 	}
 	out := make([]*HeatPoint, points)
 	for i, a := range accs {
@@ -196,78 +262,101 @@ func bucketHeat(samples []store.HeatSample, start time.Time, step time.Duration,
 	return out
 }
 
-// heatWindow returns the step and the [start, end) window for a range split into points:
-// the step is whole seconds (rounded up), end is the end of the step-aligned bucket that
-// holds the current minute (so the in-progress minute is in the last point and points
-// stay put between polls), and start = end - points*step.
-func heatWindow(rng time.Duration, points int, now time.Time) (step time.Duration, start, end time.Time) {
-	stepSec := int64(math.Ceil(rng.Seconds() / float64(points)))
-	if stepSec < 1 {
-		stepSec = 1
-	}
-	// The current minute must fall before end.
-	cur := now.UTC().Truncate(time.Minute).Unix() + 60
+// heatWindow returns the step, the point count and the [start, end) window for a range
+// split into at most points: the step is whole seconds rounded up to a multiple of align
+// (15 s for the raw tier, an hour for hourly roll-ups; points shrink to fit), end is
+// the end of the step-aligned bucket holding the current align period (so it is in the
+// last point and points stay put between polls), and start = end - points*step.
+func heatWindow(span time.Duration, points int, align time.Duration, now time.Time) (step time.Duration, n int, start, end time.Time) {
+	alignSec := int64(align / time.Second)
+	stepSec := int64(math.Ceil(span.Seconds() / float64(points)))
+	stepSec = max((stepSec+alignSec-1)/alignSec*alignSec, alignSec)
+	n = int((int64(span/time.Second) + stepSec - 1) / stepSec)
+	cur := now.UTC().Unix()/alignSec*alignSec + alignSec
 	endSec := (cur + stepSec - 1) / stepSec * stepSec
 	step = time.Duration(stepSec) * time.Second
 	end = time.Unix(endSec, 0).UTC()
-	start = end.Add(-time.Duration(points) * step)
-	return step, start, end
-}
-
-// mergeHeatSample folds b into a (same worker and minute), as UpsertHeatSample does.
-func mergeHeatSample(a, b store.HeatSample) store.HeatSample {
-	na, nb := max(a.Samples, 1), max(b.Samples, 1)
-	a.ScoreAvg = (a.ScoreAvg*float64(na) + b.ScoreAvg*float64(nb)) / float64(na+nb)
-	if b.ScoreMax > a.ScoreMax {
-		a.ScoreMax, a.Cause = b.ScoreMax, b.Cause
-	}
-	a.Samples = na + nb
-	return a
+	start = end.Add(-time.Duration(n) * step)
+	return step, n, start, end
 }
 
 // HeatHistory returns every known worker's heat strip over rangeName (a heatRanges key) in
-// points buckets ending now, including each worker's in-progress minute.
+// at most points buckets ending now, including buckets not yet written.
 func (h *Hub) HeatHistory(ctx context.Context, rangeName string, points int, now time.Time) (HeatHistory, error) {
 	rng, ok := heatRanges[rangeName]
 	if !ok {
 		return HeatHistory{}, fmt.Errorf("unknown range %q", rangeName)
 	}
-	step, start, end := heatWindow(rng, points, now)
+	align, tier := store.VitalsBucket, "raw"
+	if rng.hourly {
+		align, tier = time.Hour, "hourly"
+	}
+	step, n, start, end := heatWindow(rng.span, points, align, now)
 	workers, err := h.store.ListWorkers(ctx)
 	if err != nil {
 		return HeatHistory{}, err
 	}
-	stored, err := h.store.ListHeatSamples(ctx, start, end)
+	// The raw tier covers the last 12-13 hours; older hours come from roll-ups.
+	rawSince := start
+	if rng.hourly {
+		if since := now.UTC().Truncate(time.Hour).Add(-store.VitalsRawKeep - time.Hour); since.After(start) {
+			rawSince = since
+		}
+	}
+	raw, err := h.store.ListVitals(ctx, rawSince, end)
 	if err != nil {
 		return HeatHistory{}, err
 	}
-	type key struct {
-		worker string
-		minute int64
-	}
-	byWorker := map[string][]store.HeatSample{}
-	index := map[key]int{}
-	for _, s := range stored {
-		index[key{s.WorkerID, s.BucketStart.Unix()}] = len(byWorker[s.WorkerID])
-		byWorker[s.WorkerID] = append(byWorker[s.WorkerID], s)
-	}
-	for _, s := range h.liveHeatMinutes() {
-		if s.BucketStart.Before(start) || !s.BucketStart.Before(end) {
-			continue
+	for _, s := range h.liveVitals() {
+		if !s.At.Before(rawSince) && s.At.Before(end) {
+			raw = append(raw, s)
 		}
-		if i, ok := index[key{s.WorkerID, s.BucketStart.Unix()}]; ok {
-			byWorker[s.WorkerID][i] = mergeHeatSample(byWorker[s.WorkerID][i], s)
-		} else {
-			byWorker[s.WorkerID] = append(byWorker[s.WorkerID], s)
+	}
+	cells := map[string][]heatCell{}
+	if !rng.hourly {
+		for _, s := range raw {
+			cells[s.WorkerID] = append(cells[s.WorkerID], cellOf(s))
+		}
+	} else {
+		// Hours with raw samples are summed from them (that includes the hours not yet
+		// rolled up); the rest come from the hourly roll-ups.
+		type key struct {
+			worker string
+			hour   int64
+		}
+		hours := map[key]*heatCell{}
+		for _, s := range raw {
+			k := key{s.WorkerID, s.At.Truncate(time.Hour).Unix()}
+			c := hours[k]
+			if c == nil {
+				c = &heatCell{at: s.At.Truncate(time.Hour)}
+				hours[k] = c
+			}
+			c.merge(cellOf(s))
+		}
+		rolled, err := h.store.ListVitalsRollups(ctx, store.VitalsHourly, start, end)
+		if err != nil {
+			return HeatHistory{}, err
+		}
+		for _, r := range rolled {
+			if _, ok := hours[key{r.WorkerID, r.At.Unix()}]; ok {
+				continue
+			}
+			n := max(r.N, 1)
+			cells[r.WorkerID] = append(cells[r.WorkerID], heatCell{at: r.At, n: n, sum: r.Heat.Avg * float64(n), max: r.Heat.Max, cause: r.Cause})
+		}
+		for k, c := range hours {
+			cells[k.worker] = append(cells[k.worker], *c)
 		}
 	}
 	res := HeatHistory{
 		Range: rangeName, Start: start, End: end, StepSeconds: int64(step / time.Second),
+		Tier: tier, Retention: VitalsRetentionText,
 		Workers: make([]WorkerHeatHistory, 0, len(workers)),
 	}
 	for _, w := range workers {
 		res.Workers = append(res.Workers, WorkerHeatHistory{
-			WorkerID: w.ID, Samples: bucketHeat(byWorker[w.ID], start, step, points),
+			WorkerID: w.ID, Samples: bucketHeat(cells[w.ID], start, step, n),
 		})
 	}
 	return res, nil

@@ -320,11 +320,16 @@ export interface StripCell {
   sample: HeatSample | null;
 }
 
-/** A machine's heat strip from the history (all no-data when the hub has none). */
+/**
+ * A machine's heat strip from the history (all no-data when the hub has none). The hub may
+ * return fewer points than asked (hourly ranges have at most one per hour): the strip has as
+ * many cells as the history has points.
+ */
 export function heatStrip(history: HeatHistory | null, workerId: string, points = HEAT_STRIP_POINTS): StripCell[] {
   const row = history?.workers.find((x) => x.worker_id === workerId);
   const samples = row?.samples ?? [];
-  return Array.from({ length: points }, (_, i) => {
+  const n = history?.workers.length ? history.workers[0].samples.length : points;
+  return Array.from({ length: n }, (_, i) => {
     const s = samples[i] ?? null;
     return { color: s ? heatSolid(s.max) : null, sample: s };
   });
