@@ -7,6 +7,7 @@ import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { WorkItem } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
+import { KeepToggleComponent } from '../../features/control/keep-toggle.component';
 import { SessionControlsComponent } from '../../features/control/session-controls.component';
 import { IconComponent } from '../../shared/icon.component';
 
@@ -22,7 +23,7 @@ import { receiptsFor } from './review-logic';
   selector: 'ks-review-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ControlLabelComponent, SessionControlsComponent],
+  imports: [IconComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent],
   host: { class: 'flex flex-col min-h-0' },
   template: `
     @if (item(); as it) {
@@ -113,7 +114,11 @@ import { receiptsFor } from './review-logic';
           <button type="button" class="ks-btn ks-btn-sm" (click)="openInCommand(it)"><app-icon name="orchestrator" [size]="12" />Open in Command</button>
           <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="work.isExpedited(it.id)" data-testid="toggle-expedite" (click)="toggleExpedite(it)">⚑ {{ work.isExpedited(it.id) ? 'Remove from Expedite' : 'Expedite' }}</button>
           <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="wall.isPinned(it.id)" (click)="wall.togglePin(it.id)"><app-icon name="split" [size]="12" />{{ wall.isPinned(it.id) ? 'Unpin from Wall' : 'Pin to Wall' }}</button>
+          <ks-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" />
         </div>
+        @if (compactedNote(); as note) {
+          <p class="m-0 text-[11.5px] text-[var(--ks-text-muted)]" data-testid="review-compacted">{{ note }}</p>
+        }
       </div>
     } @else {
       <div class="p-4 text-[12.5px] leading-relaxed text-[var(--ks-text-muted)]" data-testid="review-empty">
@@ -142,6 +147,15 @@ export class ReviewPanelComponent {
   readonly sending = signal(false);
   readonly message = signal('');
   readonly error = signal('');
+
+  /** Retention note of a compacted task (its verbose events were dropped). */
+  readonly compactedNote = computed(() => {
+    const it = this.item();
+    const at = it?.kind === 'task' ? this.fleet.tasksById()[it.id]?.compacted_at : null;
+    if (!at) return '';
+    const day = new Date(at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return `Detailed events of this session were compacted on ${day}; its summary, milestones, errors and your interventions are kept.`;
+  });
 
   readonly sub = computed(() => {
     const it = this.item();

@@ -11,12 +11,13 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
 import { QuestionInsightsComponent } from '../features/questions/question-insights.component';
+import { StorageSettingsComponent } from './storage-settings.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
 
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, StorageSettingsComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -151,6 +152,9 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           <p class="m-0 text-[12px] text-[#d4d4d8]">{{ historyRetention }}</p>
           <p class="m-0 text-[11px] text-[#8e9098]">Older history is deleted, and removing a machine deletes its history.</p>
         </div>
+
+        <!-- Storage: size, breakdown, retention, Compact now (KON-CSCWP) -->
+        <ks-storage-settings />
 
         <!-- Orchestrator LLM Section -->
         <details class="rounded-[var(--ks-radius-lg)] bg-black/20 group" [open]="apiKeySet()">

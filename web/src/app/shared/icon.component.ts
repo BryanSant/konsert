@@ -132,6 +132,11 @@ import { Component, input } from '@angular/core';
           <path d="M3 4.5h3.5M8.5 4.5H13M3 8h3.5M8.5 8H13M3 11.5h3.5M8.5 11.5H13" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
         </svg>
       }
+      @case ('bookmark') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" [attr.fill]="filled() ? 'currentColor' : 'none'" class="shrink-0">
+          <path d="M4.5 2.5h7v11L8 11l-3.5 2.5v-11Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+      }
       @case ('lock') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
@@ -408,4 +413,6 @@ import { Component, input } from '@angular/core';
 export class IconComponent {
   readonly name = input.required<string>();
   readonly size = input<number>(14);
+  /** Filled variant (icons that support it, e.g. bookmark when on). */
+  readonly filled = input(false);
 }

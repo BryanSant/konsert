@@ -6,6 +6,10 @@ import {
   AuthMe,
   ChatMessage,
   ChatSession,
+  CompactionRun,
+  RetentionDays,
+  StorageResponse,
+  Task,
   DispatchTaskRequest,
   FSListResult,
   FleetSnapshotResponse,
@@ -250,6 +254,34 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ decision, note: note || undefined }),
     });
+  }
+
+  /** Pins a task or chat ("Keep") so retention never compacts it, or unpins it. */
+  setKeep(kind: 'task', id: string, keep: boolean): Promise<{ task: Task }>;
+  setKeep(kind: 'chat', id: string, keep: boolean): Promise<{ chat: ChatSession }>;
+  setKeep(kind: 'task' | 'chat', id: string, keep: boolean): Promise<{ task?: Task; chat?: ChatSession }> {
+    return this.request(`/api/${kind === 'task' ? 'tasks' : 'chats'}/${encodeURIComponent(id)}/keep`, {
+      method: 'PUT',
+      body: JSON.stringify({ keep }),
+    });
+  }
+
+  /** Settings → Storage: size, breakdown, retention and the last compaction pass. */
+  getStorage(fresh = false): Promise<StorageResponse> {
+    return this.request(`/api/storage${fresh ? '?fresh=1' : ''}`);
+  }
+
+  setRetention(r: RetentionDays): Promise<StorageResponse> {
+    return this.request('/api/storage/retention', { method: 'PUT', body: JSON.stringify(r) });
+  }
+
+  /** Starts a full compaction pass in the background (Compact now). */
+  compactNow(): Promise<{ compaction: CompactionRun }> {
+    return this.request('/api/storage/compact', { method: 'POST' });
+  }
+
+  getCompaction(): Promise<{ compaction: CompactionRun }> {
+    return this.request('/api/storage/compact');
   }
 
   /** Puts a task or chat in (or takes it out of) the Expedite lane. */
