@@ -245,6 +245,51 @@ func TestBootstrapWindows(t *testing.T) {
 	if indexOf(cmds, "New-Item -ItemType Directory") < 0 || indexOf(cmds, "'install-hooks'") < 0 || indexOf(cmds, `Move-Item -LiteralPath "$p.new"`) < 0 {
 		t.Fatalf("missing mkdir, move into place or install-hooks: %q", cmds)
 	}
+	// The status check starts the task now and waits for the daemon.
+	if st := indexOf(cmds, "'status' '--name' 'winbox' '--start' '--wait' '20s'"); st < inst {
+		t.Fatalf("no status --start after install: %q", cmds)
+	}
+}
+
+// After an upgrade the task comes up within the wait: the bootstrap says it runs, not
+// that it starts at the next login.
+func TestBootstrapWindowsReportsRunning(t *testing.T) {
+	writeDist(t, "konsertd-windows-amd64.exe")
+	const exe = `C:\Users\me\AppData\Local\Programs\konsertd\konsertd.exe`
+	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
+	f.remote = func(cmd string, stdin []byte) (string, error) {
+		if strings.HasPrefix(cmd, "uname") {
+			return "", errors.New("uname : The term 'uname' is not recognized")
+		}
+		script, _ := decodePS(cmd)
+		switch {
+		case script == windowsProbeScript:
+			return "Win32NT\r\nAMD64\r\n", nil
+		case strings.Contains(script, "Test-Path -LiteralPath $p) { \"found"):
+			return "missing:" + exe + "\r\nmanaged:" + exe + "\r\n", nil
+		case strings.Contains(script, "'id'"):
+			return testWorkerID + "\r\n", nil
+		case strings.Contains(script, "'status'") && strings.Contains(script, "'--start'"):
+			return "konsertd \\konsertd-winbox\r\n  Installed  : yes\r\n  Running    : yes\r\n  State      : Ready (daemon answering)\r\n", nil
+		case strings.Contains(script, "'status'"):
+			return "konsertd \\konsertd-winbox\r\n  Installed  : yes\r\n  Running    : no\r\n", nil
+		}
+		return "", nil
+	}
+	withFakeSSH(t, f)
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "bryan@winbox"})
+	if !res.OK || res.StartDeferred || strings.Contains(res.Message, "next Windows login") {
+		t.Fatalf("result = %+v", res)
+	}
+	var detail string
+	for _, s := range res.Stages {
+		if s.Stage == "configuring_service" {
+			detail = s.Detail
+		}
+	}
+	if detail != "running (started via schtasks)" {
+		t.Fatalf("stage detail %q", detail)
+	}
 }
 
 func TestParseWindowsProbe(t *testing.T) {

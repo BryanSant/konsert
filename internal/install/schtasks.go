@@ -3,7 +3,6 @@ package install
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
@@ -283,12 +282,9 @@ func (s schtasksBackend) status(ctx context.Context, in *Installer, instance str
 		return st, nil
 	}
 	st.Installed = true
-	recs, _ := csv.NewReader(strings.NewReader(strings.TrimSpace(out))).ReadAll()
-	for _, rec := range recs {
-		if len(rec) >= 3 && strings.EqualFold(rec[0], name) {
-			st.Detail = rec[2]
-			st.Running = strings.EqualFold(rec[2], "Running")
-		}
+	if _, state := parseSchtasksQuery(out, name); state != "" {
+		st.Detail = state
+		st.Running = schtasksStateRunning(state)
 	}
 	return st, nil
 }

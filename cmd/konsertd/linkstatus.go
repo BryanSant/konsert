@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"time"
 
@@ -37,6 +39,38 @@ func printLinkStatus(w io.Writer, configPath, name string) {
 		return
 	}
 	writeLinkStatus(w, ls, time.Now(), processAlive(ls.PID))
+}
+
+// daemonAnswering reports whether the instance's daemon is up whatever its start
+// mechanism says: it accepts connections on its local socket (the one the hub attaches
+// to; a bare connect, no attach), or the process its link state names is alive.
+func daemonAnswering(ctx context.Context, configPath, name string) bool {
+	path := ""
+	if configPath != "" {
+		if _, err := os.Stat(configPath); err == nil {
+			path = configPath
+		}
+	}
+	cfg, err := config.LoadWorkerConfig(path)
+	if err != nil {
+		return false
+	}
+	if path == "" && name != "" {
+		cfg.Name = name
+	}
+	id, ok := worker.LookupWorkerID(cfg)
+	if !ok {
+		return false
+	}
+	if sock := worker.LocalSocketPath("", id); sock != "" {
+		d := net.Dialer{Timeout: time.Second}
+		if c, err := d.DialContext(ctx, "unix", sock); err == nil {
+			_ = c.Close()
+			return true
+		}
+	}
+	ls, err := worker.ReadLinkStatus("", id)
+	return err == nil && processAlive(ls.PID)
 }
 
 func writeLinkStatus(w io.Writer, ls worker.LinkStatus, now time.Time, alive bool) {

@@ -104,7 +104,7 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 	fs := cmd.Flags()
 	if f.showStatus {
 		name, _ := fs.GetString("name")
-		return printInstallStatus(ctx, cmd.OutOrStdout(), name, f.service)
+		return printInstallStatus(ctx, cmd.OutOrStdout(), name, f.service, statusStart{})
 	}
 	if f.passwordStdin && !f.service {
 		return errors.New("--password-stdin only applies with --service")
@@ -230,21 +230,35 @@ func newStatusCmd() *cobra.Command {
 	var (
 		name    string
 		service bool
+		start   statusStart
 	)
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show whether konsertd is installed to start automatically, and whether it is running",
-		Args:  cobra.NoArgs,
+		Long: `Show whether konsertd is installed to start automatically, and whether it is running:
+the start mechanism's state, or the daemon answering on its local socket.
+
+--start starts an installed instance that is not running (Windows: schtasks /Run) and
+waits up to --wait for the daemon before reporting.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return printInstallStatus(cmd.Context(), cmd.OutOrStdout(), name, service)
+			return printInstallStatus(cmd.Context(), cmd.OutOrStdout(), name, service, start)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Instance to inspect: the --name given to install")
 	cmd.Flags().BoolVar(&service, "service", false, "Windows: inspect the native service instead of the logon task")
+	cmd.Flags().BoolVar(&start.on, "start", false, "Start the installed instance if it is not running, and wait for it")
+	cmd.Flags().DurationVar(&start.wait, "wait", 20*time.Second, "With --start: how long to wait for the daemon")
 	return cmd
 }
 
-func printInstallStatus(ctx context.Context, w io.Writer, name string, service bool) error {
+// statusStart is `konsertd status --start [--wait]`.
+type statusStart struct {
+	on   bool
+	wait time.Duration
+}
+
+func printInstallStatus(ctx context.Context, w io.Writer, name string, service bool, start statusStart) error {
 	host, _ := os.Hostname()
 	instance := install.InstanceFor(name, host)
 	env, err := install.DefaultEnv()
@@ -253,13 +267,23 @@ func printInstallStatus(ctx context.Context, w io.Writer, name string, service b
 	}
 	in := &install.Installer{Runner: install.ExecRunner{}, Env: env, Out: w}
 	var st install.Status
-	if service {
+	switch {
+	case service:
 		st, err = in.ServiceStatus(ctx, instance)
-	} else {
+	case start.on:
+		st, err = in.StartAndWait(ctx, instance, install.WaitOptions{
+			Wait:  start.wait,
+			Alive: func(ctx context.Context) bool { return daemonAnswering(ctx, in.ConfigPath(instance), name) },
+		})
+	default:
 		st, err = in.Status(ctx, instance)
 	}
 	if err != nil {
 		return err
+	}
+	if !st.Running && daemonAnswering(ctx, st.ConfigPath, name) {
+		st.Running = true
+		st.Detail = strings.TrimSpace(st.Detail + " (daemon answering)")
 	}
 	writeStatus(w, st)
 	printLinkStatus(w, st.ConfigPath, name)

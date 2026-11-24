@@ -119,6 +119,10 @@ nohup ` + shQuote(exe) + ` run -c "$HOME/.konsert/konsertd-nohup.yaml" </dev/nul
 echo $! > "$PIDF"`
 }
 
+// windowsStartWait is how long the bootstrap waits for konsertd to come up on Windows
+// (`konsertd status --start --wait`) before reporting it starts at the next logon.
+const windowsStartWait = 20 * time.Second
+
 // noUserManager matches `konsertd install`'s error on Linux without a systemd user instance.
 var noUserManager = regexp.MustCompile(`no systemd user instance is reachable`)
 
@@ -346,12 +350,18 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		serviceMode = "nohup"
 	}
 	if rOS == "windows" {
-		// A logon task (InteractiveToken) only runs while the user is logged on to Windows.
-		if st, err := sess.ssh(ctx, sh.konsertd(exe, []string{"status", "--name", name}, false), nil); err == nil && notRunning(st) {
+		// A logon task (InteractiveToken) only runs while the user is logged on to Windows,
+		// and its first /Run can be ignored (the previous version still exiting). Start it
+		// now and wait for the daemon itself (its local socket) before calling it deferred.
+		args := []string{"status", "--name", name, "--start", "--wait", windowsStartWait.String()}
+		if st, err := sess.ssh(ctx, sh.konsertd(exe, args, false), nil); err == nil && notRunning(st) {
 			startDeferred = true
 		}
 	}
 	detail := "started via " + serviceMode
+	if rOS == "windows" && !startDeferred {
+		detail = "running (started via schtasks)"
+	}
 	if startDeferred {
 		detail = "installed as a logon task; starts at the next Windows login of this user"
 	}
