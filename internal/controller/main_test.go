@@ -37,6 +37,12 @@ func TestMain(m *testing.M) {
 	// Daemons started by integration tests must not run the host's real agent CLIs or
 	// import its wrapper scripts (e.g. ~/.local/bin/claude2): only mock/configured accounts.
 	os.Setenv("KONSERT_DISABLE_AGENT_DISCOVERY", "1")
+	// In-process daemons the tests remove uninstall themselves for real: give them a
+	// throwaway home (config dir, LaunchAgents, authorized_keys, ~/.claude) so nothing
+	// of the developer's is touched.
+	os.Setenv("HOME", dir+"/home")
+	os.Setenv("USERPROFILE", dir+"/home")
+	os.Unsetenv("XDG_CONFIG_HOME")
 	// Servers built from the default config (relative "konsert.db") would otherwise
 	// create konsert-secret.key in the package directory.
 	key := make([]byte, 32)

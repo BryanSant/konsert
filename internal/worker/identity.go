@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// identityRecord is persisted at <stateDir>/worker-id[-<slug>].
+// identityRecord is persisted at <stateDir>/worker-id-<name>-<isolation>.
 type identityRecord struct {
 	// ID is this daemon's UUIDv7: the hub's workers.id. The hub mints the short m- sid.
 	ID string `json:"id"`
@@ -41,7 +41,7 @@ func osMachineHash() string {
 // hub's workers.id, so rerunning konsertd never registers a second machine row.
 //
 // Resolution order:
-//  1. Read <baseDir>/worker-id (or worker-id-<slug> for a custom name/isolation). It is
+//  1. Read <baseDir>/worker-id-<name>-<isolation> (name defaults to the hostname). It is
 //     reused while it holds a UUIDv7 generated on this OS installation.
 //  2. Otherwise (absent, unreadable, or the OS machine hash changed because the state dir
 //     was cloned) generate a new UUIDv7 and persist it atomically with 0600 permissions.
@@ -109,15 +109,17 @@ func osHostname() string {
 }
 
 func workerIDFilename(name, isolation string) string {
-	host, _ := os.Hostname()
+	// Always keyed by name (default: the hostname) and isolation, never "the default
+	// daemon": hosts sharing a home directory (a container, its siblings and its host)
+	// each get their own file, and every host computes the same file for a given name,
+	// so `konsertd uninstall` on one can tell the others' identities apart.
 	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		cleanName, _ = os.Hostname()
+	}
 	cleanIso := strings.TrimSpace(isolation)
 	if cleanIso == "" {
 		cleanIso = "host"
-	}
-	// Default host daemon uses ~/.konsert/worker-id; custom named/container daemons get distinct persisted files.
-	if (cleanName == "" || strings.EqualFold(cleanName, host)) && cleanIso == "host" {
-		return "worker-id"
 	}
 	var b strings.Builder
 	for _, r := range strings.ToLower(cleanName + "-" + cleanIso) {
@@ -129,7 +131,7 @@ func workerIDFilename(name, isolation string) string {
 	}
 	slug := strings.Trim(b.String(), "-_")
 	if slug == "" {
-		return "worker-id"
+		slug = "worker"
 	}
 	return "worker-id-" + slug
 }
@@ -158,10 +160,14 @@ func deterministicWorkerID(name, hostGroup, isolation string) string {
 // LookupWorkerID is WorkerIDFor without creating anything: the explicit worker_id, else
 // the persisted identity for cfg's name and isolation if there is one.
 func LookupWorkerID(cfg config.WorkerConfig) (string, bool) {
+	return lookupWorkerIDIn(defaultStateDir(), cfg)
+}
+
+// lookupWorkerIDIn is LookupWorkerID with the state directory given.
+func lookupWorkerIDIn(dir string, cfg config.WorkerConfig) (string, bool) {
 	if id := strings.TrimSpace(cfg.WorkerID); id != "" {
 		return id, true
 	}
-	dir := defaultStateDir()
 	if dir == "" {
 		return "", false
 	}

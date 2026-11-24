@@ -319,7 +319,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
               Are you sure you want to remove "{{ worker().name }}"?
             </div>
             <p class="text-[11.5px] text-[#e6b8b8]/85 leading-relaxed">
-              This will disconnect its <code class="font-mono-ide">konsertd</code> daemon (stopping auto-reconnect) and remove its saved spaces and repo links. Task history is preserved.
+              This uninstalls its <code class="font-mono-ide">konsertd</code> daemon (its service, and the agent hooks unless another konsertd on the same account still uses them) and removes its saved spaces and repo links. Task history is preserved. The result appears in the audit log.
             </p>
           </div>
           @if (removeError()) {

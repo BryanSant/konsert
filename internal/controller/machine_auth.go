@@ -86,6 +86,9 @@ type boundMachine struct {
 	credID   string
 	credSID  string
 	via      string
+	// removed is set for a credential of a machine removed while offline: the
+	// connection only gets 4001 (machine_removal.go).
+	removed *pendingRemoval
 }
 
 type boundMachineKey struct{}
@@ -114,6 +117,10 @@ func (s *Server) authenticateMachine(r *http.Request) (boundMachine, bool) {
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			s.logger.Warn("machine credential lookup failed", "err", err)
+			return boundMachine{}, false
+		}
+		if rec, ok := s.removedMachineCred(r.Context(), credID, secret); ok {
+			return boundMachine{workerID: rec.WorkerID, removed: &rec}, true
 		}
 		return boundMachine{}, false
 	}
@@ -438,6 +445,9 @@ func (s *Server) handleMachineJoin(w http.ResponseWriter, r *http.Request) {
 			ID: req.WorkerID, Name: name, HostGroup: hostGroup,
 			OS: cleanLabel(req.OS, ""), Arch: cleanLabel(req.Arch, ""), Launch: store.LaunchManual,
 		})
+	}
+	if err == nil {
+		s.forgetRemoval(ctx, row.ID)
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

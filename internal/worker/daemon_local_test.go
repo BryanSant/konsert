@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/hubkey"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
@@ -38,6 +37,12 @@ func shortSocketPath(t *testing.T) string {
 // startLocalDaemon runs a daemon without a controller URL on a short socket path.
 func startLocalDaemon(t *testing.T) (*Daemon, string, chan error) {
 	t.Helper()
+	return startLocalDaemonWith(t, nil)
+}
+
+// startLocalDaemonWith is startLocalDaemon with setup applied before the daemon runs.
+func startLocalDaemonWith(t *testing.T, setup func(*Daemon)) (*Daemon, string, chan error) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("AF_UNIX tests run on POSIX")
 	}
@@ -47,6 +52,9 @@ func startLocalDaemon(t *testing.T) (*Daemon, string, chan error) {
 	d.HeartbeatInterval = time.Hour
 	d.FactsInterval = time.Hour
 	d.SocketPath = shortSocketPath(t)
+	if setup != nil {
+		setup(d)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	stopped := make(chan struct{})
@@ -184,25 +192,17 @@ func TestLocalDaemonNewerAttachReplacesOlder(t *testing.T) {
 	}
 }
 
-// Removal (close 4001) drops the hub's grant for this identity and stops the daemon;
-// other authorized_keys lines stay.
-func TestLocalDaemonRemovalDropsHubKey(t *testing.T) {
-	_, path, done := startLocalDaemon(t)
-	home, _ := os.UserHomeDir()
-	other := "ssh-ed25519 AAAAuser me@laptop\n"
-	content, err := hubkey.Add(other, hubkey.Entry{
-		HubID: "hub1", PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
-		Exe: "/k", GOOS: runtime.GOOS, WorkerID: localTestID,
+// Removal (close 4001) records the removal and uninstalls this identity, passing the
+// removing hub's id (its key grant goes too), then stops the daemon.
+func TestLocalDaemonRemovalUninstallsItself(t *testing.T) {
+	type call struct{ hubID string }
+	calls := make(chan call, 2)
+	_, path, done := startLocalDaemonWith(t, func(d *Daemon) {
+		d.selfRemove = func(_ context.Context, hubID string) (bool, error) {
+			calls <- call{hubID}
+			return false, nil
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := filepath.Join(home, ".ssh", "authorized_keys")
-	_ = os.MkdirAll(filepath.Dir(keys), 0o700)
-	if err := os.WriteFile(keys, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	c := attachLocal(t, path, "hub1")
 	helloOf(t, c)
 	_ = c.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
@@ -214,11 +214,51 @@ func TestLocalDaemonRemovalDropsHubKey(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("daemon did not stop after removal")
 	}
-	if b, _ := os.ReadFile(keys); string(b) != other {
-		t.Fatalf("authorized_keys after removal = %q", b)
+	select {
+	case got := <-calls:
+		if got.hubID != "hub1" {
+			t.Fatalf("self-removal for hub %q, want hub1", got.hubID)
+		}
+	default:
+		t.Fatal("the daemon did not uninstall itself on 4001")
+	}
+	if hub, ok := ReadRemovedMarker("", localTestID); !ok || hub != "hub1" {
+		t.Fatalf("removed marker = %q, %v; want hub1 (the fake removal leaves it)", hub, ok)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("socket left behind: %v", err)
+	}
+	ClearRemovedMarker("", localTestID)
+}
+
+// A daemon that starts with a removal marker (it was stopped mid-removal) finishes the
+// removal instead of serving.
+func TestLocalDaemonFinishesInterruptedRemoval(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("AF_UNIX tests run on POSIX")
+	}
+	if err := WriteRemovedMarker("", localTestID, "hub9"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ClearRemovedMarker("", localTestID) })
+	cfg := config.WorkerConfig{WorkerID: localTestID, Name: "local", Tags: map[string]string{}}
+	d := NewDaemon(cfg, drivers.DefaultRegistry, nil)
+	d.SocketPath = shortSocketPath(t)
+	var got string
+	d.selfRemove = func(_ context.Context, hubID string) (bool, error) {
+		got = hubID
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := d.Run(ctx); err != nil {
+		t.Fatalf("Run = %v", err)
+	}
+	if got != "hub9" {
+		t.Fatalf("finished removal for hub %q, want hub9", got)
+	}
+	if _, err := os.Stat(d.SocketPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a removed daemon must not listen")
 	}
 }
 

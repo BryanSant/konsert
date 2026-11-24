@@ -271,7 +271,9 @@ machines; without it konsertd serves the local socket.
 
 konsertd keeps its stable worker ID, machine ID, credential and status outbox in
 `~/.konsert` (override with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate
-machine.
+machine. The worker ID file is keyed by name (`worker-id-<name>-<isolation>`, name
+defaulting to the hostname), so hosts sharing a home directory (a container and its
+host) each keep their own identity.
 
 Agents run as the user konsertd runs as, with that user's CLI logins (`claude`, `grok`,
 ...), so run workers as your normal user rather than a system account.
@@ -287,6 +289,17 @@ konsertd install --controller wss://konsert-hub.example-tailnet.ts.net/ws/worker
 konsertd status        # installed? running? linked to the hub? where are the config and logs?
 konsertd uninstall     # stop it and remove the unit/agent/task and its config
 ```
+
+**Removing a machine** in the hub uninstalls konsertd from it, so the OS service cannot
+start it again. A connected konsertd gets close code 4001 and uninstalls itself (its
+service, the hub's key grant, its credential); the hub also runs
+`konsertd uninstall --worker <id>` itself, over your SSH access for a machine it added
+over SSH (retried for 30 days while the host is unreachable) and directly for its own
+machine, and records the result in the audit log ("Uninstall konsertd"). A machine
+joined by hand that was offline uninstalls itself when it next connects. The agent hooks
+in `~/.claude/settings.json` go only with the last konsertd installed on the account:
+hosts sharing a home directory share them. If a removal is interrupted, konsertd finishes
+it at its next start.
 
 The flags (`--controller`, `--name`, `--sandbox`, `--tag`, `--allowed-roots`, ...) are
 written to a per-user config file that only you can read (mode 0600; on Windows an ACL

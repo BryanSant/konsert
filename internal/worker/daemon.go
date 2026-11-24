@@ -41,6 +41,10 @@ type Daemon struct {
 	runner   *Runner
 	logger   *slog.Logger
 
+	// selfRemove uninstalls this daemon when the hub removed it (nil: uninstallSelf).
+	// It reports whether a service manager will stop the process. Tests replace it.
+	selfRemove func(ctx context.Context, hubID string) (stopPending bool, err error)
+
 	sendMu sync.RWMutex
 	queues *connQueues // nil while disconnected
 
@@ -342,6 +346,10 @@ var errLinkDead = errors.New("no traffic from the hub")
 // Active tasks stay alive across transient controller disconnects and are re-adopted on reconnect.
 func (d *Daemon) Run(ctx context.Context) error {
 	defer d.link.stopped()
+	if d.finishPendingRemoval(ctx) {
+		d.shutdown()
+		return nil
+	}
 	if strings.TrimSpace(d.cfg.ControllerURL) == "" {
 		return d.runLocal(ctx)
 	}
@@ -401,8 +409,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		// connection holds this identity), reconnects with backoff.
 		switch websocket.CloseStatus(err) {
 		case websocket.StatusCode(protocol.WSCloseWorkerRemoved):
-			d.logger.Info("machine was removed from fleet by controller; stopping daemon", "worker_id", d.cfg.WorkerID)
+			d.logger.Info("machine was removed from fleet by controller; uninstalling and stopping", "worker_id", d.cfg.WorkerID)
 			d.shutdown()
+			d.removedByHub(ctx, "")
 			return nil
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
 			err = errors.New("the hub asked to retry later (another live connection uses this identity)")

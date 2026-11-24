@@ -72,7 +72,7 @@ type runOptions struct {
 func (o *runOptions) bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.configPath, "config", "c", "", "Path to worker YAML config file")
 	fs.StringVar(&o.controllerURL, "controller", "", "Hub WebSocket URL to connect out to (joined machines); empty: serve the hub on the local socket")
-	fs.StringVar(&o.workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
+	fs.StringVar(&o.workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id-<name>-<isolation>)")
 	fs.StringVar(&o.name, "name", "", "Worker display name (defaults to hostname)")
 	fs.StringVar(&o.hostGroup, "host-group", "", "Physical host group name (defaults to name)")
 	fs.StringVar(&o.isolation, "isolation", "", "Isolation tier: host, container, or vm")

@@ -179,6 +179,14 @@ func (t *linkTracker) stopped() {
 	t.mu.Unlock()
 }
 
+// forget stops writing the state file (the daemon is being uninstalled; its state goes
+// with it).
+func (t *linkTracker) forget() {
+	t.mu.Lock()
+	t.path = ""
+	t.mu.Unlock()
+}
+
 // writeLocked writes the state file atomically (best effort).
 func (t *linkTracker) writeLocked(n time.Time) {
 	if t.path == "" {
