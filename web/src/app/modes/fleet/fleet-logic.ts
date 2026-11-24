@@ -2,7 +2,7 @@ import { HeatHistory, HeatSample, ProjectGroup, WorkerHeat } from '../../core/mo
 import { Task, Worker } from '../../core/models/konsert.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
-import { SpinnerState, heatSolid, spinnerStateOf } from '../../shared/spinner-logic';
+import { SpinnerState, activityPhrase, heatSolid, spinnerStateOf } from '../../shared/spinner-logic';
 
 /** Fleet mode (signed-off "machines first" design): pure helpers; see fleet-mode.component.ts. */
 
@@ -134,16 +134,22 @@ export function machineRows(inp: RowInputs): MachineRow[] {
         const at = Date.parse(mi?.finishedAt || it.activity.since || '') || 0;
         if (inp.now - at >= FLEET_DONE_MS) continue;
       }
+      const state = spinnerStateOf(it.activity, mi?.control);
+      const doneAgo = inp.now - (Date.parse(mi?.finishedAt || it.activity.since || '') || inp.now);
+      const now =
+        it.nowSource === 'orchestrator' || it.nowSource === 'activity'
+          ? it.now
+          : activityPhrase(state, it.activity.tokens_per_sec, it.activity.label, doneAgo) || it.now;
       push(it.workerId, {
         key: `${it.kind}:${it.id}`,
         id: it.id,
         sid: it.sid,
         title: it.title,
-        now: it.now,
+        now,
         agent: it.agent || mi?.agent || 'agent',
         project: g.name,
         projectColor: projectColor(g.key),
-        state: spinnerStateOf(it.activity, mi?.control),
+        state,
         coarse: !!it.activity.coarse && it.observed,
         tps: it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined,
         done: it.bucket === 'done',

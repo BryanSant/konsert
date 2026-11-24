@@ -184,7 +184,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               </div>
             </section>
           }
-          <div class="grid grid-cols-[minmax(0,250px)_minmax(0,1fr)] gap-x-[18px] px-[14px]" aria-hidden="true">
+          <div class="hidden min-[901px]:grid grid-cols-[minmax(0,250px)_minmax(0,1fr)] gap-x-[18px] px-[14px]" aria-hidden="true">
             <span></span>
             <span class="flex items-center gap-2.5">
               <span class="relative block flex-1 h-4 text-[10.5px] text-[var(--ks-text-muted)] font-mono-ide">

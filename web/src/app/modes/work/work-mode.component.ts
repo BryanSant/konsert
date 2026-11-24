@@ -83,7 +83,7 @@ const VIEW_KEY = 'konsert.work.view';
                         (click)="select(it)"
                       >
                         <span class="flex items-center gap-1.5 w-full">
-                          <ks-item-spinner [item]="it" [size]="20" [wordless]="!it.live" />
+                          <ks-item-spinner [item]="it" [size]="20" [wordless]="true" class="shrink-0" />
                           <span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)]">{{ it.sid }}</span>
                           <span class="flex-1"></span>
                           <ks-control-label [label]="it.control" />

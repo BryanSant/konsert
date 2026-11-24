@@ -26,7 +26,7 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
   imports: [IconComponent, TooltipDirective],
   host: {
     role: 'img',
-    class: 'ks-spinner',
+    class: 'ks-activity-spinner',
     '[attr.aria-label]': 'description()',
     '[attr.data-spinner]': 'state()',
     '[class.ks-spinner-two]': 'second() !== null',

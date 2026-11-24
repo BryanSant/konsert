@@ -1,7 +1,7 @@
 import { OTHER_WORK_KEY, OTHER_WORK_NAME, ProjectGroup, WorkItem as ActivityItem, WorkerHeat } from '../../core/models/activity.models';
 import { Worker } from '../../core/models/konsert.models';
 import { WorkItem } from '../../core/state/work-logic';
-import { SpinnerMachine, SpinnerState, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
+import { SpinnerMachine, SpinnerState, activityPhrase, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
 
 /**
  * Command's "Live work" story (signed-off design): per project its name, the orchestrator's
@@ -80,8 +80,10 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
     const age = Math.max(0, inp.now - doneAt(it, mi));
     opacity = Math.max(0.35, 0.75 - (0.4 * age) / DONE_FADE_MS);
   }
+  const tps = it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined;
   let now = it.now;
   if (state === 'queued' && !it.workerId && it.nowSource !== 'orchestrator') now = it.activity.label || 'Waiting for a machine';
+  else if (it.nowSource !== 'orchestrator' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.label, inp.now - doneAt(it, mi)) || now;
   return {
     key: `${it.kind}:${it.id}`,
     id: it.id,

@@ -6,6 +6,7 @@ import { FleetStore } from '../core/state/fleet.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { SetupStore } from '../core/state/setup.store';
 import { TakenControlStore } from '../core/state/taken-control.store';
+import { OrchestratorStore } from '../core/state/orchestrator.store';
 import { SessionNavService } from '../core/services/session-nav.service';
 import { CommandTabsStore } from './command/command-tabs.store';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
@@ -101,6 +102,7 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
   private readonly control = inject(ControlStore);
   private readonly socket = inject(KonsertSocketService);
   private readonly taken = inject(TakenControlStore);
+  private readonly orch = inject(OrchestratorStore);
   private readonly commandTabs = inject(CommandTabsStore);
   private readonly nav = inject(SessionNavService);
   private readonly router = inject(Router);
@@ -141,6 +143,7 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
     void this.fleet.loadSettings();
     void this.control.load();
     void this.questions.load();
+    void this.orch.loadSessions();
     void this.setup.load();
     this.socket.connect();
   }

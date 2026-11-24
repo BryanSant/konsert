@@ -51,6 +51,22 @@ export class OrchestratorStore {
     }
   }
 
+  /**
+   * Loads the chat list without opening one, so views other than the orchestrator chat
+   * (Live work, Fleet, Work, Wall, the phone inbox) know every chat on a direct load.
+   */
+  async loadSessions(): Promise<void> {
+    try {
+      const res = await this.api.listChatSessions();
+      // init() may have finished first; never drop chats it (or a live update) added.
+      const byId = new Map((res.sessions ?? []).map((s) => [s.id, s]));
+      for (const s of this.sessions()) byId.set(s.id, s);
+      this.sessions.set([...byId.values()]);
+    } catch {
+      // The chat view retries with init() and reports errors there.
+    }
+  }
+
   async createSession(title?: string): Promise<void> {
     const created = await this.api.createChatSession(
       title || `Session ${this.sessions().length + 1}`,

@@ -124,3 +124,28 @@ export function rippleSeconds(tps: number | undefined): number {
   const t = Math.max(0, Math.min(tps ?? 40, 80));
   return Math.round((1.5 - t / 80) * 100) / 100;
 }
+
+/**
+ * What a line says when nothing more specific is known (no narration, no tool label): the
+ * activity itself, instead of repeating the title. '' keeps the caller's text.
+ */
+export function activityPhrase(state: SpinnerState, tps: number | undefined, label: string | undefined, agoMs: number): string {
+  switch (state) {
+    case 'thinking':
+      return 'thinking…';
+    case 'speaking':
+      return tps ? `writing · ${Math.round(tps)} tok/s` : 'writing…';
+    case 'working':
+      return label || 'working';
+    case 'done': {
+      const m = Math.max(0, Math.round(agoMs / 60_000));
+      return `${label && label !== 'Ready' ? `${label} · ` : ''}done ${m ? `${m}m ago` : 'just now'}`;
+    }
+    case 'held':
+      return label || 'held';
+    case 'asking':
+      return label ? `asks you: ${label}` : 'asks you';
+    default:
+      return '';
+  }
+}
