@@ -20,6 +20,8 @@ export class ModeUiStore {
   readonly addMachineOpen = signal(false);
   readonly sessionRequest = signal<SessionDispatchRequest | null>(null);
   readonly inspectedWorkerId = signal<string | null>(null);
+  readonly projectsOpen = signal(false);
+  readonly auditOpen = signal(false);
 
   /** No machines at all once the fleet has loaded: first run. */
   readonly firstRun = computed(() => this.fleetLoaded() && this.fleet.workers().length === 0);
@@ -41,5 +43,7 @@ export class ModeUiStore {
     this.addMachineOpen.set(false);
     this.sessionRequest.set(null);
     this.inspectedWorkerId.set(null);
+    this.projectsOpen.set(false);
+    this.auditOpen.set(false);
   }
 }

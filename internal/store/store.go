@@ -226,6 +226,17 @@ type AuditEvent struct {
 	Cause *Cause `json:"cause,omitzero"`
 }
 
+// HeatSample is one worker's machine heat over a 1-minute bucket: the max and mean smoothed
+// score of the heartbeats in it (Samples of them) and the dominant cause at the max.
+type HeatSample struct {
+	WorkerID    string
+	BucketStart time.Time // start of the minute (UTC, whole minute)
+	ScoreMax    float64
+	ScoreAvg    float64
+	Samples     int
+	Cause       string
+}
+
 // AuditFilter selects audit events. Zero values mean "no filter". Results are
 // newest first; BeforeID pages toward older rows and AfterID fetches newer ones.
 type AuditFilter struct {
@@ -442,6 +453,14 @@ type Store interface {
 	// PruneAudit deletes rows older than olderThan and, when maxRows > 0, all but
 	// the newest maxRows rows. It returns the number of rows deleted.
 	PruneAudit(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
+
+	// Machine heat history (1-minute buckets). UpsertHeatSample merges into an existing
+	// bucket (max of maxes, sample-weighted mean, cause of the max).
+	UpsertHeatSample(ctx context.Context, s HeatSample) error
+	// ListHeatSamples returns every worker's buckets starting in [since, until), oldest first.
+	ListHeatSamples(ctx context.Context, since, until time.Time) ([]HeatSample, error)
+	// PruneHeatSamples deletes buckets starting before olderThan.
+	PruneHeatSamples(ctx context.Context, olderThan time.Time) (int64, error)
 
 	CreateChatSession(ctx context.Context, s ChatSession) error
 	GetChatSession(ctx context.Context, id string) (ChatSession, error)

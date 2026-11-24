@@ -1,28 +1,14 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Task, TaskStatus } from '../models/konsert.models';
 import { FleetStore, basenamePath } from '../state/fleet.store';
-import { TabsStore } from '../state/tabs.store';
+import { SessionNavService } from './session-nav.service';
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
   private readonly fleet = inject(FleetStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly nav = inject(SessionNavService);
 
-  readonly unreadTaskIds = signal<Record<string, boolean>>({});
   private audioCtx: AudioContext | null = null;
-
-  isUnread(taskId: string): boolean {
-    return !!this.unreadTaskIds()[taskId];
-  }
-
-  markRead(taskId: string): void {
-    if (!this.unreadTaskIds()[taskId]) return;
-    this.unreadTaskIds.update((map) => {
-      const next = { ...map };
-      delete next[taskId];
-      return next;
-    });
-  }
 
   async requestDesktopPermission(): Promise<NotificationPermission | 'unsupported'> {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -49,11 +35,7 @@ export class NotificationService {
 
     const pageUnfocused =
       typeof document !== 'undefined' && (document.hidden || (typeof document.hasFocus === 'function' && !document.hasFocus()));
-    const isActiveTab = this.tabs.activeTabId() === task.id || this.tabs.splitTabId() === task.id;
-
-    if (!isActiveTab || pageUnfocused) {
-      this.unreadTaskIds.update((m) => ({ ...m, [task.id]: true }));
-    }
+    const isActiveTab = this.nav.isOpen(task.sid);
 
     const settings = this.fleet.settings();
     if (settings.notify_sound) {
@@ -142,8 +124,7 @@ export class NotificationService {
         } catch {
           // ignore
         }
-        this.tabs.openTaskTab(task, workerName, true);
-        this.markRead(task.id);
+        this.nav.openTask(task);
         n.close();
       };
     } catch {

@@ -3,7 +3,7 @@ import { FleetEvent, actorLabel, sourceLabel } from '../../core/models/control.m
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { OrchestratorStore } from '../../core/state/orchestrator.store';
-import { ORCHESTRATOR_TAB_ID, TabsStore } from '../../core/state/tabs.store';
+import { SessionNavService } from '../../core/services/session-nav.service';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { shortWhen } from './pause-everything.component';
 
@@ -118,7 +118,7 @@ export class YourActionsComponent {
 
   readonly control = inject(ControlStore);
   private readonly fleet = inject(FleetStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly nav = inject(SessionNavService);
   private readonly orch = inject(OrchestratorStore);
 
   readonly events = computed(() => {
@@ -154,13 +154,12 @@ export class YourActionsComponent {
 
   openTask(ev: FleetEvent): void {
     const t = ev.task_id ? this.fleet.tasksById()[ev.task_id] : undefined;
-    if (t) this.tabs.openTaskTab(t, this.fleet.workersById()[t.worker_id]?.name);
+    if (t) this.nav.openTask(t);
   }
 
   openChat(ev: FleetEvent): void {
     if (!ev.chat_id) return;
-    this.tabs.selectTab(ORCHESTRATOR_TAB_ID);
-    void this.orch.selectSession(ev.chat_id);
+    this.nav.openChat(ev.chat_id);
   }
 
   when(iso: string): string {

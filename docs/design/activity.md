@@ -108,6 +108,38 @@ immediately** (`full: true`, cause `slots`). Levels: **cool < 0.4, warm 0.4–0.
 Exposed as `Worker.heat` (`score`, `raw`, `level`, `cause`, `components`, `full`, `updated_at`)
 in worker updates and `GET /api/fleet`, and as `FleetStore.heatByWorker` (online workers only).
 
+### Heat history
+
+For the Fleet heat strips (12h / 24h / 3d / 1w) the hub keeps a downsampled history per machine
+(`internal/controller/heat_history.go`):
+
+* **Storage**: one row per machine per **1-minute bucket** in SQLite (`worker_heat_samples`:
+  `bucket_start` unix seconds, `score_max`, `score_avg`, `samples`, `cause` at the max). The
+  current minute accumulates in memory on each heartbeat; when a heartbeat lands in the next
+  minute the finished one is written with one upsert on a background goroutine, and hub
+  shutdown flushes every in-progress minute. The upsert merges into an existing row (max of
+  maxes, sample-weighted mean), so a minute split by a restart or reconnect stays correct.
+  Minutes are the finest step any strip needs (1w at 336 points is 30 min, 12h at 336 is
+  ~2 min), cost ~10k rows per machine per week, and are cheap to aggregate on read; raw
+  heartbeats (~6/min) would be 6× the rows with no visible gain. **Retention: 8 days** (the
+  longest range plus a day), pruned at most hourly on a flush. Removing a machine deletes its
+  rows (`DeleteWorker`, plus `ON DELETE CASCADE`). History survives hub restarts.
+* **Endpoint**: `GET /api/fleet/heat?range=12h|24h|3d|1w&points=N` (browser auth; default
+  `12h`, 48 points; `points` clamped to 12..336; an unknown range or non-integer points is 400).
+
+```json
+{"range":"12h","start":"2026-01-01T22:15:00Z","end":"2026-01-02T10:15:00Z","step_seconds":900,
+ "workers":[{"worker_id":"…","samples":[{"score":0.41,"max":0.62,"cause":"cpu"},null,…]}]}
+```
+
+`step_seconds` is range / points rounded up to whole seconds; `end` is the end of the
+step-aligned (unix epoch) bucket holding the current minute, so points stay put between polls,
+and `start` = `end` − points × step. `samples` has exactly `points` entries, oldest first; each
+aggregates the minutes starting in it (`score` = mean of the minute means, `max` = max of the
+minute maxes, `cause` = cause at that max, 3 decimals) or is `null` with no data (offline, or
+before history began). The in-progress minute is included, so a live machine's last point is
+never empty. Every known machine is listed (in `ListWorkers` order), even with all nulls.
+
 ## Project narration
 
 * **Orchestrator**: the `set_narration` MCP tool (orchestrator chats, `konsert mcp`, and the
@@ -131,3 +163,36 @@ in worker updates and `GET /api/fleet`, and as `FleetStore.heatByWorker` (online
   `running` / `queued` / `needs_you` / `blocked` / `done` (+ `failed`): the bucket comes from the
   activity (asking → needs you, blocked, queued, done/error → done, else running), and a final
   task status always counts as done. Groups needing the user come first; Other work is last.
+
+## How the views show it
+
+The signed-off design (KON-K2GAD) renders all three with one **spinner**
+(`web/src/app/shared/activity-spinner.component.ts`, logic in `spinner-logic.ts`): the avatar
+fill is the machine (its initials on a slowly drifting gradient by heat, cool blue/teal →
+amber → red, hot drifts faster), the ring around it is the activity.
+
+| Ring state | Comes from | Ring |
+|---|---|---|
+| thinking | `thinking` | violet comet, breathing |
+| working | `working` | white segments spinning |
+| speaking | `speaking` | mint ripple, faster with `tokens_per_sec` (1.5 s → 0.5 s at 80 tok/s) |
+| asking | `asking` | solid amber, "?" badge |
+| held | `blocked`, or the control label HELD / SUSPENDED | dashed blue, pause badge |
+| you | control label YOU (Take control) | solid blue, "›" badge |
+| queued | `queued` | hollow avatar, dotted ring |
+| done | `done` | grey ring, green check, neutral avatar |
+| error | `error` | red, "!" badge |
+
+Observed sessions (`coarse` and started outside Konsert) draw the ring at half strength. A
+second machine peeks out behind the first (the component supports it; no task reports a
+second machine yet). The hover tooltip and the accessible name say the activity word, the
+machine(s), heat % and cause; every caller also shows a text label, never colour alone.
+`prefers-reduced-motion` stops all animation (static rings and fills). Fleet rows put the
+agent's mark in the centre instead of initials, since the row is the machine.
+
+Used in Command's Live work (the project story, `modes/command/live-work-logic.ts`: project
+name, orchestrator headline marked ✦, progress bar done today / running / needs you /
+queued, "N in flight on M machines · K queued", in-flight lines, the queue collapsed, done
+lines fading out over 5 minutes; Other work holds observed sessions and your terminals),
+Fleet's machine rows and session cards, Wall tile headers, Work cards, the session strip,
+Command's footer machine list (heat avatar only) and the phone inbox and fleet.

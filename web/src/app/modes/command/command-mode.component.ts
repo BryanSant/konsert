@@ -44,7 +44,7 @@ export const ORCHESTRATOR = 'orchestrator';
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
     <div class="flex flex-1 min-h-0">
-      <aside class="hidden lg:flex flex-col w-[272px] shrink-0 bg-[var(--ks-bg-chrome)] border-r border-[var(--ks-hairline)]" aria-label="Live work">
+      <aside class="hidden lg:flex flex-col w-[320px] xl:w-[340px] shrink-0 bg-[var(--ks-bg-chrome)] border-r border-[var(--ks-hairline)]" aria-label="Live work">
         <ks-live-work class="flex-1" [activeId]="activeId()" (open)="openItem($event)" />
       </aside>
 

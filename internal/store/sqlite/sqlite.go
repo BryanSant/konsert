@@ -377,6 +377,10 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM worker_heat_samples WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM workers WHERE id = ?`, id)
 	if err != nil {
 		_ = tx.Rollback()

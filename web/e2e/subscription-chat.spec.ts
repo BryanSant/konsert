@@ -26,7 +26,7 @@ function loadEnv(): E2EEnv {
 }
 
 async function signIn(page: Page, env: E2EEnv): Promise<void> {
-  await page.goto(`${env.baseURL}/classic`);
+  await page.goto(`${env.baseURL}/command`);
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   // (The login card's "Konsert" heading also matches a case-insensitive "KONSERT".)
@@ -291,21 +291,30 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'failed');
   });
 
-  test('footer usage lists the mock accounts', async ({ page }, testInfo) => {
-    const footer = page.locator('app-status-footer');
-    await expect(footer.getByTestId('footer-usage')).toContainText('Mock');
-    await footer.getByTestId('footer-usage').click();
-    const popover = footer.getByRole('dialog', { name: 'Subscription usage' });
+  test('usage lists the mock accounts (fleet strip on desktop, the fleet quota on a phone)', async ({ page, isMobile }) => {
+    if (isMobile) {
+      // A phone has no fleet strip: the read-only fleet lists each subscription's usage. (The
+      // mobile project runs after the desktop usage-limit tests have exhausted both.)
+      await page.getByTestId('back-to-inbox').click();
+      await page.getByTestId('mobile-fleet-link').click();
+      const quota = page.getByTestId('mobile-quota');
+      await expect(quota.getByText('Mock', { exact: true })).toBeVisible();
+      await expect(quota.getByText('Mock 2', { exact: true })).toBeVisible();
+      const box = await quota.boundingBox();
+      expect(box?.width ?? 999).toBeLessThanOrEqual(page.viewportSize()!.width);
+      return;
+    }
+    const strip = page.getByTestId('fleet-strip');
+    await expect(strip.getByTestId('footer-usage')).toContainText('Mock');
+    await strip.getByTestId('footer-usage').click();
+    const popover = page.getByRole('dialog', { name: 'Subscription usage' });
     await expect(popover).toBeVisible();
     await expect(popover.locator('[data-account-row="mock"]')).toContainText('Mock');
     const mock2 = popover.locator('[data-account-row="mock2"]');
     await expect(mock2).toContainText('Mock 2');
-    if (testInfo.project.name === 'desktop') {
-      // mock2's 5-hour window is at 87%: shown as a warning with its percentage. (The mobile
-      // project runs after the desktop usage-limit tests have exhausted it.)
-      await expect(mock2).toHaveAttribute('data-health', 'warning');
-      await expect(mock2.getByTestId('usage-state')).toContainText('87% of 5-hour');
-    }
+    // mock2's 5-hour window is at 87%: shown as a warning with its percentage.
+    await expect(mock2).toHaveAttribute('data-health', 'warning');
+    await expect(mock2.getByTestId('usage-state')).toContainText('87% of 5-hour');
     const box = await popover.boundingBox();
     expect(box?.width ?? 999).toBeLessThanOrEqual(page.viewportSize()!.width);
   });
@@ -341,10 +350,10 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     // The hub pushes the account change live (fleet.update agent_accounts with worker_id).
     const chip = chat.getByTestId('account-chip');
     await expect(chip).toContainText('Out');
-    const footer = page.locator('app-status-footer');
-    await expect(footer.locator('[data-usage-account="mock"]')).toContainText('out');
-    await footer.getByTestId('footer-usage').click();
-    const usage = footer.getByRole('dialog', { name: 'Subscription usage' });
+    const strip = page.getByTestId('fleet-strip');
+    await expect(strip.locator('[data-usage-account="mock"]')).toContainText('out');
+    await strip.getByTestId('footer-usage').click();
+    const usage = page.getByRole('dialog', { name: 'Subscription usage' });
     const mockRow = usage.locator('[data-account-row="mock"]');
     await expect(mockRow).toHaveAttribute('data-health', 'exhausted');
     await expect(mockRow.getByTestId('usage-state')).toContainText(

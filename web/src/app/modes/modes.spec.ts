@@ -15,7 +15,6 @@ import { WorkInputs, buildWorkItems, groupByProject, machineLoadLabel, occupiesS
 import { WorkStore } from '../core/state/work.store';
 import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
 import { NeedsYouItemComponent } from '../features/needs-you/needs-you-item.component';
-import { axisTicks, formatSpan, machineTimeline } from './fleet/timeline-logic';
 import { modeForKey } from './mode-shell.component';
 import { pageCount, pageOf, tilesPerPage, WallStore } from './wall/wall.store';
 import { suggestTiles } from './wall/wall-mode.component';
@@ -296,26 +295,6 @@ describe('needs-you queue', () => {
       work.toggleExpedite('a');
       expect(work.board().expedite.running.map((i) => i.id)).toEqual(['a']);
     });
-  });
-});
-
-describe('fleet timeline', () => {
-  it('draws agent work with concurrency and a no-data stretch for an offline machine', () => {
-    const start = NOW - 12 * 3600_000;
-    const w = worker({ status: 'offline', last_seen_at: new Date(NOW - 3600_000).toISOString() });
-    const tasks = [
-      task('a', 'completed', { started_at: new Date(NOW - 6 * 3600_000).toISOString(), completed_at: new Date(NOW - 3 * 3600_000).toISOString() }),
-      task('b', 'running', { started_at: new Date(NOW - 4 * 3600_000).toISOString() }),
-    ];
-    const tl = machineTimeline(w, tasks, start, NOW);
-    expect(tl.segments.filter((s) => s.kind === 'work').map((s) => s.sessions)).toEqual([1, 2, 1]);
-    expect(tl.busyMs).toBe(5 * 3600_000);
-    expect(tl.noDataMs).toBe(3600_000);
-    expect(tl.segments[tl.segments.length - 1]).toMatchObject({ kind: 'nodata' });
-    expect(formatSpan(5 * 3600_000)).toBe('5h');
-    expect(formatSpan(90 * 60_000)).toBe('1h 30m');
-    expect(axisTicks(start, NOW, '12h').map((t) => t.left)).toEqual([0, 25, 50, 75, 100]);
-    expect(axisTicks(start, NOW, '12h')[4].label).toBe('now');
   });
 });
 

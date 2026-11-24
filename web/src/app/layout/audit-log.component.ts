@@ -5,7 +5,7 @@ import { AuditEvent, AuditQuery } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuditStore } from '../core/state/audit.store';
 import { FleetStore, basenamePath } from '../core/state/fleet.store';
-import { TabsStore } from '../core/state/tabs.store';
+import { SessionNavService } from '../core/services/session-nav.service';
 
 /** Page size for GET /api/audit. */
 export const AUDIT_PAGE_SIZE = 50;
@@ -209,7 +209,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
 export class AuditLogComponent implements OnInit {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly nav = inject(SessionNavService);
   private readonly auditStore = inject(AuditStore);
 
   readonly actions = AUDIT_ACTIONS;
@@ -331,7 +331,7 @@ export class AuditLogComponent implements OnInit {
     const taskId = ev.task_id ?? '';
     const task = this.fleet.tasksById()[taskId];
     if (task) {
-      this.tabs.openTaskTab(task, this.fleet.workersById()[task.worker_id]?.name);
+      this.nav.openTask(task);
       return;
     }
     // Not in the loaded fleet snapshot (e.g. an old task): narrow the log to it instead.

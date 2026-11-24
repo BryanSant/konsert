@@ -23,7 +23,7 @@ function loadEnv(): E2EEnv {
 }
 
 async function signIn(page: Page, env: E2EEnv): Promise<void> {
-  await page.goto(`${env.baseURL}/classic`);
+  await page.goto(`${env.baseURL}/command`);
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();
@@ -74,10 +74,9 @@ async function askQuestion(chat: Locator): Promise<string> {
   return sid!;
 }
 
-/** Opens the Questions panel from the top bar on the given question. */
+/** Opens the Needs-you dialog from the mode header's count on the given question. */
 async function openQueue(page: Page, sid: string): Promise<Locator> {
-  await expect(page.getByTestId('questions-button-count')).toBeVisible();
-  await page.getByTestId('questions-button').click();
+  await page.getByTestId('needs-you-count').click();
   const panel = page.getByTestId('questions-panel');
   await expect(panel).toBeVisible();
   await panel.locator(`[data-queue-item="${sid}"]`).click();
@@ -197,10 +196,12 @@ test.describe('Questions on a phone (390px)', () => {
     const chat = await newChat(page);
     const sid = await askQuestion(chat);
 
-    await page.getByTestId('questions-button').click();
+    // The phone's inbox lists it; the item opens the dialog as a full-screen sheet.
+    await page.getByTestId('back-to-inbox').click();
+    await expect(page).toHaveURL(/\/inbox$/);
+    await page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`).click();
     const panel = page.getByTestId('questions-panel');
     await expect(panel).toBeInViewport();
-    await panel.locator(`[data-queue-item="${sid}"]`).click();
     // Full-screen question: the options are reachable.
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await expect(card).toHaveAttribute('data-question', sid);
@@ -220,6 +221,10 @@ test.describe('Questions on a phone (390px)', () => {
     await expect(sheet.getByTestId('thread-receipt')).toContainText('Sent “Yes”', { timeout: 20_000 });
     if (await sheet.isVisible()) await sheet.getByTestId('thread-close').click().catch(() => undefined);
     await closeDialog(panel);
+    await expect(page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`)).toHaveCount(0);
+    // Back in the orchestrator chat, the agent got the answer.
+    await page.goBack();
+    await expect(page).toHaveURL(/\/command$/);
     await expect(assistant(chat, 'Side conversation:')).toBeVisible();
   });
 });

@@ -22,7 +22,7 @@ function loadEnv(): E2EEnv {
 }
 
 async function signIn(page: Page, env: E2EEnv): Promise<void> {
-  await page.goto(`${env.baseURL}/classic`);
+  await page.goto(`${env.baseURL}/command`);
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();
@@ -85,7 +85,7 @@ async function dispatchMockTask(
   page: Page,
   env: E2EEnv,
 ): Promise<{ task_id: string; task_sid: string; status: string }> {
-  return postJSON(page, '/api/tasks', {
+  return postJSON<{ task_id: string; task_sid: string; status: string }>(page, '/api/tasks', {
     worker_selector: { worker_id: env.workerSid },
     agent: 'mock',
     repo_path: env.workdir,
@@ -157,22 +157,20 @@ test.describe('Human control (mock engine)', () => {
       })
       .toBe(true);
 
-    // The veto shows in Your actions.
-    await page.getByTestId('inspector-control').click();
-    await expect(page.getByTestId('your-actions')).toContainText(/veto/i);
+    // The veto shows in Your actions (Command's Needs-you rail).
+    await expect(page.getByTestId('needs-you-rail').getByTestId('your-actions')).toContainText(/veto/i);
   });
 
   test('drains a machine so it receives no new work, then undrains it', async ({ page }) => {
     const env = loadEnv();
-    const footer = page.locator('app-status-footer');
-    await footer.getByTestId('footer-hosts').click();
-    await footer.getByRole('button', { name: new RegExp(env.workerName, 'i') }).click();
-    const modal = page.locator('app-machine-detail-modal .ks-modal');
-    await expect(modal).toBeVisible();
+    await page.getByRole('navigation', { name: 'Modes' }).locator('[data-mode="fleet"]').click();
+    const row = page.getByTestId('fleet-machines').locator(`[data-machine="${env.workerSid}"]`);
+    const badge = row.locator('.ks-badge').first();
+    await expect(badge).not.toHaveText('DRAINING');
 
-    await modal.getByTestId('machine-drain').click();
-    await expect(modal.getByTestId('machine-drained')).toBeVisible();
-    await expect(modal.getByTestId('machine-drain')).toHaveText(/Undrain/);
+    await row.getByRole('button', { name: 'Drain', exact: true }).click();
+    await expect(badge).toHaveText('DRAINING');
+    await expect(row.getByRole('button', { name: 'Undrain', exact: true })).toBeVisible();
     await expect
       .poll(
         async () =>
@@ -186,13 +184,23 @@ test.describe('Human control (mock engine)', () => {
     const t = await dispatchMockTask(page, env);
     await page.waitForTimeout(800);
     expect(await taskStatus(page, t.task_id)).toBe('queued');
+    // Fleet's queue says it is waiting.
+    await expect(page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`)).toBeVisible();
 
+    // The machine's Details dialog shows the drain too, and undrains.
+    await page.getByTestId(`machine-details-${env.workerSid}`).click();
+    const modal = page.locator('app-machine-detail-modal .ks-modal');
+    await expect(modal.getByTestId('machine-drained')).toBeVisible();
+    await expect(modal.getByTestId('machine-drain')).toHaveText(/Undrain/);
     await modal.getByTestId('machine-drain').click();
     await expect(modal.getByTestId('machine-drained')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(modal).toBeHidden();
+    await expect(badge).not.toHaveText('DRAINING');
     await expect.poll(() => taskStatus(page, t.task_id), { timeout: 10_000 }).not.toBe('queued');
+    await expect(page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`)).toHaveCount(0);
 
     await postJSON(page, `/api/tasks/${t.task_id}/cancel`);
-    await page.keyboard.press('Escape');
   });
 
   test('pauses everything with a banner and resumes what the pause suspended', async ({ page }) => {
@@ -234,8 +242,8 @@ test.describe('Human control (mock engine)', () => {
     const hold = holds.find((h) => h.task_id === t.task_id);
     expect(hold).toBeTruthy();
 
-    await page.getByTestId('inspector-control').click();
-    const list = page.getByTestId('holds-list');
+    // Holds you placed are listed in Command's Needs-you rail.
+    const list = page.getByTestId('needs-you-rail');
     await expect(list.locator(`[data-hold="${hold!.sid}"]`)).toBeVisible();
     await list.getByTestId(`hold-release-${hold!.sid}`).click();
     await expect(list.locator(`[data-hold="${hold!.sid}"]`)).toHaveCount(0);

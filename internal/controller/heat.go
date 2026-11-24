@@ -142,20 +142,25 @@ func SmoothHeat(prev float64, hasPrev bool, raw float64, dt time.Duration) float
 type heatEntry struct {
 	heat WorkerHeat
 	at   time.Time
+	// minute accumulates the current 1-minute history bucket (see heat_history.go).
+	minute heatMinute
 }
 
 type heatState struct {
 	mu      sync.Mutex
 	workers map[string]heatEntry
+	// lastPrune is when old history buckets were last pruned.
+	lastPrune time.Time
 }
 
-// updateHeat folds a heartbeat into a worker's heat and returns it.
+// updateHeat folds a heartbeat into a worker's heat and returns it. The smoothed score is
+// also folded into the worker's current history minute; a finished minute is written to
+// the store in the background.
 func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, active, maxConcurrent int, now time.Time) WorkerHeat {
 	comps := HeatComponents(m, cores, active, maxConcurrent)
 	raw, cause := rawHeat(comps)
 	full := comps[HeatCauseSlots] >= 1
 	h.heat.mu.Lock()
-	defer h.heat.mu.Unlock()
 	if h.heat.workers == nil {
 		h.heat.workers = map[string]heatEntry{}
 	}
@@ -170,7 +175,12 @@ func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, acti
 		Score: score, Raw: math.Round(raw*1000) / 1000, Level: HeatLevel(score), Cause: cause,
 		Components: comps, Full: full, UpdatedAt: now.UTC(),
 	}
-	h.heat.workers[workerID] = heatEntry{heat: wh, at: now}
+	minute, finished := prev.minute.add(now, score, cause)
+	h.heat.workers[workerID] = heatEntry{heat: wh, at: now, minute: minute}
+	h.heat.mu.Unlock()
+	if finished.n > 0 {
+		h.persistHeatMinute(workerID, finished, now)
+	}
 	return wh
 }
 

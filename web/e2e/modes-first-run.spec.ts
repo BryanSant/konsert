@@ -57,6 +57,13 @@ async function login(page: Page, hub: Hub): Promise<void> {
   await expect(page.locator('#token')).toBeHidden();
 }
 
+async function api<T>(page: Page, url: string): Promise<T> {
+  return page.evaluate(async (u) => {
+    const res = await fetch(u, { credentials: 'same-origin' });
+    return (await res.json()) as T;
+  }, url) as Promise<T>;
+}
+
 test.describe('Mode UI first run', () => {
   let hub: Hub;
 
@@ -95,6 +102,34 @@ test.describe('Mode UI first run', () => {
     await expect(chat).toBeVisible();
     await expect(chat.getByTestId('composer-input')).toHaveValue('Summarize what is running');
     await expect(page.getByTestId('first-run')).toHaveCount(0);
+
+    // The hub runs the daemon itself ("local" launch); setup is complete, so a reload goes
+    // straight to the orchestrator chat with no welcome and no Add Machine dialog.
+    const fleet = await api<{ workers: Array<{ status: string; launch?: string }> }>(page, '/api/fleet');
+    expect(fleet.workers).toHaveLength(1);
+    expect(fleet.workers[0]).toMatchObject({ status: 'online', launch: 'local' });
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(page.locator('app-chat-view')).toBeVisible();
+    await expect(page.getByTestId('first-run')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('desktop: closing Add Machine leaves a control-plane-only hub; the welcome stays, the dialog does not reopen', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'desktop first run');
+    await login(page, hub);
+    await expect(page.getByTestId('first-run')).toBeVisible();
+    await page.getByTestId('first-run-ssh').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /Add (your first|a) machine/ })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Esc: close dialog' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await expect.poll(async () => (await api<{ needs_setup: boolean }>(page, '/api/setup')).needs_setup).toBe(false);
+    await page.reload({ waitUntil: 'networkidle' });
+    // Never a blank screen: with no machines Command still welcomes, and nothing pops up.
+    await expect(page.getByTestId('first-run').getByRole('heading', { name: 'Welcome to Konsert' })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect((await api<{ workers: unknown[] }>(page, '/api/fleet')).workers).toHaveLength(0);
   });
 
   test('phone: the inbox explains itself and offers Add a machine, never a blank screen', async ({ page, isMobile }) => {

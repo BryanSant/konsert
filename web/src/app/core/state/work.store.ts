@@ -6,9 +6,20 @@ import { ControlStore } from './control.store';
 import { FleetStore } from './fleet.store';
 import { OrchestratorStore } from './orchestrator.store';
 import { QuestionsStore } from './questions.store';
-import { TabsStore } from './tabs.store';
+import { TakenControlStore } from './taken-control.store';
 import { AgentChatStore } from './agent-chat.store';
+import { SPINNER_WORDS, SpinnerMachine, SpinnerState, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
 import { ProjectGroup, WorkColumn, WorkItem, buildWorkItems, groupByProject } from './work-logic';
+
+/** The spinner inputs for one work item. */
+export interface ItemSpinner {
+  state: SpinnerState;
+  machines: SpinnerMachine[];
+  coarse: boolean;
+  tps?: number;
+  /** The activity word shown next to it. */
+  word: string;
+}
 
 const REVIEW_KEY = 'konsert.review.v1';
 
@@ -41,7 +52,7 @@ export class WorkStore {
   private readonly agentChat = inject(AgentChatStore);
   private readonly questions = inject(QuestionsStore);
   private readonly control = inject(ControlStore);
-  private readonly tabs = inject(TabsStore);
+  private readonly taken = inject(TakenControlStore);
   private readonly activity = inject(ActivityStore);
 
   // --- live-work view model (activity, narration; feat/activity-data) ---
@@ -101,8 +112,7 @@ export class WorkStore {
   readonly items = computed<WorkItem[]>(() => {
     const transcripts = this.agentChat.transcripts();
     // Re-evaluate when Take Control changes.
-    this.tabs.takenControl();
-    this.tabs.openTabs();
+    this.taken.takenControl();
     const narrated = this.itemsByKey();
     const built = buildWorkItems({
       tasks: this.fleet.tasks(),
@@ -112,7 +122,7 @@ export class WorkStore {
       repos: this.fleet.repos(),
       questions: this.questions.all(),
       holds: this.control.holds(),
-      interactive: (id) => this.tabs.isInteractive(id),
+      interactive: (id) => this.taken.isInteractive(id),
       reviewed: this.review().decided,
       chatStatus: (id) => transcripts[id]?.status,
       chatNow: (id) => transcripts[id]?.subtitle ?? '',
@@ -123,6 +133,36 @@ export class WorkStore {
       if (!a || !it.live || (a.nowSource !== 'orchestrator' && a.nowSource !== 'activity') || !a.now) return it;
       return { ...it, now: a.now };
     });
+  });
+
+  /**
+   * The live-work spinner for each item (ring state from activity + control, the machine's
+   * heat in the avatar): Work cards, Wall tiles, session headers.
+   */
+  readonly spinnerById = computed(() => {
+    const narrated = this.itemsByKey();
+    const heat = this.fleet.heatByWorker();
+    const workers = this.fleet.workersById();
+    const out: Record<string, ItemSpinner> = {};
+    for (const it of this.items()) {
+      const w = workers[it.workerId];
+      const machines = w ? [spinnerMachine(w.name, heat[w.id])] : [];
+      if (it.sessionKind === 'terminal') {
+        const you = it.control === 'YOU';
+        out[it.id] = { state: you ? 'you' : it.live ? 'working' : 'done', machines, coarse: !you && it.live, word: you ? 'you have control' : it.live ? 'shell open' : 'closed' };
+        continue;
+      }
+      const a = narrated[`${it.kind}:${it.id}`]?.activity ?? (it.kind === 'task' ? this.taskActivity(it.id) : this.chatActivity(it.id));
+      const state = spinnerStateOf(a, it.control);
+      out[it.id] = {
+        state,
+        machines,
+        coarse: !!a?.coarse && it.observed,
+        tps: a?.state === 'speaking' ? a.tokens_per_sec : undefined,
+        word: SPINNER_WORDS[state],
+      };
+    }
+    return out;
   });
 
   readonly byId = computed(() => {

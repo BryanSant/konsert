@@ -5,13 +5,16 @@ import { AgentAccountsStore } from '../../core/state/agent-accounts.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { machineLoadLabel, occupiesSlot } from '../../core/state/work-logic';
 import { IconComponent } from '../../shared/icon.component';
+import { HeatAvatarComponent } from '../../shared/activity-spinner.component';
+import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
+import { heatLevelOf } from '../../core/state/activity-logic';
 
 /** Read-only fleet and quota summary for a phone. */
 @Component({
   selector: 'ks-mobile-fleet',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent],
+  imports: [RouterLink, IconComponent, HeatAvatarComponent],
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <div class="px-4 pt-4 pb-1">
@@ -23,11 +26,10 @@ import { IconComponent } from '../../shared/icon.component';
     <h1 class="px-4 m-0 pb-2 text-[15px] font-semibold">Fleet (read-only)</h1>
     <ul class="m-0 p-0 list-none" data-testid="mobile-fleet">
       @for (m of machines(); track m.id) {
-        <li class="grid grid-cols-[96px_minmax(0,1fr)_96px] items-center gap-2.5 px-4 py-2.5 border-b border-[var(--ks-hairline)] text-[14px]" [attr.data-machine]="m.name">
+        <li class="grid grid-cols-[28px_minmax(0,1fr)_auto_96px] items-center gap-2.5 px-4 py-2.5 border-b border-[var(--ks-hairline)] text-[14px]" [attr.data-machine]="m.name">
+          <ks-heat-avatar [machine]="m.machine" [size]="28" />
           <span class="truncate">{{ m.name }}</span>
-          <span class="flex h-2 rounded-full bg-white/[0.07] overflow-hidden" role="img" [attr.aria-label]="'CPU ' + m.cpu + '%'">
-            <span class="bg-[#8a8d96]" [style.width.%]="m.cpu"></span>
-          </span>
+          <span class="text-[12.5px]" [style.color]="m.heatColor">{{ m.heatWord }}</span>
           <span class="text-right text-[12.5px]" [class.text-[var(--ks-amber)]]="m.tone === 'warn'" [class.text-[var(--ks-text-muted)]]="m.tone !== 'warn'">{{ m.note }}</span>
         </li>
       } @empty {
@@ -35,7 +37,7 @@ import { IconComponent } from '../../shared/icon.component';
       }
     </ul>
     <h2 class="px-4 pt-4 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Quota</h2>
-    <ul class="m-0 p-0 list-none">
+    <ul class="m-0 p-0 list-none" data-testid="mobile-quota">
       @for (q of quotas(); track q.key) {
         <li class="flex justify-between px-4 py-1.5 text-[14px]">
           <span>{{ q.label }}</span>
@@ -59,13 +61,17 @@ export class MobileFleetComponent {
     for (const t of this.fleet.tasks()) {
       if (occupiesSlot(t)) running.set(t.worker_id, (running.get(t.worker_id) ?? 0) + 1);
     }
+    const heat = this.fleet.heatByWorker();
     return this.fleet.workers().map((w) => {
       const n = running.get(w.id) ?? 0;
       const label = machineLoadLabel(w, n);
+      const h = heat[w.id];
       return {
         id: w.id,
         name: w.name,
-        cpu: w.metrics ? Math.round(Math.min(100, w.metrics.cpu_percent)) : 0,
+        machine: spinnerMachine(w.name, h),
+        heatWord: h ? `${heatLevelOf(h.score)} ${Math.round(h.score * 100)}%` : w.status === 'online' ? '' : 'offline',
+        heatColor: heatTextColor(h ? h.score : null),
         tone: label.tone,
         note: label.text.slice(w.name.length).trim() || `${n}/${w.max_concurrent || '∞'}`,
       };

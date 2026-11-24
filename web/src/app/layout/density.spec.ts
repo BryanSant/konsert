@@ -5,13 +5,14 @@ import { Task, Worker } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { FleetStore } from '../core/state/fleet.store';
-import { TabsStore } from '../core/state/tabs.store';
+import { provideRouter } from '@angular/router';
+import { ProjectsDialogComponent } from '../features/projects/projects-dialog.component';
+import { FleetStripComponent } from '../modes/command/fleet-strip.component';
+import { LiveWorkComponent } from '../modes/command/live-work.component';
+import { FleetModeComponent } from '../modes/fleet/fleet-mode.component';
+import { WorkModeComponent } from '../modes/work/work-mode.component';
 import { AuditLogComponent } from './audit-log.component';
-import { FleetSidebarComponent } from './fleet-sidebar.component';
 import { SettingsModalComponent } from './settings-modal.component';
-import { StatusFooterComponent } from './status-footer.component';
-import { TabStripComponent } from './tab-strip.component';
-import { TelemetryDrawerComponent } from './telemetry-drawer.component';
 
 const worker: Worker = {
   id: 'w1',
@@ -32,13 +33,14 @@ const worker: Worker = {
 const task = { id: 't1', worker_id: 'w1', agent: 'claude', status: 'running', workdir: '/src/app', created_at: new Date().toISOString() } as Task;
 
 /**
- * Density pass guard rails (KON-8A72G): the shell, inspector and modals use the shared
+ * Density pass guard rails (KON-8A72G): the mode surfaces and modals use the shared
  * primitives, with no native title tooltips and no bordered form fields.
  */
 describe('density pass primitives', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        provideRouter([]),
         {
           provide: ApiClientService,
           useValue: {
@@ -51,6 +53,7 @@ describe('density pass primitives', () => {
             getSettings: vi.fn(async () => ({})),
             getProviderSettings: vi.fn(async () => ({})),
             listAgentAccounts: vi.fn(async () => ({ accounts: [] })),
+            getHeatHistory: vi.fn(async () => ({ range: '12h', start: '', end: '', step_seconds: 900, workers: [] })),
           },
         },
         { provide: AuthService, useValue: { provider: signal(''), user: signal('tester'), authRequired: signal(false) } },
@@ -59,7 +62,6 @@ describe('density pass primitives', () => {
     const fleet = TestBed.inject(FleetStore);
     fleet.upsertWorker(worker);
     fleet.upsertTask(task);
-    TestBed.inject(TabsStore).openTaskTab(task, 'studio', false);
   });
 
   afterEach(() => {
@@ -68,11 +70,11 @@ describe('density pass primitives', () => {
   });
 
   const surfaces: Array<[string, Type<unknown>, Record<string, unknown>?]> = [
-    ['fleet sidebar', FleetSidebarComponent],
-    ['tab strip', TabStripComponent],
-    ['status footer', StatusFooterComponent],
-    ['telemetry drawer (activity)', TelemetryDrawerComponent, { panel: 'activity' }],
-    ['telemetry drawer (checks)', TelemetryDrawerComponent, { panel: 'checks' }],
+    ['live work', LiveWorkComponent],
+    ['fleet mode', FleetModeComponent],
+    ['work mode', WorkModeComponent],
+    ['fleet strip', FleetStripComponent],
+    ['projects dialog', ProjectsDialogComponent],
     ['audit log', AuditLogComponent],
     ['settings modal', SettingsModalComponent],
   ];
@@ -92,7 +94,7 @@ describe('density pass primitives', () => {
         (b) => b.children.length === 1 && b.children[0].tagName === 'APP-ICON' && !b.textContent?.trim(),
       );
       expect(root.children.length).toBeGreaterThan(0);
-      if (cmp === FleetSidebarComponent || cmp === TabStripComponent) expect(iconOnly.length).toBeGreaterThan(0);
+      if (cmp === ProjectsDialogComponent) expect(iconOnly.length).toBeGreaterThan(0);
       for (const b of iconOnly) {
         expect(b.getAttribute('aria-label'), b.outerHTML.slice(0, 120)).toBeTruthy();
         expect(b.classList.contains('ks-icon-btn'), b.outerHTML.slice(0, 160)).toBe(true);

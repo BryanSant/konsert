@@ -236,7 +236,7 @@ export function buildWorkItems(inp: WorkInputs): WorkItem[] {
       sid: t.sid,
       kind: 'task',
       sessionKind: isShell(t) ? 'terminal' : 'agent',
-      title: firstLine(t.prompt, 60) || (isShell(t) ? `${w?.name ?? 'shell'} terminal` : `${t.agent} · ${proj.name}`),
+      title: firstLine(t.title, 60) || firstLine(t.prompt, 60) || (isShell(t) ? `${w?.name ?? 'shell'} terminal` : `${t.agent} · ${proj.name}`),
       agent: t.agent,
       workerId: t.worker_id,
       machine: w?.name ?? '',

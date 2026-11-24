@@ -11,6 +11,7 @@ import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { isPhoneWidth } from '../../app.routes';
 import { ReviewPanelComponent } from './review-panel.component';
+import { ItemSpinnerComponent } from '../item-spinner.component';
 
 export const COLUMN_LABELS: Record<WorkColumn, string> = {
   queued: 'Queued',
@@ -31,7 +32,7 @@ const VIEW_KEY = 'konsert.work.view';
   selector: 'ks-work-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ControlLabelComponent, ReviewPanelComponent],
+  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent],
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
     <div class="flex flex-wrap items-center gap-3 px-4 pt-3 pb-2 text-[12.5px] shrink-0">
@@ -42,6 +43,10 @@ const VIEW_KEY = 'konsert.work.view';
       </div>
       <span class="ks-kbd" aria-hidden="true">⌘B</span>
       <span class="ml-auto hidden md:inline text-[var(--ks-text-secondary)]">Konsert moves the cards; you review and decide.</span>
+      <button type="button" class="ks-btn ks-btn-sm" data-testid="open-projects" (click)="ui.projectsOpen.set(true)">
+        <app-icon name="project" [size]="12" />
+        Projects
+      </button>
       <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" data-testid="new-task" (click)="ui.newSession('chat')">
         <app-icon name="plus" [size]="12" />
         New task
@@ -78,6 +83,7 @@ const VIEW_KEY = 'konsert.work.view';
                         (click)="select(it)"
                       >
                         <span class="flex items-center gap-1.5 w-full">
+                          <ks-item-spinner [item]="it" [size]="20" [wordless]="true" class="shrink-0" />
                           <span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)]">{{ it.sid }}</span>
                           <span class="flex-1"></span>
                           <ks-control-label [label]="it.control" />

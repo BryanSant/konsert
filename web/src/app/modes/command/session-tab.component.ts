@@ -8,6 +8,7 @@ import { XtermPaneComponent } from '../../features/terminal/xterm-pane.component
 import { IconComponent } from '../../shared/icon.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ControlLabelComponent } from '../control-label.component';
+import { ItemSpinnerComponent } from '../item-spinner.component';
 import { TakeControlService } from '../take-control.service';
 
 /**
@@ -19,11 +20,12 @@ import { TakeControlService } from '../take-control.service';
   selector: 'ks-session-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ControlLabelComponent, SessionControlsComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     @let it = item();
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 shrink-0 bg-[var(--ks-bg-chrome)] border-b border-[var(--ks-hairline)] text-[12.5px]" data-testid="session-strip">
+      <ks-item-spinner [item]="it" [size]="22" class="shrink-0" />
       <ks-control-label [label]="it.control" />
       <span class="min-w-0 max-w-[40%] truncate"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">GOAL</span>{{ it.goal }}</span>
       <span class="min-w-0 flex-1 truncate" aria-live="polite"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">NOW</span>{{ it.now }}</span>
