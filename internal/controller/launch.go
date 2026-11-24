@@ -20,11 +20,12 @@ import (
 )
 
 // The hub starts konsertd itself on the machines it was told to manage: its own host
-// ("local", via `konsertd install` with a loopback controller URL) and SSH hosts ("ssh",
-// via sshutil.BootstrapRemoteWorker, which runs the remote `konsertd install`). A machine
-// row records how (workers.launch), so after a restart the hub starts every configured
-// daemon that does not reconnect on its own. It never starts a second daemon for a
-// machine that is connected.
+// ("local", via `konsertd install`) and SSH hosts ("ssh", via
+// sshutil.BootstrapRemoteWorker, which runs the remote `konsertd install` and allows the
+// hub key). Both run konsertd without a controller URL, serving the hub on its local
+// socket, and the hub attaches to them (transport.go). A machine row records how
+// (workers.launch), so after a restart the hub starts every configured daemon it
+// cannot attach to. It never starts a second daemon for a machine that is connected.
 
 // setupCompletedSetting marks first-run setup as done (a host was added, or the user
 // dismissed the Add Machine dialog), so the web app stops opening it automatically.
@@ -44,6 +45,9 @@ type launcher struct {
 	findKonsertd func() string
 	// bootstrap runs the SSH install/start path.
 	bootstrap func(context.Context, sshutil.BootstrapOptions) sshutil.BootstrapResult
+	// removeHubKey drops a machine from the hub key's authorized_keys line over the
+	// user's SSH (target, hub id, worker id).
+	removeHubKey func(ctx context.Context, target, hubID, workerID string) error
 	// startChild runs a local daemon as a hub child process (dry-run mode only), with
 	// stdin as its standard input.
 	startChild func(ctx context.Context, exe string, args []string, stdin string) error
@@ -62,6 +66,7 @@ func newLauncher() *launcher {
 		runner:         install.ExecRunner{},
 		findKonsertd:   func() string { return sshutil.FindKonsertd(runtime.GOOS, runtime.GOARCH) },
 		bootstrap:      sshutil.BootstrapRemoteWorker,
+		removeHubKey:   sshutil.RemoveHubKey,
 		startChild:     startChildDaemon,
 		hostname:       func() string { h, _ := os.Hostname(); return h },
 		connectTimeout: 45 * time.Second,
@@ -323,14 +328,9 @@ func (s *Server) handleAddLocalWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": v.Error})
 		return
 	}
-	ctrlURL, err := s.localControllerURL()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
 	row, err := s.store.EnsureWorker(ctx, store.Worker{
 		ID: v.WorkerID, Name: v.Hostname, OS: runtime.GOOS, Arch: runtime.GOARCH,
-		Launch: store.LaunchLocal, ControllerURL: ctrlURL,
+		Launch: store.LaunchLocal,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -453,66 +453,50 @@ func (s *Server) setLaunchState(ctx context.Context, workerID, state, msg string
 }
 
 // startLocal runs `konsertd install` for the hub's own machine (idempotent: a reinstall
-// updates and restarts the existing registration) with a new machine credential, which
-// goes over stdin. The machine's older credentials are revoked once it is installed.
-func (s *Server) startLocal(ctx context.Context, w store.Worker) (err error) {
+// updates and restarts the existing registration). The daemon serves the hub on its
+// local socket, which the hub dials directly: no credential, no SSH.
+func (s *Server) startLocal(ctx context.Context, w store.Worker) error {
 	l := s.launch
 	exe := l.findKonsertd()
 	if exe == "" {
 		return errors.New("konsertd not found on this machine. " + konsertdNotFoundFix())
 	}
-	ctrlURL, err := s.localControllerURL()
-	if err != nil {
-		return err
-	}
 	name := w.Name
 	if name == "" {
 		name = l.hostname()
 	}
-	pc := s.newProvisionCred(store.MachineCredLocal)
-	defer func() { pc.finish(ctx, err == nil) }()
-	cred, err := pc.mint(ctx, w.ID)
-	if err != nil {
-		return err
-	}
-
-	args := []string{"install", "--controller", ctrlURL, "--name", name}
-	stdin := ""
+	args := []string{"install", "--name", name}
 	if l.dryRun {
 		args = append(args, "--dry-run")
-	} else {
-		args = append(args, "--credential-stdin")
-		stdin = cred + "\n"
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if _, err := l.runner.Run(runCtx, stdin, exe, args...); err != nil {
+	if _, err := l.runner.Run(runCtx, "", exe, args...); err != nil {
 		return fmt.Errorf("konsertd install: %w", err)
 	}
-	if !l.dryRun {
-		return nil
+	if l.dryRun {
+		// Dry run: nothing was registered; run the daemon as a hub child instead.
+		if err := l.startChild(ctx, exe, []string{"run", "--name", name}, ""); err != nil {
+			return err
+		}
 	}
-	// Dry run: nothing was registered; run the daemon as a hub child instead.
-	return l.startChild(ctx, exe, []string{"run", "--controller", ctrlURL, "--name", name, "--credential-stdin"}, cred+"\n")
+	s.attach.ensure(w)
+	return nil
 }
 
-// startSSH re-runs the SSH install/start path for w (the binary is only copied when the
-// host lacks one) with a new machine credential. It returns the id to wait for (the remote daemon's, normally w.ID)
-// and, for a Windows logon task that starts at the next login, why it may not connect.
+// startSSH re-runs the SSH install/start path for w (the binary is copied when the host
+// lacks it or has another build) and re-allows the hub key. It returns the id to wait for
+// (the remote daemon's, normally w.ID) and, for a Windows logon task that starts at the
+// next login, why it may not connect.
 func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, error) {
-	s.cfgMu.RLock()
-	publicURL := s.cfg.PublicURL
-	s.cfgMu.RUnlock()
 	if w.SSHTarget == "" {
 		return w.ID, "", errors.New("no SSH target recorded for this machine; add it again from Add machine")
 	}
-	ctrlURL, err := workerControllerURL(publicURL, w.ControllerURL)
+	grant, err := s.hubKeyGrant(ctx)
 	if err != nil {
-		return w.ID, "", fmt.Errorf("no controller URL to install konsertd with: %w", err)
+		return w.ID, "", err
 	}
-	pc := s.newProvisionCred(store.MachineCredSSH)
-	res := s.launch.bootstrap(ctx, sshutil.BootstrapOptions{Target: w.SSHTarget, ControllerURL: ctrlURL, Credential: pc.mint})
-	pc.finish(ctx, res.OK)
+	res := s.launch.bootstrap(ctx, sshutil.BootstrapOptions{Target: w.SSHTarget, HubKey: grant})
 	if !res.OK {
 		msg := res.Error
 		if res.Stage != "" {
@@ -523,7 +507,7 @@ func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, 
 	waitID := w.ID
 	if res.WorkerID != "" && res.WorkerID != w.ID {
 		// The remote identity changed (its state dir was reset): track the new machine.
-		if _, err := s.recordSSHWorker(ctx, res, ctrlURL); err != nil {
+		if _, err := s.recordSSHWorker(ctx, res, w.ControllerURL); err != nil {
 			return w.ID, "", err
 		}
 		s.setLaunchState(ctx, w.ID, store.LaunchStateFailed,
@@ -534,6 +518,9 @@ func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, 
 		}
 		waitID = res.WorkerID
 		s.setLaunchState(ctx, waitID, store.LaunchStateStarting, "")
+	}
+	if nw, err := s.store.GetWorker(ctx, waitID); err == nil {
+		s.attach.ensure(nw)
 	}
 	return waitID, deferredMessage(res), nil
 }
@@ -546,26 +533,29 @@ func deferredMessage(res sshutil.BootstrapResult) string {
 }
 
 // recordSSHWorker stores the machine an SSH bootstrap installed, so the hub knows it
-// (offline) before its daemon connects and restarts it later.
-func (s *Server) recordSSHWorker(ctx context.Context, res sshutil.BootstrapResult, ctrlURL string) (store.Worker, error) {
+// (offline) before it attaches and restarts it later. hubURL (optional) is where agents
+// there reach the hub's MCP tools.
+func (s *Server) recordSSHWorker(ctx context.Context, res sshutil.BootstrapResult, hubURL string) (store.Worker, error) {
 	return s.store.EnsureWorker(ctx, store.Worker{
 		ID: res.WorkerID, Name: res.Name, OS: res.RemoteOS, Arch: res.RemoteArch,
-		Launch: store.LaunchSSH, SSHTarget: res.Target, ControllerURL: ctrlURL,
+		Launch: store.LaunchSSH, SSHTarget: res.Target, ControllerURL: hubURL,
 	})
 }
 
-// afterSSHBootstrap records a successful bootstrap and tracks the daemon until it
-// connects (or the wait times out), so the machine list shows its state.
-func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapResult, ctrlURL string) {
+// afterSSHBootstrap records a successful bootstrap, starts attaching to the daemon and
+// tracks it until it connects (or the wait times out), so the machine list shows its
+// state.
+func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapResult, hubURL string) {
 	if !res.OK || res.WorkerID == "" {
 		return
 	}
-	row, err := s.recordSSHWorker(ctx, res, ctrlURL)
+	row, err := s.recordSSHWorker(ctx, res, hubURL)
 	if err != nil {
 		s.logger.Warn("record SSH-bootstrapped worker failed", "target", res.Target, "err", err)
 		return
 	}
 	s.markSetupCompleted(ctx)
+	s.attach.ensure(row)
 	if s.hub.IsWorkerConnected(row.ID) {
 		s.hub.broadcastWorkerView(ctx, row.ID)
 		return
@@ -583,11 +573,13 @@ func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapRes
 	}
 }
 
-// StartLaunchReconciler starts, after grace, every configured machine (launch local or
-// ssh) whose daemon has not reconnected on its own: one attempt per machine per hub run
-// (POST /api/workers/{id}/start retries). The grace lets running daemons reconnect first.
+// StartLaunchReconciler attaches to every ssh and local machine right away and, after
+// grace, starts every configured machine (launch local or ssh) that is still not
+// connected: one attempt per machine per hub run (POST /api/workers/{id}/start retries).
+// The grace lets running daemons attach (or reconnect) first.
 func (s *Server) StartLaunchReconciler(grace time.Duration) {
 	s.hub.goBackground(func(ctx context.Context) {
+		s.startAttachers(ctx)
 		t := time.NewTimer(grace)
 		defer t.Stop()
 		select {

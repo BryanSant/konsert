@@ -95,6 +95,13 @@ type Daemon struct {
 	// WakeLockGrace is how long a host wake lock outlives a lost hub connection
 	// (DefaultWakeLockGrace when zero).
 	WakeLockGrace time.Duration
+
+	// SocketPath overrides LocalSocketPath for the local socket (tests).
+	SocketPath string
+	// attachMu guards the current attached connection (see daemon_local.go).
+	attachMu     sync.Mutex
+	attachCancel context.CancelFunc
+	attachDone   chan struct{}
 }
 
 // activityKeep is how long a finished session's last activity is kept for re-sending
@@ -288,6 +295,9 @@ func (d *Daemon) reloadCredential() bool {
 // Run runs the reconnect loop until ctx is canceled.
 // Active tasks stay alive across transient controller disconnects and are re-adopted on reconnect.
 func (d *Daemon) Run(ctx context.Context) error {
+	if strings.TrimSpace(d.cfg.ControllerURL) == "" {
+		return d.runLocal(ctx)
+	}
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 
@@ -385,11 +395,19 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 		}
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}
+	return d.serveConn(ctx, ctx, conn, d.cfg.ControllerURL)
+}
+
+// serveConn speaks the worker protocol on one hub connection, outbound or attached,
+// until it ends. daemonCtx bounds what outlives the connection (tasks it starts);
+// connParent ends the connection (a newer attach supersedes an older one).
+func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocket.Conn, peer string) error {
+	ctx := daemonCtx
 	conn.SetReadLimit(20 * 1024 * 1024)
 	defer conn.Close(websocket.StatusNormalClosure, "shutdown")
 	go PruneScratchAttachments("", AttachmentTTL)
 
-	connCtx, connCancel := context.WithCancel(ctx)
+	connCtx, connCancel := context.WithCancel(connParent)
 	defer connCancel()
 
 	queues := newConnQueues()
@@ -448,8 +466,8 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	for _, a := range d.activity.Snapshot() {
 		d.sendJSON(protocol.MsgSessionActivity, a)
 	}
-	d.logger.Info("connected to controller",
-		"url", d.cfg.ControllerURL,
+	d.logger.Info("connected to hub",
+		"via", peer,
 		"worker_id", d.cfg.WorkerID,
 		"agents", hello.Worker.Agents,
 		"permission_mode", permMode,

@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -30,9 +29,9 @@ import (
 //
 //   - a manual machine trades a short-lived, single-use join code for one
 //     (`konsertd join <hub> <code>`, POST /api/machines/join);
-//   - the hub mints one when it installs konsertd itself (its own machine, or over SSH)
-//     and hands it to `konsertd install --credential-stdin`. (SSH machines move to an
-//     SSH transport later, which bypasses authenticateMachine entirely.)
+//   - machines the hub installs itself (its own machine, or over SSH) need none: the
+//     hub attaches to them over their local socket, directly or over SSH, and SSH is
+//     the auth (KON-K1B60; see transport.go).
 //
 // Revoking a machine's credential, or rotating (which revokes manual machines'
 // credentials so they re-join with a new code), disconnects it immediately.
@@ -80,11 +79,13 @@ func newMachineAuth() *machineAuth {
 
 func (m *machineAuth) clock() time.Time { return m.now().UTC() }
 
-// boundMachine is the machine a /ws/worker connection's credential belongs to.
+// boundMachine is the machine a worker connection belongs to: the one its /ws/worker
+// credential was issued to, or the one the hub attached to (via ssh or local).
 type boundMachine struct {
 	workerID string
 	credID   string
 	credSID  string
+	via      string
 }
 
 type boundMachineKey struct{}
@@ -162,51 +163,6 @@ func (s *Server) revokeAndDisconnect(ctx context.Context, workerID, reason strin
 	}
 	s.hub.disconnectWorkerWith(workerID, protocol.WSCloseCredentialRevoked, "machine credential revoked")
 	return n, nil
-}
-
-// provisionCred mints at most one credential during one provisioning run (local
-// install or SSH bootstrap) and settles the machine's credentials afterwards.
-type provisionCred struct {
-	s      *Server
-	source string
-	cred   store.MachineCredential
-	minted bool
-}
-
-func (s *Server) newProvisionCred(source string) *provisionCred {
-	return &provisionCred{s: s, source: source}
-}
-
-// mint returns a new credential for workerID (BootstrapOptions.Credential).
-func (p *provisionCred) mint(ctx context.Context, workerID string) (string, error) {
-	if p.minted {
-		return "", errors.New("credential already issued for this run")
-	}
-	tok, cred, err := p.s.mintMachineCredential(ctx, workerID, p.source)
-	if err != nil {
-		return "", fmt.Errorf("issue machine credential: %w", err)
-	}
-	p.cred, p.minted = cred, true
-	return tok, nil
-}
-
-// finish revokes the machine's older credentials once the new one is installed (ok),
-// or the unused new one when provisioning failed.
-func (p *provisionCred) finish(ctx context.Context, ok bool) {
-	if !p.minted {
-		return
-	}
-	ctx = context.WithoutCancel(ctx)
-	now := p.s.machines.clock()
-	if ok {
-		if _, err := p.s.store.RevokeMachineCredentials(ctx, p.cred.WorkerID, p.cred.ID, "replaced by "+p.cred.SID, now); err != nil {
-			p.s.logger.Warn("revoke replaced credentials failed", "worker_id", p.cred.WorkerID, "err", err)
-		}
-		return
-	}
-	if err := p.s.store.RevokeMachineCredential(ctx, p.cred.ID, "provisioning failed", now); err != nil {
-		p.s.logger.Warn("revoke unused credential failed", "credential", p.cred.SID, "err", err)
-	}
 }
 
 // CredentialRotation reports what a rotation did for one machine.

@@ -8,3 +8,8 @@ import "os"
 func restrictFile(path string) error {
 	return os.Chmod(path, 0o600)
 }
+
+// RestrictDir makes dir accessible by its owner only.
+func RestrictDir(dir string) error {
+	return os.Chmod(dir, 0o700)
+}

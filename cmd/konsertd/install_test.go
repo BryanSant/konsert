@@ -66,10 +66,14 @@ func TestBuildInstallConfigMergesConfigFile(t *testing.T) {
 		t.Errorf("--config must not be passed through: %v", extra)
 	}
 
-	// --credential-stdin is install's own flag, never persisted or passed through.
-	cfg, extra, _ = buildInstallConfig(parseInstall(t, "--credential-stdin"))
-	if len(extra) != 0 || cfg.Credential != "" {
-		t.Errorf("--credential-stdin leaked: cfg=%+v extra=%v", cfg, extra)
+	// --no-start is install's own flag, never persisted or passed through.
+	cfg, extra, _ = buildInstallConfig(parseInstall(t, "--no-start"))
+	if len(extra) != 0 || cfg.ControllerURL != "" {
+		t.Errorf("--no-start leaked: cfg=%+v extra=%v", cfg, extra)
+	}
+	// The hub no longer hands credentials to install: the flag is gone.
+	if err := newInstallCmd().Flags().Parse([]string{"--credential-stdin"}); err == nil {
+		t.Error("--credential-stdin must not exist")
 	}
 }
 

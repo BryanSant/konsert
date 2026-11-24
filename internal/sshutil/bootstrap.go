@@ -2,7 +2,10 @@ package sshutil
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,12 +19,12 @@ import (
 
 // BootstrapOptions controls 1-click SSH konsertd installation/startup on a remote host.
 type BootstrapOptions struct {
-	Target        string // SSH alias or [user@]host[:port]
-	ControllerURL string // ws:// or wss:// URL reachable from the remote host
-	// Credential issues the machine credential for the remote daemon once its identity
-	// (`konsertd id`) is known. It reaches `konsertd install --credential-stdin` over
-	// stdin, never argv. Nil installs without one (only a --no-auth hub accepts that).
-	Credential func(ctx context.Context, workerID string) (string, error)
+	Target string // SSH alias or [user@]host[:port]
+	// HubKey is the hub's own SSH key, allowed in the remote authorized_keys with a
+	// forced command (`konsertd attach`) so the hub can attach to the daemon afterwards
+	// (KON-K1B60). The daemon is installed without a controller URL: it serves the hub
+	// on its local socket and needs neither a machine credential nor the hub's address.
+	HubKey     *HubKeyGrant
 	Sandbox    bool
 	EnableMock bool
 	// AcceptHostKey is the SHA256 fingerprint ("SHA256:...") of the remote host key the
@@ -32,9 +35,16 @@ type BootstrapOptions struct {
 	OnStage       func(stage, label, detail string)
 }
 
+// HubKeyGrant is the hub key to allow: the hub's id (its authorized_keys marker) and
+// its public key ("ssh-ed25519 AAAA...").
+type HubKeyGrant struct {
+	HubID     string
+	PublicKey string
+}
+
 // BootstrapStage records one discrete step in the zero-touch SSH onboarding pipeline.
 type BootstrapStage struct {
-	Stage  string `json:"stage"` // "connecting" | "host_key_confirmation" | "installing_daemon" | "installing_hooks" | "configuring_service" | "ready"
+	Stage  string `json:"stage"` // "connecting" | "host_key_confirmation" | "installing_daemon" | "installing_hooks" | "authorizing_hub" | "configuring_service" | "ready"
 	Label  string `json:"label"`
 	Status string `json:"status"` // "ok" | "skipped" | "error"
 	Detail string `json:"detail,omitempty"`
@@ -60,6 +70,8 @@ type BootstrapResult struct {
 	// the --name it was installed with.
 	WorkerID string `json:"worker_id,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// KonsertdPath is the remote konsertd binary the service and the hub key run.
+	KonsertdPath string `json:"konsertd_path,omitempty"`
 	// StartDeferred is set when konsertd was installed but is not running yet: a Windows
 	// logon task only runs while the user is logged on, so it starts at the next login.
 	StartDeferred bool `json:"start_deferred,omitzero"`
@@ -87,7 +99,6 @@ func (s *session) scp(ctx context.Context, src, remotePath string) error {
 // nohupConfigFile is the YAML a POSIX host without a systemd user manager (a container,
 // WSL without systemd) runs konsertd from, under nohup.
 type nohupConfigFile struct {
-	ControllerURL    string `yaml:"controller_url"`
 	Name             string `yaml:"name"`
 	HostGroup        string `yaml:"host_group"`
 	Sandbox          bool   `yaml:"sandbox"`
@@ -95,7 +106,7 @@ type nohupConfigFile struct {
 }
 
 // writeNohupConfigCmd reads the config from stdin and writes it readable only by the
-// user. (The machine credential is not in it: `konsertd install` saved that.)
+// user.
 const writeNohupConfigCmd = `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
 	`cat > "$HOME/.konsert/konsertd-nohup.yaml.tmp" && chmod 600 "$HOME/.konsert/konsertd-nohup.yaml.tmp" && ` +
 	`mv -f "$HOME/.konsert/konsertd-nohup.yaml.tmp" "$HOME/.konsert/konsertd-nohup.yaml"`
@@ -225,29 +236,41 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 	if err != nil {
 		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("look for konsertd failed: %v", err))
 	}
-	exe, found := parseFind(findOut)
-	if exe == "" {
+	exe, found, managed := parseFind(findOut)
+	if exe == "" || managed == "" {
 		return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("unexpected reply looking for konsertd: %q", strings.TrimSpace(findOut)))
 	}
-	if !found {
-		localBin := FindKonsertd(rOS, rArch)
-		if localBin == "" {
-			return fail("installing_daemon", "Installing daemon", rOS, rArch,
-				fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary (%s) next to konsert or in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.",
-					target, rOS, rArch, konsertdFileName(rOS, rArch)))
-		}
-		if _, err := sess.ssh(ctx, sh.prepareInstall(exe), nil); err != nil {
-			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("create the konsertd directory failed: %v", err))
-		}
-		if err := sess.scp(ctx, localBin, sh.scpPath(exe)); err != nil {
-			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("scp konsertd failed: %v", err))
-		}
-		if c := sh.finishCopy(exe); c != "" {
-			if _, err := sess.ssh(ctx, c, nil); err != nil {
-				return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("chmod konsertd failed: %v", err))
+	localBin := FindKonsertd(rOS, rArch)
+	copyReason := ""
+	switch {
+	case !found && localBin == "":
+		return fail("installing_daemon", "Installing daemon", rOS, rArch,
+			fmt.Sprintf("konsertd not found on %s (%s/%s) and no matching local binary (%s) next to konsert or in bin/ or dist/. Run `make build-all` on the controller or install konsertd on the target host.",
+				target, rOS, rArch, konsertdFileName(rOS, rArch)))
+	case !found:
+		copyReason = "transferred "
+	case localBin != "":
+		// Keep the remote konsertd the same build as the hub's: an older one may lack
+		// what the hub needs (konsertd attach). An unknown hash leaves it alone.
+		if want, err := fileSHA256(localBin); err == nil {
+			out, herr := sess.ssh(ctx, sh.fileHash(exe), nil)
+			if got := parseHash(out); herr == nil && got != "" && got != want {
+				copyReason = "updated "
 			}
 		}
-		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "transferred " + exe})
+	}
+	if copyReason != "" {
+		if _, err := sess.ssh(ctx, sh.prepareInstall(managed), nil); err != nil {
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("create the konsertd directory failed: %v", err))
+		}
+		if err := sess.scp(ctx, localBin, sh.scpPath(managed)); err != nil {
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("scp konsertd failed: %v", err))
+		}
+		if _, err := sess.ssh(ctx, sh.finishCopy(managed), nil); err != nil {
+			return fail("installing_daemon", "Installing daemon", rOS, rArch, fmt.Sprintf("install the copied konsertd failed: %v", err))
+		}
+		exe = managed
+		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: copyReason + exe})
 	} else {
 		stages = append(stages, BootstrapStage{Stage: "installing_daemon", Label: "Installing daemon", Status: "ok", Detail: "already installed: " + exe})
 	}
@@ -276,36 +299,39 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		stages = append(stages, BootstrapStage{Stage: "installing_hooks", Label: "Installing hooks", Status: "skipped", Detail: hErr.Error()})
 	}
 
-	// Stage 4: Register and start the daemon (`konsertd install`).
+	// Stage 4: allow the hub key (forced command `konsertd attach`), so the hub can
+	// attach to the daemon over SSH with its own key from now on.
+	if opts.HubKey != nil {
+		notify("authorizing_hub", "Authorizing the hub", "Allowing the hub's SSH key to attach to konsertd")
+		args := []string{"hub-key", "add", "--hub", opts.HubKey.HubID, "--worker", workerID}
+		out, err := sess.ssh(ctx, sh.konsertd(exe, args, true), []byte(opts.HubKey.PublicKey+"\n"))
+		if err != nil {
+			return fail("authorizing_hub", "Authorizing the hub", rOS, rArch, fmt.Sprintf("allow the hub key failed: %v", err))
+		}
+		stages = append(stages, BootstrapStage{Stage: "authorizing_hub", Label: "Authorizing the hub", Status: "ok", Detail: strings.TrimSpace(out)})
+	}
+
+	// Stage 5: Register and start the daemon (`konsertd install`), serving the hub on
+	// its local socket (no controller URL, no credential).
 	notify("configuring_service", "Starting konsertd", "Registering konsertd to start automatically and starting it")
-	installArgs := append([]string{"install", "--controller", opts.ControllerURL}, runFlags...)
+	installArgs := append([]string{"install"}, runFlags...)
 	if opts.Sandbox {
 		installArgs = append(installArgs, "--sandbox")
 	}
 	if opts.EnableMock {
 		installArgs = append(installArgs, "--enable-mock-driver")
 	}
-	var credStdin []byte
-	if opts.Credential != nil {
-		cred, err := opts.Credential(ctx, workerID)
-		if err != nil {
-			return fail("configuring_service", "Starting konsertd", rOS, rArch, err.Error())
-		}
-		installArgs = append(installArgs, "--credential-stdin")
-		credStdin = []byte(cred + "\n")
-	}
 	serviceMode := map[string]string{"linux": "systemd", "darwin": "launchd", "windows": "schtasks"}[rOS]
 	startDeferred := false
-	if _, err := sess.ssh(ctx, sh.konsertd(exe, installArgs, credStdin != nil), credStdin); err != nil {
+	if _, err := sess.ssh(ctx, sh.konsertd(exe, installArgs, false), nil); err != nil {
 		if rOS == "windows" || !noUserManager.MatchString(err.Error()) {
 			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("konsertd install failed: %v", err))
 		}
 		// No systemd user manager (container, WSL without systemd): run it under nohup,
-		// from a config written over stdin. The hub restarts it the same way. The failed
-		// install already saved the machine credential in the state directory.
+		// from a config written over stdin. The hub restarts it the same way.
 		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name}, false), nil)
 		cfg, merr := yaml.Marshal(nohupConfigFile{
-			ControllerURL: opts.ControllerURL, Name: name, HostGroup: name,
+			Name: name, HostGroup: name,
 			Sandbox: opts.Sandbox, EnableMockDriver: opts.EnableMock,
 		})
 		if merr != nil {
@@ -350,6 +376,7 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		Message:        msg,
 		WorkerID:       workerID,
 		Name:           name,
+		KonsertdPath:   exe,
 		StartDeferred:  startDeferred,
 	}
 }
@@ -373,18 +400,46 @@ func isWindowsUname(osName string) bool {
 	return false
 }
 
-// parseFind parses findKonsertd's "found:<path>" / "missing:<path>" reply.
-func parseFind(out string) (path string, found bool) {
+// parseFind parses findKonsertd's reply: "found:<path>" or "missing:<path>", and
+// "managed:<path>", where the hub installs its own copy.
+func parseFind(out string) (path string, found bool, managed string) {
 	for _, l := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
 		l = strings.TrimSpace(l)
-		if p, ok := strings.CutPrefix(l, "found:"); ok && p != "" {
-			return p, true
+		if p, ok := strings.CutPrefix(l, "found:"); ok && p != "" && path == "" {
+			path, found = p, true
 		}
-		if p, ok := strings.CutPrefix(l, "missing:"); ok && p != "" {
-			return p, false
+		if p, ok := strings.CutPrefix(l, "missing:"); ok && p != "" && path == "" {
+			path = p
+		}
+		if p, ok := strings.CutPrefix(l, "managed:"); ok && p != "" {
+			managed = p
 		}
 	}
-	return "", false
+	return path, found, managed
+}
+
+// parseHash returns the first SHA-256 hex digest in a hash command's output, lower case.
+func parseHash(out string) string {
+	for _, f := range strings.Fields(out) {
+		if len(f) == 64 && strings.Trim(strings.ToLower(f), "0123456789abcdef") == "" {
+			return strings.ToLower(f)
+		}
+	}
+	return ""
+}
+
+// fileSHA256 hashes a local file.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // notRunning reports `konsertd status` output saying the daemon is not running.

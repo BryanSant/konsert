@@ -50,12 +50,7 @@ export function ago(iso: string | undefined, now = Date.now()): string {
           }
         } @else {
           <div class="text-[#c8cad0]" data-testid="credential-none">
-            No active credential.
-            @if (worker().launch === 'local' || worker().launch === 'ssh') {
-              The hub issues a new one when it starts this machine.
-            } @else {
-              Join it again with a code from Add machine → Manual.
-            }
+            No active credential. Join it again with a code from Add machine → Manual.
           </div>
         }
       } @else if (error()) {

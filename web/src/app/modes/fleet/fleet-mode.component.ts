@@ -34,6 +34,8 @@ import {
   stripTicks,
   subagentChip,
   subagentText,
+  transportHint,
+  transportLabel,
 } from './fleet-logic';
 import { SubagentActivity } from '../../core/models/activity.models';
 
@@ -121,6 +123,9 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                       <button type="button" class="ks-focusable rounded-sm text-left" [attr.aria-current]="selectedSid() === r.w.sid ? 'true' : null" (click)="select(r.w)">{{ r.w.name }}</button>
                     </h3>
                     <span class="ks-badge" [attr.data-badge]="r.badge">{{ r.badge }}</span>
+                    <span class="ks-badge ks-transport" data-testid="machine-transport" [attr.data-transport]="transportLabel(r.w)" [ksTooltip]="transportHint(r.w)"
+                      ><span class="ks-sr-only">transport </span>{{ transportLabel(r.w) }}</span
+                    >
                     @if (versionMismatch(r.w); as note) {
                       <span class="ks-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [ksTooltip]="note">VERSION</span>
                     }
@@ -543,6 +548,13 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     }
+    .ks-transport {
+      background: transparent;
+      color: var(--ks-text-secondary);
+    }
+    .ks-transport[data-transport='ssh'] {
+      color: #9ec5ff;
+    }
   `,
 })
 export class FleetModeComponent {
@@ -678,6 +690,9 @@ export class FleetModeComponent {
   slots(n: number): number[] {
     return Array.from({ length: Math.min(n, 6) });
   }
+
+  readonly transportLabel = transportLabel;
+  readonly transportHint = transportHint;
 
   offlineText(w: Worker): string {
     if (w.launch_state === 'starting') return 'starting konsertd…';

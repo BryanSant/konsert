@@ -33,6 +33,23 @@ export function machineBadge(w: Worker, running: number): MachineBadge {
 }
 
 /** "macOS · arm64 · 10c / 16G" */
+/** The transport a machine row shows: how its konsertd reaches the hub. */
+export function transportLabel(w: Worker): string {
+  return w.transport === 'ssh' ? 'ssh' : w.transport === 'local' ? 'local' : 'outbound';
+}
+
+/** One line on what the transport means, for its tooltip and Details. */
+export function transportHint(w: Worker): string {
+  switch (w.transport) {
+    case 'ssh':
+      return `The hub attaches over SSH (${w.ssh_target || w.name}) with its own key; no credential`;
+    case 'local':
+      return "The hub's own machine: the hub attaches to konsertd's local socket";
+    default:
+      return 'konsertd connects out to the hub with its machine credential';
+  }
+}
+
 export function machineSpec(w: Worker): string {
   const os = w.facts?.os_name || (w.os === 'darwin' ? 'macOS' : w.os);
   const cores = w.facts?.cpu_cores ? `${w.facts.cpu_cores}c` : '';

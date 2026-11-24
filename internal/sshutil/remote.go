@@ -11,18 +11,21 @@ import (
 // get sh command lines; Windows hosts (whose OpenSSH lands in PowerShell or cmd.exe) get
 // `powershell -EncodedCommand`, which both shells run verbatim, with no quoting to get wrong.
 type remoteShell interface {
-	// findKonsertd prints "found:<path>" or "missing:<path to install to>".
+	// findKonsertd prints "found:<path>" or "missing:<path to install to>", and
+	// "managed:<path>", where the hub installs (or updates) its own copy.
 	findKonsertd() string
+	// fileHash prints the SHA-256 of path.
+	fileHash(path string) string
 	// prepareInstall creates the directory the binary is copied to.
 	prepareInstall(exePath string) string
-	// scpPath is the scp destination path for exePath.
+	// scpPath is the scp destination for a new copy of exePath (next to it, ".new").
 	scpPath(exePath string) string
-	// finishCopy runs after scp (chmod on POSIX).
+	// finishCopy moves the new copy into place (a running binary is replaced safely).
 	finishCopy(exePath string) string
-	// konsertd runs exe with args. With credOnStdin, the first stdin line reaches
-	// konsertd's stdin (for --credential-stdin; never argv). A failure's output goes to
+	// konsertd runs exe with args. With stdinLine, the first stdin line reaches
+	// konsertd's stdin (secrets and keys never go in argv). A failure's output goes to
 	// stderr, so it ends up in the returned error.
-	konsertd(exe string, args []string, credOnStdin bool) string
+	konsertd(exe string, args []string, stdinLine bool) string
 }
 
 // shQuote quotes s for POSIX sh.
@@ -46,14 +49,25 @@ type posixShell struct{}
 const posixUserBin = "$HOME/.local/bin/konsertd"
 
 func (posixShell) findKonsertd() string {
-	return `if P=$(command -v konsertd); then echo "found:$P"; elif [ -x "` + posixUserBin + `" ]; then echo "found:` + posixUserBin + `"; else echo "missing:` + posixUserBin + `"; fi`
+	return `if P=$(command -v konsertd); then echo "found:$P"; elif [ -x "` + posixUserBin + `" ]; then echo "found:` + posixUserBin + `"; else echo "missing:` + posixUserBin + `"; fi; echo "managed:` + posixUserBin + `"`
+}
+
+func (posixShell) fileHash(path string) string {
+	p := shQuote(path)
+	return `if command -v sha256sum >/dev/null 2>&1; then sha256sum -- ` + p + `; else shasum -a 256 -- ` + p + `; fi`
 }
 
 func (posixShell) prepareInstall(string) string { return `mkdir -p "$HOME/.local/bin"` }
 
-func (posixShell) scpPath(string) string { return "~/.local/bin/konsertd" }
+// scpPath is relative to the home directory, where the managed copy lives.
+func (posixShell) scpPath(string) string { return "~/.local/bin/konsertd.new" }
 
-func (posixShell) finishCopy(string) string { return `chmod +x "` + posixUserBin + `"` }
+// finishCopy renames the new copy over the old one: a running daemon keeps its inode
+// (writing into a running binary would fail with ETXTBSY).
+func (posixShell) finishCopy(exePath string) string {
+	p := shQuote(exePath)
+	return `chmod +x ` + shQuote(exePath+".new") + ` && mv -f ` + shQuote(exePath+".new") + ` ` + p
+}
 
 func (posixShell) konsertd(exe string, args []string, _ bool) string {
 	// exe is the absolute path findKonsertd printed (the shell expanded $HOME there).
@@ -130,32 +144,45 @@ func (windowsShell) findKonsertd() string {
 	return encodePS(`$p = Join-Path $env:LOCALAPPDATA 'Programs\konsertd\konsertd.exe'
 if (Test-Path -LiteralPath $p) { "found:$p" }
 elseif ($c = Get-Command konsertd.exe -ErrorAction SilentlyContinue) { "found:" + $c.Source }
-else { "missing:$p" }`)
+else { "missing:$p" }
+"managed:$p"`)
+}
+
+func (windowsShell) fileHash(path string) string {
+	return encodePS(`(Get-FileHash -Algorithm SHA256 -LiteralPath ` + psQuote(path) + `).Hash`)
 }
 
 func (windowsShell) prepareInstall(exePath string) string {
 	return encodePS(`New-Item -ItemType Directory -Force -Path (Split-Path -Parent ` + psQuote(exePath) + `) | Out-Null`)
 }
 
-// scpPath turns C:\Users\me\x.exe into /C:/Users/me/x.exe, the form Windows OpenSSH's
-// SFTP server accepts for an absolute path.
+// scpPath turns C:\Users\me\x.exe into /C:/Users/me/x.exe.new, the form Windows
+// OpenSSH's SFTP server accepts for an absolute path.
 func (windowsShell) scpPath(exePath string) string {
-	p := strings.ReplaceAll(exePath, `\`, "/")
+	p := strings.ReplaceAll(exePath+".new", `\`, "/")
 	if len(p) >= 2 && p[1] == ':' {
 		p = "/" + p
 	}
 	return p
 }
 
-func (windowsShell) finishCopy(string) string { return "" }
+// finishCopy moves the new copy into place. A running exe cannot be overwritten on
+// Windows but can be renamed, so the old one is moved aside first.
+func (windowsShell) finishCopy(exePath string) string {
+	p := psQuote(exePath)
+	return encodePS(`$p = ` + p + `
+Remove-Item -LiteralPath "$p.old" -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $p) { Move-Item -LiteralPath $p -Destination "$p.old" -Force }
+Move-Item -LiteralPath "$p.new" -Destination $p -Force`)
+}
 
-func (windowsShell) konsertd(exe string, args []string, credOnStdin bool) string {
+func (windowsShell) konsertd(exe string, args []string, stdinLine bool) string {
 	var b strings.Builder
 	pipe := ""
-	if credOnStdin {
-		// The credential is piped to konsertd's stdin, never put in argv.
-		b.WriteString("$cred = [Console]::In.ReadLine()\n")
-		pipe = "$cred | "
+	if stdinLine {
+		// The line is piped to konsertd's stdin, never put in argv.
+		b.WriteString("$line = [Console]::In.ReadLine()\n")
+		pipe = "$line | "
 	}
 	quoted := make([]string, len(args))
 	for i, a := range args {

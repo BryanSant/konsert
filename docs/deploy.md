@@ -117,8 +117,9 @@ tailscale serve status
 ```
 
 The controller is now at `https://<host>.<tailnet>.ts.net`. Set `public_url` to exactly that
-URL: it is the allowed browser origin and the controller URL handed to SSH-bootstrapped
-workers.
+URL: it is the allowed browser origin, the URL `konsertd join` commands point at, and the
+URL agents on other machines use for the hub's per-chat MCP tools. Machines added over SSH
+never need to reach it: the hub connects to them.
 
 ### Identity headers (`trust_tailscale_headers`)
 
@@ -134,11 +135,14 @@ Never enable `trust_tailscale_headers` behind a proxy other than Tailscale Serve
 
 ### Workers over WSS
 
+Machines added over SSH use the SSH transport (section 5) and need no route to the hub.
+Machines the hub cannot SSH into join with a code and connect out:
+
 ```bash
 konsertd join https://<host>.<tailnet>.ts.net ABCD-EFGH   # code from Add machine → Manual
 ```
 
-Workers authenticate with their own machine credential (the identity header is not used
+They authenticate with their own machine credential (the identity header is not used
 for `/ws/worker`) and reconnect with backoff if the controller restarts.
 
 ### Verification checklist
@@ -197,13 +201,32 @@ server {
 
 ## 5. Workers
 
-Each worker needs the controller URL, as a flag, an environment variable
-(`KONSERT_CONTROLLER_URL`, `KONSERT_WORKER_NAME`, ...) or a YAML file, and its own machine
-credential:
+A worker reaches the hub one of three ways (Fleet shows it as the machine's transport):
 
-- **Add machine** in the PWA adds the hub's own machine and SSH hosts with one click: the
-  hub installs konsertd and hands it a credential over stdin.
-- Any other machine joins with a one-time code. **Add machine → Manual** shows one command,
+- **ssh**: **Add machine → SSH** installs (or upgrades) konsertd over your SSH access and
+  starts it without a controller URL. konsertd then serves the hub on a local socket,
+  `~/.konsert/run/<worker id>.sock` (AF_UNIX on every OS, in a directory only you can open),
+  and the hub attaches to it over SSH with **its own key**, never yours:
+  `konsert-hub-ssh-key` next to the database (0600). Bootstrap adds that key to the
+  machine's `~/.ssh/authorized_keys` (for members of Administrators on Windows,
+  `%ProgramData%\ssh\administrators_authorized_keys`, with the ACL sshd requires),
+  restricted to a forced command:
+
+  ```text
+  command="/home/me/.local/bin/konsertd attach --allow=<worker id>",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAA... konsert-hub:<hub id>
+  ```
+
+  `konsertd attach` only bridges the SSH session to the socket. SSH is the auth: no machine
+  credential, and the hub's port never has to be reachable from the machine (keep it on
+  127.0.0.1 behind Tailscale Serve). The hub keeps one `ssh` per machine (keepalives,
+  pinned host keys from `known_hosts`, `BatchMode`), re-dials with backoff when the link
+  drops, and the daemon re-sends its live sessions, so agents survive dropped links and
+  hub restarts. Removing the machine drops its id from that line (the line goes with the
+  last id); konsertd stops.
+- **local**: **Add machine → This machine** runs `konsertd install` on the hub's machine;
+  the hub attaches to the same local socket directly, without SSH or a credential.
+- **outbound**: any other machine joins with a one-time code and connects out to the hub
+  with its own machine credential. **Add machine → Manual** shows one command,
   e.g. `konsertd join https://konsert-hub.example-tailnet.ts.net ABCD-EFGH`. The code is
   single use, expires after 15 minutes and is rate-limited. `join` trades it for the
   machine's credential, saves it in `~/.konsert/credentials/` (readable only by you) and
@@ -228,6 +251,9 @@ max_concurrent: 2
 ```
 
 Check a host with `konsertd doctor`.
+
+`controller_url` (or `--controller`, `KONSERT_CONTROLLER_URL`) is only for outbound
+machines; without it konsertd serves the local socket.
 
 konsertd keeps its stable worker ID, machine ID, credential and status outbox in
 `~/.konsert` (override with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate

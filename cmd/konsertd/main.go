@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -44,6 +43,7 @@ func main() {
 	rootCmd.AddCommand(newDaemonMCPCmd())
 	rootCmd.AddCommand(newMCPBridgeCmd())
 	rootCmd.AddCommand(newJoinCmd(), newInstallCmd(), newUninstallCmd(), newStatusCmd())
+	rootCmd.AddCommand(newAttachCmd(), newHubKeyCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsertd", err)
@@ -56,7 +56,6 @@ func main() {
 type runOptions struct {
 	configPath       string
 	controllerURL    string
-	credentialStdin  bool
 	workerID         string
 	name             string
 	hostGroup        string
@@ -72,8 +71,7 @@ type runOptions struct {
 
 func (o *runOptions) bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.configPath, "config", "c", "", "Path to worker YAML config file")
-	fs.StringVar(&o.controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
-	fs.BoolVar(&o.credentialStdin, "credential-stdin", false, "Read this machine's credential from stdin and save it (the hub uses this; people use konsertd join)")
+	fs.StringVar(&o.controllerURL, "controller", "", "Hub WebSocket URL to connect out to (joined machines); empty: serve the hub on the local socket")
 	fs.StringVar(&o.workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
 	fs.StringVar(&o.name, "name", "", "Worker display name (defaults to hostname)")
 	fs.StringVar(&o.hostGroup, "host-group", "", "Physical host group name (defaults to name)")
@@ -136,21 +134,18 @@ func newRunCmd() *cobra.Command {
 	var o runOptions
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Start the konsertd worker daemon and connect outbound to konsert",
+		Short: "Start the konsertd worker daemon",
+		Long: `Start the konsertd worker daemon.
+
+Without --controller (machines the hub added itself, locally or over SSH), konsertd
+serves the hub on its local socket, ~/.konsert/run/<worker id>.sock, and the hub
+attaches to it: directly on the hub's machine, over SSH (konsertd attach) elsewhere.
+With --controller (machines joined with a code), it connects out to the hub with its
+machine credential.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := o.resolve(cmd.Flags())
 			if err != nil {
 				return err
-			}
-			if o.credentialStdin {
-				cred, err := readLine(bufio.NewReader(cmd.InOrStdin()))
-				if err != nil {
-					return fmt.Errorf("read the credential from stdin: %w", err)
-				}
-				cfg.Credential = cred
-				if err := worker.SaveCredential("", worker.WorkerIDFor(cfg), cred); err != nil {
-					return fmt.Errorf("save the machine credential: %w", err)
-				}
 			}
 			return runWorker(cmd, &o, cfg)
 		},
@@ -171,11 +166,11 @@ func runWorker(cmd *cobra.Command, o *runOptions, cfg config.WorkerConfig) error
 		logOut = f
 	}
 	logger := logx.New(logOut, slog.LevelInfo)
-	if cfg.Credential == "" {
+	if cfg.ControllerURL != "" && cfg.Credential == "" {
 		cfg.Credential, _ = worker.LoadCredential("", worker.WorkerIDFor(cfg))
-	}
-	if cfg.Credential == "" {
-		logger.Warn("no machine credential; only a --no-auth hub accepts this")
+		if cfg.Credential == "" {
+			logger.Warn("no machine credential; only a --no-auth hub accepts this")
+		}
 	}
 	daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
 	sandboxShell := o.sandboxShell
@@ -218,7 +213,6 @@ id. The hub runs this (locally or over SSH) to know a host before its daemon con
 	}
 	o.bind(cmd.Flags())
 	_ = cmd.Flags().MarkHidden("log-file")
-	_ = cmd.Flags().MarkHidden("credential-stdin")
 	return cmd
 }
 
@@ -324,6 +318,10 @@ func newDoctorCmd() *cobra.Command {
 			}
 
 			// Optional controller health check.
+			if cfg.ControllerURL == "" {
+				fmt.Printf("  [OK] hub      -> local socket %s (the hub attaches)\n", worker.LocalSocketPath("", worker.WorkerIDFor(cfg)))
+				return nil
+			}
 			healthURL := strings.Replace(cfg.ControllerURL, "ws://", "http://", 1)
 			healthURL = strings.Replace(healthURL, "wss://", "https://", 1)
 			healthURL = strings.TrimSuffix(healthURL, "/ws/worker") + "/api/health"
@@ -340,7 +338,7 @@ func newDoctorCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
-	cmd.Flags().StringVar(&controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
+	cmd.Flags().StringVar(&controllerURL, "controller", "", "Hub WebSocket URL to check (default: the config's; empty: local socket)")
 	cmd.Flags().BoolVar(&sandbox, "sandbox", false, "Check with sandboxed permission posture")
 	cmd.Flags().BoolVar(&enableMockDriver, "enable-mock-driver", false, "Include mock driver in output")
 	return cmd

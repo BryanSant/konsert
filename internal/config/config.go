@@ -68,6 +68,9 @@ type OrchestratorConfig struct {
 
 // WorkerConfig holds configuration for the konsertd worker daemon.
 type WorkerConfig struct {
+	// ControllerURL is the hub's /ws/worker URL for a machine that connects outbound
+	// (joined with a code). Empty: konsertd serves the hub on its local socket instead,
+	// which the hub reaches directly or over SSH (KON-K1B60).
 	ControllerURL    string            `yaml:"controller_url"`
 	WorkerID         string            `yaml:"worker_id"`
 	Name             string            `yaml:"name"`
@@ -125,7 +128,6 @@ func DefaultWorkerConfig() WorkerConfig {
 		host = "worker"
 	}
 	return WorkerConfig{
-		ControllerURL: "ws://127.0.0.1:8420/ws/worker",
 		Name:          host,
 		HostGroup:     host,
 		Isolation:     detectIsolation(),

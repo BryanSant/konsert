@@ -63,6 +63,17 @@ const (
 	WSCloseTryAgainLater = 1013
 )
 
+// The local-socket transport (KON-K1B60): the hub (or `konsertd attach` on its behalf,
+// over SSH) opens a WebSocket on konsertd's local socket at AttachPath and speaks the
+// same worker protocol as on /ws/worker, with the roles of who dials reversed.
+const (
+	// AttachPath is the HTTP path of the WebSocket upgrade on the local socket.
+	AttachPath = "/konsertd/attach"
+	// HubIDHeader carries the attaching hub's id, so konsertd knows which
+	// authorized_keys line to drop when that hub removes the machine.
+	HubIDHeader = "X-Konsert-Hub"
+)
+
 // Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
 const (
 	TaskOriginOrchestrator = "orchestrator"

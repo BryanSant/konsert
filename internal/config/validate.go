@@ -89,8 +89,10 @@ func ValidateProvider(p string) error {
 // Validate checks the worker config. Callers (konsertd) should invoke it after loading.
 func (w WorkerConfig) Validate() error {
 	var errs []error
-	if err := validateURL("controller_url", w.ControllerURL, "ws", "wss"); err != nil {
-		errs = append(errs, err)
+	if strings.TrimSpace(w.ControllerURL) != "" {
+		if err := validateURL("controller_url", w.ControllerURL, "ws", "wss"); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	iso := strings.ToLower(strings.TrimSpace(w.Isolation))
 	found := false
