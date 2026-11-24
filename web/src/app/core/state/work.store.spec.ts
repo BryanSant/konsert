@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionActivity } from '../models/activity.models';
 import { ChatSession, Project, Repo, Task, Worker } from '../models/konsert.models';
 import { ApiClientService } from '../services/api-client.service';
-import { activityFromTaskStatus, bucketOf, groupWork, heatLevelOf, taskNow, taskTitle } from './activity-logic';
+import { activityFromTaskStatus, bucketOf, groupWork, heatLevelOf, nowTitle, taskNow, taskTitle } from './activity-logic';
 import { ActivityStore } from './activity.store';
 import { FleetStore } from './fleet.store';
 import { OrchestratorStore } from './orchestrator.store';
@@ -73,6 +73,18 @@ describe('activity logic', () => {
       source: 'activity',
     });
     expect(taskNow({ ...t, narration: 'Porting the card' }, act({ task_id: 'a' }, 'working', { label: 'x' })).source).toBe('orchestrator');
+  });
+
+  it("shows the hub's summary of the running tool and keeps the raw label as the hover title", () => {
+    const raw = 'Bash: cd /private/var/tmp/konsert-live/x && python -m pytest -q';
+    const a = act({ task_id: 'a' }, 'working', { tool: 'Bash', label: raw, summary: 'running tests' });
+    const t = task('a', 'running', { title: 'Word count' });
+    expect(taskNow(t, a)).toEqual({ text: 'running tests', source: 'activity' });
+    expect(nowTitle(a)).toBe(raw);
+    expect(nowTitle(act({ task_id: 'a' }, 'thinking', { label: 'old' }))).toBeUndefined();
+    const [g] = groupWork({ projects: [defProj], repos: [], tasks: [t], chats: [], activityOf: () => a });
+    expect(g.items[0].now).toBe('running tests');
+    expect(g.items[0].nowTitle).toBe(raw);
   });
 
   it('maps heat scores to levels at the documented thresholds', () => {

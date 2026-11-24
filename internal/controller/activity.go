@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/nowline"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 )
@@ -24,6 +25,8 @@ const maxActivityEntries = 2000
 type activityState struct {
 	mu      sync.Mutex
 	entries map[string]protocol.SessionActivity
+	// dirs caches each session's working directory (see activityDir).
+	dirs map[string]string
 }
 
 // activityList returns every known session activity, newest first.
@@ -53,6 +56,10 @@ func (h *Hub) setActivity(a protocol.SessionActivity) {
 	}
 	if a.At.IsZero() {
 		a.At = time.Now().UTC()
+	}
+	a.Summary = ""
+	if a.State == protocol.ActivityWorking && (a.Label != "" || a.Tool != "") {
+		a.Summary = nowline.Summarize(a.Tool, a.Label, nowline.Context{Dir: h.activityDir(a)})
 	}
 	key := a.Key()
 	h.activity.mu.Lock()
@@ -113,6 +120,7 @@ func (h *Hub) pruneActivityLocked() {
 func (h *Hub) forgetActivity(key string) {
 	h.activity.mu.Lock()
 	delete(h.activity.entries, key)
+	delete(h.activity.dirs, key)
 	h.activity.mu.Unlock()
 }
 
@@ -141,7 +149,7 @@ func (h *Hub) onSessionActivity(ctx context.Context, wc *workerConn, env protoco
 		}
 	}
 	a.WorkerID = wc.id
-	a.Label = oneLine(a.Label, 160)
+	a.Label = oneLine(a.Label, maxActivityLabel(a.Label))
 	h.setActivity(a)
 }
 
@@ -236,4 +244,49 @@ func (h *Hub) hubChatActivity(cs store.ChatSession, ev protocol.AgentChatEvent) 
 		return
 	}
 	h.setActivity(a)
+}
+
+// maxActivityLabel caps a reported label (runes): one line, or a few joined lines of
+// tool calls running at once (nowline.Separator).
+func maxActivityLabel(label string) int {
+	if strings.Contains(label, nowline.Separator) {
+		return 600
+	}
+	return 160
+}
+
+// activityDir is the session's working directory, for shortening paths in its now line:
+// a task's checkout (effective dir, else workdir) or a chat's cwd. Cached per session.
+func (h *Hub) activityDir(a protocol.SessionActivity) string {
+	if h.store == nil {
+		return ""
+	}
+	key := a.Key()
+	h.activity.mu.Lock()
+	dir, ok := h.activity.dirs[key]
+	h.activity.mu.Unlock()
+	if ok {
+		return dir
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if a.ChatID != "" {
+		if cs, err := h.store.GetChatSession(ctx, a.ChatID); err == nil {
+			dir = cs.Cwd
+		}
+	} else if t, err := h.store.GetTask(ctx, a.TaskID); err == nil {
+		dir = firstNonEmpty(t.EffectiveDir, t.Workdir)
+	}
+	if dir != "" {
+		h.activity.mu.Lock()
+		if h.activity.dirs == nil {
+			h.activity.dirs = map[string]string{}
+		}
+		if len(h.activity.dirs) > maxActivityEntries {
+			clear(h.activity.dirs)
+		}
+		h.activity.dirs[key] = dir
+		h.activity.mu.Unlock()
+	}
+	return dir
 }

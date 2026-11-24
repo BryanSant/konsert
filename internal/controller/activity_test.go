@@ -47,9 +47,11 @@ func TestSessionActivityFlowsToBrowsersFromItsHostOnly(t *testing.T) {
 
 	// Another worker cannot report activity for a task it doesn't host.
 	w2.send(protocol.MsgSessionActivity, protocol.SessionActivity{TaskID: res.TaskID, State: protocol.ActivitySpeaking, At: time.Now()})
-	w1.send(protocol.MsgSessionActivity, protocol.SessionActivity{TaskID: res.TaskID, State: protocol.ActivityWorking, Tool: "Bash", Label: "Run: go test\n./...", At: time.Now()})
+	w1.send(protocol.MsgSessionActivity, protocol.SessionActivity{TaskID: res.TaskID, State: protocol.ActivityWorking, Tool: "Bash", Label: "Run: cd /repo && go test\n./...", At: time.Now()})
 	a := nextActivity(t, browser, key, 3*time.Second)
-	if a.State != protocol.ActivityWorking || a.Tool != "Bash" || a.WorkerID != "w-1" || strings.Contains(a.Label, "\n") {
+	// The hub adds the readable now line and keeps the raw label.
+	if a.State != protocol.ActivityWorking || a.Tool != "Bash" || a.WorkerID != "w-1" || strings.Contains(a.Label, "\n") ||
+		a.Summary != "running tests" || !strings.HasPrefix(a.Label, "Run: cd /repo") {
 		t.Fatalf("activity %+v, want working Bash from w-1 on one line", a)
 	}
 	if got, _ := th.h.sessionActivity(key); got.State != protocol.ActivityWorking {
@@ -171,4 +173,26 @@ func TestHeartbeatReportsHeatToBrowsers(t *testing.T) {
 		return
 	}
 	t.Fatal("no worker update with heat")
+}
+
+func TestActivitySummaryShortensPathsAgainstTheCheckout(t *testing.T) {
+	th := newTestHub(t)
+	ctx := context.Background()
+	w := th.connectWorker(t, testWorkerInfo("w-1", "one"), nil, "w-1")
+	browser := th.dialBrowser(t)
+	res, err := th.svc.DispatchTask(ctx, DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w-1"}, Agent: "mock", RepoPath: "/home/dev/wc", Prompt: "count words"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "task:" + res.TaskID
+	nextActivity(t, browser, key, 3*time.Second) // queued
+	w.send(protocol.MsgSessionActivity, protocol.SessionActivity{TaskID: res.TaskID, State: protocol.ActivityWorking, Tool: "Edit", Label: "Edit: /home/dev/wc/wc.py", At: time.Now()})
+	if a := nextActivity(t, browser, key, 3*time.Second); a.Summary != "editing wc.py" || a.Label != "Edit: /home/dev/wc/wc.py" {
+		t.Fatalf("activity %+v, want summary 'editing wc.py' and the raw label", a)
+	}
+	// Not working: no summary.
+	w.send(protocol.MsgSessionActivity, protocol.SessionActivity{TaskID: res.TaskID, State: protocol.ActivityThinking, At: time.Now()})
+	if a := nextActivity(t, browser, key, 3*time.Second); a.Summary != "" {
+		t.Fatalf("thinking activity has summary %q", a.Summary)
+	}
 }

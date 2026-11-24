@@ -129,7 +129,7 @@ const VIEW_KEY = 'konsert.work.view';
                     <td class="text-[var(--ks-text-secondary)]">{{ work.isExpedited(it.id) ? '⚑ ' : '' }}{{ it.projectName }}</td>
                     <td class="text-[var(--ks-text-secondary)]">{{ it.sessionKind === 'terminal' ? 'terminal' : it.agent }}</td>
                     <td class="text-[var(--ks-text-secondary)]">{{ it.machine }}</td>
-                    <td class="text-[var(--ks-text-muted)] max-w-[320px] truncate">{{ it.now }}</td>
+                    <td class="text-[var(--ks-text-muted)] max-w-[320px] truncate" [attr.title]="it.nowTitle || null">{{ it.now }}</td>
                   </tr>
                 }
               </tbody>

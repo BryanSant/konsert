@@ -26,8 +26,17 @@ export interface SessionActivity {
   state: ActivityState;
   /** The running tool (working). */
   tool?: string;
-  /** A short human line: the tool call's title, the question asked, the error. */
+  /**
+   * A short human line: the tool call's raw title ("Run: cd /x && go test ./..."; calls
+   * running at once joined with " · "), the question asked, the error.
+   */
   label?: string;
+  /**
+   * The readable now line of a working session ("running tests", "editing wc.py"), made
+   * by the hub (internal/nowline) with paths shortened against the checkout. Shown
+   * instead of the label, which stays available as the line's hover title.
+   */
+  summary?: string;
   /** Output rate while speaking (estimated, ~4 characters per token). */
   tokens_per_sec?: number;
   /** Best-effort state from a weak signal (session log, hooks, process inspection). */
@@ -108,6 +117,8 @@ export interface WorkItem {
   /** The one-line "now": the orchestrator's narration, else the live tool label, else facts. */
   now: string;
   nowSource: NarrationSource;
+  /** The full tool line behind a summarised now (hover title); absent when not working. */
+  nowTitle?: string;
   ticketId?: string;
   ticketTitle?: string;
   activity: SessionActivity;

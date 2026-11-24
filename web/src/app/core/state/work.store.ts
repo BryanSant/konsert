@@ -131,7 +131,7 @@ export class WorkStore {
     return built.map((it) => {
       const a = narrated[`${it.kind}:${it.id}`];
       if (!a || !it.live || (a.nowSource !== 'orchestrator' && a.nowSource !== 'activity') || !a.now) return it;
-      return { ...it, now: a.now };
+      return { ...it, now: a.now, nowTitle: a.nowTitle };
     });
   });
 

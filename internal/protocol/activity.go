@@ -44,8 +44,13 @@ type SessionActivity struct {
 	State string `json:"state"`
 	// Tool is the running tool's name (working) and Label a short human line: the tool
 	// call's title ("Run: go test ./..."), the question being asked, the error.
+	// Tool calls running at the same time are joined in Label with nowline.Separator.
 	Tool  string `json:"tool,omitempty"`
 	Label string `json:"label,omitempty"`
+	// Summary is the readable "now" line for a working session ("running tests",
+	// "editing wc.py"), set by the hub from Tool and Label with paths shortened against
+	// the session's checkout (internal/nowline). Label stays the raw line.
+	Summary string `json:"summary,omitempty"`
 	// TokensPerSec is the reply's output rate while speaking (estimated from the streamed
 	// text, about 4 characters per token).
 	TokensPerSec float64 `json:"tokens_per_sec,omitzero"`

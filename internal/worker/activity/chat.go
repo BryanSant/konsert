@@ -9,11 +9,15 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/BryanSant/konsert/internal/nowline"
 	"github.com/BryanSant/konsert/internal/protocol"
 )
 
 // maxLabel caps Label (runes).
 const maxLabel = 120
+
+// maxJoined caps how many concurrently running tool calls one label lists.
+const maxJoined = 4
 
 // rateWindow is the span over which the speaking output rate is measured.
 const rateWindow = 2 * time.Second
@@ -233,7 +237,18 @@ func (c *Chat) settle() {
 	}
 	if n := len(c.tools); n > 0 {
 		t := c.tools[n-1]
-		c.set(protocol.ActivityWorking, t.name, t.label)
+		if n == 1 {
+			c.set(protocol.ActivityWorking, t.name, t.label)
+			return
+		}
+		// Calls running at once (three Reads): every label, so the now line can say
+		// "reading 3 files". Each part is one short line; the latest is last.
+		from := max(0, n-maxJoined)
+		parts := make([]string, 0, n-from)
+		for _, rt := range c.tools[from:] {
+			parts = append(parts, oneLine(rt.label))
+		}
+		c.state, c.tool, c.label = protocol.ActivityWorking, t.name, strings.Join(parts, nowline.Separator)
 		return
 	}
 	if c.state == protocol.ActivityAsking || c.state == protocol.ActivityWorking {

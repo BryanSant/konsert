@@ -54,6 +54,26 @@ func TestChatTurnWalksTheStates(t *testing.T) {
 	})
 }
 
+func TestChatJoinsToolsRunningAtOnce(t *testing.T) {
+	runSteps(t, NewChat("c1"), []step{
+		{ev: status(protocol.ChatStatusWorking), state: protocol.ActivityThinking},
+		{ev: tool("r1", "Read", "Read: a.go", "running"), state: protocol.ActivityWorking, tool: "Read", label: "Read: a.go"},
+		{ev: tool("r2", "Read", "Read: b.go", "running"), state: protocol.ActivityWorking, tool: "Read", label: "Read: a.go · Read: b.go"},
+		{ev: tool("r3", "Read", "Read: c.go", "running"), state: protocol.ActivityWorking, tool: "Read", label: "Read: a.go · Read: b.go · Read: c.go"},
+		{ev: tool("r1", "Read", "Read: a.go", "completed"), state: protocol.ActivityWorking, tool: "Read", label: "Read: b.go · Read: c.go"},
+		{ev: tool("r2", "Read", "Read: b.go", "completed"), state: protocol.ActivityWorking, tool: "Read", label: "Read: c.go"},
+	})
+	// At most maxJoined labels, the latest ones.
+	c := NewChat("c2")
+	now := time.Now()
+	for i := range maxJoined + 2 {
+		c.Observe(tool(string(rune('a'+i)), "Read", "Read: "+string(rune('a'+i)), "running"), now)
+	}
+	if got := strings.Count(c.Activity(now).Label, "Read: "); got != maxJoined {
+		t.Fatalf("label %q lists %d calls, want %d", c.Activity(now).Label, got, maxJoined)
+	}
+}
+
 func TestChatAskingBlockedAndErrors(t *testing.T) {
 	el := &protocol.AgentElicitation{ID: "e1", Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf build/?"}
 	runSteps(t, NewChat("c1"), []step{
