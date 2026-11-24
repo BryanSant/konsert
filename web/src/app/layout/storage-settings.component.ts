@@ -82,10 +82,14 @@ interface PeriodField {
           }
         </ul>
 
-        <div class="space-y-1 pt-1" data-testid="storage-retention-text">
-          @for (line of d.retention_text; track $index) {
-            <p class="m-0 text-[12px] leading-relaxed text-[#d4d4d8]">{{ line }}</p>
-          }
+        <div class="pt-1" data-testid="storage-retention-text">
+          <div class="mb-1 text-[11px] text-[#8e9098]">What is kept</div>
+          <ul class="m-0 space-y-1 pl-4 list-disc marker:text-[#5b5e66]">
+            @for (line of d.retention_text; track $index) {
+              <li class="text-[12px] leading-relaxed text-[#d4d4d8]">{{ line }}</li>
+            }
+          </ul>
+          <p class="m-0 mt-1 text-[11px] text-[#8e9098]">Deleting a chat, task, project or machine deletes its history.</p>
         </div>
 
         <details class="rounded-[var(--ks-radius-md)] bg-black/20" data-testid="storage-retention-edit">
@@ -175,7 +179,7 @@ export class StorageSettingsComponent implements OnInit {
     const r = this.run();
     if (!r || !r.started_at) return 'Compaction runs in the background every hour.';
     if (r.running) {
-      const step = STEP_LABELS[r.step ?? ''] ?? r.step ?? '';
+      const step = STEP_LABELS[r.step ?? ''] ?? (r.step || 'Starting');
       return `${step}: ${r.rows ?? 0} rows compacted so far${r.freed_bytes ? `, ${formatBytes(r.freed_bytes)} returned to disk` : ''}…`;
     }
     if (r.error) return `Last pass failed: ${r.error}`;

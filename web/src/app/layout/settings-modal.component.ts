@@ -2,7 +2,6 @@ import { Component, OnInit, computed, inject, output, signal } from '@angular/co
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
-import { MACHINE_HISTORY_RETENTION } from '../core/models/activity.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
@@ -146,13 +145,6 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
-        <!-- Data kept (no knobs: fixed tiers on the hub) -->
-        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-1.5" data-testid="settings-history-retention">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Machine history</div>
-          <p class="m-0 text-[12px] text-[#d4d4d8]">{{ historyRetention }}</p>
-          <p class="m-0 text-[11px] text-[#8e9098]">Older history is deleted, and removing a machine deletes its history.</p>
-        </div>
-
         <!-- Storage: size, breakdown, retention, Compact now (KON-CSCWP) -->
         <ks-storage-settings />
 
@@ -271,7 +263,6 @@ export class SettingsModalComponent implements OnInit {
   /** Opens Settings → Devices on a view. */
   readonly openDevices = output<DevicesView>();
   /** How long machine vitals and heat are kept (fixed tiers on the hub). */
-  readonly historyRetention = MACHINE_HISTORY_RETENTION;
 
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
