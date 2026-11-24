@@ -94,11 +94,27 @@ test.describe('History retention', () => {
 
     const sessions = await api<Array<{ id: string; title: string }>>(page, 'GET', '/api/chats');
     const list = Array.isArray(sessions) ? sessions : ((sessions as unknown as { sessions: Array<{ id: string }> }).sessions ?? []);
-    const id = list[0].id;
-    // Events are persisted just after the turn ends in the UI: poll until the tool call is stored.
+    // Find this test's chat (other specs leave chats behind), then wait until its turn is fully
+    // persisted: the UI shows the turn end slightly before the hub has stored every event, and
+    // compaction only touches turns that have ended.
+    let id = '';
     await expect
-      .poll(async () => (await api<ChatEvents>(page, 'GET', `/api/chats/${id}/events`)).events.map((e) => e.kind), { timeout: 10_000 })
-      .toContain('tool_call');
+      .poll(
+        async () => {
+          for (const s of list) {
+            const events = (await api<ChatEvents>(page, 'GET', `/api/chats/${s.id}/events`)).events;
+            const kinds = events.map((e) => e.kind);
+            const sent = events.some((e) => e.kind === 'user_message' && JSON.stringify(e).includes(prompt));
+            if (sent && kinds.includes('tool_call') && kinds[kinds.length - 1] === 'turn_end') {
+              id = s.id;
+              return true;
+            }
+          }
+          return false;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
 
     // Age the chat by 60 days, then compact.
     const old = hubTime(new Date(Date.now() - 60 * 24 * 3600 * 1000));
