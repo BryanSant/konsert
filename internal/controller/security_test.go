@@ -105,16 +105,16 @@ func TestClientWSRejectsCrossOrigin(t *testing.T) {
 }
 
 func TestWorkerWSWithoutOriginStillAccepted(t *testing.T) {
-	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
+	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.FleetToken = "fleet"
 		c.AdminToken = "admin"
 	})
+	cred := testMachineCredential(t, srv, "worker-origin-1")
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	c, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": []string{"Bearer fleet"}},
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + cred}},
 	})
 	if err != nil {
 		t.Fatalf("worker ws with bearer and no Origin must connect: %v", err)
@@ -279,7 +279,6 @@ func TestLoginThrottle(t *testing.T) {
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
 		c.AdminToken = "right"
-		c.FleetToken = "fleet"
 	})
 	now := time.Unix(1_700_000_000, 0)
 	srv.loginLimiter.Now = func() time.Time { return now }

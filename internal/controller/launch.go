@@ -44,8 +44,9 @@ type launcher struct {
 	findKonsertd func() string
 	// bootstrap runs the SSH install/start path.
 	bootstrap func(context.Context, sshutil.BootstrapOptions) sshutil.BootstrapResult
-	// startChild runs a local daemon as a hub child process (dry-run mode only).
-	startChild func(ctx context.Context, exe string, args, env []string) error
+	// startChild runs a local daemon as a hub child process (dry-run mode only), with
+	// stdin as its standard input.
+	startChild func(ctx context.Context, exe string, args []string, stdin string) error
 	hostname   func() string
 	// connectTimeout bounds the wait for a started daemon's worker.hello.
 	connectTimeout time.Duration
@@ -107,9 +108,9 @@ func (l *launcher) firstAttempt(workerID string) bool {
 }
 
 // startChildDaemon runs konsertd as a child of the hub until ctx ends (dry-run mode).
-func startChildDaemon(ctx context.Context, exe string, args, env []string) error {
+func startChildDaemon(ctx context.Context, exe string, args []string, stdin string) error {
 	cmd := exec.CommandContext(ctx, exe, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
@@ -452,8 +453,9 @@ func (s *Server) setLaunchState(ctx context.Context, workerID, state, msg string
 }
 
 // startLocal runs `konsertd install` for the hub's own machine (idempotent: a reinstall
-// updates and restarts the existing registration). The fleet token goes over stdin.
-func (s *Server) startLocal(ctx context.Context, w store.Worker) error {
+// updates and restarts the existing registration) with a new machine credential, which
+// goes over stdin. The machine's older credentials are revoked once it is installed.
+func (s *Server) startLocal(ctx context.Context, w store.Worker) (err error) {
 	l := s.launch
 	exe := l.findKonsertd()
 	if exe == "" {
@@ -467,18 +469,20 @@ func (s *Server) startLocal(ctx context.Context, w store.Worker) error {
 	if name == "" {
 		name = l.hostname()
 	}
-	s.cfgMu.RLock()
-	token := s.cfg.FleetToken
-	s.cfgMu.RUnlock()
+	pc := s.newProvisionCred(store.MachineCredLocal)
+	defer func() { pc.finish(ctx, err == nil) }()
+	cred, err := pc.mint(ctx, w.ID)
+	if err != nil {
+		return err
+	}
 
 	args := []string{"install", "--controller", ctrlURL, "--name", name}
 	stdin := ""
-	if token != "" {
-		args = append(args, "--token-stdin")
-		stdin = token + "\n"
-	}
 	if l.dryRun {
 		args = append(args, "--dry-run")
+	} else {
+		args = append(args, "--credential-stdin")
+		stdin = cred + "\n"
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -489,19 +493,15 @@ func (s *Server) startLocal(ctx context.Context, w store.Worker) error {
 		return nil
 	}
 	// Dry run: nothing was registered; run the daemon as a hub child instead.
-	var env []string
-	if token != "" {
-		env = append(env, "KONSERT_FLEET_TOKEN="+token)
-	}
-	return l.startChild(ctx, exe, []string{"run", "--controller", ctrlURL, "--name", name}, env)
+	return l.startChild(ctx, exe, []string{"run", "--controller", ctrlURL, "--name", name, "--credential-stdin"}, cred+"\n")
 }
 
 // startSSH re-runs the SSH install/start path for w (the binary is only copied when the
-// host lacks one). It returns the id to wait for (the remote daemon's, normally w.ID)
+// host lacks one) with a new machine credential. It returns the id to wait for (the remote daemon's, normally w.ID)
 // and, for a Windows logon task that starts at the next login, why it may not connect.
 func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, error) {
 	s.cfgMu.RLock()
-	token, publicURL := s.cfg.FleetToken, s.cfg.PublicURL
+	publicURL := s.cfg.PublicURL
 	s.cfgMu.RUnlock()
 	if w.SSHTarget == "" {
 		return w.ID, "", errors.New("no SSH target recorded for this machine; add it again from Add machine")
@@ -510,7 +510,9 @@ func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, 
 	if err != nil {
 		return w.ID, "", fmt.Errorf("no controller URL to install konsertd with: %w", err)
 	}
-	res := s.launch.bootstrap(ctx, sshutil.BootstrapOptions{Target: w.SSHTarget, ControllerURL: ctrlURL, FleetToken: token})
+	pc := s.newProvisionCred(store.MachineCredSSH)
+	res := s.launch.bootstrap(ctx, sshutil.BootstrapOptions{Target: w.SSHTarget, ControllerURL: ctrlURL, Credential: pc.mint})
+	pc.finish(ctx, res.OK)
 	if !res.OK {
 		msg := res.Error
 		if res.Stage != "" {

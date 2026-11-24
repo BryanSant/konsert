@@ -24,13 +24,13 @@ func TestPrepareGeneratesAndPersistsTokensWhenUnset(t *testing.T) {
 	if err := prepareServeConfig(&cfg, &out, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AdminToken == "" || cfg.FleetToken == "" {
-		t.Fatalf("expected generated tokens, got admin=%q fleet=%q", cfg.AdminToken, cfg.FleetToken)
+	if cfg.AdminToken == "" {
+		t.Fatal("expected a generated admin token")
 	}
 	if cfg.ListenAddr != ":8420" {
 		t.Fatalf("authenticated default listen = %q, want :8420", cfg.ListenAddr)
 	}
-	if !strings.Contains(out.String(), cfg.AdminToken) || !strings.Contains(out.String(), cfg.FleetToken) {
+	if !strings.Contains(out.String(), cfg.AdminToken) || strings.Contains(out.String(), "fleet") {
 		t.Fatal("generated tokens must be printed once")
 	}
 
@@ -47,7 +47,7 @@ func TestPrepareGeneratesAndPersistsTokensWhenUnset(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.AdminToken != cfg.AdminToken || saved.FleetToken != cfg.FleetToken {
+	if saved.AdminToken != cfg.AdminToken || strings.Contains(string(raw), "fleet") {
 		t.Fatal("persisted tokens differ from the in-memory config")
 	}
 
@@ -58,7 +58,7 @@ func TestPrepareGeneratesAndPersistsTokensWhenUnset(t *testing.T) {
 	if err := prepareServeConfig(&cfg2, &out, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
-	if cfg2.AdminToken != cfg.AdminToken || cfg2.FleetToken != cfg.FleetToken {
+	if cfg2.AdminToken != cfg.AdminToken {
 		t.Fatal("restart must reuse persisted tokens")
 	}
 	if out.Len() != 0 {
@@ -78,22 +78,19 @@ func TestPrepareKeepsExplicitTokensAndFillsOnlyMissing(t *testing.T) {
 	if cfg.AdminToken != "my-admin" {
 		t.Fatal("explicit admin token must win")
 	}
-	if cfg.FleetToken == "" {
-		t.Fatal("missing fleet token must be generated")
-	}
 	if strings.Contains(out.String(), "my-admin") {
 		t.Fatal("explicit token must not be printed")
 	}
 
-	// Both set: no file is written.
+	// Set: no file is written.
 	cfg2 := config.DefaultControllerConfig()
 	cfg2.DBPath = filepath.Join(t.TempDir(), "konsert.db")
-	cfg2.AdminToken, cfg2.FleetToken = "a", "f"
+	cfg2.AdminToken = "a"
 	if err := prepareServeConfig(&cfg2, &out, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(cfg2.DBPath), tokensFileName)); !os.IsNotExist(err) {
-		t.Fatal("no tokens file expected when both tokens are configured")
+		t.Fatal("no tokens file expected when the admin token is configured")
 	}
 }
 
@@ -108,7 +105,7 @@ func TestPrepareNoAuthDefaultsToLoopback(t *testing.T) {
 	if cfg.ListenAddr != "127.0.0.1:8420" {
 		t.Fatalf("--no-auth default listen = %q, want 127.0.0.1:8420", cfg.ListenAddr)
 	}
-	if cfg.AdminToken != "" || cfg.FleetToken != "" {
+	if cfg.AdminToken != "" {
 		t.Fatal("--no-auth must not generate tokens")
 	}
 

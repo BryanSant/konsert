@@ -47,7 +47,6 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	cfg.NoAuth = false
 	cfg.AdminToken = auditAdminTok
 	cfg.MCPToken = auditMCPTok
-	cfg.FleetToken = "fleet-tok"
 	cfg.EnableMCPHTTP = true
 	cfg.TrustTailscaleHeaders = true
 	srv := NewServer(cfg, st, nil, "test")

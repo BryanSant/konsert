@@ -19,12 +19,10 @@ type remoteShell interface {
 	scpPath(exePath string) string
 	// finishCopy runs after scp (chmod on POSIX).
 	finishCopy(exePath string) string
-	// konsertd runs exe with args. With tokenOnStdin, the first stdin line is handed to
-	// it as the fleet token (never in argv). A failure's output goes to stderr, so it
-	// ends up in the returned error.
-	konsertd(exe string, args []string, tokenOnStdin bool) string
-	// tokenArgs are the install flags that read the token as konsertd() delivers it.
-	tokenArgs() []string
+	// konsertd runs exe with args. With credOnStdin, the first stdin line reaches
+	// konsertd's stdin (for --credential-stdin; never argv). A failure's output goes to
+	// stderr, so it ends up in the returned error.
+	konsertd(exe string, args []string, credOnStdin bool) string
 }
 
 // shQuote quotes s for POSIX sh.
@@ -65,8 +63,6 @@ func (posixShell) konsertd(exe string, args []string, _ bool) string {
 	}
 	return strings.Join(words, " ")
 }
-
-func (posixShell) tokenArgs() []string { return []string{"--token-stdin"} }
 
 // windowsShell targets Windows with OpenSSH. konsertd.exe lives in
 // %LOCALAPPDATA%\Programs\konsertd unless one is already on PATH.
@@ -153,20 +149,20 @@ func (windowsShell) scpPath(exePath string) string {
 
 func (windowsShell) finishCopy(string) string { return "" }
 
-func (windowsShell) konsertd(exe string, args []string, tokenOnStdin bool) string {
+func (windowsShell) konsertd(exe string, args []string, credOnStdin bool) string {
 	var b strings.Builder
-	if tokenOnStdin {
-		// The token reaches konsertd through its environment (KONSERT_FLEET_TOKEN), never argv.
-		b.WriteString("$env:KONSERT_FLEET_TOKEN = [Console]::In.ReadLine()\n")
+	pipe := ""
+	if credOnStdin {
+		// The credential is piped to konsertd's stdin, never put in argv.
+		b.WriteString("$cred = [Console]::In.ReadLine()\n")
+		pipe = "$cred | "
 	}
 	quoted := make([]string, len(args))
 	for i, a := range args {
 		quoted[i] = psQuote(a)
 	}
-	fmt.Fprintf(&b, "$out = & %s %s 2>&1 | Out-String\n", psQuote(exe), strings.Join(quoted, " "))
+	fmt.Fprintf(&b, "$out = %s& %s %s 2>&1 | Out-String\n", pipe, psQuote(exe), strings.Join(quoted, " "))
 	b.WriteString("if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine($out.Trim()); exit $LASTEXITCODE }\n")
 	b.WriteString("$out")
 	return encodePS(b.String())
 }
-
-func (windowsShell) tokenArgs() []string { return nil }

@@ -17,9 +17,10 @@ import (
 
 const SessionCookieName = "konsert_session"
 
-// Manager handles authentication for workers, browser PWA sessions, and MCP HTTP clients.
+// Manager handles authentication for browser PWA sessions and MCP HTTP clients. Worker
+// (konsertd) connections authenticate with per-machine credentials (see machine.go),
+// which the controller checks against its store.
 type Manager struct {
-	fleetToken            string
 	adminToken            string
 	mcpToken              string
 	noAuth                bool
@@ -29,7 +30,6 @@ type Manager struct {
 
 // Options configures auth.Manager.
 type Options struct {
-	FleetToken            string
 	AdminToken            string
 	MCPToken              string
 	NoAuth                bool
@@ -50,7 +50,6 @@ func NewManager(opts Options) *Manager {
 		mcpTok = opts.AdminToken
 	}
 	return &Manager{
-		fleetToken:            opts.FleetToken,
 		adminToken:            opts.AdminToken,
 		mcpToken:              mcpTok,
 		noAuth:                opts.NoAuth,
@@ -84,22 +83,6 @@ func extractBearer(r *http.Request) string {
 		return strings.TrimSpace(h[7:])
 	}
 	return ""
-}
-
-// CheckFleetAuth verifies the outbound worker WebSocket Authorization header.
-// It fails closed: an unset fleet token denies every worker unless --no-auth is set.
-func (m *Manager) CheckFleetAuth(r *http.Request) bool {
-	if m.noAuth {
-		return true
-	}
-	if m.fleetToken == "" {
-		return false
-	}
-	tok := extractBearer(r)
-	if tok == "" {
-		return false
-	}
-	return constantTimeEquals(tok, m.fleetToken)
 }
 
 // CheckMCPAuth verifies bearer token authentication on Streamable HTTP/SSE MCP endpoints.

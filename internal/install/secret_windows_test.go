@@ -13,7 +13,7 @@ import (
 
 func TestWriteSecretFileIsUserOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "konsert", "konsertd.yaml")
-	if err := WriteSecretFile(path, []byte("fleet_token: x\n")); err != nil {
+	if err := WriteSecretFile(path, []byte("name: x\n")); err != nil {
 		t.Fatal(err)
 	}
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
@@ -43,7 +43,7 @@ func TestWriteSecretFileIsUserOnly(t *testing.T) {
 	if strings.Count(sddl, "(A;") != 2 {
 		t.Errorf("DACL %s should have exactly two ACEs", sddl)
 	}
-	if data, _ := os.ReadFile(path); string(data) != "fleet_token: x\n" {
+	if data, _ := os.ReadFile(path); string(data) != "name: x\n" {
 		t.Errorf("content = %q", data)
 	}
 }

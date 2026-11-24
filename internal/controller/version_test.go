@@ -52,7 +52,6 @@ func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 	defer st.Close()
 
 	cfg := config.DefaultControllerConfig()
-	cfg.FleetToken = "fleet-tok"
 	cfg.AdminToken = "admin-tok"
 	srv := NewServer(cfg, st, nil, "1.5.0")
 	ts := httptest.NewServer(srv)
@@ -60,7 +59,7 @@ func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 
 	wCfg := config.DefaultWorkerConfig()
 	wCfg.ControllerURL = "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
-	wCfg.FleetToken = "fleet-tok"
+	wCfg.Credential = testMachineCredential(t, srv, "worker-ver-1")
 	wCfg.WorkerID = "worker-ver-1"
 	wCfg.Name = "ver-node"
 	wCfg.EnableMockDriver = true

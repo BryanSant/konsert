@@ -76,7 +76,7 @@ func testSpec(instance string) Spec {
 	return Spec{
 		Instance:  instance,
 		Exe:       exe,
-		Config:    []byte("controller_url: ws://hub/ws/worker\nfleet_token: s3cret\n"),
+		Config:    []byte("controller_url: ws://hub/ws/worker\nname: s3cret\n"),
 		ExtraArgs: []string{"--sandbox-allow-shell=true"},
 	}
 }
@@ -235,7 +235,7 @@ func TestWindowsJoinArgs(t *testing.T) {
 func TestMarshalWorkerConfigIsSparse(t *testing.T) {
 	data, err := MarshalWorkerConfig(config.WorkerConfig{
 		ControllerURL: "wss://hub/ws/worker",
-		FleetToken:    "tok",
+		Credential:    "kmc_never_persisted",
 		Sandbox:       true,
 		Tags:          map[string]string{"gpu": "yes"},
 		AllowedRoots:  []string{"/src"},
@@ -244,19 +244,19 @@ func TestMarshalWorkerConfigIsSparse(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	for _, want := range []string{"controller_url: wss://hub/ws/worker", "fleet_token: tok", "sandbox: true", "gpu: \"yes\"", "- /src"} {
+	for _, want := range []string{"controller_url: wss://hub/ws/worker", "sandbox: true", "gpu: \"yes\"", "- /src"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("config missing %q:\n%s", want, s)
 		}
 	}
 	// Unset fields must be absent so run's defaults (hostname as name, 2 slots) apply.
-	for _, absent := range []string{"name:", "max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
+	for _, absent := range []string{"kmc_never_persisted", "credential", "name:","max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
 		if strings.Contains(s, absent) {
 			t.Errorf("config should omit %q:\n%s", absent, s)
 		}
 	}
 	back, err := ParseWorkerConfig(data)
-	if err != nil || back.FleetToken != "tok" || back.Tags["gpu"] != "yes" {
+	if err != nil || back.Tags["gpu"] != "yes" {
 		t.Errorf("round trip = %+v, %v", back, err)
 	}
 }
@@ -288,13 +288,13 @@ func TestLaunchdInstallUninstall(t *testing.T) {
 		t.Errorf("plist args wrong:\n%s", data)
 	}
 	if strings.Contains(string(data), "s3cret") {
-		t.Error("token leaked into the plist")
+		t.Error("config leaked into the plist")
 	}
 	if !r.called("launchctl bootstrap gui/501 " + plist) {
 		t.Errorf("calls = %v", r.calls)
 	}
 	cfg, err := os.ReadFile(in.ConfigPath("install-test"))
-	if err != nil || !strings.Contains(string(cfg), "fleet_token: s3cret") {
+	if err != nil || !strings.Contains(string(cfg), "name: s3cret") {
 		t.Errorf("config = %q, %v", cfg, err)
 	}
 

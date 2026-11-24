@@ -61,7 +61,7 @@ func TestBootstrapUsesKonsertdInstall(t *testing.T) {
 	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{
 		Target:        "me@box",
 		ControllerURL: "wss://hub.example/ws/worker",
-		FleetToken:    "tok",
+		Credential:    fixedCred("tok"),
 		Sandbox:       true,
 	})
 	if !res.OK || res.WorkerID != testWorkerID || res.Name != "box" || res.ServiceMode != "systemd" || res.StartDeferred {
@@ -71,7 +71,7 @@ func TestBootstrapUsesKonsertdInstall(t *testing.T) {
 	const bin = "/home/me/.local/bin/konsertd"
 	id := indexOf(cmds, bin+" id --name box --host-group box")
 	hooks := indexOf(cmds, bin+" install-hooks")
-	inst := slices.Index(cmds, bin+" install --controller wss://hub.example/ws/worker --name box --host-group box --sandbox --token-stdin")
+	inst := slices.Index(cmds, bin+" install --controller wss://hub.example/ws/worker --name box --host-group box --sandbox --credential-stdin")
 	if id < 0 || hooks < 0 || inst < 0 || id > inst {
 		t.Fatalf("want konsertd id, install-hooks, then install; got %q", cmds)
 	}
@@ -103,9 +103,9 @@ func TestBootstrapCopiesMissingBinary(t *testing.T) {
 	if indexOf(cmds, `chmod +x "$HOME/.local/bin/konsertd"`) < 0 {
 		t.Fatalf("copied binary not made executable: %q", cmds)
 	}
-	// Without a fleet token (hub --no-auth) nothing is read from stdin.
-	if indexOf(cmds, "--token-stdin") >= 0 {
-		t.Fatalf("--token-stdin without a token: %q", cmds)
+	// Without a credential issuer (hub --no-auth) nothing is read from stdin.
+	if indexOf(cmds, "--credential-stdin") >= 0 {
+		t.Fatalf("--credential-stdin without a credential: %q", cmds)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestBootstrapFallsBackToNohupWithoutUserSystemd(t *testing.T) {
 		return posixRemote(cmd, stdin)
 	}}
 	withFakeSSH(t, f)
-	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "box", ControllerURL: "ws://hub/ws/worker", FleetToken: "tok"})
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "box", ControllerURL: "ws://hub/ws/worker", Credential: fixedCred("tok")})
 	if !res.OK || res.ServiceMode != "nohup" || res.WorkerID != testWorkerID {
 		t.Fatalf("result = %+v", res)
 	}
@@ -129,8 +129,9 @@ func TestBootstrapFallsBackToNohupWithoutUserSystemd(t *testing.T) {
 		t.Fatalf("nohup fallback sequence wrong: %q", cmds)
 	}
 	for i, c := range f.calls {
-		if strings.Contains(c[len(c)-1], "konsertd-nohup.yaml.tmp") && !strings.Contains(string(f.stdins[i]), "fleet_token: tok") {
-			t.Fatalf("nohup config must carry the token over stdin, got %q", f.stdins[i])
+		// The credential is saved by the (failed) install, never written into the config.
+		if strings.Contains(c[len(c)-1], "konsertd-nohup.yaml.tmp") && strings.Contains(string(f.stdins[i]), "tok") {
+			t.Fatalf("nohup config must not carry the credential, got %q", f.stdins[i])
 		}
 	}
 }
@@ -178,7 +179,7 @@ func TestBootstrapWindows(t *testing.T) {
 		return "", nil
 	}
 	withFakeSSH(t, f)
-	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "bryan@winbox", ControllerURL: "ws://hub:8420/ws/worker", FleetToken: "tok"})
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "bryan@winbox", ControllerURL: "ws://hub:8420/ws/worker", Credential: fixedCred("tok")})
 	if !res.OK || res.RemoteOS != "windows" || res.RemoteArch != "amd64" || res.ServiceMode != "schtasks" ||
 		res.WorkerID != testWorkerID || !res.StartDeferred || !strings.Contains(res.Message, "next Windows login") {
 		t.Fatalf("result = %+v", res)
@@ -189,12 +190,12 @@ func TestBootstrapWindows(t *testing.T) {
 	}
 	cmds := f.remoteCmds()
 	inst := indexOf(cmds, "'install' '--controller' 'ws://hub:8420/ws/worker' '--name' 'winbox' '--host-group' 'winbox'")
-	if inst < 0 || !strings.Contains(cmds[inst], "$env:KONSERT_FLEET_TOKEN = [Console]::In.ReadLine()") ||
-		!strings.Contains(cmds[inst], "& '"+exe+"'") || strings.Contains(cmds[inst], "token-stdin") {
+	if inst < 0 || !strings.Contains(cmds[inst], "$cred = [Console]::In.ReadLine()") ||
+		!strings.Contains(cmds[inst], "$cred | & '"+exe+"'") || !strings.Contains(cmds[inst], "'--credential-stdin'") {
 		t.Fatalf("install script = %q", cmds)
 	}
 	if string(installStdin) != "tok\n" {
-		t.Fatalf("token stdin = %q", installStdin)
+		t.Fatalf("credential stdin = %q", installStdin)
 	}
 	if indexOf(cmds, "New-Item -ItemType Directory") < 0 || indexOf(cmds, "'install-hooks'") < 0 {
 		t.Fatalf("missing mkdir or install-hooks: %q", cmds)
@@ -225,5 +226,15 @@ func TestParseWindowsProbe(t *testing.T) {
 	}
 	if !isWindowsUname("mingw64_nt-10.0-26100") || isWindowsUname("linux") {
 		t.Fatal("isWindowsUname")
+	}
+}
+
+// fixedCred is a BootstrapOptions.Credential issuing cred for the test worker.
+func fixedCred(cred string) func(context.Context, string) (string, error) {
+	return func(_ context.Context, workerID string) (string, error) {
+		if workerID != testWorkerID {
+			return "", fmt.Errorf("credential requested for %q, want %q", workerID, testWorkerID)
+		}
+		return cred, nil
 	}
 }

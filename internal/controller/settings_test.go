@@ -81,7 +81,6 @@ func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
 		c.NoAuth = false
 		c.AdminToken = "admin-tok"
 		c.MCPToken = "mcp-tok"
-		c.FleetToken = "fleet-tok"
 		c.EnableMCPHTTP = true
 		c.Orchestrator.APIKey = "sk-original-secret"
 	})

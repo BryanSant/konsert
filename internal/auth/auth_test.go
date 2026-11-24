@@ -6,25 +6,11 @@ import (
 	"testing"
 )
 
-func TestFleetAndMCPAuth(t *testing.T) {
+func TestMCPAuth(t *testing.T) {
 	m := NewManager(Options{
-		FleetToken: "fleet-secret",
 		AdminToken: "admin-secret",
 		MCPToken:   "mcp-secret",
 	})
-
-	req := httptest.NewRequest(http.MethodGet, "/ws/worker", nil)
-	if m.CheckFleetAuth(req) {
-		t.Fatal("expected missing fleet token rejected")
-	}
-	req.Header.Set("Authorization", "Bearer wrong")
-	if m.CheckFleetAuth(req) {
-		t.Fatal("expected wrong fleet token rejected")
-	}
-	req.Header.Set("Authorization", "Bearer fleet-secret")
-	if !m.CheckFleetAuth(req) {
-		t.Fatal("expected valid fleet token accepted")
-	}
 
 	mcpReq := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	mcpReq.Header.Set("Authorization", "Bearer mcp-secret")

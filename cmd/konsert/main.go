@@ -53,7 +53,6 @@ func newServeCmd() *cobra.Command {
 		configPath            string
 		listenAddr            string
 		dbPath                string
-		fleetToken            string
 		adminToken            string
 		mcpToken              string
 		tokensFile            string
@@ -77,9 +76,6 @@ func newServeCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("db") {
 				cfg.DBPath = dbPath
-			}
-			if cmd.Flags().Changed("fleet-token") {
-				cfg.FleetToken = fleetToken
 			}
 			if cmd.Flags().Changed("admin-token") {
 				cfg.AdminToken = adminToken
@@ -120,7 +116,6 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to controller YAML config")
 	cmd.Flags().StringVar(&listenAddr, "listen", "", "HTTP/WS listen address (default :8420, or 127.0.0.1:8420 with --no-auth)")
 	cmd.Flags().StringVar(&dbPath, "db", "konsert.db", "SQLite database path")
-	cmd.Flags().StringVar(&fleetToken, "fleet-token", "", "Pre-shared bearer token for konsertd workers (auto-generated if unset)")
 	cmd.Flags().StringVar(&adminToken, "admin-token", "", "Admin passphrase/token for PWA and REST API (auto-generated if unset)")
 	cmd.Flags().StringVar(&mcpToken, "mcp-token", "", "Bearer token for /mcp HTTP endpoint (defaults to admin-token)")
 	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that persists auto-generated tokens (default konsert-tokens.yaml next to --db)")
@@ -172,7 +167,7 @@ func newTokenCmd() *cobra.Command {
 	var bytesLen int
 	genCmd := &cobra.Command{
 		Use:   "generate",
-		Short: "Generate a cryptographically random hex token for fleet or UI auth",
+		Short: "Generate a cryptographically random hex token",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			tok, err := auth.GenerateToken(bytesLen)
 			if err != nil {
@@ -183,7 +178,7 @@ func newTokenCmd() *cobra.Command {
 		},
 	}
 	genCmd.Flags().IntVar(&bytesLen, "bytes", 32, "Number of random bytes")
-	tokenCmd.AddCommand(genCmd)
+	tokenCmd.AddCommand(genCmd, newTokenRotateCmd())
 	return tokenCmd
 }
 

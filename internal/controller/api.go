@@ -53,6 +53,8 @@ type Server struct {
 	boundAddr string
 	// launch starts konsertd on the hub's machine and on SSH hosts (launch.go).
 	launch *launcher
+	// machines holds machine-credential state (machine_auth.go).
+	machines *machineAuth
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -75,7 +77,6 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		}
 	}
 	authMgr := auth.NewManager(auth.Options{
-		FleetToken:            cfg.FleetToken,
 		AdminToken:            cfg.AdminToken,
 		MCPToken:              cfg.MCPToken,
 		NoAuth:                cfg.NoAuth,
@@ -102,6 +103,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		loginLimiter:   auth.NewLoginLimiter(),
 		secrets:        box,
 		launch:         newLauncher(),
+		machines:       newMachineAuth(),
 	}
 	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
 	hub.version = version
@@ -138,6 +140,15 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
 	s.mux.Handle("POST /api/workers/local", s.requireBrowserAuth(s.handleAddLocalWorker))
 	s.mux.Handle("POST /api/workers/{id}/start", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStartWorker)))
+
+	// Machine credentials and join codes (machine_auth.go). /api/machines/join is
+	// authenticated by the join code itself and rate-limited.
+	s.mux.HandleFunc("POST /api/machines/join", s.handleMachineJoin)
+	s.mux.Handle("POST /api/machines/join-codes", s.requireBrowserAuth(s.handleCreateJoinCode))
+	s.mux.Handle("GET /api/machines/join-codes/{id}", s.requireBrowserAuth(s.handleGetJoinCode))
+	s.mux.Handle("POST /api/machines/credentials/rotate", s.requireBrowserAuth(s.handleRotateMachineCredentials))
+	s.mux.Handle("GET /api/workers/{id}/credential", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetMachineCredential)))
+	s.mux.Handle("POST /api/workers/{id}/credential/revoke", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleRevokeMachineCredential)))
 	s.mux.Handle("GET /api/setup", s.requireBrowserAuth(s.handleGetSetup))
 	s.mux.Handle("POST /api/setup/dismiss", s.requireBrowserAuth(s.handleDismissSetup))
 	s.registerWakeLockRoutes()
@@ -330,15 +341,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	prov := s.cfg.Orchestrator.Provider
 	model := effectiveModel(s.cfg.Orchestrator)
-	fleetTokReq := !s.cfg.NoAuth
 	s.cfgMu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated":        ok,
-		"auth_required":        s.auth.AuthRequired(),
-		"fleet_token_required": fleetTokReq,
-		"user":                 user,
-		"provider":             prov,
-		"model":                model,
+		"authenticated": ok,
+		"auth_required": s.auth.AuthRequired(),
+		"user":          user,
+		"provider":      prov,
+		"model":         model,
 	})
 }
 
@@ -590,7 +599,6 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cfgMu.RLock()
-	fleetTok := s.cfg.FleetToken
 	publicURL := s.cfg.PublicURL
 	s.cfgMu.RUnlock()
 	ctrlURL, err := workerControllerURL(publicURL, body.ControllerURL)
@@ -598,10 +606,12 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// The machine gets its own credential, minted once its identity is known.
+	pc := s.newProvisionCred(store.MachineCredSSH)
 	opts := sshutil.BootstrapOptions{
 		Target:        body.Target,
 		ControllerURL: ctrlURL,
-		FleetToken:    fleetTok,
+		Credential:    pc.mint,
 		Sandbox:       body.Sandbox,
 		EnableMock:    body.EnableMock,
 		AcceptHostKey: body.AcceptHostKey,
@@ -621,6 +631,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 			res := s.launch.bootstrap(r.Context(), opts)
+			pc.finish(r.Context(), res.OK)
 			s.afterSSHBootstrap(r.Context(), res, ctrlURL)
 			b, _ := json.Marshal(map[string]any{"type": "done", "result": res}, protocol.JSONOptions)
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
@@ -630,6 +641,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := s.launch.bootstrap(r.Context(), opts)
+	pc.finish(r.Context(), res.OK)
 	s.afterSSHBootstrap(r.Context(), res, ctrlURL)
 	switch {
 	case res.OK:
@@ -641,10 +653,10 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// workerControllerURL picks the WebSocket URL handed (with the fleet token) to an
+// workerControllerURL picks the WebSocket URL handed (with its credential) to an
 // SSH-bootstrapped worker. The configured public URL wins; otherwise the
 // authenticated caller must supply a ws(s):// URL. The request Host header is never
-// used, so a spoofed Host cannot redirect the fleet token.
+// used, so a spoofed Host cannot redirect the credential.
 func workerControllerURL(publicURL, requested string) (string, error) {
 	if pu := strings.TrimSpace(publicURL); pu != "" {
 		u, err := url.Parse(pu)
@@ -1196,8 +1208,9 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
-	if !s.auth.CheckFleetAuth(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid fleet token"})
+	bound, ok := s.authenticateMachine(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid machine credential"})
 		return
 	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -1207,7 +1220,11 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("accept worker ws failed", "err", err)
 		return
 	}
-	s.hub.ServeWorkerConn(withWorkerRemoteAddr(withWorkerBaseURL(r.Context(), requestBaseURL(r)), r.RemoteAddr), conn)
+	ctx := withWorkerRemoteAddr(withWorkerBaseURL(r.Context(), requestBaseURL(r)), r.RemoteAddr)
+	if bound.workerID != "" {
+		ctx = withBoundMachine(ctx, bound)
+	}
+	s.hub.ServeWorkerConn(ctx, conn)
 }
 
 func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {

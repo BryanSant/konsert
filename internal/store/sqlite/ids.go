@@ -26,6 +26,8 @@ var idTables = map[ids.Kind]string{
 	ids.Override:  "override_requests",
 	ids.Veto:      "vetoes",
 	ids.Review:    "reviews",
+
+	ids.MachineCredential: "machine_credentials",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its

@@ -29,7 +29,10 @@ import (
 // Daemon connects outbound to konsert, handles reconnects with exponential backoff,
 // sends heartbeats, and bridges controller commands to Runner.
 type Daemon struct {
+	// cfg is fixed after NewDaemon except cfg.Credential, which credMu guards (a
+	// re-join replaces it while the daemon runs; see reloadCredential).
 	cfg      config.WorkerConfig
+	credMu   sync.Mutex
 	registry *drivers.Registry
 	runner   *Runner
 	logger   *slog.Logger
@@ -117,6 +120,9 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg.HostGroup = cfg.Name
 	}
 	cfg.WorkerID = WorkerIDFor(cfg)
+	if cfg.Credential == "" {
+		cfg.Credential, _ = LoadCredential("", cfg.WorkerID)
+	}
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 2
 	}
@@ -231,29 +237,52 @@ func (d *Daemon) Runner() *Runner {
 	return d.runner
 }
 
-// ErrFleetTokenRequired is returned by Run when the hub requires a fleet token and none is
-// configured: retrying cannot succeed until the configuration changes.
-var ErrFleetTokenRequired = errors.New("hub requires a fleet token: set --token or KONSERT_FLEET_TOKEN (or fleet_token in the worker config); only a hub started with --no-auth accepts workers without one")
+// ErrCredentialRequired is returned by Run when the hub requires a machine credential and
+// none is saved: retrying cannot succeed until the machine joins.
+var ErrCredentialRequired = errors.New("no machine credential: run `konsertd join <hub-url> <code>`")
 
 // authError reports that the hub refused the WebSocket upgrade (HTTP 401/403).
 type authError struct {
-	status   int
-	tokenSet bool
-	err      error
+	status  int
+	credSet bool
+	err     error
 }
 
 func (e *authError) Error() string {
-	if !e.tokenSet {
-		return fmt.Sprintf("hub rejected the connection (HTTP %d): %v", e.status, ErrFleetTokenRequired)
+	if !e.credSet {
+		return fmt.Sprintf("hub refused the connection (HTTP %d): %v", e.status, ErrCredentialRequired)
 	}
-	return fmt.Sprintf("hub rejected the fleet token (HTTP %d): check --token / KONSERT_FLEET_TOKEN against the hub's fleet token", e.status)
+	return fmt.Sprintf("hub rejected this machine's credential (HTTP %d)", e.status)
 }
 
 func (e *authError) Unwrap() error {
-	if !e.tokenSet {
-		return ErrFleetTokenRequired
+	if !e.credSet {
+		return ErrCredentialRequired
 	}
 	return e.err
+}
+
+// credential is the machine credential presented to the hub ("" if none).
+func (d *Daemon) credential() string {
+	d.credMu.Lock()
+	defer d.credMu.Unlock()
+	return d.cfg.Credential
+}
+
+// reloadCredential re-reads the saved credential (another process, such as `konsertd
+// join`, may have replaced it) and reports whether it changed.
+func (d *Daemon) reloadCredential() bool {
+	cred, err := LoadCredential("", d.cfg.WorkerID)
+	if err != nil {
+		return false
+	}
+	d.credMu.Lock()
+	defer d.credMu.Unlock()
+	if cred == d.cfg.Credential {
+		return false
+	}
+	d.cfg.Credential = cred
+	return true
 }
 
 // Run runs the reconnect loop until ctx is canceled.
@@ -284,21 +313,30 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return nil
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
 			d.logger.Warn("controller asked this worker to retry later (another live connection uses this identity)", "worker_id", d.cfg.WorkerID)
+		case websocket.StatusCode(protocol.WSCloseCredentialRevoked):
+			// Retry slowly: `konsertd join` (or the hub, over SSH) saves a new credential,
+			// which the next attempt picks up.
+			d.logger.Error("credential revoked by the hub; re-join: konsertd join")
+			if !d.reloadCredential() {
+				backoff = maxBackoff
+			}
 		}
 
 		var aerr *authError
 		if errors.As(err, &aerr) {
-			if !aerr.tokenSet {
-				// No token configured: retrying cannot succeed. Exit with a clear error
+			if !aerr.credSet && !d.reloadCredential() {
+				// No credential: retrying cannot succeed. Exit with a clear error
 				// instead of looping.
 				d.logger.Error(aerr.Error())
 				d.shutdown()
-				return ErrFleetTokenRequired
+				return ErrCredentialRequired
 			}
-			// A wrong token may be fixed on the hub side (rotation): keep retrying, but
-			// only at the slowest backoff and with an explicit error.
-			d.logger.Error(aerr.Error(), "retry_in", maxBackoff)
-			backoff = maxBackoff
+			// A revoked or replaced credential: keep retrying at the slowest backoff,
+			// re-reading the saved credential (a re-join or re-provision replaces it).
+			if aerr.credSet && !d.reloadCredential() {
+				d.logger.Error(aerr.Error()+"; re-join: konsertd join", "retry_in", maxBackoff)
+				backoff = maxBackoff
+			}
 		}
 
 		// Reset backoff only after a session that got past worker.hello and lasted > 10 s.
@@ -331,8 +369,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 func (d *Daemon) connectAndServe(ctx context.Context) error {
 	headers := http.Header{}
-	if d.cfg.FleetToken != "" {
-		headers.Set("Authorization", "Bearer "+d.cfg.FleetToken)
+	cred := d.credential()
+	if cred != "" {
+		headers.Set("Authorization", "Bearer "+cred)
 	}
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
@@ -342,7 +381,7 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	dialCancel()
 	if err != nil {
 		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
-			return &authError{status: resp.StatusCode, tokenSet: d.cfg.FleetToken != "", err: err}
+			return &authError{status: resp.StatusCode, credSet: cred != "", err: err}
 		}
 		return fmt.Errorf("dial %s: %w", d.cfg.ControllerURL, err)
 	}

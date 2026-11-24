@@ -20,7 +20,6 @@ const tokensFileName = "konsert-tokens.yaml"
 
 type persistedTokens struct {
 	AdminToken string `yaml:"admin_token,omitempty"`
-	FleetToken string `yaml:"fleet_token,omitempty"`
 }
 
 // resolveTokensFile returns the path used to persist auto-generated tokens.
@@ -31,15 +30,15 @@ func resolveTokensFile(cfg config.ControllerConfig) string {
 	return filepath.Join(filepath.Dir(cfg.DBPath), tokensFileName)
 }
 
-// ensureAuthTokens makes the controller fail closed. Unless --no-auth is set, any
-// missing admin or fleet token is loaded from the tokens file or, failing that,
-// generated and persisted there with mode 0600. Newly generated tokens are printed
-// once to out so the operator can log in and enroll workers.
+// ensureAuthTokens makes the controller fail closed. Unless --no-auth is set, a missing
+// admin token is loaded from the tokens file or, failing that, generated and persisted
+// there with mode 0600. A newly generated token is printed once to out so the operator
+// can log in. (Machines have their own credentials: see konsertd join.)
 func ensureAuthTokens(cfg *config.ControllerConfig, out io.Writer) error {
 	if cfg.NoAuth {
 		return nil
 	}
-	if cfg.AdminToken != "" && cfg.FleetToken != "" {
+	if cfg.AdminToken != "" {
 		return nil
 	}
 	path := resolveTokensFile(*cfg)
@@ -82,9 +81,6 @@ func ensureAuthTokens(cfg *config.ControllerConfig, out io.Writer) error {
 	if err := fill(&cfg.AdminToken, &saved.AdminToken, "admin token"); err != nil {
 		return err
 	}
-	if err := fill(&cfg.FleetToken, &saved.FleetToken, "fleet token"); err != nil {
-		return err
-	}
 	if len(generated) == 0 {
 		return nil
 	}
@@ -97,10 +93,7 @@ func ensureAuthTokens(cfg *config.ControllerConfig, out io.Writer) error {
 	if slices.Contains(generated, "admin token") {
 		fmt.Fprintf(out, "  admin token (PWA login, REST, MCP): %s\n", saved.AdminToken)
 	}
-	if slices.Contains(generated, "fleet token") {
-		fmt.Fprintf(out, "  fleet token (konsertd --token):     %s\n", saved.FleetToken)
-	}
-	fmt.Fprintf(out, "Pass --admin-token/--fleet-token (or KONSERT_*_TOKEN) to choose your own, or --no-auth for isolated local development.\n\n")
+	fmt.Fprintf(out, "Pass --admin-token (or KONSERT_ADMIN_TOKEN) to choose your own, or --no-auth for isolated local development.\n\n")
 	return nil
 }
 

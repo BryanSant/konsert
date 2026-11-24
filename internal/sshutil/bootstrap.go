@@ -18,9 +18,12 @@ import (
 type BootstrapOptions struct {
 	Target        string // SSH alias or [user@]host[:port]
 	ControllerURL string // ws:// or wss:// URL reachable from the remote host
-	FleetToken    string
-	Sandbox       bool
-	EnableMock    bool
+	// Credential issues the machine credential for the remote daemon once its identity
+	// (`konsertd id`) is known. It reaches `konsertd install --credential-stdin` over
+	// stdin, never argv. Nil installs without one (only a --no-auth hub accepts that).
+	Credential func(ctx context.Context, workerID string) (string, error)
+	Sandbox    bool
+	EnableMock bool
 	// AcceptHostKey is the SHA256 fingerprint ("SHA256:...") of the remote host key the
 	// operator confirmed. It is only consulted when the host is not yet in known_hosts:
 	// without it, an unknown host stops at the "host_key_confirmation" stage and the
@@ -85,15 +88,14 @@ func (s *session) scp(ctx context.Context, src, remotePath string) error {
 // WSL without systemd) runs konsertd from, under nohup.
 type nohupConfigFile struct {
 	ControllerURL    string `yaml:"controller_url"`
-	FleetToken       string `yaml:"fleet_token"`
 	Name             string `yaml:"name"`
 	HostGroup        string `yaml:"host_group"`
 	Sandbox          bool   `yaml:"sandbox"`
 	EnableMockDriver bool   `yaml:"enable_mock_driver"`
 }
 
-// writeNohupConfigCmd reads the config from stdin, so the fleet token never appears in
-// any process's argv on either host.
+// writeNohupConfigCmd reads the config from stdin and writes it readable only by the
+// user. (The machine credential is not in it: `konsertd install` saved that.)
 const writeNohupConfigCmd = `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
 	`cat > "$HOME/.konsert/konsertd-nohup.yaml.tmp" && chmod 600 "$HOME/.konsert/konsertd-nohup.yaml.tmp" && ` +
 	`mv -f "$HOME/.konsert/konsertd-nohup.yaml.tmp" "$HOME/.konsert/konsertd-nohup.yaml"`
@@ -283,22 +285,27 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 	if opts.EnableMock {
 		installArgs = append(installArgs, "--enable-mock-driver")
 	}
-	var tokenStdin []byte
-	if opts.FleetToken != "" {
-		installArgs = append(installArgs, sh.tokenArgs()...)
-		tokenStdin = []byte(opts.FleetToken + "\n")
+	var credStdin []byte
+	if opts.Credential != nil {
+		cred, err := opts.Credential(ctx, workerID)
+		if err != nil {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, err.Error())
+		}
+		installArgs = append(installArgs, "--credential-stdin")
+		credStdin = []byte(cred + "\n")
 	}
 	serviceMode := map[string]string{"linux": "systemd", "darwin": "launchd", "windows": "schtasks"}[rOS]
 	startDeferred := false
-	if _, err := sess.ssh(ctx, sh.konsertd(exe, installArgs, tokenStdin != nil), tokenStdin); err != nil {
+	if _, err := sess.ssh(ctx, sh.konsertd(exe, installArgs, credStdin != nil), credStdin); err != nil {
 		if rOS == "windows" || !noUserManager.MatchString(err.Error()) {
 			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("konsertd install failed: %v", err))
 		}
 		// No systemd user manager (container, WSL without systemd): run it under nohup,
-		// from a config written over stdin. The hub restarts it the same way.
+		// from a config written over stdin. The hub restarts it the same way. The failed
+		// install already saved the machine credential in the state directory.
 		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name}, false), nil)
 		cfg, merr := yaml.Marshal(nohupConfigFile{
-			ControllerURL: opts.ControllerURL, FleetToken: opts.FleetToken, Name: name, HostGroup: name,
+			ControllerURL: opts.ControllerURL, Name: name, HostGroup: name,
 			Sandbox: opts.Sandbox, EnableMockDriver: opts.EnableMock,
 		})
 		if merr != nil {
