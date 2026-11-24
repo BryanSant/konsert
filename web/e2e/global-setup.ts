@@ -81,7 +81,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       `127.0.0.1:${port}`,
       '--db',
       dbPath,
-      '--admin-token',
+      '--recovery-key',
       adminToken,
       '--fleet-token',
       fleetToken,

@@ -133,7 +133,7 @@ func announceSignIn(ctx context.Context, srv *controller.Server, cfg config.Cont
 	}
 	note := "10 min"
 	if loopbackOnly {
-		note = "10 min, this machine only"
+		note = "10 min, loopback"
 	}
 	logger.Info(fmt.Sprintf("Sign in: %s (%s)", pc.URL, note))
 	writeQR(signInQROut, pc.URL)

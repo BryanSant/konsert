@@ -44,22 +44,28 @@ Open `http://127.0.0.1:8420` in your browser.
 
 ### 3. Production Authentication & Security
 
-Generate secure tokens:
+Start the controller with auth on (the default; or `--trust-tailscale-headers` behind
+Tailscale Serve):
 
 ```bash
 FLEET_TOKEN=$(./bin/konsert token generate)
-ADMIN_TOKEN=$(./bin/konsert token generate)
-```
-
-Start the controller with auth enabled (or `--trust-tailscale-headers` behind Tailscale Serve):
-
-```bash
 ./bin/konsert serve \
   --listen :8420 \
   --db /var/lib/konsert/konsert.db \
-  --fleet-token "$FLEET_TOKEN" \
-  --admin-token "$ADMIN_TOKEN"
+  --fleet-token "$FLEET_TOKEN"
 ```
+
+Nobody copies a token to sign in. The hub prints one line, plus a QR code in a terminal:
+
+```
+Sign in: http://desk:8420/pair/7KQ2-M9TX (10 min)
+```
+
+Open it in a browser or scan it with your phone. Each browser, phone, CLI and MCP client
+gets its own credential, listed in **Settings → Devices** (rename, revoke). A device stays
+signed in while it is used at least every 90 days (a setting). For another link run
+`konsert pair` on the hub, or use **Add a device** in a signed-in browser. See
+[docs/deploy.md](docs/deploy.md#1-signing-in) for the CLI, MCP clients and the recovery key.
 
 Connect workers outbound:
 
@@ -83,11 +89,11 @@ To opt into sandboxing on sensitive hosts:
 
 ### 4. MCP Integration
 
-- **Streamable HTTP:** Point your MCP client to `http://<host>:8420/mcp` with `Authorization: Bearer <mcp_or_admin_token>`.
-- **Stdio Bridge:** Configure your local desktop/CLI orchestrator to run:
-  ```bash
-  konsert mcp --url http://127.0.0.1:8420 --token "$ADMIN_TOKEN"
-  ```
+- **Streamable HTTP:** In the web app, **Settings → Connect an MCP client** creates a
+  credential for `/mcp` and shows ready-to-paste config (a `claude mcp add --transport http …`
+  command and a JSON snippet).
+- **Stdio Bridge:** Configure your local desktop/CLI orchestrator to run `konsert mcp`. On the
+  hub's machine it needs nothing else; elsewhere run `konsert login https://hub:8420` once.
 
 Available MCP tools: `fleet_status`, `dispatch_task`, `list_tasks`, `get_task_result`, `steer_task`, `cancel_task`.
 

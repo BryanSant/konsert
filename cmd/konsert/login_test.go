@@ -220,9 +220,13 @@ func TestRunServeAnnouncesSignInLink(t *testing.T) {
 	}
 	cancel()
 	<-done
-	m := regexp.MustCompile(`msg="Sign in: (http://127\.0\.0\.1:\d+/pair/[0-9A-Z]{4}-[0-9A-Z]{4}) \(10 min, this machine only\)"`).FindStringSubmatch(logs.String())
+	m := regexp.MustCompile(`msg="Sign in: (http://127\.0\.0\.1:\d+/pair/[0-9A-Z]{4}-[0-9A-Z]{4}) \(10 min, loopback\)"`).FindStringSubmatch(logs.String())
 	if m == nil || !strings.Contains(m[1], addr.String()) {
 		t.Fatalf("no sign-in line for %s in:\n%s", addr, logs.String())
+	}
+	// On a terminal the console handler prefixes "15:04:05 INFO ": still one 80-column line.
+	if line := "15:04:05 INFO Sign in: " + m[1] + " (10 min, loopback)"; len(line) > 80 {
+		t.Fatalf("sign-in line is %d columns: %q", len(line), line)
 	}
 	if strings.Contains(logs.String(), cfg.RecoveryKey) || strings.Contains(logs.String(), cfg.FleetToken) {
 		t.Fatal("a token was logged")

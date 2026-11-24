@@ -2,19 +2,25 @@ import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { NavigationError, Router, RouterOutlet } from '@angular/router';
 import { AppUpdateService } from './core/services/app-update.service';
 import { AuthService } from './core/services/auth.service';
+import { codeFromPath } from './features/auth/device-name';
 import { LoginViewComponent } from './features/auth/login-view.component';
+import { PairViewComponent } from './features/auth/pair-view.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [LoginViewComponent, RouterOutlet],
+  imports: [LoginViewComponent, PairViewComponent, RouterOutlet],
   template: `
     @if (auth.loading()) {
       <div class="h-screen w-screen flex items-center justify-center bg-[#111214] text-[#8e9098] text-[13px] font-mono-ide" role="status">
         Connecting to Konsert...
       </div>
     } @else if (!auth.authenticated()) {
-      <app-login-view />
+      @if (pairCode(); as code) {
+        <app-pair-view [code]="code" (paired)="leavePairing()" (cancel)="leavePairing()" />
+      } @else {
+        <app-login-view (pairCode)="startPairing($event)" />
+      }
     } @else {
       <!-- Modes and the classic shell are lazy route chunks: the login screen doesn't pay for them. -->
       <router-outlet />
@@ -50,12 +56,26 @@ export class App implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   /** A lazy route chunk failed to load (usually: the hub was upgraded under this page). */
   readonly routeLoadFailed = signal(false);
+  /** The pairing code of a /pair/{code} sign-in link this signed-out browser opened. */
+  readonly pairCode = signal(typeof location === 'undefined' ? '' : codeFromPath(location.pathname, 'pair'));
+  private readonly router = inject(Router);
 
   constructor() {
     const sub = inject(Router).events.subscribe((ev) => {
       if (ev instanceof NavigationError) this.routeLoadFailed.set(true);
     });
     this.destroyRef.onDestroy(() => sub.unsubscribe());
+  }
+
+  startPairing(code: string): void {
+    this.pairCode.set(code);
+    void this.router.navigateByUrl(`/pair/${code}`);
+  }
+
+  /** Paired (or cancelled): drop the code from the address bar and open the app. */
+  leavePairing(): void {
+    this.pairCode.set('');
+    void this.router.navigateByUrl('/', { replaceUrl: true });
   }
 
   ngOnInit(): void {

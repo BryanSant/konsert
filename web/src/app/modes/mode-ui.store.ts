@@ -4,6 +4,7 @@ import { SessionKind, Worker } from '../core/models/konsert.models';
 import { FleetStore } from '../core/state/fleet.store';
 import { WorkItem } from '../core/state/work-logic';
 import { SessionDispatchRequest } from '../layout/session-dispatch-modal.component';
+import type { DevicesView } from '../features/auth/devices-dialog.component';
 
 /**
  * Page-level UI state shared by the modes: which global dialogs are open and whether the
@@ -22,6 +23,8 @@ export class ModeUiStore {
   readonly inspectedWorkerId = signal<string | null>(null);
   readonly projectsOpen = signal(false);
   readonly auditOpen = signal(false);
+  /** Settings → Devices, opened on a view (list, Add a device, Connect an MCP client). */
+  readonly devicesOpen = signal<DevicesView | null>(null);
 
   /** No machines at all once the fleet has loaded: first run. */
   readonly firstRun = computed(() => this.fleetLoaded() && this.fleet.workers().length === 0);
@@ -45,5 +48,6 @@ export class ModeUiStore {
     this.inspectedWorkerId.set(null);
     this.projectsOpen.set(false);
     this.auditOpen.set(false);
+    this.devicesOpen.set(null);
   }
 }

@@ -91,6 +91,12 @@ import { Component, input } from '@angular/core';
           <path d="M5.5 13.5h5M8 11v2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
         </svg>
       }
+      @case ('phone') {
+        <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
+          <rect x="4.5" y="1.8" width="7" height="12.4" rx="1.6" stroke="currentColor" stroke-width="1.3"/>
+          <path d="M7.2 11.9h1.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      }
       @case ('server') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2" stroke="currentColor" stroke-width="1.3"/>
