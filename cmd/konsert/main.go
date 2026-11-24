@@ -134,7 +134,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (isolated local development only; binds to loopback by default)")
 	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve (honored only from loopback peers)")
 	cmd.Flags().BoolVar(&enableMCPHTTP, "enable-mcp-http", true, "Enable Streamable HTTP/SSE MCP endpoint at /mcp")
-	cmd.Flags().StringVar(&publicURL, "public-url", "", "Externally reachable base URL of this controller (e.g. https://konsert.example.ts.net); used for SSH-bootstrapped workers and as an allowed browser origin")
+	cmd.Flags().StringVar(&publicURL, "public-url", "", "Externally reachable base URL of this controller (e.g. https://konsert.example.ts.net); used in join links and as an allowed browser origin")
 	cmd.Flags().StringSliceVar(&allowedOrigins, "allowed-origin", nil, "Extra browser origin allowed to use the REST API and /ws/client (repeatable; e.g. http://localhost:4200)")
 
 	return cmd
