@@ -112,6 +112,11 @@ type Hub struct {
 	StaleWorkerTimeout time.Duration
 	ReapInterval       time.Duration
 
+	// LinkQuiet and LinkDead override the worker link liveness intervals (linkwatch:
+	// ping after 15 s quiet, dead after 45 s silent). Tests shorten them.
+	LinkQuiet time.Duration
+	LinkDead  time.Duration
+
 	// LostTaskGrace is how long a task may be missing from a connected worker's
 	// hello/heartbeat active list before the hub treats it as lost. konsertd
 	// re-sends buffered final statuses right after hello, so this must comfortably
@@ -142,6 +147,7 @@ type Hub struct {
 	// worker's smoothed load score (heat.go).
 	activity activityState
 	heat     heatState
+	ports    portsCache
 	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
 	KaPath string
 	// kaShowFn and ghPRFn replace ka/gh in tests.
@@ -170,12 +176,14 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		chatSessions:       make(map[string]*chatSession),
 		agentChats:         make(map[string]*agentChatRT),
 		hostname:           func() string { h, _ := os.Hostname(); return h },
-		StaleWorkerTimeout: 150 * time.Second, // > 2x TelemetryThrottle.MaxSilent (60s) so idle daemons never false-reap
+		StaleWorkerTimeout: 150 * time.Second, // > 2x the longest heartbeat gap (60 s) so idle daemons never false-reap
 		ReapInterval:       15 * time.Second,
 		LostTaskGrace:      45 * time.Second,
 		ChatTurnTimeout:    15 * time.Minute,
 	}
 	h.questions.init()
+	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
+	h.goBackground(h.vitalsLoop)
 	return h
 }
 
@@ -203,8 +211,8 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.closed = true
 	h.mu.Unlock()
-	// Keep the in-progress heat minute across a restart.
-	h.flushHeat(ctx)
+	// Keep the in-progress history buckets across a restart.
+	h.flushVitals(ctx, true)
 	h.cancel()
 
 	h.mu.Lock()

@@ -230,20 +230,65 @@ CREATE TABLE agent_accounts (
     PRIMARY KEY (worker_id, account_id)
 );
 
--- Machine heat history: one row per worker per 1-minute bucket (bucket_start is unix
--- seconds, a multiple of 60) with the max and mean smoothed heat score in that minute and
--- the dominant cause at the max. samples counts the heartbeats folded in, so a minute
--- flushed twice (hub restart, reconnect) merges into a correct mean. Kept 8 days.
-CREATE TABLE worker_heat_samples (
-    worker_id    TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
-    bucket_start INTEGER NOT NULL,
-    score_max    REAL NOT NULL,
-    score_avg    REAL NOT NULL,
-    samples      INTEGER NOT NULL DEFAULT 1,
-    cause        TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (worker_id, bucket_start)
+-- Machine vitals and heat, in three tiers (KON-WY5F2; docs/design/activity.md). At most
+-- ~2.9k raw + 720 hourly + 365 daily rows per machine, however old it is.
+--
+-- Raw tier: one row per machine per 15-second bucket (t: unix seconds, a multiple of 15)
+-- holding the mean of the n heartbeats in it (memory and swap in MB), the GPU mean over
+-- the gpu_n heartbeats that had a reading (NULL when none did), and the mean and max
+-- smoothed heat with the cause at the max. n lets a bucket flushed twice (hub restart)
+-- merge into a correct mean. Kept 12 hours.
+CREATE TABLE machine_vitals (
+    worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    t         INTEGER NOT NULL,
+    n         INTEGER NOT NULL,
+    cpu       REAL NOT NULL,
+    load      REAL NOT NULL,
+    mem       REAL NOT NULL,
+    mem_total INTEGER NOT NULL,
+    swap      REAL NOT NULL,
+    gpu_n     INTEGER NOT NULL DEFAULT 0,
+    gpu       REAL,
+    heat      REAL NOT NULL,
+    heat_max  REAL NOT NULL,
+    cause     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (worker_id, t)
 ) WITHOUT ROWID;
-CREATE INDEX idx_worker_heat_samples_bucket ON worker_heat_samples(bucket_start);
+CREATE INDEX idx_machine_vitals_t ON machine_vitals(t);
+
+-- Roll-up tiers: min / sample-weighted mean / max per metric over an hour (period 3600,
+-- kept 30 days) or a UTC day (period 86400, kept 365 days), t the period start. Hourly
+-- rows are recomputed from the raw tier and daily rows from the hourly tier, so rolling
+-- up again (late, twice, after a gap) rewrites the same values.
+CREATE TABLE machine_vitals_rollup (
+    worker_id TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    period    INTEGER NOT NULL,
+    t         INTEGER NOT NULL,
+    n         INTEGER NOT NULL,
+    cpu_min   REAL NOT NULL,
+    cpu_avg   REAL NOT NULL,
+    cpu_max   REAL NOT NULL,
+    load_min  REAL NOT NULL,
+    load_avg  REAL NOT NULL,
+    load_max  REAL NOT NULL,
+    mem_min   REAL NOT NULL,
+    mem_avg   REAL NOT NULL,
+    mem_max   REAL NOT NULL,
+    mem_total INTEGER NOT NULL,
+    swap_min  REAL NOT NULL,
+    swap_avg  REAL NOT NULL,
+    swap_max  REAL NOT NULL,
+    gpu_n     INTEGER NOT NULL DEFAULT 0,
+    gpu_min   REAL,
+    gpu_avg   REAL,
+    gpu_max   REAL,
+    heat_min  REAL NOT NULL,
+    heat_avg  REAL NOT NULL,
+    heat_max  REAL NOT NULL,
+    cause     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (worker_id, period, t)
+) WITHOUT ROWID;
+CREATE INDEX idx_machine_vitals_rollup_t ON machine_vitals_rollup(period, t);
 
 CREATE TABLE usage_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

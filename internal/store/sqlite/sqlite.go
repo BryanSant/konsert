@@ -183,6 +183,16 @@ func (s *SQLiteStore) TouchWorker(ctx context.Context, id string, seenAt time.Ti
 	return nil
 }
 
+// MarkWorkerOffline flips worker id from online to offline and reports whether it did.
+func (s *SQLiteStore) MarkWorkerOffline(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE workers SET status = 'offline' WHERE id = ? AND status = 'online'`, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func (s *SQLiteStore) EnsureWorker(ctx context.Context, w store.Worker) (store.Worker, error) {
 	if strings.TrimSpace(w.ID) == "" {
 		return store.Worker{}, errors.New("worker id is required")
@@ -377,7 +387,11 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM worker_heat_samples WHERE worker_id = ?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_vitals WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_vitals_rollup WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

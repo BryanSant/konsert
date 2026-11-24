@@ -29,9 +29,19 @@ export interface WorkerMetrics {
   mem_used_mb: number;
   mem_total_mb: number;
   load_avg: number;
+  swap_used_mb?: number;
+  swap_total_mb?: number;
   /** GPU utilization 0-100 where the platform reports it. */
   gpu_percent?: number;
-  listening_ports?: ListeningPort[];
+}
+
+/** GET /api/workers/{id}/ports: listening ports, fetched on demand (lsof / ss on the machine). */
+export interface WorkerPorts {
+  worker_id: string;
+  ports: ListeningPort[];
+  collected_at: string;
+  /** False when the machine did not answer and this is the last list it sent. */
+  fresh: boolean;
 }
 
 export interface MachineFacts {

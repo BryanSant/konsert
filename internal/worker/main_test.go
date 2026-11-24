@@ -27,6 +27,11 @@ func TestMain(m *testing.M) {
 	collectFacts = func(context.Context) protocol.MachineFacts {
 		return protocol.MachineFacts{OSName: runtime.GOOS, CPUCores: runtime.NumCPU(), CollectedAt: time.Now().UTC()}
 	}
+	// No ioreg / nvidia-smi / lsof / ss from daemons under test.
+	readGPU = func(context.Context) *float64 { return nil }
+	collectPorts = func(context.Context) []protocol.ListeningPort {
+		return []protocol.ListeningPort{{Port: 5173, Process: "vite"}}
+	}
 	// Agent accounts: never discover the developer's real CLIs or wrapper scripts, and
 	// never run their status commands.
 	newAccountRegistry = func(o chat.AccountOptions) *chat.AccountRegistry {

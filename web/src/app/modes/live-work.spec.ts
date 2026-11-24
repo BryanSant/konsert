@@ -298,6 +298,19 @@ describe('fleet machine rows', () => {
     expect(describeStrip('desk', heatStrip(null, 'w1', 3), '12 hours')).toBe('desk: no heat history for the last 12 hours');
   });
 
+  it('sizes the heat strip to the points the hub returned (hourly ranges have fewer)', () => {
+    const h: HeatHistory = {
+      range: '24h',
+      start: iso(NOW - 24 * 3600_000),
+      end: iso(NOW),
+      step_seconds: 3600,
+      tier: 'hourly',
+      workers: [{ worker_id: 'w1', samples: Array.from({ length: 24 }, () => null) }],
+    };
+    expect(heatStrip(h, 'w1').length).toBe(24);
+    expect(heatStrip(h, 'not-in-history').length).toBe(24);
+  });
+
   it('explains why queued work waits', () => {
     const workers = [worker('w1', 'mac', { max_concurrent: 1 }), worker('w2', 'desk', { drained: true }), worker('w3', 'wsl', { agents: ['codex'] })];
     const tasks = [task('r', 'running'), task('q', 'queued', { worker_id: '' }), task('p', 'queued', { worker_id: 'w1' })];

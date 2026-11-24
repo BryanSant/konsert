@@ -118,14 +118,26 @@ export interface HeatSample {
   cause: HeatCause | string;
 }
 
-/** Heat history per machine over a range (GET /api/fleet/heat?range=12h&points=48). */
+/**
+ * Heat history per machine over a range (GET /api/fleet/heat?range=12h&points=48). 12h reads
+ * raw samples; 24h, 3d and 1w read hourly roll-ups, so they have at most one point per hour
+ * (24h gives 24 points): use the length of `samples`, not the points asked for.
+ */
 export interface HeatHistory {
   range: string;
   start: string;
   end: string;
   step_seconds: number;
+  /** The history tier the points come from. */
+  tier?: 'raw' | 'hourly';
+  /** How long machine history is kept, in plain words. */
+  retention?: string;
   workers: Array<{ worker_id: string; samples: Array<HeatSample | null> }>;
 }
+
+/** Shown where machine history appears (mirrors VitalsRetentionText on the hub). */
+export const MACHINE_HISTORY_RETENTION =
+  'Machine history keeps every sample for 12 hours, hourly summaries for 30 days and daily summaries for a year.';
 
 /** Heat thresholds (documented in docs/design/activity.md). */
 export const HEAT_WARM_AT = 0.4;

@@ -1,5 +1,5 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
-import { Worker } from '../core/models/konsert.models';
+import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ListeningPort, Worker } from '../core/models/konsert.models';
 import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
@@ -223,17 +223,20 @@ import { MachineCredentialComponent } from './machine-credential.component';
             </div>
             <div>
               <span class="text-[#86888f] block text-[10px]">Open Ports</span>
-              <span class="text-[#ececed]">{{ m.listening_ports?.length || 0 }}</span>
+              <span class="text-[#ececed]">{{ ports() === null ? '…' : ports()!.length }}</span>
             </div>
           </div>
         </div>
       }
 
-      @if (worker().metrics?.listening_ports?.length) {
+      @if (ports()?.length) {
         <div class="rounded-lg bg-[#141518] p-3 space-y-1.5 text-[11.5px]" data-testid="machine-ports">
-          <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Listening ports</span>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Listening ports</span>
+            <span class="text-[10px] text-[#86888f]" [ksTooltip]="'Listed on the machine when Details opens, then every 5 minutes'">{{ portsNote() }}</span>
+          </div>
           <ul class="m-0 p-0 list-none flex flex-wrap gap-1.5 font-mono-ide">
-            @for (p of worker().metrics!.listening_ports!; track p.port + (p.address ?? '')) {
+            @for (p of ports()!; track p.port + (p.address ?? '')) {
               <li class="rounded bg-white/[0.05] px-1.5 py-0.5 text-[#d4d4d8]">{{ p.port }}@if (p.process) {<span class="text-[#86888f]"> {{ p.process }}</span>}</li>
             }
           </ul>
@@ -401,6 +404,36 @@ export class MachineDetailModalComponent {
   readonly removing = signal(false);
   readonly removeError = signal('');
   readonly copiedId = signal(false);
+
+  /** Listening ports, asked of the machine when Details opens and every 5 minutes after (null until known). */
+  readonly ports = signal<ListeningPort[] | null>(null);
+  readonly portsFresh = signal(true);
+  readonly portsNote = computed(() => (this.portsFresh() ? 'live' : 'last reported'));
+  private portsFor = '';
+
+  constructor() {
+    effect(() => {
+      const w = this.worker();
+      if (w.status !== 'online' || w.id === this.portsFor) return;
+      this.portsFor = w.id;
+      untracked(() => void this.loadPorts(w.id));
+    });
+    const timer = setInterval(() => {
+      if (this.portsFor) void this.loadPorts(this.portsFor);
+    }, 5 * 60_000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
+  private async loadPorts(id: string): Promise<void> {
+    try {
+      const res = await this.api.getWorkerPorts(id);
+      if (id !== this.worker().id) return;
+      this.ports.set(res.ports ?? []);
+      this.portsFresh.set(res.fresh);
+    } catch {
+      // Offline or unreachable: leave whatever we had.
+    }
+  }
 
   readonly activeSessionsCount = computed(() => {
     const wid = this.worker().id;

@@ -410,3 +410,26 @@ func TestSSHTransportSurvivesDroppedLinkAndHubRestart(t *testing.T) {
 		t.Fatalf("hub key line left after removal: %q", b)
 	}
 }
+
+// A wake from sleep or a network change on the hub's machine drops every attach link and
+// redials at once, without waiting out the backoff.
+func TestAttachRedialsOnWakeOrNetworkChange(t *testing.T) {
+	lt := newLaunchTest(t)
+	lt.srv.attach.minBackoff, lt.srv.attach.maxBackoff = time.Minute, time.Minute
+	w := lt.addSSHWorker(t, remoteID, "box", "me@box")
+	lt.daemons.up(testWorkerInfo(remoteID, "box"))
+	lt.srv.attach.ensure(w)
+	waitFor(t, 5*time.Second, "ssh machine online", func() bool { return lt.srv.hub.IsWorkerConnected(remoteID) })
+	first := lt.daemons.lastLink()
+	lt.srv.attach.redialAll("network change")
+	select {
+	case <-first.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the old link was not dropped")
+	}
+	waitFor(t, 5*time.Second, "second link", func() bool { return lt.daemons.dialCount(remoteID) == 2 })
+	waitFor(t, 5*time.Second, "ssh machine online again", func() bool { return lt.srv.hub.IsWorkerConnected(remoteID) })
+	if l := lt.daemons.lastLink(); l == first {
+		t.Fatal("no new link")
+	}
+}

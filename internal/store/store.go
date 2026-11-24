@@ -258,15 +258,65 @@ type AuditEvent struct {
 	Cause *Cause `json:"cause,omitzero"`
 }
 
-// HeatSample is one worker's machine heat over a 1-minute bucket: the max and mean smoothed
-// score of the heartbeats in it (Samples of them) and the dominant cause at the max.
-type HeatSample struct {
-	WorkerID    string
-	BucketStart time.Time // start of the minute (UTC, whole minute)
-	ScoreMax    float64
-	ScoreAvg    float64
-	Samples     int
-	Cause       string
+// Machine vitals and heat retention (KON-WY5F2): raw samples, hourly roll-ups and daily
+// roll-ups, each kept for a fixed time, so a machine never has more than ~4k rows.
+const (
+	// VitalsBucket is the raw tier's resolution: heartbeats within one bucket merge.
+	VitalsBucket = 15 * time.Second
+	// VitalsRawKeep, VitalsHourlyKeep and VitalsDailyKeep are how long each tier is kept.
+	VitalsRawKeep    = 12 * time.Hour
+	VitalsHourlyKeep = 30 * 24 * time.Hour
+	VitalsDailyKeep  = 365 * 24 * time.Hour
+	// VitalsHourly and VitalsDaily are the roll-up periods.
+	VitalsHourly = time.Hour
+	VitalsDaily  = 24 * time.Hour
+)
+
+// VitalsSample is one machine's raw vitals over one VitalsBucket: the mean of the N
+// heartbeats in it, and the highest smoothed heat with its cause.
+type VitalsSample struct {
+	WorkerID string
+	At       time.Time // bucket start (UTC, a multiple of VitalsBucket)
+	N        int
+	CPU      float64 // %
+	Load     float64
+	Mem      float64 // MB used
+	MemTotal uint64  // MB
+	Swap     float64 // MB used
+	// GPU is the mean GPU % of the GPUN heartbeats that carried one (nil: none did).
+	GPU     *float64
+	GPUN    int
+	Heat    float64 // mean smoothed heat 0..1
+	HeatMax float64
+	Cause   string // heat cause at HeatMax
+}
+
+// VitalsStat is a metric's min, sample-weighted mean and max over a roll-up period.
+type VitalsStat struct {
+	Min, Avg, Max float64
+}
+
+// VitalsRollup is one machine's vitals over an hour or a day.
+type VitalsRollup struct {
+	WorkerID string
+	Period   time.Duration // VitalsHourly or VitalsDaily
+	At       time.Time     // period start (UTC)
+	N        int           // heartbeats folded in
+	CPU      VitalsStat
+	Load     VitalsStat
+	Mem      VitalsStat
+	MemTotal uint64
+	Swap     VitalsStat
+	GPU      *VitalsStat // nil when no heartbeat in the period had a GPU reading
+	GPUN     int
+	Heat     VitalsStat
+	Cause    string // heat cause at Heat.Max
+}
+
+// VitalsRollupResult counts what one RollupVitals run did.
+type VitalsRollupResult struct {
+	Hourly, Daily int   // roll-up rows written (recomputed)
+	Pruned        int64 // rows deleted past their tier's retention
 }
 
 // AuditFilter selects audit events. Zero values mean "no filter". Results are
@@ -443,6 +493,9 @@ type Store interface {
 	ListWorkers(ctx context.Context) ([]Worker, error)
 	DeleteWorker(ctx context.Context, id string) error
 	MarkStaleWorkersOffline(ctx context.Context, cutoff time.Time) ([]string, error)
+	// MarkWorkerOffline flips one online worker to offline and reports whether it changed
+	// (its link died).
+	MarkWorkerOffline(ctx context.Context, id string) (bool, error)
 
 	CreateSpace(ctx context.Context, sp Space) error
 	GetSpace(ctx context.Context, id string) (Space, error)
@@ -511,13 +564,20 @@ type Store interface {
 	// the newest maxRows rows. It returns the number of rows deleted.
 	PruneAudit(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
 
-	// Machine heat history (1-minute buckets). UpsertHeatSample merges into an existing
-	// bucket (max of maxes, sample-weighted mean, cause of the max).
-	UpsertHeatSample(ctx context.Context, s HeatSample) error
-	// ListHeatSamples returns every worker's buckets starting in [since, until), oldest first.
-	ListHeatSamples(ctx context.Context, since, until time.Time) ([]HeatSample, error)
-	// PruneHeatSamples deletes buckets starting before olderThan.
-	PruneHeatSamples(ctx context.Context, olderThan time.Time) (int64, error)
+	// Machine vitals and heat (KON-WY5F2). UpsertVitals merges raw samples into stored
+	// buckets (sample-weighted means, max heat and its cause); samples of machines that
+	// no longer exist are dropped.
+	UpsertVitals(ctx context.Context, samples []VitalsSample) error
+	// ListVitals returns every machine's raw samples in [since, until), oldest first.
+	ListVitals(ctx context.Context, since, until time.Time) ([]VitalsSample, error)
+	// ListVitalsRollups returns every machine's roll-ups of period starting in
+	// [since, until), oldest first.
+	ListVitalsRollups(ctx context.Context, period time.Duration, since, until time.Time) ([]VitalsRollup, error)
+	// RollupVitals recomputes the hourly roll-up of every complete hour still in the raw
+	// tier and the daily roll-up of every complete day those hours touch, then deletes
+	// rows past each tier's retention, all as of now. Recomputing from the finer tier
+	// makes it idempotent: running it twice, late, or after a gap gives the same rows.
+	RollupVitals(ctx context.Context, now time.Time) (VitalsRollupResult, error)
 
 	CreateChatSession(ctx context.Context, s ChatSession) error
 	GetChatSession(ctx context.Context, id string) (ChatSession, error)
