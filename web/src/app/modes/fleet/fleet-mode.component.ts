@@ -35,6 +35,7 @@ import {
   subagentChip,
   subagentText,
   transportHint,
+  transportIcon,
   transportLabel,
 } from './fleet-logic';
 import { SubagentActivity } from '../../core/models/activity.models';
@@ -117,18 +118,27 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
             >
               <div class="flex gap-3 items-start min-w-0">
                 <ks-heat-avatar [machine]="machineOf(r)" [size]="44" shape="square" />
-                <div class="min-w-0 flex flex-col gap-[3px]">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <h3 class="m-0 text-[14px] font-semibold truncate" [id]="'ks-m-' + r.w.id">
+                <div class="ks-minfo min-w-0 flex-1 flex flex-col gap-[3px]">
+                  <!-- The name gets the room: badges wrap under it rather than cut it off. -->
+                  <div class="ks-mtitle">
+                    <h3 class="ks-mname m-0 min-w-0 max-w-full text-[14px] font-semibold" [id]="'ks-m-' + r.w.id">
                       <button type="button" class="ks-focusable rounded-sm text-left" [attr.aria-current]="selectedSid() === r.w.sid ? 'true' : null" (click)="select(r.w)">{{ r.w.name }}</button>
                     </h3>
-                    <span class="ks-badge" [attr.data-badge]="r.badge">{{ r.badge }}</span>
-                    <span class="ks-badge ks-transport" data-testid="machine-transport" [attr.data-transport]="transportLabel(r.w)" [ksTooltip]="transportHint(r.w)"
-                      ><span class="ks-sr-only">transport </span>{{ transportLabel(r.w) }}</span
-                    >
-                    @if (versionMismatch(r.w); as note) {
-                      <span class="ks-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [ksTooltip]="note">VERSION</span>
-                    }
+                    <span class="ks-mbadges">
+                      <span class="ks-badge" [attr.data-badge]="r.badge">{{ r.badge }}</span>
+                      <span
+                        class="ks-badge ks-transport"
+                        role="img"
+                        data-testid="machine-transport"
+                        [attr.data-transport]="transportLabel(r.w)"
+                        [attr.aria-label]="'transport ' + transportLabel(r.w)"
+                        [ksTooltip]="transportLabel(r.w) + ': ' + transportHint(r.w)"
+                        ><app-icon [name]="transportIcon(r.w)" [size]="10" /><span class="ks-transport-label" data-testid="transport-label">{{ transportLabel(r.w) }}</span></span
+                      >
+                      @if (versionMismatch(r.w); as note) {
+                        <span class="ks-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [ksTooltip]="note">VERSION</span>
+                      }
+                    </span>
                   </div>
                   <div class="text-[12px] text-[var(--ks-text-secondary)] truncate">{{ r.spec }}</div>
                   <div class="text-[12px]" [style.color]="heatColor(r)" data-testid="machine-heat">{{ r.heatText }}</div>
@@ -273,7 +283,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               </div>
             </section>
           }
-          <div class="hidden min-[901px]:grid grid-cols-[minmax(0,250px)_minmax(0,1fr)] gap-x-[18px] px-[14px]" aria-hidden="true">
+          <div class="hidden min-[901px]:grid grid-cols-[minmax(0,290px)_minmax(0,1fr)] gap-x-[18px] px-[14px]" aria-hidden="true">
             <span></span>
             <span class="flex items-center gap-2.5">
               <span class="relative block flex-1 h-4 text-[10.5px] text-[var(--ks-text-muted)] font-mono-ide">
@@ -318,7 +328,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
     }
     .ks-machine {
       display: grid;
-      grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 290px) minmax(0, 1fr);
       gap: 8px 18px;
       padding: 12px 14px;
       border-radius: var(--ks-radius-lg);
@@ -548,9 +558,48 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     }
+    .ks-minfo {
+      container: ks-minfo / inline-size;
+    }
+    .ks-mtitle {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 2px 8px;
+      min-width: 0;
+    }
+    /* A name longer than the column wraps (at its hyphens, else anywhere) to two lines
+       instead of being cut off; longer names are clipped after two lines. */
+    .ks-mname {
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      overflow: hidden;
+    }
+    .ks-mbadges {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
     .ks-transport {
+      align-items: center;
+      gap: 4px;
       background: transparent;
       color: var(--ks-text-secondary);
+    }
+    /* Narrow: the transport shrinks to its icon (the tooltip and accessible name keep it). */
+    @media (max-width: 640px) {
+      .ks-transport-label {
+        display: none;
+      }
+    }
+    @container ks-minfo (max-width: 180px) {
+      .ks-transport-label {
+        display: none;
+      }
     }
     .ks-transport[data-transport='ssh'] {
       color: #9ec5ff;
@@ -695,6 +744,7 @@ export class FleetModeComponent {
 
   readonly transportLabel = transportLabel;
   readonly transportHint = transportHint;
+  readonly transportIcon = transportIcon;
 
   offlineText(w: Worker): string {
     if (w.launch_state === 'starting') return 'starting konsertd…';

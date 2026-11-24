@@ -38,6 +38,11 @@ export function transportLabel(w: Worker): string {
   return w.transport === 'ssh' ? 'ssh' : w.transport === 'local' ? 'local' : 'outbound';
 }
 
+/** The transport's icon (the badge shrinks to it on narrow screens): key, monitor, globe. */
+export function transportIcon(w: Worker): 'key' | 'monitor' | 'globe' {
+  return w.transport === 'ssh' ? 'key' : w.transport === 'local' ? 'monitor' : 'globe';
+}
+
 /** One line on what the transport means, for its tooltip and Details. */
 export function transportHint(w: Worker): string {
   switch (w.transport) {

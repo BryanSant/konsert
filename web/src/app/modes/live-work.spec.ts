@@ -31,6 +31,7 @@ import {
   subagentChip,
   subagentText,
   transportHint,
+  transportIcon,
   transportLabel,
 } from './fleet/fleet-logic';
 
@@ -327,6 +328,9 @@ describe('machine transport', () => {
     expect(transportLabel(worker('b', 'hub', { transport: 'local' }))).toBe('local');
     expect(transportLabel(worker('c', 'far', { transport: 'outbound' }))).toBe('outbound');
     expect(transportLabel(worker('d', 'old'))).toBe('outbound');
+    expect(transportIcon(worker('a', 'box', { transport: 'ssh' }))).toBe('key');
+    expect(transportIcon(worker('b', 'hub', { transport: 'local' }))).toBe('monitor');
+    expect(transportIcon(worker('c', 'far'))).toBe('globe');
     expect(transportHint(worker('a', 'box', { transport: 'ssh', ssh_target: 'me@box' }))).toContain('over SSH (me@box)');
     expect(transportHint(worker('c', 'far', { transport: 'outbound' }))).toContain('machine credential');
   });
