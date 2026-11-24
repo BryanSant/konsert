@@ -231,7 +231,12 @@ func replay(p *ccFakeProc, lines []string) {
 
 func TestClaudeTurnMapping(t *testing.T) {
 	lines := readFixtureLines(t, "testdata/claude/turn_tool.jsonl")
-	e, l := newTestClaude(t, fakeClaudeOpts{onUser: func(p *ccFakeProc, _ map[string]any, _ int) { replay(p, lines) }})
+	// Hold the replay until the second Prompt has been tried, so the turn
+	// is still in flight however fast or slow the machine is.
+	release := make(chan struct{})
+	e, l := newTestClaude(t, fakeClaudeOpts{onUser: func(p *ccFakeProc, _ map[string]any, _ int) {
+		go func() { <-release; replay(p, lines) }()
+	}})
 	rec := newCCRecorder()
 	s, err := e.Open(context.Background(), Account{ID: "claude"}, protocol.AgentChatOpen{Cwd: t.TempDir()}, rec.emit)
 	if err != nil {
@@ -245,6 +250,7 @@ func TestClaudeTurnMapping(t *testing.T) {
 	if err := s.Prompt(context.Background(), protocol.AgentChatPrompt{TurnID: "t2", Text: "again"}); err == nil {
 		t.Fatal("second Prompt during a turn must fail")
 	}
+	close(release)
 	end, seen := rec.wait(t, isKind(protocol.EventTurnEnd))
 	if end.StopReason != "end_turn" || end.TurnID != "t1" {
 		t.Fatalf("turn end = %+v", end)
