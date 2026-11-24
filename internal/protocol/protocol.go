@@ -524,12 +524,15 @@ const (
 
 // PR review outcomes (GitPRReviewResult.Status).
 const (
-	PRReviewSent     = "sent"      // gh submitted the review
-	PRReviewFailed   = "failed"    // gh (or GitHub) refused; Message says why
-	PRReviewNoGitHub = "no_github" // the checkout has no GitHub remote
-	PRReviewNoGH     = "no_gh"     // gh is not installed on the machine
-	PRReviewNoPR     = "no_pr"     // no pull request for the branch
-	PRReviewOffline  = "offline"   // set by the hub: the machine is not connected
+	PRReviewSent = "sent" // gh submitted the review
+	// PRReviewCommented: the PR is the user's own, which GitHub does not let them
+	// approve or request changes on, so the decision was posted as a comment.
+	PRReviewCommented = "commented"
+	PRReviewFailed    = "failed"    // gh (or GitHub) refused; Message says why
+	PRReviewNoGitHub  = "no_github" // the checkout has no GitHub remote
+	PRReviewNoGH      = "no_gh"     // gh is not installed on the machine
+	PRReviewNoPR      = "no_pr"     // no pull request for the branch
+	PRReviewOffline   = "offline"   // set by the hub: the machine is not connected
 )
 
 type GitPRReviewRequest struct {
@@ -538,6 +541,9 @@ type GitPRReviewRequest struct {
 	Branch string `json:"branch,omitempty"`
 	Action string `json:"action"` // approve | request_changes
 	Body   string `json:"body,omitempty"`
+	// By names who decided (device or user label), for the comment posted instead of a
+	// review on the user's own PR.
+	By string `json:"by,omitempty"`
 }
 
 type GitPRReviewResult struct {

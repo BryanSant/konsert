@@ -46,7 +46,7 @@ func TestDaemonReviewsThePullRequestWithGH(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(calls) != 2 || !slices.Equal(calls[0], []string{"pr", "view", "konsert/t1", "--json", "number,url,state"}) ||
+	if len(calls) != 2 || !slices.Equal(calls[0], []string{"pr", "view", "konsert/t1", "--json", "number,url,state,author"}) ||
 		!slices.Equal(calls[1], []string{"pr", "review", "5", "--approve"}) {
 		t.Fatalf("gh calls %q", calls)
 	}

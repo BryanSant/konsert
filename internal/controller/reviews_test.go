@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
@@ -140,6 +141,32 @@ func TestReviewApproveRunsGHOnTheMachineThatOwnsTheCheckout(t *testing.T) {
 	evs, _ := e.th.st.ListEvents(ctx, "t1", 0, 50)
 	if !slices.ContainsFunc(evs, func(ev store.TaskEvent) bool { return ev.Kind == "review" && ev.Message == "Approved" }) {
 		t.Fatalf("no review event in %+v", evs)
+	}
+}
+
+// On the user's own PR the machine posts a comment instead of a review: the request
+// names who decided, and the review records "commented" with the plain message.
+func TestReviewApproveOwnPRRecordsTheCommentInstead(t *testing.T) {
+	e := newAuditEnv(t)
+	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
+	ctx := context.Background()
+	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t1",
+		Prompt: "count words", Status: protocol.TaskStatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := answerPRReview(w, protocol.GitPRReviewResult{Status: protocol.PRReviewCommented, PRNumber: 7,
+		PRURL: "https://github.com/acme/wc/pull/7", Message: gitutil.OwnPRApproveMessage})
+	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/review", `{"decision":"approved"}`)
+	if code != http.StatusOK {
+		t.Fatalf("review: %d %s", code, raw)
+	}
+	if req := <-reqs; req.By == "" || !strings.HasPrefix(e.user, req.By) {
+		t.Fatalf("git.pr.review By = %q, want the device name of %q", req.By, e.user)
+	}
+	rv := decodeReviewResult(t, raw).Review
+	if rv.Decision != store.ReviewApproved || rv.GitHubStatus != protocol.PRReviewCommented ||
+		!strings.Contains(rv.GitHubMessage, "doesn't let you approve your own pull request") {
+		t.Fatalf("review %+v", rv)
 	}
 }
 

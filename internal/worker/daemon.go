@@ -69,6 +69,10 @@ type Daemon struct {
 
 	// ghRun runs gh for PR reviews (git.pr.review); nil = gh from PATH. Tests replace it.
 	ghRun gitutil.GHRunner
+	// prReviewer sends PR reviews and caches this machine's gh login (created on first
+	// use with ghRun).
+	prReviewerOnce sync.Once
+	prReviewer     *gitutil.PRReviewer
 
 	// activity publishes session activity (chats and PTY tasks) at a bounded rate;
 	// taskActivity derives PTY tasks' activity from their telemetry (guarded by taskActMu).
@@ -904,7 +908,8 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 				d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: vErr.Error()})
 				return
 			}
-			d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, gitutil.ReviewPR(ctx, dir, req, d.ghRun))
+			d.prReviewerOnce.Do(func() { d.prReviewer = &gitutil.PRReviewer{GH: d.ghRun} })
+			d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, d.prReviewer.Review(ctx, dir, req))
 		}(env.ID, p)
 
 	case protocol.MsgGitWorktreeCleanup:
