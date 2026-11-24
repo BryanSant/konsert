@@ -117,10 +117,13 @@ type StorageKind struct {
 	Rows  int64  `json:"rows"`
 }
 
-// Storage breakdown kinds.
+// Storage breakdown kinds. Conversations are what people read back: orchestrator
+// transcripts (chat_messages) plus the agent-chat events compaction keeps
+// (ChatEventKeepKinds). Session detail is every other chat event: tool calls with their
+// output, reasoning, plans and streamed telemetry, the part compaction drops.
 const (
-	StorageTranscripts   = "transcripts"
-	StorageSessionEvents = "session_events"
+	StorageConversations = "conversations"
+	StorageSessionDetail = "session_detail"
 	StorageTaskEvents    = "task_events"
 	StorageFleet         = "fleet_timeline"
 	StorageUsage         = "usage"

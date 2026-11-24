@@ -393,12 +393,12 @@ func TestIncrementalVacuumShrinksFile(t *testing.T) {
 	}
 	var sessionBytes int64
 	for _, k := range before.Breakdown {
-		if k.Kind == store.StorageSessionEvents {
+		if k.Kind == store.StorageSessionDetail {
 			sessionBytes = k.Bytes
 		}
 	}
 	if sessionBytes < 4_000_000 {
-		t.Fatalf("session events use %d bytes, want > 4 MB: %+v", sessionBytes, before.Breakdown)
+		t.Fatalf("session detail uses %d bytes, want > 4 MB: %+v", sessionBytes, before.Breakdown)
 	}
 	compactAll(t, st, store.CompactChats, store.DefaultRetention, 500)
 	for {
@@ -419,5 +419,64 @@ func TestIncrementalVacuumShrinksFile(t *testing.T) {
 	}
 	if fi.Size() > before.FileBytes/4 {
 		t.Fatalf("file %d bytes after compaction, was %d", fi.Size(), before.FileBytes)
+	}
+}
+
+// TestStorageStatsSplitsConversationsFromSessionDetail: agent-chat transcript events
+// (the kinds compaction keeps) count as conversations with the orchestrator transcripts;
+// tool calls and other streamed events are session detail. The split follows content
+// length, rows are exact.
+func TestStorageStatsSplitsConversationsFromSessionDetail(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+	id, seq := seedChat(t, st, protocol.ChatStatusIdle)
+	reply := strings.Repeat("r", 1000)
+	tool := strings.Repeat("t", 3000)
+	for i := range 400 {
+		*seq++
+		k, body := "tool_call", tool
+		if i%4 == 0 {
+			k, body = "message", reply
+		}
+		if _, err := st.AppendChatEvent(ctx, store.ChatEvent{ChatID: id, Seq: *seq, Kind: k, JSON: `{"text":"` + body + `"}`, CreatedAt: daysAgo(1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stats, err := st.StorageStats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]store.StorageKind{}
+	var labels []string
+	for _, k := range stats.Breakdown {
+		by[k.Kind] = k
+		labels = append(labels, k.Label)
+	}
+	if _, ok := by["transcripts"]; ok {
+		t.Fatalf("old transcripts kind still reported: %v", labels)
+	}
+	conv, detail := by[store.StorageConversations], by[store.StorageSessionDetail]
+	if conv.Label != "Conversations" || detail.Label != "Session detail" {
+		t.Fatalf("labels = %v", labels)
+	}
+	if conv.Rows != 100 || detail.Rows != 300 {
+		t.Fatalf("rows: conversations %d, session detail %d; want 100 and 300", conv.Rows, detail.Rows)
+	}
+	// 100 x ~1 KB of replies against 300 x ~3 KB of tool output: about 1:9.
+	if conv.Bytes <= 0 || detail.Bytes < 7*conv.Bytes || detail.Bytes > 11*conv.Bytes {
+		t.Fatalf("bytes: conversations %d, session detail %d; want about 1:9", conv.Bytes, detail.Bytes)
+	}
+}
+
+func TestSplitShare(t *testing.T) {
+	for _, c := range []struct{ total, a, b, ra, rb, want int64 }{
+		{1000, 1, 3, 9, 9, 250},
+		{1000, 0, 0, 1, 1, 500},
+		{1000, 0, 0, 0, 0, 0},
+		{0, 5, 5, 1, 1, 0},
+	} {
+		if got := splitShare(c.total, c.a, c.b, c.ra, c.rb); got != c.want {
+			t.Errorf("splitShare(%v) = %d, want %d", c, got, c.want)
+		}
 	}
 }

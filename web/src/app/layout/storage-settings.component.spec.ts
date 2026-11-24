@@ -22,8 +22,8 @@ function storage(over: Partial<StorageResponse> = {}): StorageResponse {
       auto_vacuum: 'incremental',
       measured_at: new Date().toISOString(),
       breakdown: [
-        { kind: 'transcripts', label: 'Transcripts', bytes: 1024 * 1024, rows: 10 },
-        { kind: 'session_events', label: 'Session events', bytes: 40 * 1024 * 1024, rows: 1000 },
+        { kind: 'conversations', label: 'Conversations', bytes: 6 * 1024 * 1024, rows: 300 },
+        { kind: 'session_detail', label: 'Session detail', bytes: 35 * 1024 * 1024, rows: 1000 },
         { kind: 'other', label: 'Other', bytes: 9 * 1024 * 1024, rows: 0 },
       ],
     },
@@ -89,7 +89,12 @@ describe('StorageSettingsComponent', () => {
     const { root } = await setup();
     expect(root.querySelector('[data-testid="storage-total"]')?.textContent).toContain('54.0 MB');
     const kinds = Array.from(root.querySelectorAll('[data-testid="storage-breakdown"] li')).map((li) => li.getAttribute('data-kind'));
-    expect(kinds).toEqual(['transcripts', 'session_events', 'other']);
+    expect(kinds).toEqual(['conversations', 'session_detail', 'other']);
+    const conv = root.querySelector('[data-kind="conversations"]');
+    expect(conv?.textContent).toContain('Conversations');
+    const tip = (el: Element | null) => document.getElementById(el?.getAttribute('aria-describedby') ?? '')?.textContent ?? '';
+    expect(tip(conv)).toContain('Compaction keeps these');
+    expect(tip(root.querySelector('[data-kind="session_detail"]'))).toContain('Tool calls');
     expect(root.querySelector('[data-testid="storage-retention-text"]')?.textContent).toContain('30 days');
   });
 
