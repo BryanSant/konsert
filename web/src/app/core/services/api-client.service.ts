@@ -83,7 +83,6 @@ const AUTH_EXEMPT_PATHS = ['/api/auth/login', '/api/auth/pair'];
 
 export interface SSHBootstrapRequest {
   target: string;
-  controller_url?: string;
   sandbox?: boolean;
   enable_mock?: boolean;
   /** SHA256 fingerprint the operator confirmed after a host_key_confirmation result. */

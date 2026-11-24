@@ -47,14 +47,13 @@ type Worker struct {
 	// Launch is how the hub (re)starts this machine's konsertd: LaunchManual (""),
 	// LaunchLocal or LaunchSSH, which also picks the transport (local socket, SSH, or
 	// outbound for manual). SSHTarget is what an SSH (re)start and the SSH transport
-	// use; ControllerURL is the hub URL agents there use for MCP tools (optional). The fields are set by EnsureWorker/SetWorkerLaunchState, never by
-	// UpsertWorker, so a worker.hello keeps them.
-	Launch        string     `json:"launch,omitempty"`
-	SSHTarget     string     `json:"ssh_target,omitempty"`
-	ControllerURL string     `json:"controller_url,omitempty"`
-	LaunchState   string     `json:"launch_state,omitempty"` // "" | "starting" | "failed"
-	LaunchError   string     `json:"launch_error,omitempty"`
-	LaunchAt      *time.Time `json:"launch_at,omitzero"`
+	// use. The fields are set by EnsureWorker/SetWorkerLaunchState, never by UpsertWorker,
+	// so a worker.hello keeps them.
+	Launch      string     `json:"launch,omitempty"`
+	SSHTarget   string     `json:"ssh_target,omitempty"`
+	LaunchState string     `json:"launch_state,omitempty"` // "" | "starting" | "failed"
+	LaunchError string     `json:"launch_error,omitempty"`
+	LaunchAt    *time.Time `json:"launch_at,omitzero"`
 
 	// Drained machines finish their current work and receive nothing new (persisted).
 	Drained   bool       `json:"drained"`
@@ -469,8 +468,8 @@ type Store interface {
 	UpsertWorker(ctx context.Context, w Worker) error
 	// EnsureWorker records how the hub launches a machine. A machine not seen yet is
 	// created offline (with a minted sid) from w's identity fields, so a configured host
-	// exists before its daemon ever connects; an existing row only gets w's Launch,
-	// SSHTarget and ControllerURL. Returns the stored row.
+	// exists before its daemon ever connects; an existing row only gets w's Launch and
+	// SSHTarget. Returns the stored row.
 	EnsureWorker(ctx context.Context, w Worker) (Worker, error)
 	// SetWorkerLaunchState records the outcome of a start attempt ("" clears it).
 	SetWorkerLaunchState(ctx context.Context, id, state, errMsg string, at time.Time) error

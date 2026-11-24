@@ -49,7 +49,7 @@ type AgentChatOpen struct {
 	// SystemPrompt is appended to the agent's own system prompt (e.g. orchestrator role).
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	// MCPServers are extra MCP servers exposed to the agent (e.g. Konsert fleet tools and
-	// ask_user, served by the hub over HTTP with a per-chat bearer token).
+	// ask_user, served by the hub with a per-chat bearer token and relayed by konsertd).
 	MCPServers []AgentMCPServer `json:"mcp_servers,omitempty"`
 	// ForkFrom marks a fork: when AgentSessionID is empty it starts this chat as a fork of another
 	// session of the same account: a copy of that conversation that runs independently
@@ -60,8 +60,11 @@ type AgentChatOpen struct {
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.
 type AgentMCPServer struct {
-	Name    string            `json:"name"`
+	Name string `json:"name"`
+	// URL is the server's URL. With Relay it is a path on the hub (MCPChatPathPrefix +
+	// chat id) that konsertd rewrites to its loopback relay before the agent sees it.
 	URL     string            `json:"url"`
+	Relay   bool              `json:"relay,omitzero"`
 	Headers map[string]string `json:"headers,omitempty"` // e.g. Authorization; never logged
 	// ToolTimeoutSeconds is how long the agent's MCP client should wait for one tool
 	// call (ask_user blocks until the user answers). 0 = the agent's default.

@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -377,7 +376,6 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 	// The link is bound to this machine: a hello claiming another identity is refused.
 	sctx := withBoundMachine(ctx, boundMachine{workerID: w.ID, via: t})
 	sctx = withWorkerTransport(sctx, t)
-	sctx = withWorkerBaseURL(sctx, a.s.workerHubURL(w))
 	a.s.hub.ServeWorkerConn(sctx, ws)
 	return true, linkError(conn, errors.New("link closed"))
 }
@@ -392,28 +390,6 @@ func linkError(conn net.Conn, err error) error {
 		}
 	}
 	return err
-}
-
-// workerHubURL is the hub URL (scheme://host) agents on w reach the hub's per-chat MCP
-// endpoint at when no public URL is configured: the hub's loopback listener for its own
-// machine, else the URL recorded when the machine was added ("" if none; the
-// transport itself never needs it).
-func (s *Server) workerHubURL(w store.Worker) string {
-	raw := w.ControllerURL
-	if w.Launch == store.LaunchLocal {
-		if u, err := s.localControllerURL(); err == nil {
-			raw = u
-		}
-	}
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	scheme := "http"
-	if strings.EqualFold(u.Scheme, "wss") || strings.EqualFold(u.Scheme, "https") {
-		scheme = "https"
-	}
-	return scheme + "://" + u.Host
 }
 
 // startAttachers starts the attach loop of every ssh and local machine.

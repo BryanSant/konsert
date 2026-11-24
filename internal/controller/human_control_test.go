@@ -644,7 +644,7 @@ func TestRequestUserActionResolvedByTerminalCommand(t *testing.T) {
 	chat, open, _ := openChat(t, cs, w, b, nil)
 	term := startTask(t, cs.svc, w, userCtx(), "w1", "", func(r *DispatchRequest) { r.SessionKind, r.Mode = "terminal", protocol.TaskModeInteractive })
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
-	sess, err := connectChatMCP(t, open.MCPServers[0].URL, tok)
+	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), tok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +818,7 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 	// (c) recent_events from the chat's MCP endpoint explains the change.
 	open := decodeOpenFor(t, cs, chat)
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
-	sess, err := connectChatMCP(t, open.MCPServers[0].URL, tok)
+	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), tok)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +841,7 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 func decodeOpenFor(t *testing.T, cs *chatServer, chat store.ChatSession) protocol.AgentChatOpen {
 	t.Helper()
 	cur := mustSession(t, cs.st, chat.ID)
-	open, err := cs.h.buildChatOpen(context.Background(), cur, cs.h.workerConnFor(cur.WorkerID))
+	open, err := cs.h.buildChatOpen(context.Background(), cur)
 	if err != nil || len(open.MCPServers) == 0 {
 		t.Fatalf("build open: %v %+v", err, open)
 	}
@@ -860,7 +860,7 @@ func TestReleaseHoldToolAsksTheUser(t *testing.T) {
 		t.Fatal("no hold")
 	}
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
-	sess, err := connectChatMCP(t, open.MCPServers[0].URL, tok)
+	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), tok)
 	if err != nil {
 		t.Fatal(err)
 	}

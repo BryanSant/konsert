@@ -148,7 +148,7 @@ func TestAgentChatRoundTripPersistenceAndResume(t *testing.T) {
 		t.Fatalf("unexpected open: %+v", open)
 	}
 	mcpSrv := open.MCPServers[0]
-	if mcpSrv.Name != "konsert" || mcpSrv.URL != cs.ts.URL+"/mcp/chat/"+chat.ID || !strings.HasPrefix(mcpSrv.Headers["Authorization"], "Bearer ") {
+	if mcpSrv.Name != "konsert" || mcpSrv.URL != "/mcp/chat/"+chat.ID || !mcpSrv.Relay || !strings.HasPrefix(mcpSrv.Headers["Authorization"], "Bearer ") {
 		t.Fatalf("unexpected MCP server: %+v", mcpSrv)
 	}
 	prompt, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
@@ -357,7 +357,7 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 	w := cs.connectAgentWorker(t, "w1", "box", claudeAccount("claude", true))
 	b := cs.dialBrowser(t)
 	chat, open, turn := openChat(t, cs, w, b, nil)
-	url := open.MCPServers[0].URL
+	url := w.mcpURL(open.MCPServers[0])
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
 
 	// Wrong token: 401.
@@ -472,6 +472,86 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 	resp = doReq(t, http.MethodPost, url, strings.NewReader(`{}`), map[string]string{"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token after delete: %d", resp.StatusCode)
+	}
+}
+
+// A chat's MCP token only reaches its own chat's tools, and only through the link of
+// the machine the chat runs on; the hub serves no per-chat MCP over HTTP (KON-DTN92).
+func TestRelayedChatMCPAuthIsolation(t *testing.T) {
+	cs := newChatServer(t)
+	w1 := cs.connectAgentWorker(t, "w1", "box", claudeAccount("claude", true))
+	w2 := cs.connectAgentWorker(t, "w2", "pc", claudeAccount("claude", true))
+	b := cs.dialBrowser(t)
+
+	open := func(workerID string, w *fakeWorker) (store.ChatSession, protocol.AgentMCPServer, string) {
+		t.Helper()
+		chat := cs.createChat(t, map[string]any{"worker_id": workerID})
+		b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat.ID, Content: "go"})
+		o := decodeOpen(t, w)
+		if o.ChatID != chat.ID || len(o.MCPServers) != 1 || !o.MCPServers[0].Relay {
+			t.Fatalf("open for %s: %+v", workerID, o)
+		}
+		return chat, o.MCPServers[0], strings.TrimPrefix(o.MCPServers[0].Headers["Authorization"], "Bearer ")
+	}
+	chatA, srvA, tokA := open("w1", w1)
+	chatB, srvB, tokB := open("w1", w1)
+	_, srvC, tokC := open("w2", w2)
+
+	// Each chat's own token works through its machine's relay.
+	for _, tc := range []struct {
+		w   *fakeWorker
+		srv protocol.AgentMCPServer
+		tok string
+	}{{w1, srvA, tokA}, {w1, srvB, tokB}, {w2, srvC, tokC}} {
+		sess, err := connectChatMCP(t, tc.w.mcpURL(tc.srv), tc.tok)
+		if err != nil {
+			t.Fatalf("own token on %s: %v", tc.srv.URL, err)
+		}
+		if _, err := sess.ListTools(context.Background(), nil); err != nil {
+			t.Fatalf("list tools on %s: %v", tc.srv.URL, err)
+		}
+		sess.Close()
+	}
+
+	status := func(url, tok string) int {
+		t.Helper()
+		hdr := map[string]string{"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+		if tok != "" {
+			hdr["Authorization"] = "Bearer " + tok
+		}
+		body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}`
+		resp := doReq(t, http.MethodPost, url, strings.NewReader(body), hdr)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := status(w1.mcpURL(srvB), tokA); got != http.StatusUnauthorized {
+		t.Errorf("chat A's token on chat B: %d", got)
+	}
+	if got := status(w1.mcpURL(srvB), ""); got != http.StatusUnauthorized {
+		t.Errorf("no token: %d", got)
+	}
+	if got := status(w1.mcpURL(srvC), tokC); got != http.StatusUnauthorized {
+		t.Errorf("chat C's own token through another machine's link: %d", got)
+	}
+	if got := status(w2.mcpURL(srvA), tokA); got != http.StatusUnauthorized {
+		t.Errorf("chat A's own token through another machine's link: %d", got)
+	}
+	// The hub's HTTP listener has no per-chat MCP endpoint at all.
+	// (Unknown paths fall through to the PWA shell, which is HTML, never MCP.)
+	direct := doReq(t, http.MethodPost, cs.ts.URL+"/mcp/chat/"+chatA.ID, strings.NewReader(`{}`), map[string]string{
+		"Authorization": "Bearer " + tokA, "Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+	})
+	direct.Body.Close()
+	if ct := direct.Header.Get("Content-Type"); direct.Header.Get("Mcp-Session-Id") != "" ||
+		strings.HasPrefix(ct, "application/json") || strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("hub served per-chat MCP over HTTP: %d %s", direct.StatusCode, ct)
+	}
+	// Deleting the chat revokes its token.
+	if code, _ := cs.api(t, http.MethodDelete, "/api/chats/"+chatB.ID, nil); code/100 != 2 {
+		t.Fatalf("delete chat: %d", code)
+	}
+	if got := status(w1.mcpURL(srvB), tokB); got != http.StatusUnauthorized {
+		t.Errorf("deleted chat's token: %d", got)
 	}
 }
 
@@ -616,7 +696,7 @@ func TestOrchestratorIsAgentChatWithFleetTools(t *testing.T) {
 		t.Fatalf("orchestrator system prompt: %q", open.SystemPrompt)
 	}
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
-	sess, err := connectChatMCP(t, open.MCPServers[0].URL, tok)
+	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), tok)
 	if err != nil {
 		t.Fatal(err)
 	}

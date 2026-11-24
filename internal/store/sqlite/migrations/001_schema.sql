@@ -32,10 +32,9 @@ CREATE TABLE workers (
     last_seen_at     TEXT NOT NULL,
     -- How the hub (re)starts this machine's konsertd: '' started by hand / unknown,
     -- 'local' the hub's own host (konsertd install), 'ssh' konsertd install over SSH to
-    -- ssh_target. controller_url is the hub URL the daemon was installed with.
+    -- ssh_target.
     launch           TEXT NOT NULL DEFAULT '',
     ssh_target       TEXT NOT NULL DEFAULT '',
-    controller_url   TEXT NOT NULL DEFAULT '',
     -- Last start attempt: '' (none pending / connected), 'starting', 'failed'.
     launch_state     TEXT NOT NULL DEFAULT '',
     launch_error     TEXT NOT NULL DEFAULT '',

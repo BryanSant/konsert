@@ -286,7 +286,7 @@ func TestAddLocalStartsKonsertdInstall(t *testing.T) {
 		t.Fatalf("local machine got credentials: %+v", creds)
 	}
 	w := lt.worker(t, localID)
-	if w.Launch != store.LaunchLocal || w.ControllerURL != "" || w.Status != "online" {
+	if w.Launch != store.LaunchLocal || w.Status != "online" {
 		t.Fatalf("local worker = %+v", w)
 	}
 	if v := toWorkerView(w, 0, nil); v.Transport != TransportLocal {
@@ -352,7 +352,7 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 	lt := newLaunchTest(t)
 	ctx := context.Background()
 	mk := func(id, name, launch, target string) {
-		if _, err := lt.st.EnsureWorker(ctx, store.Worker{ID: id, Name: name, Launch: launch, SSHTarget: target, ControllerURL: "ws://hub:8420/ws/worker"}); err != nil {
+		if _, err := lt.st.EnsureWorker(ctx, store.Worker{ID: id, Name: name, Launch: launch, SSHTarget: target}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -420,13 +420,13 @@ func TestSSHBootstrapRecordsLaunch(t *testing.T) {
 	}
 	lt.srv.launch.connectTimeout = 200 * time.Millisecond
 	resp := doReq(t, http.MethodPost, lt.ts.URL+"/api/ssh/bootstrap",
-		strings.NewReader(`{"target":"me@box","controller_url":"ws://hub.lan:8420/ws/worker"}`),
+		strings.NewReader(`{"target":"me@box"}`),
 		map[string]string{"Content-Type": "application/json"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("bootstrap: %d", resp.StatusCode)
 	}
 	w := lt.worker(t, remoteID)
-	if w.Launch != store.LaunchSSH || w.SSHTarget != "me@box" || w.ControllerURL != "ws://hub.lan:8420/ws/worker" ||
+	if w.Launch != store.LaunchSSH || w.SSHTarget != "me@box" ||
 		w.OS != "windows" || w.Status != "offline" || !strings.HasPrefix(w.SID, "m-") {
 		t.Fatalf("recorded worker = %+v", w)
 	}
@@ -465,22 +465,7 @@ func TestWorkerMatchesSSHHost(t *testing.T) {
 	}
 }
 
-func TestLocalControllerURL(t *testing.T) {
-	lt := newLaunchTest(t)
-	cases := map[string]string{
-		"127.0.0.1:8420":   "ws://127.0.0.1:8420/ws/worker",
-		":8420":            "ws://127.0.0.1:8420/ws/worker",
-		"0.0.0.0:9000":     "ws://127.0.0.1:9000/ws/worker",
-		"[::]:8420":        "ws://127.0.0.1:8420/ws/worker",
-		"[::1]:8420":       "ws://127.0.0.1:8420/ws/worker",
-		"192.168.1.5:8420": "ws://192.168.1.5:8420/ws/worker",
-	}
-	for addr, want := range cases {
-		lt.srv.SetListenAddr(addr)
-		if got, err := lt.srv.localControllerURL(); err != nil || got != want {
-			t.Errorf("%s: %q, %v; want %q", addr, got, err, want)
-		}
-	}
+func TestIsLoopbackAddr(t *testing.T) {
 	if !isLoopbackAddr("127.0.0.1:5000") || !isLoopbackAddr("[::1]:5000") || isLoopbackAddr("10.0.0.2:5000") {
 		t.Fatal("isLoopbackAddr")
 	}

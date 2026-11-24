@@ -471,7 +471,6 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
       const result = await this.api.bootstrapSSH(
         {
           target: clean,
-          controller_url: workerControllerUrl(),
           sandbox: this.sandbox(),
           enable_mock: this.enableMock(),
           accept_host_key: acceptHostKey || undefined,
@@ -542,10 +541,4 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     }, ms);
     this.timers.add(t);
   }
-}
-
-/** WebSocket URL a worker daemon should dial back to (this hub). */
-function workerControllerUrl(): string {
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/ws/worker`;
 }

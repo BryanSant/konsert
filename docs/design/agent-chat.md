@@ -37,7 +37,9 @@ model change that can't be applied live) it resumes the CLI's own session id
 PWA ──ws chat.send/respond/control──▶ hub ──agent.chat.prompt/respond/control──▶ konsertd
 PWA ◀──ws agent.chat.event (fan-out)── hub ◀────────── agent.chat.event ────────── konsertd
                                         │ persists events + transcript
-                                        └ /mcp (fleet tools + ask_user, per-chat token)
+                                        └ per-chat MCP (fleet tools + ask_user, per-chat token)
+                                          relayed by konsertd over its link: agent ──http──▶
+                                          127.0.0.1:<port>/mcp/chat/<id> ──mcp.* frames──▶ hub
 ```
 
 * The hub owns chat persistence (sessions, transcript, events) and routing to the worker that
@@ -71,7 +73,8 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
    agent's reply format. Which tool calls ask depends on the approval mode.
 2. **Questions**: the hub exposes an `ask_user` MCP tool on a per-chat Streamable HTTP
    endpoint handed to the agent via `AgentChatOpen.MCPServers` (claude `--mcp-config`, ACP
-   `session/new mcpServers`, codex `-c mcp_servers`). The tool call blocks until the user
+   `session/new mcpServers`, codex `-c mcp_servers`). The endpoint is relayed (see "Per-chat
+   MCP relay" below), so the agent talks to konsertd on loopback, never to the hub. The tool call blocks until the user
    answers; the agent's system prompt tells it to use `ask_user` and how to ask well. A turn
    that simply ends with a question is `done` (the user replies normally) — the UI highlights
    it as "replied with a question". Questions are hub objects in a fleet-wide queue; see
@@ -186,6 +189,39 @@ The orchestrator is just an agent chat whose `MCPServers` include Konsert's flee
 (dispatch, status, steer, ...) and whose `SystemPrompt` sets the orchestrator role. The
 API-key provider backend remains as an optional engine for users who want it, but it is never
 the default and never required.
+
+## Per-chat MCP relay (KON-DTN92)
+
+Agents reach their chat's Konsert tools through konsertd, over the link konsertd already
+has with the hub (outbound WebSocket, SSH or the local socket), so no machine needs a
+network path to the hub's port and the hub can stay on 127.0.0.1.
+
+* **Open.** The hub sends the server as `{name: konsert, url: /mcp/chat/<chat id>, relay:
+  true, headers: {Authorization: Bearer <chat token>}}`. konsertd starts its relay (once per
+  daemon: `127.0.0.1`, an ephemeral port, kept for the daemon's lifetime so engines that
+  outlive a link keep a working URL) and rewrites the URL to
+  `http://127.0.0.1:<port>/mcp/chat/<chat id>` before the engine sees it. The relay answers
+  nothing but `GET`/`POST`/`DELETE` on `/mcp/chat/<id>`.
+* **Frames.** Each request becomes `mcp.request {id, chat_id, method, header, body}` on the
+  link (`id`: 128 random bits chosen by konsertd; only the MCP headers cross: Authorization,
+  Accept, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID, User-Agent;
+  body up to 4 MiB). The hub runs it through the chat's MCP handler and answers
+  `mcp.head {id, status, header}`, `mcp.body {id, data}` chunks (sent whenever the handler
+  flushes, at most 32 KiB each, so SSE streams flow as they are written) and
+  `mcp.end {id, error}`. konsertd sends `mcp.cancel {id}` when the agent goes away, which
+  cancels the handler (e.g. a pending `ask_user`). Requests are multiplexed by id; hub frames
+  wait for room in the link's send queue rather than being dropped.
+* **Auth.** Unchanged in strength, narrower in reach: the chat's bearer token is checked
+  exactly as before (deleting the chat revokes it), and the hub also requires that the chat
+  runs on the machine whose link carried the request. The hub has no per-chat MCP endpoint
+  on its HTTP listener any more.
+* **Link drops.** A request in flight when its link ends fails at once: `503` with
+  `Retry-After` if the response had not started, a cut connection if it had (so the agent
+  sees an error, not a short answer). A request made while konsertd has no link waits up to
+  20 s for the next one, then gets `503`. MCP clients retry; the hub's MCP sessions are
+  in-memory, so after a hub restart the client re-initializes as it would on any `404`.
+* **Every transport.** Outbound machines use the relay too: one path for all machines, and
+  `public_url` is no longer needed for agents' tools.
 
 ## Persistence (hub)
 

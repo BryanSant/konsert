@@ -104,7 +104,7 @@ func TestOverrideSlotsRequestedEnforcedMeasuredAndExpired(t *testing.T) {
 
 	// request_override from the orchestrator's MCP endpoint returns at once.
 	open := decodeOpenFor(t, cs, o.orch)
-	sess, err := connectChatMCP(t, open.MCPServers[0].URL, strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer "))
+	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer "))
 	if err != nil {
 		t.Fatal(err)
 	}

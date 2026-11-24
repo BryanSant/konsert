@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
@@ -44,7 +45,7 @@ func newTestHubAt(t *testing.T, dbPath string) *testHub {
 		if err != nil {
 			return
 		}
-		h.ServeWorkerConn(withWorkerRemoteAddr(withWorkerBaseURL(r.Context(), requestBaseURL(r)), r.RemoteAddr), conn)
+		h.ServeWorkerConn(withWorkerRemoteAddr(r.Context(), r.RemoteAddr), conn)
 	})
 	mux.HandleFunc("/ws/client", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
@@ -85,6 +86,11 @@ type fakeWorker struct {
 	// startRead, when non-nil, holds the reader until closed. A worker that is
 	// not reading cannot answer pings, which simulates a half-open connection.
 	startRead chan struct{}
+
+	// relay is the worker's per-chat MCP relay (mcpURL starts it); the reader hands it
+	// the hub's mcp.* frames.
+	relayMu sync.Mutex
+	relay   *mcprelay.Local
 }
 
 func testWorkerInfo(id, name string) protocol.WorkerInfo {
@@ -166,6 +172,12 @@ func (th *testHub) dialPeer(t *testing.T, path string, paused bool) *fakeWorker 
 			}
 			env, err := protocol.DecodeEnvelope(data)
 			if err != nil {
+				continue
+			}
+			fw.relayMu.Lock()
+			relay := fw.relay
+			fw.relayMu.Unlock()
+			if relay != nil && relay.Deliver(env) {
 				continue
 			}
 			select {
@@ -286,4 +298,37 @@ func mustTask(t *testing.T, st store.Store, id string) store.Task {
 		t.Fatal(err)
 	}
 	return task
+}
+
+// mcpURL is the URL an agent on this fake worker uses for a relayed MCP server: the
+// worker's own loopback relay, which carries requests over this connection as konsertd
+// does.
+func (fw *fakeWorker) mcpURL(srv protocol.AgentMCPServer) string {
+	fw.t.Helper()
+	if !srv.Relay || !strings.HasPrefix(srv.URL, protocol.MCPChatPathPrefix) {
+		fw.t.Fatalf("MCP server is not relayed: %+v", srv)
+	}
+	fw.relayMu.Lock()
+	defer fw.relayMu.Unlock()
+	if fw.relay == nil {
+		fw.relay = mcprelay.NewLocal()
+		fw.relay.WaitLink = time.Second
+		fw.relay.SetLink(&mcprelay.Link{
+			Send: func(msgType string, payload any) bool {
+				raw, err := protocol.NewEnvelope(msgType, "", payload)
+				if err != nil {
+					return false
+				}
+				return fw.conn.Write(fw.ctx, websocket.MessageText, raw) == nil
+			},
+			Done: fw.done,
+		})
+		relay := fw.relay
+		fw.t.Cleanup(func() { _ = relay.Close() })
+	}
+	base, err := fw.relay.Start()
+	if err != nil {
+		fw.t.Fatal(err)
+	}
+	return base + srv.URL
 }

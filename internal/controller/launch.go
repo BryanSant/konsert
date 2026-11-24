@@ -179,27 +179,12 @@ func (s *Server) listenAddr() string {
 	return s.cfg.ListenAddr
 }
 
-// SetListenAddr records the address the HTTP server listens on, from which the local
-// daemon's (loopback) controller URL is derived.
+// SetListenAddr records the address the HTTP server listens on (join links use its
+// port).
 func (s *Server) SetListenAddr(addr string) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	s.boundAddr = addr
-}
-
-// localControllerURL is the WebSocket URL a daemon on the hub's machine dials: the
-// listen port on loopback (or the specific address the hub is bound to).
-func (s *Server) localControllerURL() (string, error) {
-	addr := s.listenAddr()
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil || port == "" || port == "0" {
-		return "", fmt.Errorf("the hub's listen address %q has no usable port", addr)
-	}
-	ip := net.ParseIP(host)
-	if host == "" || ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
-		host = "127.0.0.1"
-	}
-	return "ws://" + net.JoinHostPort(host, port) + "/ws/worker", nil
 }
 
 // konsertdNotFoundFix tells the user how to make konsertd available to the hub.
@@ -507,7 +492,7 @@ func (s *Server) startSSH(ctx context.Context, w store.Worker) (string, string, 
 	waitID := w.ID
 	if res.WorkerID != "" && res.WorkerID != w.ID {
 		// The remote identity changed (its state dir was reset): track the new machine.
-		if _, err := s.recordSSHWorker(ctx, res, w.ControllerURL); err != nil {
+		if _, err := s.recordSSHWorker(ctx, res); err != nil {
 			return w.ID, "", err
 		}
 		s.setLaunchState(ctx, w.ID, store.LaunchStateFailed,
@@ -533,23 +518,22 @@ func deferredMessage(res sshutil.BootstrapResult) string {
 }
 
 // recordSSHWorker stores the machine an SSH bootstrap installed, so the hub knows it
-// (offline) before it attaches and restarts it later. hubURL (optional) is where agents
-// there reach the hub's MCP tools.
-func (s *Server) recordSSHWorker(ctx context.Context, res sshutil.BootstrapResult, hubURL string) (store.Worker, error) {
+// (offline) before it attaches and restarts it later.
+func (s *Server) recordSSHWorker(ctx context.Context, res sshutil.BootstrapResult) (store.Worker, error) {
 	return s.store.EnsureWorker(ctx, store.Worker{
 		ID: res.WorkerID, Name: res.Name, OS: res.RemoteOS, Arch: res.RemoteArch,
-		Launch: store.LaunchSSH, SSHTarget: res.Target, ControllerURL: hubURL,
+		Launch: store.LaunchSSH, SSHTarget: res.Target,
 	})
 }
 
 // afterSSHBootstrap records a successful bootstrap, starts attaching to the daemon and
 // tracks it until it connects (or the wait times out), so the machine list shows its
 // state.
-func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapResult, hubURL string) {
+func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapResult) {
 	if !res.OK || res.WorkerID == "" {
 		return
 	}
-	row, err := s.recordSSHWorker(ctx, res, hubURL)
+	row, err := s.recordSSHWorker(ctx, res)
 	if err != nil {
 		s.logger.Warn("record SSH-bootstrapped worker failed", "target", res.Target, "err", err)
 		return

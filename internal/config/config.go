@@ -33,8 +33,8 @@ type ControllerConfig struct {
 	TrustTailscaleHeaders bool   `yaml:"trust_tailscale_headers"`
 	EnableMCPHTTP         bool   `yaml:"enable_mcp_http"`
 	// PublicURL is the externally reachable base URL of this controller (e.g.
-	// https://konsert.example.ts.net). It is used to derive the worker WebSocket URL
-	// handed to SSH-bootstrapped workers and is always an allowed browser origin.
+	// https://konsert.example.ts.net). It is the URL join links and `konsertd join` commands
+	// point at and is always an allowed browser origin.
 	PublicURL string `yaml:"public_url"`
 	// AllowedOrigins lists extra browser origins (e.g. "http://localhost:4200" or a
 	// host pattern such as "*.example.ts.net") permitted to call the REST API and open

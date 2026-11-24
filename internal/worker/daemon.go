@@ -21,6 +21,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/linkwatch"
+	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/activity"
 	"github.com/BryanSant/konsert/internal/worker/chat"
@@ -120,6 +121,9 @@ type Daemon struct {
 	attachMu     sync.Mutex
 	attachCancel context.CancelFunc
 	attachDone   chan struct{}
+
+	// mcp relays agents' per-chat MCP requests to the hub over the link (daemon_mcp.go).
+	mcp *mcprelay.Local
 }
 
 // activityKeep is how long a finished session's last activity is kept for re-sending
@@ -160,6 +164,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
 		metrics:           newMetricsSampler(),
+		mcp:               mcprelay.NewLocal(),
 	}
 	transport := "outbound"
 	if strings.TrimSpace(cfg.ControllerURL) == "" {
@@ -231,6 +236,7 @@ func (d *Daemon) WakeLock() *WakeLockManager {
 // shutdown stops every task and chat engine and drops the host wake lock; Run calls it on
 // every exit path.
 func (d *Daemon) shutdown() {
+	_ = d.mcp.Close()
 	d.shutdownChat()
 	d.runner.ShutdownAll()
 	d.wake.Shutdown()
@@ -573,6 +579,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	for _, a := range d.activity.Snapshot() {
 		d.sendJSON(protocol.MsgSessionActivity, a)
 	}
+	d.linkMCPRelay(connCtx, queues)
 	d.link.up(peer.transport, peer.addr)
 	d.logger.Debug("worker.hello sent",
 		"worker_id", d.cfg.WorkerID,
@@ -777,6 +784,9 @@ func (d *Daemon) sendPorts(ctx context.Context, reqID string) {
 }
 
 func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.Envelope) {
+	if d.mcp.Deliver(env) {
+		return
+	}
 	if d.handleChatMessage(env) {
 		return
 	}

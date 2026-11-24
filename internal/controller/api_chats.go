@@ -265,11 +265,14 @@ func bearerToken(r *http.Request) string {
 	return ""
 }
 
-// handleChatMCP serves /mcp/chat/{id}: a Streamable HTTP MCP server for one agent
-// chat, authenticated by that chat's bearer token (never a browser cookie).
-func (s *Server) handleChatMCP(w http.ResponseWriter, r *http.Request) {
+// serveRelayedChatMCP serves a chat's Streamable HTTP MCP server for a request
+// konsertd relayed over workerID's link (KON-DTN92). It is authenticated by that chat's
+// bearer token (never a browser cookie), and only the link of the machine the chat runs
+// on reaches it: a token presented through another machine's link is refused. The hub
+// serves no per-chat MCP over HTTP.
+func (s *Server) serveRelayedChatMCP(w http.ResponseWriter, r *http.Request, workerID string) {
 	cs, ok := s.hub.verifyChatToken(r.Context(), r.PathValue("id"), bearerToken(r))
-	if !ok {
+	if !ok || workerID == "" || cs.WorkerID != workerID {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}

@@ -155,7 +155,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     const [, init] = callTo(fetchMock, '/api/ssh/bootstrap?stream=1', 1);
     const body = JSON.parse(init.body as string);
     expect(body).toMatchObject({ target: 'box', accept_host_key: 'SHA256:abc' });
-    expect(body.controller_url).toMatch(/^wss?:\/\/.+\/ws\/worker$/);
+    expect(body.controller_url).toBeUndefined();
     expect(cmp.hostKeyPrompt()).toBeNull();
     expect(cmp.sshStatusMsg()).toBe('ready');
   });
