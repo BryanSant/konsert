@@ -52,6 +52,7 @@ type Publisher struct {
 }
 
 type pubEntry struct {
+	shells    Shells                   // latest shells from the process poller
 	sent      protocol.SessionActivity // last published
 	sentAt    time.Time
 	hasSent   bool
@@ -99,7 +100,53 @@ func sameView(a, b protocol.SessionActivity) bool {
 	return a.State == b.State && a.Tool == b.Tool && a.Label == b.Label && a.Coarse == b.Coarse
 }
 
-// Update records the session's latest activity and publishes it now or later.
+// Shells is what the process poller knows of a session's shells.
+type Shells struct {
+	Count, Busy int
+	List        []protocol.ShellInfo
+}
+
+func (s Shells) apply(a *protocol.SessionActivity) {
+	a.Shells, a.ShellsBusy, a.ShellList = s.Count, s.Busy, s.List
+}
+
+// SetShells records the shells of session key (from the process poller) and publishes
+// its latest activity with them, under the same limits as any other change (a count
+// change is debounced like a transient state: out within ~1 s). A session with no
+// activity yet keeps the shells for its first one.
+func (p *Publisher) SetShells(key string, s Shells) {
+	p.mu.Lock()
+	e := p.entries[key]
+	if e == nil {
+		if s.Count == 0 {
+			p.mu.Unlock()
+			return
+		}
+		e = &pubEntry{}
+		p.entries[key] = e
+	}
+	e.shells = s
+	var a protocol.SessionActivity
+	switch {
+	case e.pending != nil:
+		a = *e.pending
+	case e.hasSent:
+		a = e.sent
+	default:
+		p.mu.Unlock()
+		return
+	}
+	now := p.opts.Now()
+	a.At = now.UTC()
+	out, ok := p.updateLocked(key, e, a, now)
+	p.mu.Unlock()
+	if ok {
+		p.send(out)
+	}
+}
+
+// Update records the session's latest activity and publishes it now or later. The
+// session's shells (SetShells) are filled in.
 func (p *Publisher) Update(a protocol.SessionActivity) {
 	if a.State == "" || (a.ChatID == "" && a.TaskID == "") {
 		return
@@ -112,26 +159,36 @@ func (p *Publisher) Update(a protocol.SessionActivity) {
 		e = &pubEntry{}
 		p.entries[key] = e
 	}
-	if e.hasSent && sameView(a, e.sent) && a.TokensPerSec == e.sent.TokensPerSec {
+	out, ok := p.updateLocked(key, e, a, now)
+	p.mu.Unlock()
+	if ok {
+		p.send(out)
+	}
+}
+
+// updateLocked records a as e's latest activity; it returns the activity to send now,
+// if any (sent by the caller after unlocking).
+func (p *Publisher) updateLocked(key string, e *pubEntry, a protocol.SessionActivity, now time.Time) (protocol.SessionActivity, bool) {
+	e.shells.apply(&a)
+	if e.hasSent && sameView(a, e.sent) && a.SameDetail(e.sent) && a.TokensPerSec == e.sent.TokensPerSec {
 		// Back to (or still at) what the hub shows: nothing to publish.
 		e.pending = nil
 		if e.timer != nil {
 			e.timer.Stop()
 			e.timer = nil
 		}
-		p.mu.Unlock()
-		return
+		return protocol.SessionActivity{}, false
 	}
 	if e.pending == nil {
 		e.firstAt = now
 	}
 	if e.pending != nil && sameView(a, *e.pending) && e.timer != nil {
-		// The same state again (a speaking rate update): it is already planned; the
-		// debounce measures how long a state holds, not how long the stream is quiet.
+		// The same state again (a speaking rate update, new shell or sub-agent detail):
+		// it is already planned; the debounce measures how long a state holds, not how
+		// long the stream is quiet.
 		cp := a
 		e.pending = &cp
-		p.mu.Unlock()
-		return
+		return protocol.SessionActivity{}, false
 	}
 	cp := a
 	e.pending = &cp
@@ -140,7 +197,8 @@ func (p *Publisher) Update(a protocol.SessionActivity) {
 	switch {
 	case !e.hasSent || (!sameView(a, e.sent) && !transient(a.State)):
 		at = e.sentAt.Add(p.opts.MinInterval) // zero sentAt: now
-	case !sameView(a, e.sent):
+	case !sameView(a, e.sent) || !a.SameDetail(e.sent):
+		// A transient state, or only shells / sub-agents changed: debounced.
 		at = now.Add(p.opts.Debounce)
 		if lim := e.firstAt.Add(p.opts.MaxWait); at.After(lim) {
 			at = lim
@@ -155,13 +213,10 @@ func (p *Publisher) Update(a protocol.SessionActivity) {
 		}
 	}
 	if !at.After(now) {
-		out := p.takeLocked(e, now)
-		p.mu.Unlock()
-		p.send(out)
-		return
+		return p.takeLocked(e, now), true
 	}
 	p.scheduleLocked(key, e, at, now)
-	p.mu.Unlock()
+	return protocol.SessionActivity{}, false
 }
 
 // takeLocked marks the pending activity published and returns it.
@@ -252,7 +307,7 @@ func (p *Publisher) Prune(age time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for k, e := range p.entries {
-		if e.pending == nil && e.hasSent && protocol.ActivityTerminal(e.sent.State) && e.sentAt.Before(cut) {
+		if e.pending == nil && e.hasSent && protocol.ActivityTerminal(e.sent.State) && e.sentAt.Before(cut) && e.shells.Count == 0 {
 			delete(p.entries, k)
 		}
 	}

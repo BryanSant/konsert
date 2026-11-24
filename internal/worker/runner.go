@@ -158,6 +158,23 @@ func (r *Runner) IsManagedPID(pid int) bool {
 	return false
 }
 
+// SessionPIDs returns the agent process id of every running agent task (task id → pid);
+// scratch terminals (the shell driver) are not agent sessions.
+func (r *Runner) SessionPIDs() map[string]int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]int, len(r.tasks))
+	for id, rt := range r.tasks {
+		if rt.pty == nil || rt.agent == drivers.ShellDriverName {
+			continue
+		}
+		if pid := rt.pty.Pid(); pid > 0 {
+			out[id] = pid
+		}
+	}
+	return out
+}
+
 // ActiveTaskIDs returns IDs of currently running tasks for heartbeats.
 func (r *Runner) ActiveTaskIDs() []string {
 	r.mu.RLock()

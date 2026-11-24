@@ -61,6 +61,16 @@ func (h *Hub) setActivity(a protocol.SessionActivity) {
 	if a.State == protocol.ActivityWorking && (a.Label != "" || a.Tool != "") {
 		a.Summary = nowline.Summarize(a.Tool, a.Label, nowline.Context{Dir: h.activityDir(a)})
 	}
+	if len(a.ShellList) > 0 {
+		dir := h.activityDir(a)
+		list := make([]protocol.ShellInfo, len(a.ShellList))
+		for i, s := range a.ShellList {
+			s.Command = oneLine(s.Command, 300)
+			s.Summary = nowline.Summarize("Bash", "Run: "+s.Command, nowline.Context{Dir: dir})
+			list[i] = s
+		}
+		a.ShellList = list
+	}
 	key := a.Key()
 	h.activity.mu.Lock()
 	if h.activity.entries == nil {
@@ -75,8 +85,13 @@ func (h *Hub) setActivity(a protocol.SessionActivity) {
 			h.activity.mu.Unlock()
 			return // an older report (a re-send after reconnect)
 		}
+		if a.Source == protocol.ActivitySourceHub {
+			// The hub knows the session's state, not its processes: shells konsertd
+			// reported keep showing (they may outlive the session).
+			a.Shells, a.ShellsBusy, a.ShellList = prev.Shells, prev.ShellsBusy, prev.ShellList
+		}
 		if prev.State == a.State && prev.Tool == a.Tool && prev.Label == a.Label &&
-			prev.TokensPerSec == a.TokensPerSec && prev.Coarse == a.Coarse {
+			prev.TokensPerSec == a.TokensPerSec && prev.Coarse == a.Coarse && prev.SameDetail(a) {
 			h.activity.mu.Unlock()
 			return
 		}

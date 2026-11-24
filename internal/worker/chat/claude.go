@@ -239,6 +239,9 @@ type claudeTurn struct {
 	curMsgID  string
 	msgText   map[string]string
 	tools     map[string]*protocol.AgentToolCall
+	// subOf maps a sub-agent's tool_use id to the parent's Task/Agent tool_use id, so its
+	// result and permission prompts are attributed to that sub-agent.
+	subOf map[string]string
 }
 
 type claudeSession struct {
@@ -575,7 +578,7 @@ func (s *claudeSession) Prompt(ctx context.Context, p protocol.AgentChatPrompt) 
 		s.mu.Unlock()
 		return errors.New("a turn is already running")
 	}
-	s.turn = &claudeTurn{id: p.TurnID, msgText: map[string]string{}, tools: map[string]*protocol.AgentToolCall{}}
+	s.turn = &claudeTurn{id: p.TurnID, msgText: map[string]string{}, tools: map[string]*protocol.AgentToolCall{}, subOf: map[string]string{}}
 	s.lastActivity = s.eng.now()
 	s.watchdogFired = false
 	s.lastRejected = nil
@@ -1116,8 +1119,9 @@ func (s *claudeSession) handleSystem(l *claudeLine) {
 }
 
 func (s *claudeSession) handleStreamEvent(l *claudeLine) {
-	if l.ParentToolUseID != nil && *l.ParentToolUseID != "" {
-		return // sub-agent chatter; its tool calls still show via assistant/user lines
+	parent := ""
+	if l.ParentToolUseID != nil {
+		parent = *l.ParentToolUseID
 	}
 	var ev struct {
 		Type    string `json:"type"`
@@ -1139,22 +1143,27 @@ func (s *claudeSession) handleStreamEvent(l *claudeLine) {
 		s.mu.Unlock()
 		return
 	}
-	if ev.Type == "message_start" {
+	if ev.Type == "message_start" && parent == "" {
 		t.curMsgID = ev.Message.ID
 	}
 	tid, mid := t.id, t.curMsgID
 	s.mu.Unlock()
+	if parent != "" {
+		// A sub-agent's stream: only its live state needs it (the manager keeps it out of
+		// the transcript), so it carries no message id.
+		mid = ""
+	}
 	if ev.Type != "content_block_delta" {
 		return
 	}
 	switch ev.Delta.Type {
 	case "text_delta":
 		if ev.Delta.Text != "" {
-			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: tid, MessageID: mid, Text: ev.Delta.Text})
+			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: tid, MessageID: mid, ParentToolCallID: parent, Text: ev.Delta.Text})
 		}
 	case "thinking_delta":
 		if ev.Delta.Thinking != "" {
-			s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: tid, MessageID: mid, Text: ev.Delta.Thinking})
+			s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: tid, MessageID: mid, ParentToolCallID: parent, Text: ev.Delta.Thinking})
 		}
 	}
 }
@@ -1164,7 +1173,11 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 	if unmarshal(l.Message, &m) != nil {
 		return
 	}
-	sub := l.ParentToolUseID != nil && *l.ParentToolUseID != ""
+	parent := ""
+	if l.ParentToolUseID != nil {
+		parent = *l.ParentToolUseID
+	}
+	sub := parent != ""
 	var events []protocol.AgentChatEvent
 	s.mu.Lock()
 	t := s.turn
@@ -1176,7 +1189,12 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 	for _, b := range m.blocks() {
 		switch b.Type {
 		case "text":
-			if sub || b.Text == "" {
+			if sub && b.Text != "" {
+				// The sub-agent finished a message: back to its own model (live state only).
+				events = append(events, protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: t.id, ParentToolCallID: parent})
+				continue
+			}
+			if b.Text == "" {
 				continue
 			}
 			if l.IsAPIErrorMessage {
@@ -1195,8 +1213,11 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 			tc := claudeToolCall(b.ID, b.Name, b.Input)
 			tc.Status = "running"
 			t.tools[b.ID] = tc
+			if sub {
+				t.subOf[b.ID] = parent
+			}
 			cp := *tc
-			events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ToolCall: &cp})
+			events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ParentToolCallID: parent, ToolCall: &cp})
 		}
 	}
 	if textAdded {
@@ -1234,8 +1255,10 @@ func (s *claudeSession) handleUser(l *claudeLine) {
 		}
 		tc.Output = ccTruncate(ccRedact(claudeToolResultText(b.Content), s.acct.Env), claudeOutputMax)
 		delete(t.tools, b.ToolUseID)
+		parent := t.subOf[b.ToolUseID]
+		delete(t.subOf, b.ToolUseID)
 		cp := *tc
-		events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ToolCall: &cp})
+		events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ParentToolCallID: parent, ToolCall: &cp})
 	}
 	s.mu.Unlock()
 	for _, ev := range events {
@@ -1561,12 +1584,13 @@ func (s *claudeSession) handleControlRequest(l *claudeLine) {
 	}
 	s.mu.Lock()
 	s.pending[l.RequestID] = p
-	tid := ""
+	tid, parent := "", ""
 	if s.turn != nil {
 		tid = s.turn.id
+		parent = s.turn.subOf[req.ToolUseID]
 	}
 	s.mu.Unlock()
-	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, Elicitation: el})
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, ParentToolCallID: parent, Elicitation: el})
 }
 
 type claudeQuestion struct {
@@ -1841,6 +1865,16 @@ func claudeProjectDirName(cwd string) string {
 		}
 	}
 	return b.String()
+}
+
+// ProcessID is the claude process id, 0 while none runs (ProcessIDer).
+func (s *claudeSession) ProcessID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		return p.pid()
+	}
+	return 0
 }
 
 // Suspend freezes the claude process tree (Suspender).

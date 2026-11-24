@@ -139,10 +139,13 @@ type AgentChatEvent struct {
 	Kind   string    `json:"kind"`
 	At     time.Time `json:"at"`
 
-	Status         string `json:"status,omitempty"`
-	AgentSessionID string `json:"agent_session_id,omitempty"`
-	MessageID      string `json:"message_id,omitempty"`
-	Text           string `json:"text,omitempty"`
+	Status string `json:"status,omitempty"`
+	// ParentToolCallID marks an event of a sub-agent: the parent's tool call that
+	// started it (claude's parent_tool_use_id). Empty for the main agent.
+	ParentToolCallID string `json:"parent_tool_call_id,omitempty"`
+	AgentSessionID   string `json:"agent_session_id,omitempty"`
+	MessageID        string `json:"message_id,omitempty"`
+	Text             string `json:"text,omitempty"`
 
 	ToolCall    *AgentToolCall    `json:"tool_call,omitzero"`
 	Plan        []AgentPlanItem   `json:"plan,omitempty"`
