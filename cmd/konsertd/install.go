@@ -179,16 +179,19 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 
 func newUninstallCmd() *cobra.Command {
 	var (
-		name    string
-		service bool
+		name      string
+		service   bool
+		keepHooks bool
 	)
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Stop konsertd and remove what `konsertd install` registered",
 		Long: `Stop konsertd and remove the unit, LaunchAgent, scheduled task or service that
 ` + "`konsertd install`" + ` created, plus its installed config file. Pass the same --name used at
-install time to remove a named instance. Log files and the state directory
-(~/.konsert: worker ID, machine ID) are kept, so a reinstall keeps the same identity.`,
+install time to remove a named instance. The agent hooks ` + "`konsertd install-hooks`" + `
+added go too (pass --keep-hooks to keep them); the rest of ~/.claude/settings.json is left
+as it was. Log files and the state directory (~/.konsert: worker ID, machine ID) are
+kept, so a reinstall keeps the same identity.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			host, _ := os.Hostname()
@@ -199,12 +202,26 @@ install time to remove a named instance. Log files and the state directory
 			}
 			in := &install.Installer{Runner: install.ExecRunner{}, Env: env, Out: cmd.OutOrStdout()}
 			if service {
-				return in.UninstallService(cmd.Context(), instance)
+				err = in.UninstallService(cmd.Context(), instance)
+			} else {
+				err = in.Uninstall(cmd.Context(), instance)
 			}
-			return in.Uninstall(cmd.Context(), instance)
+			if err != nil || keepHooks {
+				return err
+			}
+			rep, herr := worker.RemoveAgentHooks("")
+			if herr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "konsertd uninstall: removing the agent hooks: %v\n", herr)
+				return nil
+			}
+			for _, n := range rep.Notes {
+				fmt.Fprintln(cmd.OutOrStdout(), "Agent hooks: "+n)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "Instance to remove: the --name given to install")
+	cmd.Flags().BoolVar(&keepHooks, "keep-hooks", false, "Keep the agent hooks install-hooks added")
 	cmd.Flags().BoolVar(&service, "service", false, "Windows: remove the native service instead of the logon task (needs an elevated prompt)")
 	return cmd
 }

@@ -1,0 +1,25 @@
+{
+	"hooks": {
+		"Stop": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "say done"
+					}
+				]
+			},
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/old/konsertd hook-event --agent claude --event Stop"
+					}
+				]
+			}
+		]
+	},
+	"verbose": true
+}

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"os"
@@ -120,7 +119,8 @@ exec %s hook-event "$@" >/dev/null 2>&1 || true
 	}
 	report.NotifyScriptPath = notifyPath
 
-	// 2. Claude Code (~/.claude/settings.json) — merge Konsert hooks without clobbering existing settings!
+	// 2. Claude Code (~/.claude/settings.json): our entries edited into the JSON text in
+	// place, with a backup first (claude_settings.go).
 	if err := installClaudeHooks(homeDir, konsertdBin); err != nil {
 		report.Notes = append(report.Notes, "claude hooks skipped: "+err.Error())
 	} else {
@@ -137,9 +137,6 @@ exec %s hook-event "$@" >/dev/null 2>&1 || true
 	return report, nil
 }
 
-// konsertHookMarker identifies Konsert-managed hook entries (quoted or unquoted binary path).
-const konsertHookMarker = " hook-event --agent claude --event "
-
 // shellQuote quotes s for POSIX sh (Claude Code runs hook commands through a shell), so a
 // konsertd path containing spaces or metacharacters stays one word.
 func shellQuote(s string) string {
@@ -151,66 +148,36 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func installClaudeHooks(homeDir, konsertdBin string) error {
-	claudeDir := filepath.Join(homeDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		return err
-	}
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	root := map[string]any{}
-	if raw, err := os.ReadFile(settingsPath); err == nil && len(strings.TrimSpace(string(raw))) > 0 {
-		if err := json.Unmarshal(raw, &root); err != nil {
-			return fmt.Errorf("parse %s: %w", settingsPath, err)
+// RemoveAgentHooks takes out what InstallAgentHooks added: the Claude Code hook entries
+// (the rest of settings.json stays as it is), the Antigravity skill and the notify shim.
+func RemoveAgentHooks(homeDir string) (HookInstallReport, error) {
+	if homeDir == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return HookInstallReport{}, err
 		}
 	}
-
-	hooksMap, ok := root["hooks"].(map[string]any)
-	if !ok || hooksMap == nil {
-		hooksMap = map[string]any{}
-	}
-
-	events := []string{"PreToolUse", "PostToolUse", "Notification", "Stop"}
-	for _, evName := range events {
-		cmdStr := fmt.Sprintf("%s hook-event --agent claude --event %s", shellQuote(konsertdBin), evName)
-		existing, _ := hooksMap[evName].([]any)
-		// Replace any earlier Konsert entry (e.g. an unquoted path from an older install)
-		// so re-running install-hooks stays idempotent and fixes old entries.
-		existing = withoutKonsertHookEntries(existing)
-		entry := map[string]any{
-			"matcher": "*",
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": cmdStr,
-				},
-			},
-		}
-		hooksMap[evName] = append(existing, entry)
-	}
-	root["hooks"] = hooksMap
-
-	// Deterministic sorts map keys so rewriting the user's settings keeps a stable layout
-	// (v1 sorted map keys implicitly; v2 does not).
-	out, err := json.Marshal(root, jsontext.WithIndent("  "), json.Deterministic(true))
+	report := HookInstallReport{EventsFilePath: HookEventsPath(homeDir)}
+	changed, err := removeClaudeHooks(homeDir)
 	if err != nil {
-		return err
+		return report, err
 	}
-	return os.WriteFile(settingsPath, append(out, '\n'), 0o600)
-}
-
-func isKonsertHookEntry(item any) bool {
-	b, err := json.Marshal(item)
-	return err == nil && strings.Contains(string(b), konsertHookMarker)
-}
-
-func withoutKonsertHookEntries(entries []any) []any {
-	out := make([]any, 0, len(entries))
-	for _, item := range entries {
-		if !isKonsertHookEntry(item) {
-			out = append(out, item)
+	if changed {
+		report.Notes = append(report.Notes, "removed the Konsert hooks from ~/.claude/settings.json")
+	}
+	for _, p := range []string{
+		filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry", "SKILL.md"),
+		filepath.Join(homeDir, ".konsert", "hooks", "notify.sh"),
+	} {
+		if err := os.Remove(p); err == nil {
+			report.Notes = append(report.Notes, "removed "+p)
+		} else if !os.IsNotExist(err) {
+			return report, err
 		}
 	}
-	return out
+	_ = os.Remove(filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry"))
+	return report, nil
 }
 
 func installAgyTelemetrySkill(homeDir, konsertdBin string) error {

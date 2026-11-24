@@ -1,0 +1,58 @@
+{
+	"hooks": {
+		"Stop": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "say done"
+					}
+				]
+			},
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Stop"
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PreToolUse"
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PostToolUse"
+					}
+				]
+			}
+		],
+		"Notification": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Notification"
+					}
+				]
+			}
+		]
+	},
+	"verbose": true
+}

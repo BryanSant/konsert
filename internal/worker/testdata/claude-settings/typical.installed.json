@@ -1,0 +1,69 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": ["Bash(git status)", "Read(~/notes/**)"],
+    "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"pre — ✓\" >> ~/.claude/log"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PreToolUse"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "date" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PostToolUse"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Notification"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Stop"
+          }
+        ]
+      }
+    ]
+  },
+  "env": { "FOO": "bar" },
+  "alwaysThinkingEnabled": true
+}

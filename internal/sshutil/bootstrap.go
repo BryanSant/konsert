@@ -329,7 +329,7 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		}
 		// No systemd user manager (container, WSL without systemd): run it under nohup,
 		// from a config written over stdin. The hub restarts it the same way.
-		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name}, false), nil)
+		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name, "--keep-hooks"}, false), nil)
 		cfg, merr := yaml.Marshal(nohupConfigFile{
 			Name: name, HostGroup: name,
 			Sandbox: opts.Sandbox, EnableMockDriver: opts.EnableMock,
