@@ -37,7 +37,7 @@ import { heatLevelOf } from '../../core/state/activity-logic';
       }
     </ul>
     <h2 class="px-4 pt-4 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Quota</h2>
-    <ul class="m-0 p-0 list-none">
+    <ul class="m-0 p-0 list-none" data-testid="mobile-quota">
       @for (q of quotas(); track q.key) {
         <li class="flex justify-between px-4 py-1.5 text-[14px]">
           <span>{{ q.label }}</span>

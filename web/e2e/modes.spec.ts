@@ -8,7 +8,7 @@ import { E2E_STATE_FILE } from './global-setup';
 /**
  * The mode UI (KON-88NN9): users land in Command on desktop and in the needs-you inbox on a
  * phone. Command has one Needs-you area (the right rail); Work is the board with the review
- * panel; Fleet has the machines and the timeline range picker; Wall tiles stream and stay put.
+ * panel; Fleet has the machine rows with their heat strips and the queue; Wall tiles stream and stay put.
  * Runs against the suite's hub with the mock worker.
  */
 
@@ -17,6 +17,7 @@ interface E2EEnv {
   adminToken: string;
   workerId: string;
   workerName: string;
+  workerSid: string;
   workdir: string;
 }
 
@@ -142,10 +143,15 @@ test.describe('Mode UI (desktop)', () => {
     await signIn(page, env);
     const task = await dispatchWaiting(page, env, 'Tidy the release notes');
     try {
+      // Live work is the project story: the line sits in its project's section with the
+      // spinner; a task waiting for input is asking and offers "→ Needs you".
       const live = page.locator('aside[aria-label="Live work"]');
-      const row = live.locator(`[data-work-item="${task.sid}"]`);
+      const row = live.locator(`[data-project] [data-work-item="${task.sid}"]`);
       await expect(row).toContainText('Tidy the release notes');
-      await row.click();
+      await expect(row).toHaveAttribute('data-state', 'asking');
+      await expect(row.locator('ks-spinner[data-spinner="asking"]')).toBeVisible();
+      await expect(row.getByTestId('line-needs-you')).toBeVisible();
+      await row.locator('button.ks-lw-open').click();
       await expect(page).toHaveURL(new RegExp(`/command/${task.sid}$`));
 
       const tab = page.getByTestId('command-tabs').locator(`[data-tab="${task.sid}"]`);
@@ -300,24 +306,46 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Fleet: machines and the timeline with its range picker (12h default)', async ({ page }) => {
+  test('Fleet: machine rows with sessions, heat strips over the range picker (12h default), the queue', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/fleet');
-    const machines = page.getByTestId('fleet-machines');
-    await expect(machines.locator('tr', { hasText: env.workerName })).toBeVisible();
-    const timeline = page.getByTestId('fleet-timeline');
-    await expect(timeline.getByRole('heading')).toHaveText('Last 12 hours');
-    await expect(timeline.getByRole('radio', { name: '12h' })).toHaveAttribute('aria-checked', 'true');
-    for (const [id, title] of [
-      ['24h', '24 hours'],
-      ['3d', '3 days'],
-      ['1w', 'week'],
-    ]) {
-      await timeline.getByRole('radio', { name: id }).click();
-      await expect(timeline.getByRole('radio', { name: id })).toHaveAttribute('aria-checked', 'true');
-      await expect(timeline.getByRole('heading')).toHaveText(`Last ${title}`);
+    const task = await dispatchWaiting(page, env, 'Fleet row session');
+    try {
+      const row = page.getByTestId('fleet-machines').locator(`[data-machine="${env.workerSid}"]`);
+      await expect(row.getByRole('heading', { name: env.workerName })).toBeVisible();
+      await expect(row.locator('.ks-badge').first()).toHaveText(/^(OK|IDLE|FULL)$/);
+      await expect(row.getByTestId('machine-heat')).not.toBeEmpty();
+      for (const name of ['Drain', 'Suspend', 'Details']) {
+        await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
+      }
+      // The session runs on its machine's row as a card with the spinner.
+      const card = row.locator(`[data-session="${task.sid}"]`);
+      await expect(card).toContainText('Fleet row session');
+      await expect(card.locator('ks-spinner[data-spinner]')).toBeVisible();
+
+      // The heat strip follows the range picker.
+      const strip = row.getByTestId('heat-strip');
+      await expect(strip).toHaveAttribute('aria-label', /last 12 hours/);
+      const ranges = page.getByRole('radiogroup', { name: 'Heat over the last' });
+      await expect(ranges.locator('[data-range="12h"]')).toHaveAttribute('aria-checked', 'true');
+      for (const [id, title] of [
+        ['24h', '24 hours'],
+        ['3d', '3 days'],
+        ['1w', 'week'],
+      ]) {
+        await ranges.locator(`[data-range="${id}"]`).click();
+        await expect(ranges.locator(`[data-range="${id}"]`)).toHaveAttribute('aria-checked', 'true');
+        await expect(ranges.locator('[aria-checked="true"]')).toHaveCount(1);
+        await expect(strip).toHaveAttribute('aria-label', new RegExp(`last ${title}`));
+      }
+
+      await expect(page.getByTestId('fleet-queue')).toContainText('Queue');
+      // The session card opens the session in Command.
+      await card.click();
+      await expect(page).toHaveURL(new RegExp(`/command/${task.sid}$`));
+    } finally {
+      await cancel(page, task.id);
     }
-    await expect(timeline.locator(`[data-timeline="${env.workerName}"]`)).toBeVisible();
   });
 
   test('Wall: tiles stream live sessions, layouts and pins; tiles stay where they are', async ({ page }) => {
@@ -403,7 +431,9 @@ test.describe('Mode UI (phone)', () => {
     const task = await dispatchWaiting(page, env, 'Phone check task');
     try {
       await page.getByTestId('mobile-working').click();
-      await page.locator(`[data-work-item="${task.sid}"]`).click();
+      const line = page.locator(`[data-work-item="${task.sid}"]`);
+      await expect(line.locator('ks-spinner[data-spinner]')).toBeVisible();
+      await line.click();
       await expect(page).toHaveURL(new RegExp(`/inbox/${task.sid}$`));
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Phone check task');
       const hold = page.getByTestId('mobile-hold');

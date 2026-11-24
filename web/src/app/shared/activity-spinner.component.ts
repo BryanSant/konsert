@@ -31,7 +31,7 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
     '[attr.data-spinner]': 'state()',
     '[class.ks-spinner-two]': 'second() !== null',
     '[class.ks-spinner-coarse]': 'coarse()',
-    '[style.--ks-sz.px]': 'size()',
+    '[style.--ks-sz]': "size() + 'px'",
     '[style.--ks-ripple]': 'ripple()',
   },
   template: `
