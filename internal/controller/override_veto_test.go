@@ -337,14 +337,16 @@ func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
 	if _, raw := cs.api(t, http.MethodGet, "/api/vetoes?open=1", nil); !strings.Contains(string(raw), `"vetoes":[]`) {
 		t.Fatalf("acknowledged veto still open: %s", raw)
 	}
-	notices, _ := cs.st.ListFleetEvents(context.Background(), store.FleetEventFilter{Kind: store.EventKindNotice})
-	found := false
-	for _, e := range notices {
-		found = found || (e.Action == "veto_ack" && strings.Contains(e.Summary, v.SID))
-	}
-	if !found {
-		t.Fatalf("no veto_ack notice: %+v", notices)
-	}
+	// The notice is recorded just after the acknowledgement is stored.
+	waitFor(t, 3*time.Second, "veto_ack notice", func() bool {
+		notices, _ := cs.st.ListFleetEvents(context.Background(), store.FleetEventFilter{Kind: store.EventKindNotice})
+		for _, e := range notices {
+			if e.Action == "veto_ack" && strings.Contains(e.Summary, v.SID) {
+				return true
+			}
+		}
+		return false
+	})
 	// An acknowledged veto never escalates.
 	cs.h.sweepControl(context.Background(), time.Now().Add(time.Hour))
 	if v = mustVeto(t, cs.st); v.EscalatedAt != nil {
