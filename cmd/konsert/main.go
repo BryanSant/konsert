@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -32,6 +33,9 @@ func main() {
 
 	rootCmd.AddCommand(
 		newServeCmd(),
+		newPairCmd(),
+		newLoginCmd(),
+		newLogoutCmd(),
 		newMCPCmd(),
 		newTokenCmd(),
 		newStatusCmd(),
@@ -54,8 +58,7 @@ func newServeCmd() *cobra.Command {
 		listenAddr            string
 		dbPath                string
 		fleetToken            string
-		adminToken            string
-		mcpToken              string
+		recoveryKey           string
 		tokensFile            string
 		publicURL             string
 		allowedOrigins        []string
@@ -67,6 +70,10 @@ func newServeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the Konsert central controller hub, embedded PWA, REST/WS API, and MCP endpoint",
+		Long: "Start the hub. Unless --no-auth is set it prints a one-time sign-in link (and a QR\n" +
+			"code in a terminal): open it in a browser or scan it with a phone to sign in. Run\n" +
+			"`konsert pair` for another link at any time; signed-in browsers can add devices\n" +
+			"from Settings → Devices.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.LoadControllerConfig(configPath)
 			if err != nil {
@@ -81,11 +88,8 @@ func newServeCmd() *cobra.Command {
 			if cmd.Flags().Changed("fleet-token") {
 				cfg.FleetToken = fleetToken
 			}
-			if cmd.Flags().Changed("admin-token") {
-				cfg.AdminToken = adminToken
-			}
-			if cmd.Flags().Changed("mcp-token") {
-				cfg.MCPToken = mcpToken
+			if cmd.Flags().Changed("recovery-key") {
+				cfg.RecoveryKey = recoveryKey
 			}
 			if cmd.Flags().Changed("no-auth") {
 				cfg.NoAuth = noAuth
@@ -107,13 +111,21 @@ func newServeCmd() *cobra.Command {
 			}
 
 			logger := logx.New(os.Stderr, slog.LevelInfo)
-			if err := prepareServeConfig(&cfg, os.Stderr, logger); err != nil {
+			if err := prepareServeConfig(&cfg, logger); err != nil {
 				return err
 			}
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			return runServe(ctx, cfg, logger, nil)
+			return runServe(ctx, cfg, logger, func(addr net.Addr) {
+				// Let the konsert CLI on this machine find the hub and its tokens file.
+				if cfg.NoAuth {
+					return
+				}
+				if err := recordLocalHub(addr.String(), resolveTokensFile(cfg)); err != nil {
+					logger.Debug("could not record the local hub for the CLI", "err", err)
+				}
+			})
 		},
 	}
 
@@ -121,9 +133,9 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&listenAddr, "listen", "", "HTTP/WS listen address (default :8420, or 127.0.0.1:8420 with --no-auth)")
 	cmd.Flags().StringVar(&dbPath, "db", "konsert.db", "SQLite database path")
 	cmd.Flags().StringVar(&fleetToken, "fleet-token", "", "Pre-shared bearer token for konsertd workers (auto-generated if unset)")
-	cmd.Flags().StringVar(&adminToken, "admin-token", "", "Admin passphrase/token for PWA and REST API (auto-generated if unset)")
-	cmd.Flags().StringVar(&mcpToken, "mcp-token", "", "Bearer token for /mcp HTTP endpoint (defaults to admin-token)")
-	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that persists auto-generated tokens (default konsert-tokens.yaml next to --db)")
+	cmd.Flags().StringVar(&recoveryKey, "recovery-key", "", "Emergency recovery key (default: generated into the tokens file, never printed)")
+	_ = cmd.Flags().MarkHidden("recovery-key")
+	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that keeps the recovery key and fleet token, mode 0600 (default konsert-tokens.yaml next to --db)")
 	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (isolated local development only; binds to loopback by default)")
 	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve (honored only from loopback peers)")
 	cmd.Flags().BoolVar(&enableMCPHTTP, "enable-mcp-http", true, "Enable Streamable HTTP/SSE MCP endpoint at /mcp")
@@ -142,37 +154,25 @@ func newMCPCmd() *cobra.Command {
 		Use:   "mcp",
 		Short: "Run the Konsert MCP server over stdio bridged to a konsert controller",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if token == "" {
-				token = os.Getenv("KONSERT_ADMIN_TOKEN")
-			}
-			if controllerURL == "" {
-				if v := os.Getenv("KONSERT_URL"); v != "" {
-					controllerURL = v
-				} else {
-					controllerURL = "http://127.0.0.1:8420"
-				}
-			}
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
-			client := controller.NewRemoteFleetClient(controllerURL, token)
-			client.Source = "mcp"
+			client := newHubClient(resolveHub(controllerURL, token, ""), "mcp")
 			return controller.RunMCPStdio(ctx, client, version)
 		},
 	}
-	cmd.Flags().StringVar(&controllerURL, "url", "", "Konsert controller HTTP URL (default http://127.0.0.1:8420)")
-	cmd.Flags().StringVar(&token, "token", "", "Bearer token for authenticating with konsert")
+	addClientFlags(cmd, &controllerURL, &token)
 	return cmd
 }
 
 func newTokenCmd() *cobra.Command {
 	tokenCmd := &cobra.Command{
 		Use:   "token",
-		Short: "Manage authentication tokens",
+		Short: "Rotate the recovery key or generate random tokens",
 	}
 	var bytesLen int
 	genCmd := &cobra.Command{
 		Use:   "generate",
-		Short: "Generate a cryptographically random hex token for fleet or UI auth",
+		Short: "Generate a cryptographically random hex token",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			tok, err := auth.GenerateToken(bytesLen)
 			if err != nil {
@@ -183,24 +183,14 @@ func newTokenCmd() *cobra.Command {
 		},
 	}
 	genCmd.Flags().IntVar(&bytesLen, "bytes", 32, "Number of random bytes")
-	tokenCmd.AddCommand(genCmd)
+	tokenCmd.AddCommand(genCmd, newTokenRotateCmd())
 	return tokenCmd
 }
 
+// remoteClientFromFlags returns a client for the hub named by --url/--token or found
+// automatically (see creds.go).
 func remoteClientFromFlags(url, token string) *controller.RemoteFleetClient {
-	if url == "" {
-		if v := os.Getenv("KONSERT_URL"); v != "" {
-			url = v
-		} else {
-			url = "http://127.0.0.1:8420"
-		}
-	}
-	if token == "" {
-		token = os.Getenv("KONSERT_ADMIN_TOKEN")
-	}
-	client := controller.NewRemoteFleetClient(url, token)
-	client.Source = "cli"
-	return client
+	return newHubClient(resolveHub(url, token, ""), auditSourceCLI)
 }
 
 func newStatusCmd() *cobra.Command {
@@ -293,8 +283,7 @@ func newDispatchCmd() *cobra.Command {
 			return writeJSONOut(os.Stdout, final)
 		},
 	}
-	cmd.Flags().StringVar(&url, "url", "", "Konsert controller HTTP URL")
-	cmd.Flags().StringVar(&token, "token", "", "Admin bearer token")
+	addClientFlags(cmd, &url, &token)
 	cmd.Flags().StringVar(&agent, "agent", "claude", "Agent driver (claude, agy, grok, mock)")
 	cmd.Flags().StringVar(&repoPath, "repo", ".", "Repository / working directory path on worker")
 	cmd.Flags().StringVar(&branch, "branch", "", "Optional git branch (creates isolated worktree)")
@@ -332,8 +321,7 @@ func newTasksCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&url, "url", "", "Konsert controller HTTP URL")
-	cmd.Flags().StringVar(&token, "token", "", "Admin bearer token")
+	addClientFlags(cmd, &url, &token)
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Filter by status")
 	cmd.Flags().StringVar(&workerID, "worker", "", "Filter by worker (id or m- sid)")
 	cmd.Flags().IntVar(&limit, "limit", 50, "Maximum tasks to display")

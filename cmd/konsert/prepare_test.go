@@ -15,23 +15,23 @@ import (
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func TestPrepareGeneratesAndPersistsTokensWhenUnset(t *testing.T) {
+func TestPrepareGeneratesAndPersistsTokensSilently(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultControllerConfig()
 	cfg.DBPath = filepath.Join(dir, "konsert.db")
 
-	var out bytes.Buffer
-	if err := prepareServeConfig(&cfg, &out, discardLogger()); err != nil {
+	var logBuf bytes.Buffer
+	if err := prepareServeConfig(&cfg, slog.New(slog.NewTextHandler(&logBuf, nil))); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AdminToken == "" || cfg.FleetToken == "" {
-		t.Fatalf("expected generated tokens, got admin=%q fleet=%q", cfg.AdminToken, cfg.FleetToken)
+	if cfg.RecoveryKey == "" || cfg.FleetToken == "" || !cfg.RecoveryKeyInTokensFile {
+		t.Fatalf("expected generated tokens, got recovery=%q fleet=%q", cfg.RecoveryKey, cfg.FleetToken)
 	}
 	if cfg.ListenAddr != ":8420" {
 		t.Fatalf("authenticated default listen = %q, want :8420", cfg.ListenAddr)
 	}
-	if !strings.Contains(out.String(), cfg.AdminToken) || !strings.Contains(out.String(), cfg.FleetToken) {
-		t.Fatal("generated tokens must be printed once")
+	if strings.Contains(logBuf.String(), cfg.RecoveryKey) || strings.Contains(logBuf.String(), cfg.FleetToken) {
+		t.Fatal("generated tokens must never be printed")
 	}
 
 	path := filepath.Join(dir, tokensFileName)
@@ -47,22 +47,26 @@ func TestPrepareGeneratesAndPersistsTokensWhenUnset(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.AdminToken != cfg.AdminToken || saved.FleetToken != cfg.FleetToken {
+	if saved.RecoveryKey != cfg.RecoveryKey || saved.FleetToken != cfg.FleetToken || !strings.Contains(string(raw), "recovery_key:") {
 		t.Fatal("persisted tokens differ from the in-memory config")
 	}
 
-	// A second start reuses the persisted tokens and prints nothing.
+	// A second start reuses the persisted tokens.
 	cfg2 := config.DefaultControllerConfig()
 	cfg2.DBPath = cfg.DBPath
-	out.Reset()
-	if err := prepareServeConfig(&cfg2, &out, discardLogger()); err != nil {
+	if err := prepareServeConfig(&cfg2, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
-	if cfg2.AdminToken != cfg.AdminToken || cfg2.FleetToken != cfg.FleetToken {
+	if cfg2.RecoveryKey != cfg.RecoveryKey || cfg2.FleetToken != cfg.FleetToken || !cfg2.RecoveryKeyInTokensFile {
 		t.Fatal("restart must reuse persisted tokens")
 	}
-	if out.Len() != 0 {
-		t.Fatalf("tokens must not be printed again, got %q", out.String())
+
+	// Rotation rewrites only the recovery key.
+	if err := rotateRecoveryKeyInFile(path, "new-key"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := readTokensFile(path); got.RecoveryKey != "new-key" || got.FleetToken != cfg.FleetToken {
+		t.Fatalf("after rotation: %+v", got)
 	}
 }
 
@@ -70,26 +74,22 @@ func TestPrepareKeepsExplicitTokensAndFillsOnlyMissing(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultControllerConfig()
 	cfg.DBPath = filepath.Join(dir, "konsert.db")
-	cfg.AdminToken = "my-admin"
-	var out bytes.Buffer
-	if err := prepareServeConfig(&cfg, &out, discardLogger()); err != nil {
+	cfg.RecoveryKey = "my-key"
+	if err := prepareServeConfig(&cfg, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AdminToken != "my-admin" {
-		t.Fatal("explicit admin token must win")
+	if cfg.RecoveryKey != "my-key" || cfg.RecoveryKeyInTokensFile {
+		t.Fatal("explicit recovery key must win and is not file-managed")
 	}
 	if cfg.FleetToken == "" {
 		t.Fatal("missing fleet token must be generated")
-	}
-	if strings.Contains(out.String(), "my-admin") {
-		t.Fatal("explicit token must not be printed")
 	}
 
 	// Both set: no file is written.
 	cfg2 := config.DefaultControllerConfig()
 	cfg2.DBPath = filepath.Join(t.TempDir(), "konsert.db")
-	cfg2.AdminToken, cfg2.FleetToken = "a", "f"
-	if err := prepareServeConfig(&cfg2, &out, discardLogger()); err != nil {
+	cfg2.RecoveryKey, cfg2.FleetToken = "a", "f"
+	if err := prepareServeConfig(&cfg2, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(cfg2.DBPath), tokensFileName)); !os.IsNotExist(err) {
@@ -101,21 +101,20 @@ func TestPrepareNoAuthDefaultsToLoopback(t *testing.T) {
 	cfg := config.DefaultControllerConfig()
 	cfg.DBPath = filepath.Join(t.TempDir(), "konsert.db")
 	cfg.NoAuth = true
-	var out bytes.Buffer
-	if err := prepareServeConfig(&cfg, &out, discardLogger()); err != nil {
+	if err := prepareServeConfig(&cfg, discardLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != "127.0.0.1:8420" {
 		t.Fatalf("--no-auth default listen = %q, want 127.0.0.1:8420", cfg.ListenAddr)
 	}
-	if cfg.AdminToken != "" || cfg.FleetToken != "" {
+	if cfg.RecoveryKey != "" || cfg.FleetToken != "" {
 		t.Fatal("--no-auth must not generate tokens")
 	}
 
 	// An explicit non-loopback bind is kept but warned about.
 	var logBuf bytes.Buffer
 	cfg.ListenAddr = ":8420"
-	if err := prepareServeConfig(&cfg, &out, slog.New(slog.NewTextHandler(&logBuf, nil))); err != nil {
+	if err := prepareServeConfig(&cfg, slog.New(slog.NewTextHandler(&logBuf, nil))); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != ":8420" || !strings.Contains(logBuf.String(), "--no-auth on :8420") {

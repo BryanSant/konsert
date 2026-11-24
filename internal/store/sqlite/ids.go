@@ -12,20 +12,22 @@ import (
 
 // idTables maps each entity kind to its table (id UUIDv7 primary key + unique sid).
 var idTables = map[ids.Kind]string{
-	ids.Task:      "tasks",
-	ids.Chat:      "chat_sessions",
-	ids.Machine:   "workers",
-	ids.Workspace: "workspaces",
-	ids.Project:   "projects",
-	ids.Repo:      "repos",
-	ids.Worktree:  "worktrees",
-	ids.Space:     "spaces",
-	ids.Hold:      "holds",
-	ids.Request:   "user_requests",
-	ids.Question:  "questions",
-	ids.Override:  "override_requests",
-	ids.Veto:      "vetoes",
-	ids.Review:    "reviews",
+	ids.Task:        "tasks",
+	ids.Chat:        "chat_sessions",
+	ids.Machine:     "workers",
+	ids.Workspace:   "workspaces",
+	ids.Project:     "projects",
+	ids.Repo:        "repos",
+	ids.Worktree:    "worktrees",
+	ids.Space:       "spaces",
+	ids.Hold:        "holds",
+	ids.Request:     "user_requests",
+	ids.Question:    "questions",
+	ids.Override:    "override_requests",
+	ids.Veto:        "vetoes",
+	ids.Review:      "reviews",
+	ids.Device:      "devices",
+	ids.PairingCode: "pairing_codes",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its

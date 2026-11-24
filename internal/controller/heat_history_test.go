@@ -230,7 +230,7 @@ func TestFleetHeatEndpoint(t *testing.T) {
 func TestFleetHeatRequiresAuth(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = "admin"
+		c.RecoveryKey = "admin"
 	})
 	resp := doReq(t, http.MethodGet, ts.URL+"/api/fleet/heat", nil, nil)
 	if resp.StatusCode != http.StatusUnauthorized {

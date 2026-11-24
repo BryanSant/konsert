@@ -596,6 +596,8 @@ type RemoteFleetClient struct {
 	// Source optionally labels this client ("cli" or "mcp") in the hub's audit
 	// log via the X-Konsert-Client header. Identity still comes from Token.
 	Source string
+	// UserAgent, when set, identifies this client (shown in Settings → Devices).
+	UserAgent string
 }
 
 func NewRemoteFleetClient(baseURL, token string) *RemoteFleetClient {
@@ -617,6 +619,12 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("konsert API %s %s failed (HTTP %d): %s", e.Method, e.Path, e.StatusCode, e.Message)
+}
+
+// DoJSON sends a JSON request to the hub's REST API and decodes the JSON reply into
+// out (when non-nil). A non-2xx reply is an *APIError.
+func (c *RemoteFleetClient) DoJSON(ctx context.Context, method, path string, reqBody any, out any) error {
+	return c.doJSON(ctx, method, path, reqBody, out)
 }
 
 func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, reqBody any, out any) error {
@@ -644,6 +652,9 @@ func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, req
 	}
 	if c.Source != "" {
 		req.Header.Set(clientKindHeader, c.Source)
+	}
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
 	}
 	resp, err := c.Client.Do(req)
 	if err != nil {

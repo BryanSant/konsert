@@ -408,13 +408,14 @@ func newDaemonMCPCmd() *cobra.Command {
 		Short: "Run a local stdio MCP server bridge for coding agents on this machine to drive Konsert",
 		Long: `Run a local stdio MCP server bridge for coding agents on this machine to drive Konsert.
 
-The bridge calls the hub's /api endpoints, which require the hub's ADMIN token
-(the fleet token only authorizes worker connections on /ws/worker and is never
-used here).
+The bridge calls the hub's /api endpoints, which require a device credential
+(create one with ` + "`konsert login`" + ` and pass it here, or use the hub's recovery key on
+the hub's machine). The fleet token only authorizes worker connections on
+/ws/worker and is never used here.
 
 Hub URL:   --controller, else $KONSERT_URL, else the worker config's controller_url
            (ws:// -> http://, trailing /ws/worker removed).
-Token:     --token, else $KONSERT_ADMIN_TOKEN. With neither set, requests are sent
+Token:     --token, else $KONSERT_TOKEN. With neither set, requests are sent
            unauthenticated, which only works against a hub started with --no-auth.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.LoadWorkerConfig(configPath)
@@ -430,7 +431,7 @@ Token:     --token, else $KONSERT_ADMIN_TOKEN. With neither set, requests are se
 			}
 			base, tok := resolveMCPBridge(cfg, flagURL, flagToken, os.Getenv)
 			if tok == "" {
-				fmt.Fprintln(os.Stderr, "konsertd mcp: no admin token (--token or KONSERT_ADMIN_TOKEN); calls will fail unless the hub runs with --no-auth")
+				fmt.Fprintln(os.Stderr, "konsertd mcp: no credential (--token or KONSERT_TOKEN); calls will fail unless the hub runs with --no-auth")
 			}
 			client := controller.NewRemoteFleetClient(base, tok)
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -440,13 +441,13 @@ Token:     --token, else $KONSERT_ADMIN_TOKEN. With neither set, requests are se
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
 	cmd.Flags().StringVar(&controllerURL, "controller", "", "Konsert hub URL (default $KONSERT_URL, else the worker config controller_url)")
-	cmd.Flags().StringVar(&token, "token", "", "Konsert hub ADMIN token for /api calls (default $KONSERT_ADMIN_TOKEN; the fleet token is not accepted there)")
+	cmd.Flags().StringVar(&token, "token", "", "Konsert hub device credential for /api calls (default $KONSERT_TOKEN; the fleet token is not accepted there)")
 	return cmd
 }
 
 // resolveMCPBridge picks the hub base URL and bearer token for `konsertd mcp`. The token is
-// the hub's admin token (flag, then KONSERT_ADMIN_TOKEN); the worker's fleet token is never
-// used because the hub's /api rejects it.
+// a device credential (flag, then KONSERT_TOKEN); the worker's fleet token is never used
+// because the hub's /api rejects it.
 func resolveMCPBridge(cfg config.WorkerConfig, flagURL, flagToken *string, getenv func(string) string) (base, token string) {
 	switch {
 	case flagURL != nil && strings.TrimSpace(*flagURL) != "":
@@ -467,7 +468,7 @@ func resolveMCPBridge(cfg config.WorkerConfig, flagURL, flagToken *string, geten
 	if flagToken != nil {
 		token = strings.TrimSpace(*flagToken)
 	} else {
-		token = strings.TrimSpace(getenv("KONSERT_ADMIN_TOKEN"))
+		token = strings.TrimSpace(getenv("KONSERT_TOKEN"))
 	}
 	return base, token
 }

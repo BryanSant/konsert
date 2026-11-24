@@ -124,7 +124,7 @@ func TestReviewApproveRunsGHOnTheMachineThatOwnsTheCheckout(t *testing.T) {
 	res := decodeReviewResult(t, raw)
 	rv := res.Review
 	if rv.Decision != store.ReviewApproved || rv.GitHubStatus != protocol.PRReviewSent || rv.GitHubURL == "" ||
-		rv.DecidedAt == nil || rv.DecidedBy != "operator" || res.FollowUpTaskID != "" {
+		rv.DecidedAt == nil || rv.DecidedBy != e.user || res.FollowUpTaskID != "" {
 		t.Fatalf("review result %+v", res)
 	}
 	// Stored on the hub: the list and the fleet snapshot carry it.
