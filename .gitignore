@@ -27,3 +27,4 @@ internal/controller/webdist/*
 .idea/
 .vscode/
 *.swp
+.playwright-mcp/
