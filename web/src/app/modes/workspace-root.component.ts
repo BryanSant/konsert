@@ -20,6 +20,7 @@ import { SettingsModalComponent } from '../layout/settings-modal.component';
 import { ModePaletteComponent } from './mode-palette.component';
 import { ProjectsDialogComponent } from '../features/projects/projects-dialog.component';
 import { AuditLogComponent } from '../layout/audit-log.component';
+import { DevicesDialogComponent } from '../features/auth/devices-dialog.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { IconComponent } from '../shared/icon.component';
 import { ModeUiStore } from './mode-ui.store';
@@ -43,6 +44,7 @@ import { ModeUiStore } from './mode-ui.store';
     ModePaletteComponent,
     ProjectsDialogComponent,
     AuditLogComponent,
+    DevicesDialogComponent,
     ModalDialogComponent,
     IconComponent,
   ],
@@ -62,7 +64,7 @@ import { ModeUiStore } from './mode-ui.store';
       />
     }
     @if (ui.settingsOpen()) {
-      <app-settings-modal (close)="ui.settingsOpen.set(false)" />
+      <app-settings-modal (close)="ui.settingsOpen.set(false)" (openDevices)="ui.settingsOpen.set(false); ui.devicesOpen.set($event)" />
     }
     @if (ui.sessionRequest(); as req) {
       <app-session-dispatch-modal [request]="req" (close)="ui.sessionRequest.set(null)" (started)="onStarted($event)" />
@@ -87,6 +89,9 @@ import { ModeUiStore } from './mode-ui.store';
         </div>
         <app-audit-log class="flex-1 min-h-0" />
       </app-modal-dialog>
+    }
+    @if (ui.devicesOpen(); as view) {
+      <ks-devices-dialog [initialView]="view" (close)="ui.devicesOpen.set(null)" />
     }
     @if (ui.paletteOpen()) {
       <ks-mode-palette (close)="ui.paletteOpen.set(false)" />

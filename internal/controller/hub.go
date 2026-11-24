@@ -46,10 +46,13 @@ func (wc *workerConn) activeCount() int {
 }
 
 type browserClient struct {
-	user   string
-	conn   *websocket.Conn
-	sendCh chan wsFrame
-	cancel context.CancelFunc
+	user string
+	// deviceID is the device credential the socket authenticated with ("" for the
+	// recovery key, Tailscale identity or --no-auth); revoking the device closes it.
+	deviceID string
+	conn     *websocket.Conn
+	sendCh   chan wsFrame
+	cancel   context.CancelFunc
 
 	ctx context.Context // connection lifetime; also canceled on hub shutdown
 

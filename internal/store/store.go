@@ -560,6 +560,34 @@ type Store interface {
 	// ListReviews returns every review, oldest first.
 	ListReviews(ctx context.Context) ([]Review, error)
 
+	// Devices (KON-W0P8B). CreateDevice assigns id/sid when empty. GetDeviceBySecretHash
+	// returns revoked and expired devices too: callers decide. ListDevices returns the
+	// devices that are not revoked, most recently used first.
+	CreateDevice(ctx context.Context, d Device) (Device, error)
+	GetDevice(ctx context.Context, id string) (Device, error)
+	GetDeviceBySecretHash(ctx context.Context, hash string) (Device, error)
+	ListDevices(ctx context.Context) ([]Device, error)
+	// TouchDevice records a use: last_used_at, the sliding expires_at, and where from.
+	TouchDevice(ctx context.Context, id string, at, expiresAt time.Time, ip, userAgent string) error
+	RenameDevice(ctx context.Context, id, name string) error
+	// RevokeDevice revokes a device; false when it was not active.
+	RevokeDevice(ctx context.Context, id string, at time.Time) (bool, error)
+
+	// Pairing codes (KON-V5JZB, KON-A29CT). CreatePairingCode assigns id/sid when empty.
+	CreatePairingCode(ctx context.Context, p PairingCode) (PairingCode, error)
+	GetPairingCodeByHash(ctx context.Context, codeHash string) (PairingCode, error)
+	GetPairingCodeByPollHash(ctx context.Context, pollHash string) (PairingCode, error)
+	// DecidePairingCode approves or denies a pending, unexpired login code; false when it
+	// was not pending.
+	DecidePairingCode(ctx context.Context, id string, approve bool, by string, at time.Time) (bool, error)
+	// RedeemPairingCode atomically marks a code used and creates its device. It succeeds
+	// once, only before expiry, and (for login codes) only after approval; otherwise it
+	// returns false and creates nothing.
+	RedeemPairingCode(ctx context.Context, codeID string, d Device, at time.Time) (Device, bool, error)
+	// PruneAuth deletes pairing codes that expired before cutoff and devices revoked
+	// before it (expired devices stay: they are rejected and visible as expired).
+	PruneAuth(ctx context.Context, cutoff time.Time) error
+
 	UpsertMemory(ctx context.Context, m MemoryEntry) error
 	ListMemory(ctx context.Context, scope string, limit int) ([]MemoryEntry, error)
 	DeleteMemory(ctx context.Context, scope, key string) error

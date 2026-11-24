@@ -64,6 +64,9 @@ func (l *LoginLimiter) Failure(key string) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.Now()
+	if l.entries == nil {
+		l.entries = make(map[string]*loginEntry)
+	}
 	if len(l.entries) >= pruneThreshold {
 		l.pruneLocked(now)
 	}
@@ -102,4 +105,50 @@ func (l *LoginLimiter) pruneLocked(now time.Time) {
 			delete(l.entries, k)
 		}
 	}
+}
+
+// WindowLimiter allows at most Limit events per key in each fixed Window (for
+// unauthenticated requests that create rows, such as CLI login codes).
+type WindowLimiter struct {
+	Limit  int
+	Window time.Duration
+	// Now is the clock; tests may replace it.
+	Now func() time.Time
+
+	mu      sync.Mutex
+	windows map[string]*window
+}
+
+type window struct {
+	start time.Time
+	count int
+}
+
+// NewWindowLimiter returns a limiter allowing limit events per key per window.
+func NewWindowLimiter(limit int, per time.Duration) *WindowLimiter {
+	return &WindowLimiter{Limit: limit, Window: per, Now: time.Now, windows: make(map[string]*window)}
+}
+
+// Allow records an event for key and reports whether it is within the limit.
+func (l *WindowLimiter) Allow(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.Now()
+	if len(l.windows) >= pruneThreshold {
+		for k, w := range l.windows {
+			if now.Sub(w.start) >= l.Window {
+				delete(l.windows, k)
+			}
+		}
+	}
+	w := l.windows[key]
+	if w == nil || now.Sub(w.start) >= l.Window {
+		w = &window{start: now}
+		l.windows[key] = w
+	}
+	if w.count >= l.Limit {
+		return false
+	}
+	w.count++
+	return true
 }

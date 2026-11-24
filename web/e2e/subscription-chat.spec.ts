@@ -27,6 +27,8 @@ function loadEnv(): E2EEnv {
 
 async function signIn(page: Page, env: E2EEnv): Promise<void> {
   await page.goto(`${env.baseURL}/command`);
+  // Signed out, the login page offers pairing; the recovery key is the fallback.
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   // (The login card's "Konsert" heading also matches a case-insensitive "KONSERT".)

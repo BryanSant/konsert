@@ -21,10 +21,11 @@ import (
 )
 
 // addClientFlags registers the --url/--token flags shared by commands that talk to a
-// running controller (defaults: $KONSERT_URL, $KONSERT_ADMIN_TOKEN).
+// running hub. Both are normally unnecessary: see creds.go for how the hub and a
+// credential are found.
 func addClientFlags(cmd *cobra.Command, url, token *string) {
-	cmd.Flags().StringVar(url, "url", "", "Konsert controller HTTP URL (default $KONSERT_URL or http://127.0.0.1:8420)")
-	cmd.Flags().StringVar(token, "token", "", "Admin bearer token (default $KONSERT_ADMIN_TOKEN)")
+	cmd.Flags().StringVar(url, "url", "", "Hub URL (default $KONSERT_URL, the hub you logged in to, or this machine's hub)")
+	cmd.Flags().StringVar(token, "token", "", "Device credential (default $KONSERT_TOKEN or the one saved by konsert login)")
 }
 
 // friendlyAPIError turns common controller rejections into actionable messages.
@@ -36,9 +37,9 @@ func friendlyAPIError(err error) error {
 	var hint string
 	switch apiErr.StatusCode {
 	case 401:
-		hint = "authentication failed: pass the admin token with --token or set KONSERT_ADMIN_TOKEN"
+		hint = "not signed in: run konsert login <hub-url> (on the hub's machine, make sure you run as the hub's user)"
 	case 403:
-		hint = "request rejected by the controller (forbidden): check the token and that --url points at the controller itself"
+		hint = "request rejected by the hub (forbidden): check the credential and that --url points at the hub itself"
 	case 404:
 		if apiErr.Message != "" {
 			return fmt.Errorf("%s (HTTP 404)", apiErr.Message)

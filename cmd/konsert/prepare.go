@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 
@@ -10,16 +9,16 @@ import (
 )
 
 // prepareServeConfig finalizes the controller config before anything listens:
-// it fails closed on missing tokens (generating and persisting them unless --no-auth),
+// it fails closed on missing tokens (generating and persisting them silently unless --no-auth),
 // applies the auth-dependent default bind address, and warns about risky combinations.
-func prepareServeConfig(cfg *config.ControllerConfig, out io.Writer, logger *slog.Logger) error {
+func prepareServeConfig(cfg *config.ControllerConfig, logger *slog.Logger) error {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = config.DefaultListenAddr(cfg.NoAuth)
 	}
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid controller config: %w", err)
 	}
-	if err := ensureAuthTokens(cfg, out); err != nil {
+	if err := ensureAuthTokens(cfg); err != nil {
 		return err
 	}
 	loopback := isLoopbackListenAddr(cfg.ListenAddr)

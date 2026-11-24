@@ -97,8 +97,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	cfg := config.DefaultControllerConfig()
 	cfg.FleetToken = "fleet-tok-123"
-	cfg.AdminToken = "admin-tok-456"
-	cfg.MCPToken = "mcp-tok-789"
+	cfg.RecoveryKey = "admin-tok-456"
 	cfg.EnableMCPHTTP = true
 
 	srv := NewServer(cfg, st, nil, "test")

@@ -44,6 +44,16 @@ type Server struct {
 	// originPatterns are the extra browser origins allowed besides the request Host.
 	originPatterns []string
 	loginLimiter   *auth.LoginLimiter
+	// pairLimiter and pairGlobal throttle failed pairing-code redemptions per peer and
+	// across all peers; loginCodeLimiter and loginCodeGlobal cap CLI login codes per peer and
+	// overall, pollLimiter their polls.
+	pairLimiter      *auth.LoginLimiter
+	pairGlobal       *auth.LoginLimiter
+	loginCodeLimiter *auth.WindowLimiter
+	loginCodeGlobal  *auth.WindowLimiter
+	pollLimiter      *auth.WindowLimiter
+	// rotateRecovery persists a rotated recovery key (guarded by cfgMu; devices.go).
+	rotateRecovery RecoveryKeyRotator
 	inflight       inflightTracker
 	// secrets encrypts the LLM API key before it is stored in the database.
 	secrets *secrets.Box
@@ -64,7 +74,9 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	// Saved values that fail validation (e.g. a provider typo written by an older
 	// build) are ignored so the controller never silently sends the key elsewhere.
 	box := loadSecretBox(cfg, logger)
+	idleDays := defaultDeviceIdleDays
 	if saved, err := st.GetAllSettings(context.Background()); err == nil {
+		idleDays = deviceIdleDays(saved)
 		migratePlaintextSecrets(st, box, saved, logger)
 		merged := cfg.Orchestrator
 		applySavedOrchestratorSettings(&merged, saved, box, logger)
@@ -76,10 +88,11 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	}
 	authMgr := auth.NewManager(auth.Options{
 		FleetToken:            cfg.FleetToken,
-		AdminToken:            cfg.AdminToken,
-		MCPToken:              cfg.MCPToken,
+		RecoveryKey:           cfg.RecoveryKey,
 		NoAuth:                cfg.NoAuth,
 		TrustTailscaleHeaders: cfg.TrustTailscaleHeaders,
+		Devices:               st,
+		IdleExpiry:            idleDuration(idleDays),
 	})
 	hub := NewHub(st, logger)
 	svc := NewFleetService(st, hub)
@@ -100,8 +113,14 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 
 		originPatterns: buildOriginPatterns(cfg),
 		loginLimiter:   auth.NewLoginLimiter(),
-		secrets:        box,
-		launch:         newLauncher(),
+		pairLimiter:    auth.NewLoginLimiter(),
+		pairGlobal: &auth.LoginLimiter{FreeAttempts: 50, BaseDelay: time.Second, MaxDelay: time.Minute,
+			Now: time.Now},
+		loginCodeLimiter: auth.NewWindowLimiter(10, time.Minute),
+		loginCodeGlobal:  auth.NewWindowLimiter(30, time.Minute),
+		pollLimiter:      auth.NewWindowLimiter(120, time.Minute),
+		secrets:          box,
+		launch:           newLauncher(),
 	}
 	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
 	hub.version = version
@@ -129,6 +148,18 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	s.mux.HandleFunc("GET /api/auth/me", s.handleMe)
+	s.mux.HandleFunc("POST /api/auth/pair", s.handlePair)
+	s.mux.HandleFunc("POST /api/auth/device-code", s.handleStartLogin)
+	s.mux.HandleFunc("POST /api/auth/device-code/poll", s.handlePollLogin)
+	s.mux.Handle("GET /api/auth/device-code/{code}", s.requireBrowserAuth(s.handleGetLogin))
+	s.mux.Handle("POST /api/auth/device-code/{code}/approve", s.requireBrowserAuth(s.handleDecideLogin(true)))
+	s.mux.Handle("POST /api/auth/device-code/{code}/deny", s.requireBrowserAuth(s.handleDecideLogin(false)))
+	s.mux.Handle("POST /api/auth/recovery-key/rotate", s.requireBrowserAuth(s.handleRotateRecoveryKey))
+	s.mux.Handle("POST /api/pairing-codes", s.requireBrowserAuth(s.handleCreatePairingCode))
+	s.mux.Handle("GET /api/devices", s.requireBrowserAuth(s.handleListDevices))
+	s.mux.Handle("POST /api/devices/mcp", s.requireBrowserAuth(s.handleCreateMCPDevice))
+	s.mux.Handle("PATCH /api/devices/{id}", s.requireBrowserAuth(s.byRef(ids.Device, s.handleRenameDevice)))
+	s.mux.Handle("DELETE /api/devices/{id}", s.requireBrowserAuth(s.byRef(ids.Device, s.handleRevokeDevice)))
 
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
@@ -250,17 +281,17 @@ func (s *Server) registerRoutes() {
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
 		// Two MCP servers with separate session spaces: one for admin-scoped callers
-		// (admin token or --no-auth) and one for MCP-token-only callers, which may
-		// not redirect or replace the LLM API key.
+		// (recovery key, CLI/browser device credentials, --no-auth) and one for
+		// MCP-only device credentials, which may not redirect or replace the LLM API key.
 		adminMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: true}, s.version, s.orch)
 		scopedMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: false}, s.version, s.orch)
 		s.mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ok, admin := s.auth.MCPScope(r)
+			id, ok, admin := s.auth.MCPScope(r)
 			if !ok {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
 			}
-			r = r.WithContext(withAuditActor(r.Context(), auditSourceMCP, auditSourceMCP))
+			r = r.WithContext(withAuditActor(withIdentity(r.Context(), id), id.User, auditSourceMCP))
 			if admin {
 				adminMCP.ServeHTTP(w, r)
 				return
@@ -275,13 +306,18 @@ func (s *Server) registerRoutes() {
 
 func (s *Server) requireBrowserAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := s.auth.AuthenticateBrowser(r)
+		id, ok := s.auth.Authenticate(r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
+		// MCP credentials are for /mcp only: they never reach the REST API or sockets.
+		if id.Device != nil && id.Device.Kind == store.DeviceKindMCP {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "MCP credentials only work on /mcp"})
+			return
+		}
 		// Control actions are audited against the authenticated identity.
-		r = r.WithContext(withAuditActor(r.Context(), user, restAuditSource(r)))
+		r = r.WithContext(withAuditActor(withIdentity(r.Context(), id), id.User, restAuditSource(r)))
 		s.withQueryRefs(next).ServeHTTP(w, r)
 	})
 }
@@ -294,52 +330,29 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-	}
-	ip := clientIP(r)
-	if ok, wait := s.loginLimiter.Allow(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many failed login attempts; try again later"})
-		return
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	if !s.auth.CheckAdminToken(body.Token) {
-		s.loginLimiter.Failure(ip)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
-		return
-	}
-	s.loginLimiter.Success(ip)
-	s.auth.SetSessionCookie(w, r, "operator")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated": true,
-		"user":          "operator",
-	})
-}
-
-func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
-	s.auth.ClearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.auth.AuthenticateBrowser(r)
+	id, ok := s.auth.Authenticate(r)
+	if ok && id.Device != nil && id.Device.Kind == store.DeviceKindMCP {
+		id, ok = auth.Identity{}, false
+	}
 	s.cfgMu.RLock()
 	prov := s.cfg.Orchestrator.Provider
 	model := effectiveModel(s.cfg.Orchestrator)
 	fleetTokReq := !s.cfg.NoAuth
 	s.cfgMu.RUnlock()
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"authenticated":        ok,
 		"auth_required":        s.auth.AuthRequired(),
 		"fleet_token_required": fleetTokReq,
-		"user":                 user,
+		"user":                 id.User,
+		"method":               id.Method,
 		"provider":             prov,
 		"model":                model,
-	})
+	}
+	if id.Device != nil {
+		resp["device"] = s.viewDevice(*id.Device, id.Device.ID)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
@@ -714,6 +727,9 @@ type settingsResponse struct {
 	// VetoAckMinutes is how long a veto waits for the agent's acknowledgement before it
 	// escalates in Needs you.
 	VetoAckMinutes int `json:"veto_ack_minutes"`
+	// DeviceIdleDays is how long a signed-in device may go unused before it must pair
+	// again (sliding expiry).
+	DeviceIdleDays int `json:"device_idle_days"`
 	// OrchestratorBackend is "agent": the orchestrator is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -754,6 +770,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		NotifySound:           notifySound,
 		NotifyDesktop:         notifyDesktop,
 		VetoAckMinutes:        int(s.hub.vetoAckTimeout(ctx).Minutes()),
+		DeviceIdleDays:        deviceIdleDays(saved),
 		OrchestratorBackend:   store.ChatBackendAgent,
 		OrchestratorChatID:    saved[orchestratorChatSetting],
 	}
@@ -768,8 +785,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	// Browser/REST callers are authenticated with the admin credential (session
-	// cookie, admin bearer, or trusted Tailscale identity), so they hold admin scope.
+	// REST callers hold a full-access credential (a browser/CLI device, the recovery
+	// key, or a trusted Tailscale identity; MCP-only credentials never get here).
 	if err := s.applySettings(r.Context(), body, true); err != nil {
 		writeSettingsError(w, err)
 		return
@@ -1211,9 +1228,13 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.auth.AuthenticateBrowser(r)
+	id, ok := s.auth.Authenticate(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+	if id.Device != nil && id.Device.Kind == store.DeviceKindMCP {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "MCP credentials only work on /mcp"})
 		return
 	}
 	// Browser sockets carry ambient cookie credentials, so the Origin must be this
@@ -1231,7 +1252,7 @@ func (s *Server) handleClientWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("accept client ws failed", "err", err)
 		return
 	}
-	s.hub.ServeBrowserConn(r.Context(), conn, user)
+	s.hub.ServeBrowserConn(withIdentity(r.Context(), id), conn, id.User)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

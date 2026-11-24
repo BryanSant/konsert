@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -206,13 +205,4 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any, allowEmpty bo
 func isBodyTooLarge(err error) bool {
 	var mbe *http.MaxBytesError
 	return errors.As(err, &mbe)
-}
-
-// clientIP returns the direct peer IP of the request (no proxy headers are trusted).
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

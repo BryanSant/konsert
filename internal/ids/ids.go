@@ -11,7 +11,8 @@
 //     id: a one- or two-letter kind prefix plus random lower-case Crockford base32, so the
 //     kind is clear wherever it shows up alone (logs, URLs): t-7qk3m task, c-yvp2f chat,
 //     m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree, h-… hold,
-//     rq-… user request, q-… question, o-… override request, v-… veto, rv-… review. The hub
+//     rq-… user request, q-… question, o-… override request, v-… veto, rv-… review,
+//     dv-… device credential, pc-… pairing code. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -43,10 +44,14 @@ const (
 	Override  Kind = "o"
 	Veto      Kind = "v"
 	Review    Kind = "rv"
+	// Device is a signed-in browser, phone, CLI or MCP client (one revocable credential).
+	Device Kind = "dv"
+	// PairingCode is a one-time sign-in code (pairing link or CLI device-code login).
+	PairingCode Kind = "pc"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question, Override, Veto, Review}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question, Override, Veto, Review, Device, PairingCode}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

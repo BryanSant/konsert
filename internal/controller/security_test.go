@@ -108,7 +108,7 @@ func TestWorkerWSWithoutOriginStillAccepted(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
 		c.FleetToken = "fleet"
-		c.AdminToken = "admin"
+		c.RecoveryKey = "admin"
 	})
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -278,7 +278,7 @@ func TestRequestBodyLimits(t *testing.T) {
 func TestLoginThrottle(t *testing.T) {
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = "right"
+		c.RecoveryKey = "right"
 		c.FleetToken = "fleet"
 	})
 	now := time.Unix(1_700_000_000, 0)

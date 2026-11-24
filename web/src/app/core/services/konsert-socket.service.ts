@@ -23,6 +23,8 @@ import {
 import { AgentAccount } from '../models/agent-chat.models';
 import { SessionActivity } from '../models/activity.models';
 import { Review } from '../models/review.models';
+import { Device } from '../models/device.models';
+import { DevicesStore } from '../state/devices.store';
 import { ActivityStore } from '../state/activity.store';
 import { AgentAccountsStore } from '../state/agent-accounts.store';
 import { AgentChatStore } from '../state/agent-chat.store';
@@ -43,6 +45,9 @@ type PtyListener = (ev: PtyFrameEvent) => void;
 /** After this many consecutive failed handshakes, re-check the session via /api/auth/me. */
 export const HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK = 3;
 
+/** Close code the hub uses when it signs a device out (revoked): 1008 policy violation. */
+const SIGNED_OUT_CLOSE_CODE = 1008;
+
 @Injectable({ providedIn: 'root' })
 export class KonsertSocketService {
   private readonly fleetStore = inject(FleetStore);
@@ -55,6 +60,7 @@ export class KonsertSocketService {
   private readonly activity = inject(ActivityStore);
   private readonly notifications = inject(NotificationService);
   private readonly auth = inject(AuthService);
+  private readonly devices = inject(DevicesStore);
 
   readonly state = signal<ConnectionState>('disconnected');
 
@@ -197,12 +203,17 @@ export class KonsertSocketService {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev?: CloseEvent) => {
       if (this.ws !== ws) return; // superseded by disconnect()/a newer socket
       this.ws = null;
       this.state.set('disconnected');
       this.orchestratorStore.onConnectionLost();
-      if (!opened) {
+      if (opened && ev?.code === SIGNED_OUT_CLOSE_CODE) {
+        // The hub closed the socket because this device was revoked: confirm and sign out now.
+        void this.auth.verifySession().then((valid) => {
+          if (!valid) this.disconnect();
+        });
+      } else if (!opened) {
         this.failedHandshakes++;
         // The browser hides the upgrade's HTTP status, so a 401 looks like any other
         // failure. Periodically ask the REST API whether the session is still valid.
@@ -258,6 +269,7 @@ export class KonsertSocketService {
           question?: QuestionView;
           activity?: SessionActivity;
           review?: Review;
+          device?: Device;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -279,6 +291,10 @@ export class KonsertSocketService {
           this.activity.apply(p.activity);
         } else if (p.kind === 'review' && p.review) {
           this.fleetStore.upsertReview(p.review);
+        } else if (p.kind === 'device' && p.device) {
+          this.devices.apply(p.device);
+        } else if (p.kind === 'device_revoked' && p.deleted_id) {
+          this.devices.remove(p.deleted_id);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
         } else if (p.kind === 'fleet_event' && p.fleet_event) {

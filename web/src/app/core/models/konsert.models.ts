@@ -1,3 +1,4 @@
+import type { Device } from './device.models';
 import type { SessionActivity, WorkerHeat } from './activity.models';
 import { Cause, FleetPause } from './control.models';
 import type { Review } from './review.models';
@@ -336,6 +337,8 @@ export interface AppSettings {
   terminal_font_size: number;
   notify_sound: boolean;
   notify_desktop: boolean;
+  /** Devices stay signed in while used at least this often (sliding expiry, days). */
+  device_idle_days?: number;
 }
 
 export interface Task {
@@ -505,6 +508,10 @@ export interface AuthMe {
   auth_required: boolean;
   fleet_token_required?: boolean;
   user: string;
+  /** How this browser authenticated: device | recovery | tailscale | none. */
+  method?: string;
+  /** This browser's own device credential, when it signed in by pairing. */
+  device?: Device;
   provider: string;
   model: string;
 }

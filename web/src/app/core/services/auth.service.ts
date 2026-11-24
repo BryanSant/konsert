@@ -1,7 +1,8 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { Device } from '../models/device.models';
 import { ApiClientService } from './api-client.service';
 
-export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.';
+export const SESSION_EXPIRED_MESSAGE = 'This device is signed out (revoked or unused for too long). Sign in again with a new link.';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -11,6 +12,8 @@ export class AuthService {
   readonly authenticated = signal(false);
   readonly authRequired = signal(false);
   readonly user = signal('');
+  /** This browser's device credential (null for the recovery key, Tailscale or --no-auth). */
+  readonly device = signal<Device | null>(null);
   readonly provider = signal('openai');
   readonly model = signal('');
   readonly error = signal('');
@@ -30,6 +33,7 @@ export class AuthService {
       this.authenticated.set(me.authenticated);
       this.authRequired.set(me.auth_required);
       this.user.set(me.user);
+      this.device.set(me.device ?? null);
       this.provider.set(me.provider || 'openai');
       this.model.set(me.model || '');
     } catch (err) {
@@ -64,18 +68,36 @@ export class AuthService {
     if (!this.authenticated()) return;
     this.authenticated.set(false);
     this.user.set('');
+    this.device.set(null);
     this.error.set(SESSION_EXPIRED_MESSAGE);
   }
 
-  async login(token: string): Promise<boolean> {
+  /** The "Use recovery key" fallback: signs this browser in as a new device. */
+  async login(token: string, name = ''): Promise<boolean> {
     this.error.set('');
     try {
-      const res = await this.api.login(token);
+      const res = await this.api.login(token, name);
       this.authenticated.set(res.authenticated);
       this.user.set(res.user);
+      this.device.set(res.device ?? null);
       return res.authenticated;
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Authentication failed');
+      return false;
+    }
+  }
+
+  /** Redeems a pairing code: this browser becomes a signed-in device. */
+  async pair(code: string, name: string): Promise<boolean> {
+    this.error.set('');
+    try {
+      const res = await this.api.pair(code, name);
+      this.authenticated.set(res.authenticated);
+      this.user.set(res.user);
+      this.device.set(res.device ?? null);
+      return res.authenticated;
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : 'Sign-in failed');
       return false;
     }
   }

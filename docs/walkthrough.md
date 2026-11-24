@@ -23,14 +23,17 @@ Allow about 30 minutes. Keep prompts tiny: every one of them uses real subscript
 
       ```sh
       bin/konsert serve --listen 127.0.0.1:8420 --db /var/tmp/konsert-walkthrough/konsert.db \
-        --admin-token "$ADMIN" --fleet-token "$FLEET"
+        --fleet-token "$FLEET"
       bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --token "$FLEET"
       ```
 
       (Or use the hub and `konsertd install` service you already run, upgraded to the
       candidate.)
 - [ ] `bin/konsertd doctor` lists the installed CLIs, and nothing about it mentions a key.
-- [ ] Sign in to the PWA. Exactly one of these is true for each installed CLI: its account
+- [ ] Sign in to the PWA with the `Sign in:` link the hub printed (no token typed), and
+      sign in a phone with **Settings → Devices → Add a device** (scan the QR code). Both are
+      listed in Settings → Devices; revoking the phone signs it out at once.
+- [ ] Exactly one of these is true for each installed CLI: its account
       chip shows it signed in with usage (or "usage not available"), or it shows
       **Re-login**.
 

@@ -15,23 +15,43 @@ Templates referenced below live in [`deploy/`](../deploy).
 > "Releasing" in the [README](../README.md#releasing)). It doubles as an acceptance check
 > after upgrading your own deployment.
 
-## 1. Tokens
+## 1. Signing in
 
-The controller uses three bearer tokens:
+Nobody copies a token by hand. Every browser, phone, CLI and MCP client signs in as its own
+**device** with its own credential, and **Settings → Devices** lists them (name, kind, last
+used, where from) with Rename and Revoke. Revoking takes effect at once: the device's
+requests fail and its open sessions are closed. Expiry slides: a device that is used at
+least every 90 days (Settings → *Keep devices signed in while used every N days*) never has
+to sign in again; one left unused that long is signed out.
 
-| Token | Used by | Flag / env / YAML |
-|---|---|---|
-| Admin | PWA login, REST API, `konsert` CLI, `konsertd mcp` | `--admin-token` / `KONSERT_ADMIN_TOKEN` / `admin_token` |
-| Fleet | `konsertd` workers on `/ws/worker` | `--fleet-token` / `KONSERT_FLEET_TOKEN` / `fleet_token` |
-| MCP | Streamable HTTP clients on `/mcp` (defaults to the admin token) | `--mcp-token` / `KONSERT_MCP_TOKEN` / `mcp_token` |
+- **First browser.** `konsert serve` prints one line (and a QR code when it runs in a
+  terminal): `Sign in: https://hub:8420/pair/7KQ2-M9TX (10 min)`. Open it or scan it. Codes
+  are single use, expire after 10 minutes, are rate limited, and appear in the audit log only
+  by their short id (`pc-…`). The link uses `public_url` when set, otherwise this machine's
+  LAN address (a loopback-only listener is marked "loopback").
+- **More browsers and phones.** In a signed-in browser, **Settings → Devices → Add a device**
+  (also in ⌘K) shows a QR code, the link and the code, and the new device appears in the list
+  as soon as it signs in. On the hub's machine, `konsert pair` prints a fresh link any time
+  (for a systemd service: `sudo -u konsert konsert pair --url http://127.0.0.1:8420
+  --tokens-file /var/lib/konsert/konsert-tokens.yaml`; with `journalctl -u konsert` you also
+  see the startup link).
+- **The `konsert` CLI.** On the hub's machine it needs nothing: it finds the local hub and
+  its tokens file on its own. Elsewhere, `konsert login https://hub:8420` prints a link and a
+  code; approve it in a signed-in browser and the CLI saves its own credential (mode 0600) in
+  your user config directory (`~/.config/konsert/credentials.yaml` on Linux). `konsert
+  logout` revokes it. `--token` / `KONSERT_TOKEN` and `--url` / `KONSERT_URL` override.
+- **MCP clients.** **Settings → Devices → Connect an MCP client** creates a credential that
+  only works on `/mcp` (it cannot change where the LLM API key goes) and shows a ready-to-run
+  `claude mcp add --transport http …` command and a JSON snippet for other clients.
+- **Recovery key.** For emergencies and automation the hub keeps a recovery key in
+  `konsert-tokens.yaml` next to the database (mode 0600, `--tokens-file` to move it). It is
+  never printed. It works as `Authorization: Bearer <key>` and on the login page under
+  *Use recovery key* (which signs that browser in as a new device). Replace it with
+  `konsert token rotate recovery` on the hub's machine; signed-in devices are unaffected.
 
-If no tokens are configured, `konsert serve` generates the admin and fleet tokens on first
-start, prints them once, and saves them (mode 0600) to `konsert-tokens.yaml` next to the
-database (`--tokens-file` to change). To choose your own:
-
-```bash
-konsert token generate   # prints a random token; run once per token
-```
+The tokens file also holds the fleet token `konsertd` workers use on `/ws/worker`
+(`--fleet-token` / `KONSERT_FLEET_TOKEN` / `fleet_token` to choose your own; `konsert token
+generate` prints a random one).
 
 The orchestrator's LLM API key (optional; agent subscriptions don't need one) is stored
 encrypted in the database. The master key is `konsert-secret.key` next to the database
@@ -64,10 +84,12 @@ orchestrator:
 `/etc/konsert/konsert.env` (mode 0640, group `konsert`) holds secrets:
 
 ```bash
-KONSERT_ADMIN_TOKEN=...
 KONSERT_FLEET_TOKEN=...
 ANTHROPIC_API_KEY=...
 ```
+
+The recovery key is generated into `/var/lib/konsert/konsert-tokens.yaml` on first start.
+Sign in with the link the service logs (`journalctl -u konsert | grep 'Sign in'`).
 
 Install [`deploy/systemd/konsert.service`](../deploy/systemd/konsert.service) to
 `/etc/systemd/system/`, then:
@@ -103,8 +125,7 @@ workers.
 
 Tailscale Serve adds `Tailscale-User-Login` (plus `-Name` / `-Profile-Pic`) to every request
 from a tailnet user. With `trust_tailscale_headers: true` the controller treats that header
-as an authenticated browser session, so tailnet users open the PWA without the admin-token
-login screen.
+as an authenticated browser session, so tailnet users open the PWA without pairing.
 
 The header is honored **only from loopback peers**, which is where Tailscale Serve connects
 from. Keep `listen_addr` on `127.0.0.1`; on a non-loopback listener anyone who can reach the
@@ -130,7 +151,7 @@ curl -s $URL/api/auth/me                 # {"authenticated":true,"user":"you@exa
 # The header is ignored when it doesn't come from Tailscale Serve.
 curl -s -H 'Tailscale-User-Login: x' http://<host-ip>:8420/api/auth/me   # unreachable (loopback bind)
 # Fleet status sees your workers.
-konsert status --url $URL --token "$KONSERT_ADMIN_TOKEN"
+konsert login $URL && konsert status
 ```
 
 In a browser, open the URL: the PWA loads without a login prompt, the footer shows the
@@ -141,7 +162,7 @@ connected hosts, and DevTools → Application → Service Workers shows `ngsw-wo
 Any HTTPS proxy works if it forwards WebSocket upgrades and the original `Host` header. The
 controller checks a browser's `Origin` against the request `Host` and `public_url`, so either
 pass `Host` through unchanged or set `public_url` to the external URL. Leave
-`trust_tailscale_headers` **off**; browsers log in with the admin token, and the session
+`trust_tailscale_headers` **off**; browsers sign in with a pairing link, and the session
 cookie is marked `Secure` when the proxy sends `X-Forwarded-Proto: https`.
 
 Caddy:

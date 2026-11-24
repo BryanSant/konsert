@@ -1,63 +1,102 @@
+// Package auth authenticates workers, browsers, the CLI and MCP clients.
+//
+// Every signed-in browser, phone, CLI and MCP client is a device with its own random
+// credential (see device.go); the hub stores only its SHA-256. Browsers carry it in an
+// HttpOnly, SameSite=Strict cookie, the CLI and MCP clients as a Bearer token. Expiry
+// slides: a credential is renewed on use and expires only after the configured idle
+// period. The recovery key is a hidden emergency credential kept in the hub's tokens
+// file; it works as a Bearer token and on the login page's fallback form.
 package auth
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/BryanSant/konsert/internal/store"
 )
 
+// SessionCookieName is the browser cookie that carries the device credential.
 const SessionCookieName = "konsert_session"
 
-// Manager handles authentication for workers, browser PWA sessions, and MCP HTTP clients.
+// cookieMaxAge is the browser-side lifetime of the session cookie. The hub enforces
+// the real (sliding) expiry; 400 days is the most browsers accept.
+const cookieMaxAge = 400 * 24 * 3600
+
+// DefaultIdleExpiry is how long a device credential may go unused before it expires.
+const DefaultIdleExpiry = 90 * 24 * time.Hour
+
+// Manager handles authentication for workers, browser PWA sessions, the CLI and MCP
+// HTTP clients.
 type Manager struct {
 	fleetToken            string
-	adminToken            string
-	mcpToken              string
+	recoveryKey           atomic.Pointer[string]
 	noAuth                bool
 	trustTailscaleHeaders bool
-	cookieSecret          []byte
+	devices               DeviceStore
+	idle                  atomic.Int64 // time.Duration
+	now                   func() time.Time
+
+	mu    sync.Mutex
+	cache map[string]cachedDevice // keyed by secret hash
 }
 
 // Options configures auth.Manager.
 type Options struct {
 	FleetToken            string
-	AdminToken            string
-	MCPToken              string
+	RecoveryKey           string
 	NoAuth                bool
 	TrustTailscaleHeaders bool
+	// Devices looks up device credentials; nil disables them (recovery key only).
+	Devices DeviceStore
+	// IdleExpiry is the sliding expiry; 0 means DefaultIdleExpiry.
+	IdleExpiry time.Duration
+	// Now is the clock (tests); nil means time.Now.
+	Now func() time.Time
 }
 
 // NewManager creates an auth.Manager.
 func NewManager(opts Options) *Manager {
-	secret := make([]byte, 32)
-	if opts.AdminToken != "" {
-		sum := sha256.Sum256([]byte("konsert-cookie-key:" + opts.AdminToken))
-		copy(secret, sum[:])
-	} else {
-		_, _ = rand.Read(secret)
-	}
-	mcpTok := opts.MCPToken
-	if mcpTok == "" {
-		mcpTok = opts.AdminToken
-	}
-	return &Manager{
+	m := &Manager{
 		fleetToken:            opts.FleetToken,
-		adminToken:            opts.AdminToken,
-		mcpToken:              mcpTok,
 		noAuth:                opts.NoAuth,
 		trustTailscaleHeaders: opts.TrustTailscaleHeaders,
-		cookieSecret:          secret,
+		devices:               opts.Devices,
+		now:                   opts.Now,
+		cache:                 make(map[string]cachedDevice),
 	}
+	if m.now == nil {
+		m.now = time.Now
+	}
+	m.SetRecoveryKey(opts.RecoveryKey)
+	m.SetIdleExpiry(opts.IdleExpiry)
+	return m
 }
+
+// SetRecoveryKey replaces the recovery key (rotation). Empty disables it.
+func (m *Manager) SetRecoveryKey(k string) {
+	m.recoveryKey.Store(&k)
+}
+
+// SetIdleExpiry sets the sliding expiry; d <= 0 means DefaultIdleExpiry.
+func (m *Manager) SetIdleExpiry(d time.Duration) {
+	if d <= 0 {
+		d = DefaultIdleExpiry
+	}
+	m.idle.Store(int64(d))
+}
+
+// IdleExpiry returns the sliding expiry.
+func (m *Manager) IdleExpiry() time.Duration { return time.Duration(m.idle.Load()) }
+
+// Now returns the manager's clock reading.
+func (m *Manager) Now() time.Time { return m.now().UTC() }
 
 // GenerateToken returns a cryptographically random hex token of byteLen bytes (2*byteLen hex chars).
 func GenerateToken(byteLen int) (string, error) {
@@ -102,47 +141,21 @@ func (m *Manager) CheckFleetAuth(r *http.Request) bool {
 	return constantTimeEquals(tok, m.fleetToken)
 }
 
-// CheckMCPAuth verifies bearer token authentication on Streamable HTTP/SSE MCP endpoints.
-// It fails closed: unset MCP and admin tokens deny every client unless --no-auth is set.
-func (m *Manager) CheckMCPAuth(r *http.Request) bool {
-	ok, _ := m.MCPScope(r)
-	return ok
-}
-
-// MCPScope authenticates an MCP HTTP request and reports whether the caller also holds
-// the admin scope (the admin token itself, or --no-auth). A caller holding only a
-// distinct MCP token is authenticated but not admin.
-func (m *Manager) MCPScope(r *http.Request) (ok, admin bool) {
-	if m.noAuth {
-		return true, true
-	}
-	tok := extractBearer(r)
-	if tok == "" {
-		return false, false
-	}
-	if m.adminToken != "" && constantTimeEquals(tok, m.adminToken) {
-		return true, true
-	}
-	if m.mcpToken != "" && constantTimeEquals(tok, m.mcpToken) {
-		return true, false
-	}
-	return false, false
-}
-
-// CheckAdminToken verifies a login passphrase/admin token. An unset admin token denies
-// every candidate unless --no-auth is set.
-func (m *Manager) CheckAdminToken(candidate string) bool {
+// CheckRecoveryKey verifies a candidate recovery key. An unset key denies every
+// candidate unless --no-auth is set.
+func (m *Manager) CheckRecoveryKey(candidate string) bool {
 	if m.noAuth {
 		return true
 	}
-	if m.adminToken == "" || candidate == "" {
+	k := *m.recoveryKey.Load()
+	if k == "" || candidate == "" {
 		return false
 	}
-	return constantTimeEquals(candidate, m.adminToken)
+	return constantTimeEquals(candidate, k)
 }
 
 // AuthRequired reports whether browser authentication is currently enforced. Only an
-// explicit --no-auth disables it; an unset admin token never does.
+// explicit --no-auth disables it.
 func (m *Manager) AuthRequired() bool {
 	return !m.noAuth
 }
@@ -164,92 +177,127 @@ func IsLoopbackRemote(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// AuthenticateBrowser verifies browser PWA / REST API / CLI requests via:
+// Authentication methods reported in Identity.Method.
+const (
+	MethodNone      = "none" // --no-auth
+	MethodTailscale = "tailscale"
+	MethodRecovery  = "recovery"
+	MethodDevice    = "device"
+)
+
+// Identity is the authenticated caller.
+type Identity struct {
+	// User names the caller in the audit log.
+	User   string
+	Method string
+	// Device is set when Method is MethodDevice.
+	Device *store.Device
+}
+
+// DeviceID returns the caller's device id, or "".
+func (i Identity) DeviceID() string {
+	if i.Device == nil {
+		return ""
+	}
+	return i.Device.ID
+}
+
+// Authenticate verifies browser PWA / REST API / CLI requests via:
 //  1. --no-auth
 //  2. Trusted Tailscale identity header (only with --trust-tailscale-headers and only
 //     from a loopback peer, i.e. a request proxied by Tailscale Serve on this host)
-//  3. Bearer admin token (for CLI / API automation)
-//  4. Signed HttpOnly session cookie
-func (m *Manager) AuthenticateBrowser(r *http.Request) (string, bool) {
+//  3. Bearer recovery key (emergency / automation)
+//  4. Bearer device credential (CLI, MCP)
+//  5. Device credential in the session cookie (browsers)
+func (m *Manager) Authenticate(r *http.Request) (Identity, bool) {
 	if m.noAuth {
-		return "local", true
+		return Identity{User: "local", Method: MethodNone}, true
 	}
 	if m.trustTailscaleHeaders && IsLoopbackRemote(r) {
 		if tsUser := strings.TrimSpace(r.Header.Get("Tailscale-User-Login")); tsUser != "" {
-			return tsUser, true
+			return Identity{User: tsUser, Method: MethodTailscale}, true
 		}
 	}
-	if m.adminToken != "" {
-		if tok := extractBearer(r); tok != "" && constantTimeEquals(tok, m.adminToken) {
-			return "token", true
+	if tok := extractBearer(r); tok != "" {
+		if m.CheckRecoveryKey(tok) {
+			return Identity{User: "recovery key", Method: MethodRecovery}, true
 		}
+		return m.authenticateDevice(r, tok)
 	}
 	cookie, err := r.Cookie(SessionCookieName)
 	if err != nil || cookie.Value == "" {
-		return "", false
+		return Identity{}, false
 	}
-	return m.verifySessionValue(cookie.Value)
+	return m.authenticateDevice(r, cookie.Value)
 }
 
-// SetSessionCookie issues a signed HttpOnly, SameSite=Strict session cookie.
-func (m *Manager) SetSessionCookie(w http.ResponseWriter, r *http.Request, user string) {
-	exp := time.Now().UTC().Add(7 * 24 * time.Hour).Unix()
-	val := m.signSessionValue(user, exp)
-	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+// AuthenticateBrowser is Authenticate returning only the audit user name.
+func (m *Manager) AuthenticateBrowser(r *http.Request) (string, bool) {
+	id, ok := m.Authenticate(r)
+	return id.User, ok
+}
+
+// MCPScope authenticates a /mcp request (Bearer only) and reports whether the caller
+// holds the admin scope. An MCP-kind device credential is authenticated but not admin
+// (it may not redirect or replace the LLM API key); the recovery key, other device
+// credentials and --no-auth are admin.
+func (m *Manager) MCPScope(r *http.Request) (id Identity, ok, admin bool) {
+	if m.noAuth {
+		return Identity{User: "local", Method: MethodNone}, true, true
+	}
+	tok := extractBearer(r)
+	if tok == "" {
+		return Identity{}, false, false
+	}
+	if m.CheckRecoveryKey(tok) {
+		return Identity{User: "recovery key", Method: MethodRecovery}, true, true
+	}
+	id, ok = m.authenticateDevice(r, tok)
+	if !ok {
+		return Identity{}, false, false
+	}
+	return id, true, id.Device.Kind != "mcp"
+}
+
+func secureRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// SetSessionCookie stores a device credential in the HttpOnly, SameSite=Strict session
+// cookie (Secure over HTTPS).
+func SetSessionCookie(w http.ResponseWriter, r *http.Request, secret string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
-		Value:    val,
+		Value:    secret,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
-		MaxAge:   7 * 24 * 3600,
+		Secure:   secureRequest(r),
+		MaxAge:   cookieMaxAge,
 	})
 }
 
 // ClearSessionCookie removes the session cookie.
-func (m *Manager) ClearSessionCookie(w http.ResponseWriter) {
+func ClearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
+		Secure:   secureRequest(r),
 		MaxAge:   -1,
 	})
 }
 
-func (m *Manager) signSessionValue(user string, exp int64) string {
-	payload := fmt.Sprintf("%s|%d", user, exp)
-	mac := hmac.New(sha256.New, m.cookieSecret)
-	mac.Write([]byte(payload))
-	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	encPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
-	return encPayload + "." + sig
-}
-
-func (m *Manager) verifySessionValue(val string) (string, bool) {
-	encPayload, sig, ok := strings.Cut(val, ".")
-	if !ok {
-		return "", false
+// SessionSecret returns the device credential presented by the request (Bearer or
+// cookie), or "".
+func SessionSecret(r *http.Request) string {
+	if tok := extractBearer(r); tok != "" {
+		return tok
 	}
-	rawPayload, err := base64.RawURLEncoding.DecodeString(encPayload)
-	if err != nil {
-		return "", false
+	if c, err := r.Cookie(SessionCookieName); err == nil {
+		return c.Value
 	}
-	mac := hmac.New(sha256.New, m.cookieSecret)
-	mac.Write(rawPayload)
-	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if !constantTimeEquals(sig, expectedSig) {
-		return "", false
-	}
-	user, expStr, ok := strings.Cut(string(rawPayload), "|")
-	if !ok {
-		return "", false
-	}
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil || time.Now().UTC().Unix() > exp {
-		return "", false
-	}
-	return user, true
+	return ""
 }
