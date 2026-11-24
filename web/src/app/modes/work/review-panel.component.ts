@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { TaskEvent } from '../../core/models/konsert.models';
+import { Acceptance, AcceptanceItem, githubLine } from '../../core/models/review.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { FleetStore } from '../../core/state/fleet.store';
@@ -11,7 +12,7 @@ import { IconComponent } from '../../shared/icon.component';
 
 import { ControlLabelComponent } from '../control-label.component';
 import { WallStore } from '../wall/wall.store';
-import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic';
+import { receiptsFor } from './review-logic';
 
 /**
  * Work's side panel for the selected card: summary, receipts against acceptance, and the
@@ -44,10 +45,13 @@ import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic
         <h3 class="m-0 mt-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Receipts vs acceptance</h3>
         <div class="grid gap-3">
           <section aria-labelledby="ks-acc-h">
-            <h4 id="ks-acc-h" class="m-0 mb-1 text-[11px] text-[var(--ks-text-muted)]">Asked for (from the prompt)</h4>
-            <ul class="m-0 p-0 list-none space-y-1">
+            <h4 id="ks-acc-h" class="m-0 mb-1 text-[11px] text-[var(--ks-text-muted)]" data-testid="acceptance-source">{{ acceptanceHeading() }}</h4>
+            <ul class="m-0 p-0 list-none space-y-1" data-testid="acceptance">
               @for (a of acceptance(); track $index) {
-                <li class="flex gap-2 text-[12.5px]"><span class="text-[var(--ks-text-muted)]" aria-hidden="true">○</span><span class="break-words">{{ a }}</span></li>
+                <li class="flex gap-2 text-[12.5px]">
+                  <span [class.text-[#8fcb9b]]="a.done" [class.text-[var(--ks-text-muted)]]="!a.done" aria-hidden="true">{{ a.done ? '✓' : '○' }}</span>
+                  <span class="break-words"><span class="ks-sr-only">{{ a.done ? 'Done: ' : 'Open: ' }}</span>{{ a.text }}</span>
+                </li>
               }
             </ul>
           </section>
@@ -67,9 +71,12 @@ import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic
           </section>
         </div>
 
+        @if (decision(); as d) {
+          <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" data-testid="review-decision">{{ d }}</p>
+        }
         @if (it.column === 'review') {
           <div class="flex flex-wrap gap-1.5 pt-1" role="group" aria-label="Decision">
-            <button type="button" class="ks-btn ks-btn-sm bg-[var(--ks-green-soft)] text-[#a8dbb3]" data-testid="review-approve" (click)="approve(it)">
+            <button type="button" class="ks-btn ks-btn-sm bg-[var(--ks-green-soft)] text-[#a8dbb3]" data-testid="review-approve" [disabled]="sending()" (click)="approve(it)">
               <app-icon name="check" [size]="11" />
               Approve
             </button>
@@ -104,7 +111,7 @@ import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './review-logic
 
         <div class="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--ks-hairline)]">
           <button type="button" class="ks-btn ks-btn-sm" (click)="openInCommand(it)"><app-icon name="orchestrator" [size]="12" />Open in Command</button>
-          <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="work.isExpedited(it.id)" data-testid="toggle-expedite" (click)="work.toggleExpedite(it.id)">⚑ {{ work.isExpedited(it.id) ? 'Remove from Expedite' : 'Expedite' }}</button>
+          <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="work.isExpedited(it.id)" data-testid="toggle-expedite" (click)="toggleExpedite(it)">⚑ {{ work.isExpedited(it.id) ? 'Remove from Expedite' : 'Expedite' }}</button>
           <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="wall.isPinned(it.id)" (click)="wall.togglePin(it.id)"><app-icon name="split" [size]="12" />{{ wall.isPinned(it.id) ? 'Unpin from Wall' : 'Pin to Wall' }}</button>
         </div>
       </div>
@@ -146,20 +153,39 @@ export class ReviewPanelComponent {
     if (!it) return '';
     return it.task?.summary?.trim() || it.now || it.goal;
   });
-  readonly acceptance = computed(() => {
+  /** What the work was asked to achieve: the ka ticket's items (from the hub), else the prompt's. */
+  readonly acceptanceInfo = signal<Acceptance | null>(null);
+  readonly acceptance = computed<AcceptanceItem[]>(() => {
     const it = this.item();
-    return it ? acceptanceFrom(it.task?.prompt, it.goal) : [];
+    if (!it) return [];
+    return this.acceptanceInfo()?.items ?? (it.goal ? [{ text: it.goal, done: false }] : []);
+  });
+  readonly acceptanceHeading = computed(() => {
+    const a = this.acceptanceInfo();
+    if (a?.source === 'ticket') return `Asked for (from ${[a.ticket_id, a.ticket_title].filter(Boolean).join(' ')})`;
+    if (a?.source === 'prompt') return 'Asked for (from the prompt)';
+    return 'Asked for';
   });
   readonly receipts = computed(() => {
     const it = this.item();
     return it ? receiptsFor(it, this.events()) : [];
   });
+  /** The decision already made (on the hub, by anyone) and what happened on GitHub. */
+  readonly decision = computed(() => {
+    const it = this.item();
+    const r = it ? this.work.reviewOf(it.id) : undefined;
+    if (!r?.decision) return '';
+    const who = r.decided_by ? ` by ${r.decided_by}` : '';
+    const what = r.decision === 'approved' ? `Approved${who}.` : `Changes requested${who}: ${r.note ?? ''}`;
+    return [what, githubLine(r)].filter(Boolean).join(' ');
+  });
   readonly noteLabel = computed(() => {
     const it = this.item();
     if (!it) return '';
     if (it.kind === 'chat') return 'What should change? (sent to the agent as your next message)';
+    if (it.column === 'review') return 'What should change? (requested on the PR and sent to the agent in a follow-up session)';
     if (it.live) return 'Type into the session (sent as input, with Enter)';
-    return 'What should change? (starts a follow-up session in the same checkout)';
+    return 'What should change?';
   });
 
   constructor() {
@@ -172,12 +198,19 @@ export class ReviewPanelComponent {
         this.message.set('');
         this.error.set('');
         this.events.set([]);
+        this.acceptanceInfo.set(null);
         if (it?.kind === 'task') {
           const id = it.id;
           this.api
             .getTaskEvents(id)
             .then((r) => {
               if (this.item()?.id === id) this.events.set(r.events ?? []);
+            })
+            .catch(() => undefined);
+          this.api
+            .getTaskAcceptance(id)
+            .then((a) => {
+              if (this.item()?.id === id) this.acceptanceInfo.set(a);
             })
             .catch(() => undefined);
         }
@@ -189,10 +222,27 @@ export class ReviewPanelComponent {
     void this.router.navigate(['/work']);
   }
 
-  approve(it: WorkItem): void {
-    this.work.approve(it.id);
-    this.message.set('Approved. It moves to Done today.');
-    this.decided.emit();
+  async approve(it: WorkItem): Promise<void> {
+    this.sending.set(true);
+    this.error.set('');
+    try {
+      const res = await this.work.review(it.id, 'approved');
+      this.message.set(['Approved. It moves to Done.', githubLine(res.review)].filter(Boolean).join(' '));
+      this.decided.emit();
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : 'Could not approve');
+    } finally {
+      this.sending.set(false);
+    }
+  }
+
+  async toggleExpedite(it: WorkItem): Promise<void> {
+    this.error.set('');
+    try {
+      await this.work.toggleExpedite(it.id);
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : 'Could not change Expedite');
+    }
   }
 
   openInCommand(it: WorkItem): void {
@@ -208,29 +258,20 @@ export class ReviewPanelComponent {
       if (it.kind === 'chat' && it.chat) {
         if (!this.agentChat.send(it.chat, note)) throw new Error('Not connected to the hub; try again in a moment.');
         this.message.set('Sent to the agent.');
+      } else if (it.column === 'review' && it.task) {
+        // The hub records it, requests changes on the PR and hands the note to the agent.
+        const res = await this.work.review(it.id, 'changes_requested', note);
+        let sent = 'Changes requested.';
+        if (res.delivered === 'steered') sent = 'Sent to the session.';
+        else if (res.delivered === 'follow_up') {
+          await this.fleet.refresh();
+          const sid = res.follow_up_task_sid || this.fleet.tasksById()[res.follow_up_task_id ?? '']?.sid;
+          sent = `Started ${sid ?? 'a follow-up session'} with your changes.`;
+        }
+        this.message.set([sent, githubLine(res.review)].filter(Boolean).join(' '));
       } else if (it.live && it.task) {
         await this.api.steerTask(it.id, note);
         this.message.set('Sent to the session.');
-      } else if (it.task) {
-        const t = it.task;
-        const res = await this.api.dispatchTask({
-          worker_selector: { worker_id: t.worker_id },
-          agent: t.agent,
-          model: t.model || undefined,
-          project_id: t.project_id || undefined,
-          repo_id: t.repo_id || undefined,
-          worktree_id: t.worktree_id || undefined,
-          repo_path: t.effective_dir || t.workdir,
-          branch: t.branch || undefined,
-          prompt: changeRequestPrompt(it, note),
-          mode: 'interactive',
-          origin: 'direct',
-          permission_mode: t.permission_mode,
-        });
-        this.work.reject(it.id);
-        await this.fleet.refresh();
-        const follow = this.fleet.tasksById()[res.task_id];
-        this.message.set(`Started ${follow?.sid ?? 'a follow-up session'} with your changes.`);
       }
       this.changing.set(false);
       this.note.set('');

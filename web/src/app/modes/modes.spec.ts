@@ -18,7 +18,7 @@ import { NeedsYouItemComponent } from '../features/needs-you/needs-you-item.comp
 import { modeForKey } from './mode-shell.component';
 import { pageCount, pageOf, tilesPerPage, WallStore } from './wall/wall.store';
 import { suggestTiles } from './wall/wall-mode.component';
-import { acceptanceFrom, changeRequestPrompt, receiptsFor } from './work/review-logic';
+import { receiptsFor } from './work/review-logic';
 
 const NOW = Date.parse('2026-11-23T15:00:00');
 
@@ -415,7 +415,7 @@ describe('needs-you queue', () => {
       }
     });
 
-    it('WorkStore counts working, queued and reviews from fleet and chats', () => {
+    it('WorkStore counts working, queued and reviews from fleet and chats', async () => {
       const fleet = TestBed.inject(FleetStore);
       fleet.upsertWorker(worker());
       fleet.upsertTask(task('a', 'running'));
@@ -423,8 +423,34 @@ describe('needs-you queue', () => {
       TestBed.inject(OrchestratorStore).sessions.set([chat('c', 'working')]);
       const work = TestBed.inject(WorkStore);
       expect(work.counts()).toMatchObject({ working: 2, queued: 1, review: 0 });
-      work.toggleExpedite('a');
+      // Expedite lives on the hub: the call's (or a pushed) review moves the card.
+      const review = (expedite: boolean) => ({ id: 'rv1', sid: 'rv-1', task_id: 'a', expedite, created_at: '', updated_at: new Date().toISOString() });
+      api['setExpedite'] = vi.fn(async (_kind: string, _id: string, on: boolean) => ({ review: review(on) }));
+      await work.toggleExpedite('a');
+      expect(api['setExpedite']).toHaveBeenCalledWith('task', 'a', true);
       expect(work.board().expedite.running.map((i) => i.id)).toEqual(['a']);
+      // Another client takes it out: the pushed review wins.
+      vi.setSystemTime(Date.now() + 1000);
+      fleet.upsertReview(review(false));
+      expect(work.board().expedite.running).toEqual([]);
+      expect(work.isExpedited('a')).toBe(false);
+    });
+
+    it('WorkStore takes review decisions from the hub, not this browser', async () => {
+      const fleet = TestBed.inject(FleetStore);
+      fleet.upsertWorker(worker());
+      const changes = JSON.stringify({ commits: ['abc fix'] });
+      fleet.upsertTask(task('v', 'completed', { git_summary_json: changes, completed_at: new Date().toISOString() }));
+      const work = TestBed.inject(WorkStore);
+      expect(work.reviews().map((i) => i.id)).toEqual(['v']);
+      const decided = { id: 'rv2', sid: 'rv-2', task_id: 'v', decision: 'approved' as const, github_status: 'no_pr' as const, expedite: false, created_at: '', updated_at: new Date().toISOString() };
+      api['reviewTask'] = vi.fn(async () => ({ review: decided }));
+      const res = await work.review('v', 'approved');
+      expect(api['reviewTask']).toHaveBeenCalledWith('v', 'approved', undefined);
+      expect(res.review.github_status).toBe('no_pr');
+      expect(work.reviews()).toEqual([]);
+      expect(work.byId()['v'].column).toBe('done');
+      expect(localStorage.length).toBe(0);
     });
   });
 });
@@ -460,15 +486,12 @@ describe('wall', () => {
 });
 
 describe('review', () => {
-  it('reads acceptance from the prompt and receipts from git, milestones and the summary', () => {
-    expect(acceptanceFrom('Fix it\n- one\n2) two', 'Fix it')).toEqual(['one', 'two']);
-    expect(acceptanceFrom('Just do it', 'Just do it')).toEqual(['Just do it']);
+  it('reads receipts from git, milestones and the summary', () => {
     const [it] = buildWorkItems(
       inputs({ tasks: [task('v', 'completed', { summary: 'All good', git_summary_json: JSON.stringify({ commits: ['abc fix'], dirty_files: ['?? x.go'] }) })] }),
     );
     const r = receiptsFor(it, [{ id: 1, task_id: 'v', kind: 'milestone', message: 'Tests pass', created_at: '' }]);
     expect(r.map((x) => x.text)).toEqual(['abc fix', 'Uncommitted: x.go', 'Tests pass', 'All good']);
-    expect(changeRequestPrompt(it, 'Add docs')).toContain('Changes requested on t-v');
   });
 });
 

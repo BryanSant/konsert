@@ -21,6 +21,31 @@ What each session is doing right now, as one of eight states:
 
 Every activity also carries `since` (when the state began), `at`, `source` and `coarse`.
 
+### Readable now lines (`summary`)
+
+`label` is the raw tool line ("Bash: cd /private/var/tmp/konsert-live/… && python -m pytest
+-q"); when tool calls run at once (three parallel Reads) the worker joins their labels with
+` · `. For a `working` activity the hub adds `summary`, a short line made by
+`internal/nowline` (the only summariser; the web app shows `summary` and keeps `label` as the
+line's hover title, and the session view keeps the full call):
+
+* labels of every engine: claude (`Run:`/`Read:`/`Edit:`/`Search:`/`Fetch:`/`Agent:`, PTY
+  `Bash:`), codex (`Run:`, `Edit: a, b`, PTY `exec …`/`Edited …`/`M …`), ACP titles of grok,
+  copilot, cursor-agent and agy/gemini (`ReadFile x`, `Shell …`, a command in backticks, the
+  ACP kind with a free-form title), session-log tool names (`view`, `search_replace: …`,
+  `StrReplace: …`) and hook reports;
+* shell commands: `cd X &&`, env assignments and wrappers (`sudo`, `timeout`, `npx`, `uv run`,
+  `bash -lc '…'`, `python -m`) are dropped; the most telling step wins (tests > build >
+  installs > git commit/push > lint > running a program > search > read); test, build,
+  install, lint and git commands are recognised for Go, JS/TS, Python, Rust, C/C++, JVM,
+  .NET, Swift, Elixir, Ruby, PHP, Dart and system package managers;
+* paths are shown relative to the session's checkout (task effective dir / workdir, chat
+  cwd), else with `~` for the home directory.
+
+Examples: `running tests`, `running tests in internal/store`, `editing wc.py`, `reading 3
+files`, `searching for handleReview`, `installing deps`, `building`, `git commit`,
+`fetching api.github.com`.
+
 ### Where it is derived
 
 ```

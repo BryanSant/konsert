@@ -72,6 +72,8 @@ export interface MachineSession {
   sid: string;
   title: string;
   now: string;
+  /** The full tool line behind a summarised now (hover title). */
+  nowTitle?: string;
   agent: string;
   project: string;
   projectColor: string;
@@ -139,13 +141,14 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       const now =
         it.nowSource === 'orchestrator' || it.nowSource === 'activity'
           ? it.now
-          : activityPhrase(state, it.activity.tokens_per_sec, it.activity.label, doneAgo) || it.now;
+          : activityPhrase(state, it.activity.tokens_per_sec, it.activity.summary || it.activity.label, doneAgo) || it.now;
       push(it.workerId, {
         key: `${it.kind}:${it.id}`,
         id: it.id,
         sid: it.sid,
         title: it.title,
         now,
+        nowTitle: it.nowTitle,
         agent: it.agent || mi?.agent || 'agent',
         project: g.name,
         projectColor: projectColor(g.key),

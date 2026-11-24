@@ -1,5 +1,7 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject } from '@angular/core';
 import { ProjectGroup as ActivityProjectGroup, SessionActivity, WorkItem as ActivityWorkItem } from '../models/activity.models';
+import { Review, ReviewDecision, ReviewResult } from '../models/review.models';
+import { ApiClientService } from '../services/api-client.service';
 import { ActivityStore } from './activity.store';
 import { activityFromChatStatus, activityFromTaskStatus, groupWork } from './activity-logic';
 import { ControlStore } from './control.store';
@@ -21,24 +23,6 @@ export interface ItemSpinner {
   word: string;
 }
 
-const REVIEW_KEY = 'konsert.review.v1';
-
-interface ReviewState {
-  /** id -> 'approved' | 'rejected' */
-  decided: Record<string, string>;
-  /** ids the user put in the Expedite lane */
-  expedite: Record<string, boolean>;
-}
-
-function loadReview(): ReviewState {
-  try {
-    const raw = JSON.parse(localStorage.getItem(REVIEW_KEY) || '{}') as Partial<ReviewState>;
-    return { decided: raw.decided ?? {}, expedite: raw.expedite ?? {} };
-  } catch {
-    return { decided: {}, expedite: {} };
-  }
-}
-
 /**
  * Selectors over every store for the mode UI: the work list (tasks and agent chats as
  * WorkItems), live work by project, the board, counts. Views read these instead of the
@@ -54,6 +38,7 @@ export class WorkStore {
   private readonly control = inject(ControlStore);
   private readonly taken = inject(TakenControlStore);
   private readonly activity = inject(ActivityStore);
+  private readonly api = inject(ApiClientService);
 
   // --- live-work view model (activity, narration; feat/activity-data) ---
 
@@ -106,8 +91,12 @@ export class WorkStore {
 
   // --- mode UI selectors (board, live list, reviews) ---
 
-  /** Review decisions and Expedite flags (kept in this browser until the hub stores them). */
-  readonly review = signal<ReviewState>(loadReview());
+  /** Review decisions by task id (hub-stored, shared by every client). */
+  readonly reviewed = computed(() => {
+    const out: Record<string, string> = {};
+    for (const r of Object.values(this.fleet.reviews())) if (r.task_id && r.decision) out[r.task_id] = r.decision;
+    return out;
+  });
 
   readonly items = computed<WorkItem[]>(() => {
     const transcripts = this.agentChat.transcripts();
@@ -123,7 +112,7 @@ export class WorkStore {
       questions: this.questions.all(),
       holds: this.control.holds(),
       interactive: (id) => this.taken.isInteractive(id),
-      reviewed: this.review().decided,
+      reviewed: this.reviewed(),
       chatStatus: (id) => transcripts[id]?.status,
       chatNow: (id) => transcripts[id]?.subtitle ?? '',
     });
@@ -131,7 +120,7 @@ export class WorkStore {
     return built.map((it) => {
       const a = narrated[`${it.kind}:${it.id}`];
       if (!a || !it.live || (a.nowSource !== 'orchestrator' && a.nowSource !== 'activity') || !a.now) return it;
-      return { ...it, now: a.now };
+      return { ...it, now: a.now, nowTitle: a.nowTitle };
     });
   });
 
@@ -202,14 +191,13 @@ export class WorkStore {
 
   /** Board cells: column -> items, with Expedite pulled out as its own lane. */
   readonly board = computed(() => {
-    const expedite = this.review().expedite;
     const cols: WorkColumn[] = ['queued', 'running', 'needs_you', 'review', 'done'];
     const empty = () => Object.fromEntries(cols.map((c) => [c, [] as WorkItem[]])) as Record<WorkColumn, WorkItem[]>;
     const exp = empty();
     const lanes = new Map<string, { key: string; name: string; cells: Record<WorkColumn, WorkItem[]> }>();
     for (const it of this.items()) {
       if (!it.column) continue;
-      if (expedite[it.id] && it.column !== 'done') {
+      if (this.isExpedited(it.id) && it.column !== 'done') {
         exp[it.column].push(it);
         continue;
       }
@@ -224,38 +212,30 @@ export class WorkStore {
     return { columns: cols, expedite: exp, lanes: sorted };
   });
 
-  approve(id: string): void {
-    this.decide(id, 'approved');
-  }
-
-  reject(id: string): void {
-    this.decide(id, 'rejected');
+  /** The hub's review of a task or chat (decision, what happened on GitHub, Expedite). */
+  reviewOf(id: string): Review | undefined {
+    const m = this.fleet.reviews();
+    return m[`task:${id}`] ?? m[`chat:${id}`];
   }
 
   isExpedited(id: string): boolean {
-    return !!this.review().expedite[id];
+    return !!this.reviewOf(id)?.expedite;
   }
 
-  toggleExpedite(id: string): void {
-    this.review.update((r) => {
-      const expedite = { ...r.expedite };
-      if (expedite[id]) delete expedite[id];
-      else expedite[id] = true;
-      return { ...r, expedite };
-    });
-    this.save();
+  /**
+   * Approves or requests changes on finished work: the hub records it for every client,
+   * reviews the task's pull request with gh and hands requested changes to the agent.
+   */
+  async review(id: string, decision: ReviewDecision, note?: string): Promise<ReviewResult> {
+    const res = await this.api.reviewTask(id, decision, note);
+    this.fleet.upsertReview(res.review);
+    return res;
   }
 
-  private decide(id: string, how: string): void {
-    this.review.update((r) => ({ ...r, decided: { ...r.decided, [id]: how } }));
-    this.save();
-  }
-
-  private save(): void {
-    try {
-      localStorage.setItem(REVIEW_KEY, JSON.stringify(this.review()));
-    } catch {
-      // storage unavailable: decisions last for this page only
-    }
+  /** Puts a task or chat in (or takes it out of) the Expedite lane, on the hub. */
+  async toggleExpedite(id: string): Promise<void> {
+    const kind = this.fleet.tasksById()[id] ? 'task' : 'chat';
+    const res = await this.api.setExpedite(kind, id, !this.isExpedited(id));
+    this.fleet.upsertReview(res.review);
   }
 }

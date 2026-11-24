@@ -432,6 +432,8 @@ type FleetUpdatePayload struct {
 	Question any `json:"question,omitzero"`
 	// Activity carries a SessionActivity when Kind is "activity".
 	Activity any `json:"activity,omitzero"`
+	// Review carries a store.Review (decision, Expedite) when Kind is "review".
+	Review any `json:"review,omitzero"`
 }
 
 type GitChangedFile struct {
@@ -469,6 +471,44 @@ type GitCommitResult struct {
 	CommitSHA string `json:"commit_sha,omitempty"`
 	Summary   string `json:"summary,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// MsgGitPRReview (hub->worker) asks konsertd to review the pull request of a checkout's
+// branch with gh on the machine that owns the checkout; the reply is MsgGitPRReviewResult.
+const (
+	MsgGitPRReview       = "git.pr.review"
+	MsgGitPRReviewResult = "git.pr.review.result"
+)
+
+// PR review actions.
+const (
+	PRReviewApprove        = "approve"
+	PRReviewRequestChanges = "request_changes"
+)
+
+// PR review outcomes (GitPRReviewResult.Status).
+const (
+	PRReviewSent     = "sent"      // gh submitted the review
+	PRReviewFailed   = "failed"    // gh (or GitHub) refused; Message says why
+	PRReviewNoGitHub = "no_github" // the checkout has no GitHub remote
+	PRReviewNoGH     = "no_gh"     // gh is not installed on the machine
+	PRReviewNoPR     = "no_pr"     // no pull request for the branch
+	PRReviewOffline  = "offline"   // set by the hub: the machine is not connected
+)
+
+type GitPRReviewRequest struct {
+	Workdir string `json:"workdir"`
+	// Branch whose PR is reviewed ("" = the checkout's current branch).
+	Branch string `json:"branch,omitempty"`
+	Action string `json:"action"` // approve | request_changes
+	Body   string `json:"body,omitempty"`
+}
+
+type GitPRReviewResult struct {
+	Status   string `json:"status"`
+	Message  string `json:"message,omitempty"`
+	PRNumber int    `json:"pr_number,omitzero"`
+	PRURL    string `json:"pr_url,omitempty"`
 }
 
 type GitWorktreeCleanupRequest struct {

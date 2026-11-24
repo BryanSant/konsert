@@ -153,7 +153,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                             <span class="truncate">{{ s.project }} · {{ s.agent }}</span>
                           </span>
                           <span class="block truncate text-[12.5px] text-[var(--ks-text)]">{{ s.title }}</span>
-                          <span class="block truncate text-[11.5px]" [style.color]="colors[s.state]"><span class="ks-sr-only">{{ words[s.state] }}: </span>{{ s.now }}</span>
+                          <span class="block truncate text-[11.5px]" [style.color]="colors[s.state]" [ksTooltip]="s.nowTitle" data-testid="fleet-now"><span class="ks-sr-only">{{ words[s.state] }}: </span>{{ s.now }}</span>
                         </span>
                       </button>
                     </li>

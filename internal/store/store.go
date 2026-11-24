@@ -552,6 +552,14 @@ type Store interface {
 	AddQuestionReject(ctx context.Context, r QuestionReject) error
 	ListQuestionRejects(ctx context.Context, since time.Time) ([]QuestionReject, error)
 
+	// Reviews (KON-BM8JR): one per task or chat. GetReview takes a task id or a chat id
+	// (the other "") and is ErrNotFound when the session has none. SaveReview inserts or
+	// updates the session's review (id/sid assigned on insert, updated_at bumped).
+	GetReview(ctx context.Context, taskID, chatID string) (Review, error)
+	SaveReview(ctx context.Context, r Review) (Review, error)
+	// ListReviews returns every review, oldest first.
+	ListReviews(ctx context.Context) ([]Review, error)
+
 	UpsertMemory(ctx context.Context, m MemoryEntry) error
 	ListMemory(ctx context.Context, scope string, limit int) ([]MemoryEntry, error)
 	DeleteMemory(ctx context.Context, scope, key string) error

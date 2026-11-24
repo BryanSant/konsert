@@ -12,6 +12,7 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { WorkerHeat } from '../models/activity.models';
+import { Review, reviewKey } from '../models/review.models';
 import { ApiClientService } from '../services/api-client.service';
 import { ActivityStore } from './activity.store';
 import { ControlStore } from './control.store';
@@ -52,6 +53,8 @@ export class FleetStore {
     total_requests: 0,
     by_provider: [],
   });
+  /** Review decisions and Expedite flags by "task:<id>" / "chat:<id>" (hub-stored, KON-BM8JR). */
+  readonly reviews = signal<Record<string, Review>>({});
   readonly loading = signal(false);
 
   /**
@@ -133,6 +136,9 @@ export class FleetStore {
       if (snap.activity) {
         this.activity.applySnapshot(snap.activity);
       }
+      if (snap.reviews) {
+        this.reviews.set(Object.fromEntries(snap.reviews.map((r) => [reviewKey(r), r])));
+      }
       for (const op of this.liveLog.slice(logStart)) op();
     } finally {
       this.refreshesInFlight--;
@@ -172,6 +178,19 @@ export class FleetStore {
     } catch {
       // ignore
     }
+  }
+
+  /** A review pushed by the hub (fleet.update kind "review") or returned by a call. */
+  upsertReview(r: Review): void {
+    this.live(() => {
+      this.reviews.update((m) => {
+        const k = reviewKey(r);
+        const cur = m[k];
+        // An older copy (a slow response after a newer push) never wins.
+        if (cur && Date.parse(cur.updated_at) > Date.parse(r.updated_at)) return m;
+        return { ...m, [k]: r };
+      });
+    });
   }
 
   upsertSpace(space: Space): void {

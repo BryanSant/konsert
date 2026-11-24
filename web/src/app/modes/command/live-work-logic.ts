@@ -20,6 +20,8 @@ export interface StoryLine {
   kind: 'task' | 'chat';
   title: string;
   now: string;
+  /** The full tool line behind a summarised now (hover title). */
+  nowTitle?: string;
   /** The narration line was written by the orchestrator. */
   nowByOrchestrator: boolean;
   state: SpinnerState;
@@ -83,7 +85,7 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
   const tps = it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined;
   let now = it.now;
   if (state === 'queued' && !it.workerId && it.nowSource !== 'orchestrator') now = it.activity.label || 'Waiting for a machine';
-  else if (it.nowSource !== 'orchestrator' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.label, inp.now - doneAt(it, mi)) || now;
+  else if (it.nowSource !== 'orchestrator' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.summary || it.activity.label, inp.now - doneAt(it, mi)) || now;
   return {
     key: `${it.kind}:${it.id}`,
     id: it.id,
@@ -91,6 +93,7 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
     kind: it.kind,
     title: it.title,
     now,
+    nowTitle: it.nowTitle,
     nowByOrchestrator: it.nowSource === 'orchestrator',
     state,
     coarse: !!it.activity.coarse && it.observed,

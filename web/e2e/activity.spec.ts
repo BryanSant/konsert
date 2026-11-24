@@ -24,6 +24,7 @@ interface Activity {
   state: string;
   tool?: string;
   label?: string;
+  summary?: string;
   tokens_per_sec?: number;
   coarse?: boolean;
   source?: string;
@@ -93,7 +94,8 @@ test('activity states and machine heat reach the browser', async ({ page }) => {
 
   const mine = frames.filter((a) => a.chat_id === chat.id);
   const working = mine.find((a) => a.state === 'working');
-  expect(working).toMatchObject({ tool: 'Bash', label: 'Run: go test ./...', source: 'stream' });
+  // The raw label stays; the hub adds the readable now line.
+  expect(working).toMatchObject({ tool: 'Bash', label: 'Run: go test ./...', summary: 'running tests', source: 'stream' });
   expect(mine.find((a) => a.state === 'speaking')?.tokens_per_sec ?? 0).toBeGreaterThan(0);
   // Rate-limited: a few frames for a ~4 s turn, not one per streamed word.
   expect(mine.length).toBeLessThan(20);

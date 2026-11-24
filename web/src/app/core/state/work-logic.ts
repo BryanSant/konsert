@@ -41,6 +41,8 @@ export interface WorkItem {
   origin: string;
   goal: string;
   now: string;
+  /** The full tool line behind a summarised now (hover title). */
+  nowTitle?: string;
   questions: number;
   hold?: Hold;
   /** Finished with commits or a diff: something to review. */

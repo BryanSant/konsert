@@ -162,6 +162,16 @@ export function taskNow(t: Task, a: SessionActivity): { text: string; source: Na
   return taskTitle(t);
 }
 
+/**
+ * The full tool line of a working session (the raw label, e.g. "Run: cd /x && go test
+ * ./..."), for the now line's hover title; undefined otherwise.
+ */
+export function nowTitle(a: SessionActivity | undefined): string | undefined {
+  if (!a || a.state !== 'working') return undefined;
+  const label = (a.label ?? '').trim();
+  return label || undefined;
+}
+
 /** A chat's one-line "now": the live line, else its title, else the agent. */
 export function chatNow(c: ChatSession, a: SessionActivity): { text: string; source: NarrationSource } {
   const live = liveLine(a);
@@ -170,12 +180,15 @@ export function chatNow(c: ChatSession, a: SessionActivity): { text: string; sou
   return { text: `${c.agent || 'agent'} chat`, source: 'agent' };
 }
 
-/** The activity's own line, when it says something specific (a tool, a question, an error). */
+/**
+ * The activity's own line, when it says something specific: the hub's summary of the
+ * running tool ("running tests"), else its raw label; the question; the error.
+ */
 function liveLine(a: SessionActivity): string {
   const label = firstLine(a.label);
   switch (a.state) {
     case 'working':
-      return label || (a.tool ? firstLine(a.tool) : '');
+      return firstLine(a.summary) || label || (a.tool ? firstLine(a.tool) : '');
     case 'asking':
     case 'error':
     case 'blocked':
@@ -250,6 +263,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
       title: title.text,
       now: now.text,
       nowSource: now.source,
+      nowTitle: nowTitle(a),
       ticketId: t.ticket_id || undefined,
       ticketTitle: t.ticket_title || undefined,
       activity: a,
@@ -271,6 +285,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
       title: firstLine(c.title) || `${c.agent || 'agent'} chat`,
       now: now.text,
       nowSource: now.source,
+      nowTitle: nowTitle(a),
       activity: a,
       bucket: bucketOf(a),
       observed: false,
