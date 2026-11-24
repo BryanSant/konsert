@@ -136,7 +136,7 @@ import { StoryLine, StoryProject, buildStory, queuedLabel } from './live-work-lo
           <ks-spinner [state]="l.state" [machines]="l.machines" [coarse]="l.coarse" [tps]="l.tps" />
           <span class="flex-1 min-w-0">
             <span class="block truncate text-[12.5px] text-[var(--ks-text)]">{{ l.title }}</span>
-            <span class="block truncate text-[11.5px]" [style.color]="colorOf(l)" [attr.title]="l.nowTitle || null" data-testid="live-now">
+            <span class="block truncate text-[11.5px]" [style.color]="colorOf(l)" [ksTooltip]="l.nowTitle" data-testid="live-now">
               <span class="ks-sr-only">{{ wordOf(l) }}: </span>{{ l.now }}
               @if (l.nowByOrchestrator) {
                 <span class="text-[var(--ks-text-muted)]" aria-hidden="true"> ✦</span>

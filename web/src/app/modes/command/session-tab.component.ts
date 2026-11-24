@@ -28,7 +28,7 @@ import { TakeControlService } from '../take-control.service';
       <ks-item-spinner [item]="it" [size]="22" class="shrink-0" />
       <ks-control-label [label]="it.control" />
       <span class="min-w-0 max-w-[40%] truncate"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">GOAL</span>{{ it.goal }}</span>
-      <span class="min-w-0 flex-1 truncate" aria-live="polite" [attr.title]="it.nowTitle || null"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">NOW</span>{{ it.now }}</span>
+      <span class="min-w-0 flex-1 truncate" aria-live="polite" [ksTooltip]="it.nowTitle"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">NOW</span>{{ it.now }}</span>
       <span class="hidden xl:inline font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ it.sid }} · {{ it.machine }}</span>
       @if (it.observed) {
         <span class="text-[11.5px] text-[var(--ks-text-muted)]">observed: started outside Konsert</span>

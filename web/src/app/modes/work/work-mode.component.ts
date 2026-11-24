@@ -7,6 +7,7 @@ import { WorkColumn, WorkItem } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
 import { NeedsYouStore } from '../../core/state/needs-you.store';
 import { IconComponent } from '../../shared/icon.component';
+import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { isPhoneWidth } from '../../app.routes';
@@ -32,7 +33,7 @@ const VIEW_KEY = 'konsert.work.view';
   selector: 'ks-work-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent],
+  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent, TooltipDirective],
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
     <div class="flex flex-wrap items-center gap-3 px-4 pt-3 pb-2 text-[12.5px] shrink-0">
@@ -129,7 +130,7 @@ const VIEW_KEY = 'konsert.work.view';
                     <td class="text-[var(--ks-text-secondary)]">{{ work.isExpedited(it.id) ? '⚑ ' : '' }}{{ it.projectName }}</td>
                     <td class="text-[var(--ks-text-secondary)]">{{ it.sessionKind === 'terminal' ? 'terminal' : it.agent }}</td>
                     <td class="text-[var(--ks-text-secondary)]">{{ it.machine }}</td>
-                    <td class="text-[var(--ks-text-muted)] max-w-[320px] truncate" [attr.title]="it.nowTitle || null">{{ it.now }}</td>
+                    <td class="text-[var(--ks-text-muted)] max-w-[320px] truncate" [ksTooltip]="it.nowTitle">{{ it.now }}</td>
                   </tr>
                 }
               </tbody>
