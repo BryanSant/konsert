@@ -99,7 +99,9 @@ type Hub struct {
 	// identityMu serializes worker identity resolution and registration on hello.
 	identityMu sync.Mutex
 
-	schedMu      sync.Mutex
+	schedMu sync.Mutex
+	// reviewMu serializes review read-modify-writes (reviews.go).
+	reviewMu     sync.Mutex
 	schedRunning atomic.Bool
 	schedDirty   atomic.Bool
 

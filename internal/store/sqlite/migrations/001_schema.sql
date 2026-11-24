@@ -435,5 +435,31 @@ CREATE TABLE question_rejects (
 );
 CREATE INDEX idx_question_rejects_time ON question_rejects(created_at);
 
+-- Reviews (KON-BM8JR): the user's review decision on a finished task and the Expedite
+-- flag of a task or chat, one row per session. Expedited queued tasks are placed first.
+CREATE TABLE reviews (
+    id             TEXT PRIMARY KEY,
+    sid            TEXT NOT NULL UNIQUE, -- rv-…
+    task_id        TEXT NOT NULL DEFAULT '',
+    chat_id        TEXT NOT NULL DEFAULT '',
+    decision       TEXT NOT NULL DEFAULT '', -- '' | approved | changes_requested
+    note           TEXT NOT NULL DEFAULT '',
+    decided_by     TEXT NOT NULL DEFAULT '',
+    decided_at     TEXT,
+    -- github_*: what happened to the decision on the task's pull request (gh):
+    -- '' | sent | failed | no_github | no_gh | no_pr | offline, gh's message, the PR URL.
+    github_status  TEXT NOT NULL DEFAULT '',
+    github_message TEXT NOT NULL DEFAULT '',
+    github_url     TEXT NOT NULL DEFAULT '',
+    -- follow_up_task_id: the session that received requested changes ('' otherwise).
+    follow_up_task_id TEXT NOT NULL DEFAULT '',
+    expedite       INTEGER NOT NULL DEFAULT 0,
+    expedited_at   TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_reviews_task ON reviews(task_id) WHERE task_id != '';
+CREATE UNIQUE INDEX idx_reviews_chat ON reviews(chat_id) WHERE chat_id != '';
+
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.

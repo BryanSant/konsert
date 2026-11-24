@@ -140,9 +140,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	}
 	counts := h.ActiveTaskCounts()
 
-	// ListTasks returns newest first; dispatch oldest first.
-	for i := len(tasks) - 1; i >= 0; i-- {
-		t := tasks[i]
+	for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
 		if ctx.Err() != nil {
 			return
 		}
@@ -182,6 +180,20 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			h.broadcastFleetUpdate("task", updated)
 		}
 	}
+}
+
+// dispatchOrder is the order queued tasks are placed in: expedited tasks first, then the
+// rest, each oldest first. tasks is newest first (ListTasks).
+func dispatchOrder(tasks []store.Task, expedited map[string]bool) []store.Task {
+	out := make([]store.Task, 0, len(tasks))
+	for _, first := range []bool{true, false} {
+		for i := len(tasks) - 1; i >= 0; i-- {
+			if expedited[tasks[i].ID] == first {
+				out = append(out, tasks[i])
+			}
+		}
+	}
+	return out
 }
 
 // SendSteer forwards task.steer to the worker running taskID.

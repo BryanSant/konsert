@@ -402,6 +402,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Question = item
 	case "activity":
 		p.Activity = item
+	case "review":
+		p.Review = item
 	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id

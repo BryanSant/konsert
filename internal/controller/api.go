@@ -179,6 +179,11 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.byRef(ids.Task, s.handleCancelTask)))
 	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskEvents)))
 	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskControl)))
+	s.mux.Handle("POST /api/tasks/{id}/review", s.requireBrowserAuth(s.byRef(ids.Task, s.handleReviewTask)))
+	s.mux.Handle("GET /api/tasks/{id}/acceptance", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskAcceptance)))
+	s.mux.Handle("PUT /api/tasks/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Task, s.handleExpedite("task"))))
+	s.mux.Handle("PUT /api/chats/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleExpedite("chat"))))
+	s.mux.Handle("GET /api/reviews", s.requireBrowserAuth(s.handleListReviews))
 	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 
 	// Human control (PRD §5.8a): interventions, holds, open requests, the fleet timeline.
@@ -337,11 +342,15 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 	spaces, _ := s.store.ListSpaces(r.Context(), "")
 	taxonomy, _ := s.store.GetTaxonomy(r.Context())
 	usage, _ := s.store.GetUsageSummary(r.Context())
+	reviews, _ := s.store.ListReviews(r.Context())
 	if tasks == nil {
 		tasks = []store.Task{}
 	}
 	if spaces == nil {
 		spaces = []store.Space{}
+	}
+	if reviews == nil {
+		reviews = []store.Review{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workers":            res.Workers,
@@ -353,6 +362,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"controller_version": s.version,
 		"pause":              res.Pause,
 		"activity":           s.hub.activityList(),
+		"reviews":            reviews,
 	})
 }
 

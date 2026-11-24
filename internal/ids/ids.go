@@ -11,7 +11,7 @@
 //     id: a one- or two-letter kind prefix plus random lower-case Crockford base32, so the
 //     kind is clear wherever it shows up alone (logs, URLs): t-7qk3m task, c-yvp2f chat,
 //     m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree, h-… hold,
-//     rq-… user request, q-… question. The hub
+//     rq-… user request, q-… question, rv-… review. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -40,10 +40,11 @@ const (
 	Hold      Kind = "h"
 	Request   Kind = "rq"
 	Question  Kind = "q"
+	Review    Kind = "rv"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question, Review}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

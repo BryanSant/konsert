@@ -59,6 +59,9 @@ type Daemon struct {
 	// wake holds the host Keep Awake inhibitor requested by the hub (host.wakelock).
 	wake *WakeLockManager
 
+	// ghRun runs gh for PR reviews (git.pr.review); nil = gh from PATH. Tests replace it.
+	ghRun gitutil.GHRunner
+
 	// activity publishes session activity (chats and PTY tasks) at a bounded rate;
 	// taskActivity derives PTY tasks' activity from their telemetry (guarded by taskActMu).
 	activity     *activity.Publisher
@@ -632,6 +635,22 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 				return
 			}
 			d.sendJSONWithID(protocol.MsgGitCommitResult, reqID, res)
+		}(env.ID, p)
+
+	case protocol.MsgGitPRReview:
+		p, err := protocol.DecodePayload[protocol.GitPRReviewRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitPRReviewRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 45*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: vErr.Error()})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, gitutil.ReviewPR(ctx, dir, req, d.ghRun))
 		}(env.ID, p)
 
 	case protocol.MsgGitWorktreeCleanup:

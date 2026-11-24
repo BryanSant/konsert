@@ -115,6 +115,12 @@ func isType(msgType string) func(protocol.Envelope) bool {
 // startTestDaemon runs a Daemon against the fake hub with a private HOME.
 func startTestDaemon(t *testing.T, hub *fakeHub, mutate func(*config.WorkerConfig)) (*Daemon, context.CancelFunc) {
 	t.Helper()
+	return startTestDaemonWith(t, hub, mutate, nil)
+}
+
+// startTestDaemonWith is startTestDaemon with a hook to adjust the daemon before it runs.
+func startTestDaemonWith(t *testing.T, hub *fakeHub, mutate func(*config.WorkerConfig), prepare func(*Daemon)) (*Daemon, context.CancelFunc) {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.WorkerConfig{
 		ControllerURL:    hub.wsURL(),
@@ -129,6 +135,9 @@ func startTestDaemon(t *testing.T, hub *fakeHub, mutate func(*config.WorkerConfi
 	d := NewDaemon(cfg, drivers.DefaultRegistry, nil)
 	d.HeartbeatInterval = time.Hour
 	d.FactsInterval = time.Hour
+	if prepare != nil {
+		prepare(d)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
