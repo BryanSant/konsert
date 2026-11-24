@@ -261,6 +261,7 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 			if p.Discard {
 				d.chat.DiscardChat(p.ChatID)
 				d.activity.Forget("chat:" + p.ChatID)
+				d.shells.Forget("chat:" + p.ChatID)
 			} else {
 				d.chat.CloseChat(p.ChatID)
 			}

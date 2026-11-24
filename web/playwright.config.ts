@@ -30,7 +30,7 @@ export default defineConfig({
         browserName: 'chromium',
         viewport: { width: 1440, height: 900 },
       },
-      testMatch: /(konsert|subscription-chat|human-control|questions|activity|modes|modes-first-run)\.spec\.ts/,
+      testMatch: /(konsert|subscription-chat|human-control|questions|activity|modes|modes-first-run|shells)\.spec\.ts/,
     },
     {
       name: 'mobile',

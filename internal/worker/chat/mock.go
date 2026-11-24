@@ -23,6 +23,8 @@ import (
 //	permission  tool call + permission elicitation; waits for agent.chat.respond
 //	ask         question elicitation (options + free text); waits for agent.chat.respond
 //	slow        streams a delta per step for SlowDuration; cancellable
+//	subagents   (checked first) two sub-agents (Task calls) with their own states, ActivityHold per step:
+//	            one works and speaks, the other asks a permission (waits for the answer)
 //	activity    walks the activity states slowly enough to see each one (ActivityHold per
 //	            state): thinking, working (Bash "Run: go test ./..."), speaking, done
 //	vague question  calls Konsert's ask_user under-specified (rejected), then properly
@@ -414,6 +416,13 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {
+	case strings.Contains(text, "subagents"):
+		if !s.subagents(ctx, turn) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
 	case strings.Contains(text, "crash"):
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: turn, MessageID: "m-" + turn, Text: "Working on it"})
 		if !s.sleep(ctx, step) {
@@ -574,13 +583,65 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	}
 }
 
+// subagents runs the "subagents" turn: two Task calls whose sub-agents report their own
+// states; the second asks a permission. False when cancelled.
+func (s *mockSession) subagents(ctx context.Context, turn string) bool {
+	hold := s.eng.ActivityHold
+	if hold <= 0 {
+		hold = 1200 * time.Millisecond
+	}
+	emit := func(ev protocol.AgentChatEvent) { ev.TurnID = turn; s.emitEv(ev) }
+	toolEv := func(parent, id, name, title, status string) protocol.AgentChatEvent {
+		return protocol.AgentChatEvent{Kind: protocol.EventToolCall, ParentToolCallID: parent,
+			ToolCall: &protocol.AgentToolCall{ID: id, Name: name, Kind: "execute", Title: title, Status: status}}
+	}
+	a, b := "task-a-"+turn, "task-b-"+turn
+	emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, Text: "Splitting the work."})
+	emit(toolEv("", a, "Task", "Agent: S3 client tests", "running"))
+	emit(toolEv("", b, "Task", "Agent: Docs for cache flags", "running"))
+	emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, ParentToolCallID: a, Text: "Which tests?"})
+	emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, ParentToolCallID: b, Text: "Which flags?"})
+	if !s.sleep(ctx, hold) {
+		return false
+	}
+	emit(toolEv(a, "a1-"+turn, "Bash", "Run: go test ./internal/cache/...", "running"))
+	if !s.sleep(ctx, hold) {
+		return false
+	}
+	emit(toolEv(a, "a1-"+turn, "Bash", "Run: go test ./internal/cache/...", "completed"))
+	emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, ParentToolCallID: a, Text: "Tests pass."})
+	write := toolEv(b, "b1-"+turn, "Write", "Write: docs/flags.md", "pending")
+	emit(write)
+	el := &protocol.AgentElicitation{ID: "e-" + b, Kind: protocol.ElicitPermission, Title: "Allow Write: docs/flags.md?", ToolCall: write.ToolCall,
+		Options: []protocol.AgentElicitationOption{
+			{ID: "allow_once", Label: "Allow once", Kind: "allow_once"},
+			{ID: "reject_once", Label: "Reject", Kind: "reject_once"},
+		}}
+	if _, ok := s.askFrom(ctx, turn, b, el); !ok {
+		return false
+	}
+	emit(toolEv(b, "b1-"+turn, "Write", "Write: docs/flags.md", "completed"))
+	emit(toolEv("", a, "Task", "Agent: S3 client tests", "completed"))
+	emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, ParentToolCallID: b, Text: "Flags documented."})
+	if !s.sleep(ctx, hold) {
+		return false
+	}
+	emit(toolEv("", b, "Task", "Agent: Docs for cache flags", "completed"))
+	return s.deltas(ctx, turn, "m-"+turn, "Both sub-agents are done.")
+}
+
 // ask emits an elicitation and waits for the answer (false when cancelled).
 func (s *mockSession) ask(ctx context.Context, turn string, el *protocol.AgentElicitation) (protocol.AgentChatRespond, bool) {
+	return s.askFrom(ctx, turn, "", el)
+}
+
+// askFrom is ask for a sub-agent (parent: the Task call that started it).
+func (s *mockSession) askFrom(ctx context.Context, turn, parent string, el *protocol.AgentElicitation) (protocol.AgentChatRespond, bool) {
 	ch := make(chan protocol.AgentChatRespond, 1)
 	s.mu.Lock()
 	s.answers[el.ID] = ch
 	s.mu.Unlock()
-	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: turn, Elicitation: el})
+	s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: turn, ParentToolCallID: parent, Elicitation: el})
 	select {
 	case <-ctx.Done():
 		s.mu.Lock()

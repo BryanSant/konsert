@@ -183,6 +183,10 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tasks/{id}/acceptance", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskAcceptance)))
 	s.mux.Handle("PUT /api/tasks/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Task, s.handleExpedite("task"))))
 	s.mux.Handle("PUT /api/chats/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleExpedite("chat"))))
+	s.mux.Handle("POST /api/tasks/{id}/shells/kill", s.requireBrowserAuth(s.byRef(ids.Task, s.handleShellAction("task", "kill"))))
+	s.mux.Handle("POST /api/tasks/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Task, s.handleShellAction("task", "ask"))))
+	s.mux.Handle("POST /api/chats/{id}/shells/kill", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "kill"))))
+	s.mux.Handle("POST /api/chats/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "ask"))))
 	s.mux.Handle("GET /api/reviews", s.requireBrowserAuth(s.handleListReviews))
 	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 

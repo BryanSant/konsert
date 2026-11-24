@@ -485,6 +485,35 @@ type ChatInfo struct {
 	Cancelling     bool // a cancel was requested for the running turn
 }
 
+// ProcessIDer is implemented by sessions backed by an agent process (every real engine),
+// so konsertd can count the shells under it.
+type ProcessIDer interface {
+	ProcessID() int
+}
+
+// ProcessIDs returns the agent process id of every chat whose engine runs (chat id →
+// pid).
+func (m *Manager) ProcessIDs() map[string]int {
+	m.mu.Lock()
+	chats := make([]*chatState, 0, len(m.chats))
+	for _, c := range m.chats {
+		chats = append(chats, c)
+	}
+	m.mu.Unlock()
+	out := map[string]int{}
+	for _, c := range chats {
+		c.mu.Lock()
+		sess := c.sess
+		c.mu.Unlock()
+		if p, ok := sess.(ProcessIDer); ok && sess != nil {
+			if pid := p.ProcessID(); pid > 0 {
+				out[c.id] = pid
+			}
+		}
+	}
+	return out
+}
+
 // Chats returns snapshots of all known chats.
 func (m *Manager) Chats() []ChatInfo {
 	m.mu.Lock()
@@ -955,6 +984,22 @@ func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
 	case protocol.EventTurnEnd, protocol.EventError:
 		c.lastStatus = ""
 	}
+	if subagentChatter(ev) {
+		// A sub-agent's streamed text and thoughts only feed its live state: the
+		// transcript shows the parent's Task call and the sub-agent's tool calls.
+		if m.opts.OnActivity != nil && c.act != nil {
+			if now := m.opts.Now(); c.act.Observe(ev, now) {
+				m.opts.OnActivity(c.act.Activity(now))
+			}
+		}
+		return
+	}
+	if ev.Kind == protocol.EventElicitation && ev.ParentToolCallID != "" && ev.Elicitation != nil && c.act != nil {
+		// A sub-agent asks: the prompt (and the Needs-you item made from it) names it.
+		el := *ev.Elicitation
+		el.Title = activity.SubagentQuestion(c.act.SubagentTitle(ev.ParentToolCallID), firstNonEmpty(el.Title, "needs a decision"))
+		ev.Elicitation = &el
+	}
 	c.seq++
 	ev.Seq = c.seq
 	ev.ChatID = c.id
@@ -965,6 +1010,21 @@ func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
 			m.opts.OnActivity(c.act.Activity(now))
 		}
 	}
+}
+
+// subagentChatter reports a sub-agent's text or thought event (not for the transcript).
+func subagentChatter(ev protocol.AgentChatEvent) bool {
+	if ev.Kind == protocol.EventSubagent {
+		return true
+	}
+	if ev.ParentToolCallID == "" {
+		return false
+	}
+	switch ev.Kind {
+	case protocol.EventMessageDelta, protocol.EventMessage, protocol.EventThoughtDelta:
+		return true
+	}
+	return false
 }
 
 // emitError emits a manager-generated error that ends turnID (if it is the running turn).

@@ -120,6 +120,9 @@ type agentChatRT struct {
 	mcp           http.Handler
 	mcpFleet      bool
 	asks          map[string]*pendingAsk
+	// followUps are messages for the agent queued while it was mid-turn (Fleet's "Ask
+	// agent to stop it"); sent as the next prompt when the turn ends.
+	followUps []string
 }
 
 func (h *Hub) chatRT(chatID string) *agentChatRT {
@@ -261,6 +264,9 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	if ev.Kind == protocol.EventTurnEnd && ev.TurnID != "" && ev.StopReason != "cancelled" && ev.StopReason != "error" {
 		// The turn that carried a veto ended normally: the agent acknowledged it.
 		h.ackVetoes(ctx, chatID, ev.TurnID)
+	}
+	if ev.Kind == protocol.EventTurnEnd || (ev.Kind == protocol.EventError && (ev.Error == nil || ev.Error.Kind != protocol.ErrKindTimeout)) {
+		h.takeFollowUpsLocked(rt, chatID)
 	}
 	if o.fromWorker == nil {
 		h.hubChatActivity(cs, ev)

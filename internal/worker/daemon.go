@@ -22,6 +22,7 @@ import (
 	"github.com/BryanSant/konsert/internal/worker/activity"
 	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/konsert/internal/worker/shells"
 	"github.com/coder/websocket"
 )
 
@@ -67,6 +68,10 @@ type Daemon struct {
 	activity     *activity.Publisher
 	taskActMu    sync.Mutex
 	taskActivity *activity.Tracker
+	// shells counts the shell processes under every hosted session (see daemon_shells.go).
+	shells *shells.Tracker
+	// ShellInterval overrides DefaultShellInterval (tests).
+	ShellInterval time.Duration
 
 	// Agent chat (see daemon_chat.go). They outlive connections.
 	accounts   *chat.AccountRegistry
@@ -129,6 +134,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		d.sendJSON(protocol.MsgSessionActivity, a)
 	})
 	d.taskActivity = activity.NewTracker(d.activity, nil)
+	d.shells = shells.New(shells.Options{})
 
 	d.runner = NewRunner(registry, cfg.Sandbox, cfg.AllowedRoots, RunnerCallbacks{
 		OnTaskStatus: func(p protocol.TaskStatusPayload) {
@@ -491,6 +497,9 @@ func (d *Daemon) connectAndServe(ctx context.Context) error {
 	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
 	go d.discovery.Run(connCtx)
 
+	// Shells under hosted sessions, from the process tree (~1 s).
+	go d.shellLoop(connCtx)
+
 	// Read loop
 	for {
 		msgType, data, err := conn.Read(connCtx)
@@ -550,6 +559,11 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			return
 		}
 		_ = d.runner.CancelTask(p.TaskID)
+
+	case protocol.MsgSessionShellKill:
+		if p, err := protocol.DecodePayload[protocol.SessionShellKill](env); err == nil {
+			go d.killShells(p)
+		}
 
 	case protocol.MsgTaskSuspend, protocol.MsgTaskResume:
 		p, err := protocol.DecodePayload[protocol.TaskSuspendPayload](env)

@@ -87,6 +87,46 @@ func TestMockDrivesEveryActivityState(t *testing.T) {
 	waitUntil(t, "error", func() bool { got := log.states(); return got[len(got)-1] == protocol.ActivityError })
 }
 
+// Sub-agents (mock "subagents"): their text and thoughts feed the activity only, never
+// the transcript; a sub-agent asking makes the whole session ask, naming it.
+func TestManagerSubagentActivity(t *testing.T) {
+	log := &activityLog{}
+	tm := newTestManager(t, func(o *ManagerOptions) { o.OnActivity = log.add })
+	tm.mock.ActivityHold = 5 * time.Millisecond
+	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent, Cwd: t.TempDir()})
+	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t1", Text: "use subagents"})
+	el, _ := tm.col.waitFor(t, 0, "sub-agent permission", kind(protocol.EventElicitation))
+	if el.ParentToolCallID != "task-b-t1" || el.Elicitation.Title != "Sub-agent “Docs for cache flags” asks: Allow Write: docs/flags.md?" {
+		t.Fatalf("elicitation parent %q, title %q", el.ParentToolCallID, el.Elicitation.Title)
+	}
+	waitUntil(t, "asking", func() bool { return log.seen(protocol.ActivityAsking) })
+	tm.Respond(protocol.AgentChatRespond{ChatID: "c1", ElicitationID: el.Elicitation.ID, OptionID: "allow_once"})
+	tm.col.waitFor(t, 0, "turn_end", kind(protocol.EventTurnEnd))
+	waitUntil(t, "done", func() bool { return log.seen(protocol.ActivityDone) })
+
+	for _, ev := range tm.col.all() {
+		if subagentChatter(ev) {
+			t.Fatalf("sub-agent chatter reached the transcript: %+v", ev)
+		}
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	var maxSubs int
+	var askLabel string
+	var waiting bool
+	for _, a := range log.all {
+		maxSubs = max(maxSubs, len(a.Subagents))
+		waiting = waiting || a.Waiting
+		if a.State == protocol.ActivityAsking {
+			askLabel = a.Label
+		}
+	}
+	last := log.all[len(log.all)-1]
+	if maxSubs != 2 || !waiting || askLabel != "Sub-agent “Docs for cache flags” asks: Allow Write: docs/flags.md?" || len(last.Subagents) != 0 {
+		t.Fatalf("max %d sub-agents, waiting %v, ask label %q, last %+v", maxSubs, waiting, askLabel, last)
+	}
+}
+
 // containsInOrder reports whether want appears in got as a subsequence.
 func containsInOrder(got, want []string) bool {
 	i := 0

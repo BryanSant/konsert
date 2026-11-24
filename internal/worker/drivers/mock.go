@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,8 @@ func init() {
 //   - WAIT_INPUT            : wait for a line of stdin before completing (or mode=interactive)
 //   - TOUCH_FILE=<filename> : create/append a file in workdir to test git diff extraction
 //   - STREAM_LINES=<n>      : emit n colored ANSI output lines
+//   - BG_SHELL=<secs>       : start a background shell (nohup sh -c 'sleep <secs>') that
+//     outlives the task (Unix), for shell counting and Fleet's cleanup
 type MockDriver struct{}
 
 func (d *MockDriver) Name() string { return "mock" }
@@ -35,7 +38,7 @@ func (d *MockDriver) Detect() (string, bool) {
 }
 
 func (d *MockDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
-	var sleepSecs, exitCode, touchFile, streamLines string
+	var sleepSecs, exitCode, touchFile, streamLines, bgShell string
 	waitInput := opts.Mode == "interactive"
 
 	for _, tok := range strings.Fields(opts.Prompt) {
@@ -48,6 +51,8 @@ func (d *MockDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 			touchFile = strings.TrimPrefix(tok, "TOUCH_FILE=")
 		case strings.HasPrefix(tok, "STREAM_LINES="):
 			streamLines = strings.TrimPrefix(tok, "STREAM_LINES=")
+		case strings.HasPrefix(tok, "BG_SHELL="):
+			bgShell = strings.TrimPrefix(tok, "BG_SHELL=")
 		case tok == "WAIT_INPUT":
 			waitInput = true
 		}
@@ -88,6 +93,13 @@ func (d *MockDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	if touchFile != "" {
 		script.WriteString(fmt.Sprintf("printf 'mock update\\n' >> %q\n", touchFile))
 		script.WriteString(fmt.Sprintf("echo '[MOCK:FILE] Edited %s'\n", touchFile))
+	}
+
+	if n, err := strconv.Atoi(bgShell); err == nil && n > 0 {
+		// A background shell that outlives the task (nohup: the end of the PTY session
+		// doesn't hang it up), for the shell count and Fleet's cleanup.
+		script.WriteString(fmt.Sprintf("nohup sh -c 'sleep %d; true' >/dev/null 2>&1 &\n", n))
+		script.WriteString("echo '[MOCK:TOOL] Started a background shell'\n")
 	}
 
 	if sleepSecs != "" {

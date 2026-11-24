@@ -1446,6 +1446,13 @@ func (s *acpSession) pidLocked() int {
 	return s.conn.proc.Cmd.Process.Pid
 }
 
+// ProcessID is the agent process id, 0 while none runs (ProcessIDer).
+func (s *acpSession) ProcessID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pidLocked()
+}
+
 // Suspend freezes the agent's process tree (Suspender).
 func (s *acpSession) Suspend() error {
 	s.mu.Lock()

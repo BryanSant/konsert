@@ -1553,6 +1553,16 @@ func (s *codexSession) onRequest(gen int, id jsontext.Value, method string, para
 	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, Elicitation: el})
 }
 
+// ProcessID is the app-server process id, 0 while none runs (ProcessIDer).
+func (s *codexSession) ProcessID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		return p.pid()
+	}
+	return 0
+}
+
 // Suspend freezes the app-server process tree (Suspender).
 func (s *codexSession) Suspend() error {
 	s.mu.Lock()

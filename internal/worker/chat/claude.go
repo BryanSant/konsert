@@ -239,6 +239,9 @@ type claudeTurn struct {
 	curMsgID  string
 	msgText   map[string]string
 	tools     map[string]*protocol.AgentToolCall
+	// subOf maps a sub-agent's tool_use id to the parent's Task/Agent tool_use id, so its
+	// result and permission prompts are attributed to that sub-agent.
+	subOf map[string]string
 }
 
 type claudeSession struct {
@@ -269,14 +272,17 @@ type claudeSession struct {
 	forkFrom       string // start as a fork of this session (until our own is stored)
 	turn           *claudeTurn
 	pending        map[string]*claudePending
-	lastActivity   time.Time
-	watchdogFired  bool
-	lastRejected   *protocol.AgentRateLimit
-	mcpFile        string
-	suspended      bool // process tree frozen by the user; the watchdog does not run
-	closed         bool
-	stop           chan struct{}
-	stopOnce       sync.Once
+	// agentTasks maps claude's task ids of running sub-agents to their Task tool_use id
+	// (task events; background sub-agents outlive the turn).
+	agentTasks    map[string]string
+	lastActivity  time.Time
+	watchdogFired bool
+	lastRejected  *protocol.AgentRateLimit
+	mcpFile       string
+	suspended     bool // process tree frozen by the user; the watchdog does not run
+	closed        bool
+	stop          chan struct{}
+	stopOnce      sync.Once
 }
 
 func (s *claudeSession) AgentSessionID() string {
@@ -575,7 +581,7 @@ func (s *claudeSession) Prompt(ctx context.Context, p protocol.AgentChatPrompt) 
 		s.mu.Unlock()
 		return errors.New("a turn is already running")
 	}
-	s.turn = &claudeTurn{id: p.TurnID, msgText: map[string]string{}, tools: map[string]*protocol.AgentToolCall{}}
+	s.turn = &claudeTurn{id: p.TurnID, msgText: map[string]string{}, tools: map[string]*protocol.AgentToolCall{}, subOf: map[string]string{}}
 	s.lastActivity = s.eng.now()
 	s.watchdogFired = false
 	s.lastRejected = nil
@@ -928,8 +934,10 @@ type claudeLine struct {
 	Event           jsontext.Value `json:"event"`
 	Message         jsontext.Value `json:"message"`
 	ParentToolUseID *string        `json:"parent_tool_use_id"`
-	Model           string         `json:"model"`
-	PermissionMode  string         `json:"permissionMode"`
+	// Raw is the whole line (system lines only: task events are decoded from it).
+	Raw            jsontext.Value `json:"-"`
+	Model          string         `json:"model"`
+	PermissionMode string         `json:"permissionMode"`
 
 	IsError        bool                 `json:"is_error"`
 	Result         string               `json:"result"`
@@ -1014,6 +1022,9 @@ func (s *claudeSession) readLoop(proc ccProcess, gen int) {
 		var l claudeLine
 		if err := unmarshal(line, &l); err != nil {
 			continue // non-JSON noise
+		}
+		if l.Type == "system" {
+			l.Raw = append(jsontext.Value(nil), line...)
 		}
 		s.mu.Lock()
 		current := gen == s.procGen
@@ -1106,6 +1117,8 @@ func (s *claudeSession) handleSystem(l *claudeLine) {
 			s.mode = l.PermissionMode
 			s.mu.Unlock()
 		}
+	case "task_started", "task_progress", "task_updated", "task_notification":
+		s.handleTaskEvent(l)
 	case "api_retry":
 		msg := "claude is retrying the request"
 		if l.ErrorStatus != nil {
@@ -1115,9 +1128,77 @@ func (s *claudeSession) handleSystem(l *claudeLine) {
 	}
 }
 
+// handleTaskEvent maps claude's own task events for sub-agents (task_type local_agent) to
+// EventSubagent: they carry the sub-agent's description, say whether it runs in the
+// background (outliving its Task call and the turn), what it does meanwhile, and when it
+// ends. Background shells have task events too; only agents are reported.
+func (s *claudeSession) handleTaskEvent(l *claudeLine) {
+	var ev struct {
+		TaskID       string `json:"task_id"`
+		ToolUseID    string `json:"tool_use_id"`
+		TaskType     string `json:"task_type"`
+		SubagentType string `json:"subagent_type"`
+		Description  string `json:"description"`
+		Background   bool   `json:"is_backgrounded"`
+		Status       string `json:"status"`
+		Patch        struct {
+			Status string `json:"status"`
+		} `json:"patch"`
+	}
+	if unmarshal(l.Raw, &ev) != nil || ev.TaskID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.agentTasks == nil {
+		s.agentTasks = map[string]string{}
+	}
+	id := ev.ToolUseID
+	if id == "" {
+		id = s.agentTasks[ev.TaskID]
+	}
+	sa := &protocol.AgentSubagent{ID: id}
+	switch l.Subtype {
+	case "task_started":
+		if ev.TaskType != "local_agent" && ev.SubagentType == "" {
+			s.mu.Unlock()
+			return
+		}
+		s.agentTasks[ev.TaskID] = id
+		sa.Status, sa.Title, sa.Background = protocol.SubagentRunning, ev.Description, ev.Background
+	case "task_progress":
+		if _, ok := s.agentTasks[ev.TaskID]; !ok {
+			s.mu.Unlock()
+			return
+		}
+		sa.Status = protocol.SubagentRunning
+		if s.turn == nil {
+			// After the turn its lines aren't followed: claude's progress line says what it does.
+			sa.Label = ev.Description
+		}
+	default: // task_updated, task_notification
+		st := firstNonEmpty(ev.Status, ev.Patch.Status)
+		if _, ok := s.agentTasks[ev.TaskID]; !ok || (st != "completed" && st != "failed" && st != "killed" && st != "cancelled" && st != "stopped") {
+			s.mu.Unlock()
+			return
+		}
+		delete(s.agentTasks, ev.TaskID)
+		sa.Status = protocol.SubagentDone
+	}
+	tid := ""
+	if s.turn != nil {
+		tid = s.turn.id
+	}
+	s.mu.Unlock()
+	if sa.ID == "" {
+		return
+	}
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventSubagent, TurnID: tid, Subagent: sa})
+}
+
 func (s *claudeSession) handleStreamEvent(l *claudeLine) {
-	if l.ParentToolUseID != nil && *l.ParentToolUseID != "" {
-		return // sub-agent chatter; its tool calls still show via assistant/user lines
+	parent := ""
+	if l.ParentToolUseID != nil {
+		parent = *l.ParentToolUseID
 	}
 	var ev struct {
 		Type    string `json:"type"`
@@ -1139,22 +1220,27 @@ func (s *claudeSession) handleStreamEvent(l *claudeLine) {
 		s.mu.Unlock()
 		return
 	}
-	if ev.Type == "message_start" {
+	if ev.Type == "message_start" && parent == "" {
 		t.curMsgID = ev.Message.ID
 	}
 	tid, mid := t.id, t.curMsgID
 	s.mu.Unlock()
+	if parent != "" {
+		// A sub-agent's stream: only its live state needs it (the manager keeps it out of
+		// the transcript), so it carries no message id.
+		mid = ""
+	}
 	if ev.Type != "content_block_delta" {
 		return
 	}
 	switch ev.Delta.Type {
 	case "text_delta":
 		if ev.Delta.Text != "" {
-			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: tid, MessageID: mid, Text: ev.Delta.Text})
+			s.emit(protocol.AgentChatEvent{Kind: protocol.EventMessageDelta, TurnID: tid, MessageID: mid, ParentToolCallID: parent, Text: ev.Delta.Text})
 		}
 	case "thinking_delta":
 		if ev.Delta.Thinking != "" {
-			s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: tid, MessageID: mid, Text: ev.Delta.Thinking})
+			s.emit(protocol.AgentChatEvent{Kind: protocol.EventThoughtDelta, TurnID: tid, MessageID: mid, ParentToolCallID: parent, Text: ev.Delta.Thinking})
 		}
 	}
 }
@@ -1164,7 +1250,11 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 	if unmarshal(l.Message, &m) != nil {
 		return
 	}
-	sub := l.ParentToolUseID != nil && *l.ParentToolUseID != ""
+	parent := ""
+	if l.ParentToolUseID != nil {
+		parent = *l.ParentToolUseID
+	}
+	sub := parent != ""
 	var events []protocol.AgentChatEvent
 	s.mu.Lock()
 	t := s.turn
@@ -1176,7 +1266,12 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 	for _, b := range m.blocks() {
 		switch b.Type {
 		case "text":
-			if sub || b.Text == "" {
+			if sub && b.Text != "" {
+				// The sub-agent finished a message: back to its own model (live state only).
+				events = append(events, protocol.AgentChatEvent{Kind: protocol.EventMessage, TurnID: t.id, ParentToolCallID: parent})
+				continue
+			}
+			if b.Text == "" {
 				continue
 			}
 			if l.IsAPIErrorMessage {
@@ -1195,8 +1290,11 @@ func (s *claudeSession) handleAssistant(l *claudeLine) {
 			tc := claudeToolCall(b.ID, b.Name, b.Input)
 			tc.Status = "running"
 			t.tools[b.ID] = tc
+			if sub {
+				t.subOf[b.ID] = parent
+			}
 			cp := *tc
-			events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ToolCall: &cp})
+			events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ParentToolCallID: parent, ToolCall: &cp})
 		}
 	}
 	if textAdded {
@@ -1234,8 +1332,10 @@ func (s *claudeSession) handleUser(l *claudeLine) {
 		}
 		tc.Output = ccTruncate(ccRedact(claudeToolResultText(b.Content), s.acct.Env), claudeOutputMax)
 		delete(t.tools, b.ToolUseID)
+		parent := t.subOf[b.ToolUseID]
+		delete(t.subOf, b.ToolUseID)
 		cp := *tc
-		events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ToolCall: &cp})
+		events = append(events, protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: t.id, ParentToolCallID: parent, ToolCall: &cp})
 	}
 	s.mu.Unlock()
 	for _, ev := range events {
@@ -1561,12 +1661,13 @@ func (s *claudeSession) handleControlRequest(l *claudeLine) {
 	}
 	s.mu.Lock()
 	s.pending[l.RequestID] = p
-	tid := ""
+	tid, parent := "", ""
 	if s.turn != nil {
 		tid = s.turn.id
+		parent = s.turn.subOf[req.ToolUseID]
 	}
 	s.mu.Unlock()
-	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, Elicitation: el})
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventElicitation, TurnID: tid, ParentToolCallID: parent, Elicitation: el})
 }
 
 type claudeQuestion struct {
@@ -1598,8 +1699,17 @@ func (s *claudeSession) handleExit(gen, code int, stderr string) {
 	s.pending = map[string]*claudePending{}
 	closed := s.closed
 	rejected := s.lastRejected
+	orphans := make([]string, 0, len(s.agentTasks))
+	for _, id := range s.agentTasks {
+		orphans = append(orphans, id)
+	}
+	s.agentTasks = nil
 	s.mu.Unlock()
 	s.failWaiters()
+	// Its sub-agents (background ones included) died with the process.
+	for _, id := range orphans {
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: id, Status: protocol.SubagentDone}})
+	}
 	if closed || t == nil {
 		return // idle exit: the next Prompt restarts with --resume
 	}
@@ -1841,6 +1951,16 @@ func claudeProjectDirName(cwd string) string {
 		}
 	}
 	return b.String()
+}
+
+// ProcessID is the claude process id, 0 while none runs (ProcessIDer).
+func (s *claudeSession) ProcessID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.proc.(interface{ pid() int }); ok {
+		return p.pid()
+	}
+	return 0
 }
 
 // Suspend freezes the claude process tree (Suspender).

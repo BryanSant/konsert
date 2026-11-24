@@ -117,7 +117,12 @@ const (
 	EventUsage         = "usage"      // token usage for the turn
 	EventRateLimit     = "rate_limit" // subscription window state (from the CLI's own stream)
 	EventTurnEnd       = "turn_end"   // the turn finished (StopReason)
-	EventError         = "error"      // classified failure (Error)
+	// EventSubagent reports a sub-agent's lifecycle from the agent's own task events
+	// (Subagent): started (with its title, and whether it runs in the background, i.e.
+	// may outlive its Task call and the turn), progress, done. Live activity only: the
+	// chat manager keeps it out of the transcript.
+	EventSubagent = "subagent"
+	EventError    = "error" // classified failure (Error)
 )
 
 // Chat statuses (the chat window's "working / needs you / done / failed" pill).
@@ -139,12 +144,16 @@ type AgentChatEvent struct {
 	Kind   string    `json:"kind"`
 	At     time.Time `json:"at"`
 
-	Status         string `json:"status,omitempty"`
-	AgentSessionID string `json:"agent_session_id,omitempty"`
-	MessageID      string `json:"message_id,omitempty"`
-	Text           string `json:"text,omitempty"`
+	Status string `json:"status,omitempty"`
+	// ParentToolCallID marks an event of a sub-agent: the parent's tool call that
+	// started it (claude's parent_tool_use_id). Empty for the main agent.
+	ParentToolCallID string `json:"parent_tool_call_id,omitempty"`
+	AgentSessionID   string `json:"agent_session_id,omitempty"`
+	MessageID        string `json:"message_id,omitempty"`
+	Text             string `json:"text,omitempty"`
 
 	ToolCall    *AgentToolCall    `json:"tool_call,omitzero"`
+	Subagent    *AgentSubagent    `json:"subagent,omitzero"`
 	Plan        []AgentPlanItem   `json:"plan,omitempty"`
 	Elicitation *AgentElicitation `json:"elicitation,omitzero"`
 	Usage       *AgentTokenUsage  `json:"usage,omitzero"`
@@ -170,6 +179,24 @@ type AgentToolCall struct {
 	Input  string   `json:"input,omitempty"`  // truncated JSON/text
 	Output string   `json:"output,omitempty"` // truncated text
 	Paths  []string `json:"paths,omitempty"`
+}
+
+// Sub-agent statuses (AgentSubagent.Status).
+const (
+	SubagentRunning = "running"
+	SubagentDone    = "done"
+)
+
+// AgentSubagent is one sub-agent's lifecycle event (EventSubagent).
+type AgentSubagent struct {
+	// ID is the parent's tool call id that started it.
+	ID     string `json:"id"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status"`
+	// Label is what it does now ("Running List files…"), when the agent says.
+	Label string `json:"label,omitempty"`
+	// Background: it runs on after its Task call returns (and after the turn).
+	Background bool `json:"background,omitzero"`
 }
 
 // AgentPlanItem is one entry of the agent's plan / todo list.

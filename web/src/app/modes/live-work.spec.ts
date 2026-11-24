@@ -5,9 +5,32 @@ import { ChatSession, Project, Task, Worker } from '../core/models/konsert.model
 import { groupWork } from '../core/state/activity-logic';
 import { WorkItem, buildWorkItems } from '../core/state/work-logic';
 import { ActivitySpinnerComponent } from '../shared/activity-spinner.component';
-import { activityPhrase, describeSpinner, heatFill, machineInitials, rippleSeconds, spinnerStateOf } from '../shared/spinner-logic';
+import {
+  activityPhrase,
+  describeDetail,
+  describeSpinner,
+  heatFill,
+  machineInitials,
+  orbitDots,
+  rippleSeconds,
+  spinnerDetailOf,
+  spinnerStateOf,
+  withDetail,
+} from '../shared/spinner-logic';
 import { DONE_FADE_MS, buildStory, queuedLabel } from './command/live-work-logic';
-import { describeStrip, heatStrip, heatText, machineBadge, machineRows, queueReasons } from './fleet/fleet-logic';
+import {
+  askAvailability,
+  describeStrip,
+  heatStrip,
+  heatText,
+  machineBadge,
+  machineRows,
+  queueReasons,
+  shellChip,
+  shellRows,
+  subagentChip,
+  subagentText,
+} from './fleet/fleet-logic';
 
 const NOW = Date.parse('2026-11-23T15:00:00Z');
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -45,6 +68,65 @@ describe('spinner logic', () => {
     expect(spinnerStateOf({ state: 'thinking' }, 'YOU')).toBe('you');
     expect(spinnerStateOf({ state: 'thinking' }, 'HELD')).toBe('held');
     expect(spinnerStateOf(undefined)).toBe('done');
+    // A parent waiting on its sub-agents: a plain grey ring; a sub-agent asking: amber.
+    expect(spinnerStateOf({ state: 'working', waiting: true })).toBe('waiting');
+    expect(spinnerStateOf({ state: 'working', waiting: true, subagents: [{ id: 'a', state: 'asking', since: '' }] })).toBe('asking');
+    expect(spinnerStateOf({ state: 'done', subagents: [{ id: 'a', state: 'asking', since: '' }] })).toBe('done');
+  });
+
+  it('derives shells and sub-agents for the badge, dots and words', () => {
+    expect(spinnerDetailOf({ state: 'thinking' })).toBeNull();
+    const d = spinnerDetailOf({
+      state: 'thinking',
+      shells: 3,
+      shells_busy: 2,
+      subagents: [
+        { id: 'a', state: 'working', since: '' },
+        { id: 'b', state: 'speaking', since: '' },
+      ],
+    });
+    expect(d).toEqual({ shells: 3, shellsBusy: 2, subs: ['working', 'speaking'] });
+    expect(describeDetail(d)).toBe('3 shells (2 busy) · 2 sub-agents');
+    // The mockup's hover text.
+    expect(describeSpinner('thinking', [{ name: 'desk', heat: 0.55, cause: 'cpu' }], { detail: d })).toBe(
+      'desk · warm 55% · cpu — thinking · 3 shells (2 busy) · 2 sub-agents',
+    );
+    // Done: shells left running and background sub-agents stay.
+    expect(spinnerDetailOf({ state: 'done', shells: 1, subagents: [{ id: 'a', state: 'working', since: '' }] })).toEqual({ shells: 1, shellsBusy: 0, subs: ['working'] });
+    // Four dots, then "+N".
+    const o = orbitDots(['working', 'working', 'thinking', 'speaking', 'working', 'thinking']);
+    expect(o.dots.length).toBe(4);
+    expect(o.more).toBe(2);
+    expect(o.dots.map((x) => x.angle)).toEqual([30, 120, 210, 300]);
+    // Line text: counts replace a generic phrase, follow a specific one.
+    expect(withDetail('thinking…', 'thinking', d)).toBe('3 shells · 2 sub-agents');
+    expect(withDetail('running tests', 'working', d)).toBe('running tests · 3 shells · 2 sub-agents');
+    expect(withDetail('done 3m ago', 'done', { shells: 2, shellsBusy: 0, subs: [] })).toBe('done 3m ago · 2 shells left running');
+    expect(withDetail('asks you: x', 'asking', d)).toBe('asks you: x');
+    expect(activityPhrase('asking', undefined, 'Sub-agent “Docs” asks: Allow Write?', 0)).toBe('Sub-agent “Docs” asks: Allow Write?');
+  });
+
+  it('draws the shell badge and the orbiting sub-agent dots', async () => {
+    const f = TestBed.createComponent(ActivitySpinnerComponent);
+    f.componentRef.setInput('state', 'waiting');
+    f.componentRef.setInput('machines', [{ name: 'desk', heat: 0.55, cause: 'cpu' }]);
+    f.componentRef.setInput('detail', { shells: 3, shellsBusy: 2, subs: ['working', 'speaking', 'thinking', 'asking', 'working'] });
+    await f.whenStable();
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelector('.ks-sp-ring')?.getAttribute('data-ring')).toBe('waiting');
+    expect(el.querySelector('[data-testid="spinner-shells"]')?.textContent?.trim()).toBe('❯3');
+    expect(el.querySelector('.ks-sp-shells-busy')).not.toBeNull();
+    expect(el.querySelectorAll('.ks-sp-dot').length).toBe(4);
+    expect(el.querySelector('[data-testid="spinner-more"]')?.textContent?.trim()).toBe('+1');
+    expect(el.getAttribute('aria-label')).toBe('desk · warm 55% · cpu — waiting on sub-agents · 3 shells (2 busy) · 5 sub-agents');
+    // Idle shells: a still badge; none: no badge.
+    f.componentRef.setInput('detail', { shells: 1, shellsBusy: 0, subs: [] });
+    await f.whenStable();
+    expect(el.querySelector('.ks-sp-shells-busy')).toBeNull();
+    expect(el.querySelectorAll('.ks-sp-dot').length).toBe(0);
+    f.componentRef.setInput('detail', null);
+    await f.whenStable();
+    expect(el.querySelector('[data-testid="spinner-shells"]')).toBeNull();
   });
 
   it('makes initials, heat fills and descriptions', () => {
@@ -55,7 +137,7 @@ describe('spinner logic', () => {
     expect(heatFill(0.1).drift).toBe('14s');
     expect(heatFill(0.97).drift).toBe('4.5s');
     expect(heatFill(null).drift).toBe('0s');
-    expect(describeSpinner('working', [{ name: 'desk', heat: 0.55, cause: 'cpu' }])).toBe('working · desk · warm 55% · cpu');
+    expect(describeSpinner('working', [{ name: 'desk', heat: 0.55, cause: 'cpu' }])).toBe('desk · warm 55% · cpu — working');
     expect(describeSpinner('queued', [])).toBe('queued · not placed yet');
     expect(describeSpinner('speaking', [{ name: 'mac', heat: 0.9 }], { tps: 38.4 })).toContain('writing 38 tok/s');
     expect(activityPhrase('thinking', undefined, undefined, 0)).toBe('thinking…');
@@ -77,7 +159,7 @@ describe('spinner logic', () => {
     await f.whenStable();
     const el = f.nativeElement as HTMLElement;
     expect(el.getAttribute('role')).toBe('img');
-    expect(el.getAttribute('aria-label')).toBe('asks you · desk · cool 30% · cpu + gpu-box · hot 93% · gpu');
+    expect(el.getAttribute('aria-label')).toBe('desk · cool 30% · cpu + gpu-box · hot 93% · gpu — asks you');
     expect(el.querySelector('.ks-sp-badge')?.textContent).toBe('?');
     expect(el.querySelector('.ks-sp-second')?.textContent?.trim()).toBe('gb');
     expect(el.querySelector('.ks-sp-avatar')?.textContent?.trim()).toBe('dk');
@@ -151,6 +233,46 @@ describe('fleet machine rows', () => {
     expect(rows[1]).toMatchObject({ badge: 'OFFLINE', free: 0, load: '', heatText: 'no heat data while offline' });
     expect(machineBadge(worker('x', 'x', { max_concurrent: 1 }), 1)).toBe('FULL');
     expect(machineBadge(worker('x', 'x', { drained: true }), 0)).toBe('DRAINING');
+  });
+
+  it('spells out shells and sub-agents, and keeps a finished session while its shells run', () => {
+    const workers = [worker('w1', 'desk', { max_concurrent: 3 })];
+    const tasks = [task('a', 'running'), task('d', 'completed', { completed_at: iso(NOW - 3600_000) }), task('e', 'completed', { completed_at: iso(NOW - 3600_000) })];
+    const shells = [
+      { pid: 41, command: 'npm run dev', started_at: iso(NOW - 720_000), since: iso(NOW - 600_000), busy: false },
+      { pid: 42, command: 'go test ./internal/cache/...', started_at: iso(NOW - 41_000), since: iso(NOW - 41_000), busy: true },
+    ];
+    const acts: Record<string, SessionActivity> = {
+      'task:a': act('a', 'working', {
+        waiting: true,
+        shells: 2,
+        shells_busy: 1,
+        shell_list: shells,
+        subagents: [{ id: 's1', title: 'S3 client tests', state: 'working', label: 'Run: go test', since: iso(NOW - 120_000) }],
+      }),
+      'task:d': act('d', 'done', { shells: 1, shell_list: [{ ...shells[0], dangling: true }] }),
+      'task:e': act('e', 'done'),
+    };
+    const groups = groupWork({ projects: [project], repos: [], tasks, chats: [], activityOf: (k) => acts[k] });
+    const items = buildWorkItems({ tasks, chats: [], workers: { w1: workers[0] }, projects: [project], repos: [], questions: [], holds: [], interactive: () => false, reviewed: {}, now: NOW });
+    const rows = machineRows({ workers, tasks, groups, items: Object.fromEntries(items.map((i) => [i.id, i])), allItems: items, heat: {}, now: NOW });
+    const byId = Object.fromEntries(rows[0].sessions.map((s) => [s.id, s]));
+    // The finished task with a shell left running stays (to clean it up); the other goes.
+    expect(Object.keys(byId).sort()).toEqual(['a', 'd']);
+    const a = byId['a'];
+    expect(a.state).toBe('waiting');
+    expect(shellChip(a.detail, a.done)).toBe('❯ 2 shells · 1 busy');
+    expect(subagentChip(a.detail)).toBe('◉ 1 sub-agent');
+    expect(subagentText(a.subagents[0])).toBe('S3 client tests · Run: go test');
+    expect(shellRows(a.shellList, NOW).map((r) => [r.pid, r.text, r.age])).toEqual([
+      [41, 'npm run dev', 'idle'],
+      [42, 'go test ./internal/cache/...', '41s'],
+    ]);
+    const d = byId['d'];
+    expect(shellChip(d.detail, d.done)).toBe('❯ 1 shell left running');
+    expect(askAvailability(d)).toMatchObject({ ok: false });
+    expect(askAvailability(a)).toMatchObject({ ok: true });
+    expect(askAvailability({ kind: 'chat', done: true, state: 'done' })).toMatchObject({ ok: true });
   });
 
   it('describes heat with the dominant cause first', () => {

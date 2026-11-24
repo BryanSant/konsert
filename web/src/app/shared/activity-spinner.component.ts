@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { IconComponent } from './icon.component';
 import { TooltipDirective } from './tooltip.directive';
-import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFill, machineInitials, rippleSeconds } from './spinner-logic';
+import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFill, machineInitials, orbitDots, rippleSeconds } from './spinner-logic';
 
 /**
  * The live-work spinner (signed-off design, style A). The avatar fill is the machine and
@@ -13,6 +13,12 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
  *   held      dashed blue + pause           you      solid blue + "›"
  *   queued    hollow avatar, dotted ring    done     grey ring + green check, neutral fill
  *   error     red + "!"                     coarse   (observed sessions) half strength
+ *   waiting   plain grey: the parent only waits on its sub-agents
+ *
+ * With `detail` it also shows what runs beside the main loop: a shell badge "❯N" at the
+ * bottom-left (its outline pulses while any shell is busy) and up to four sub-agent dots
+ * orbiting the ring in their own state colours (violet thinking, white working, green
+ * speaking, amber asking), "+N" top-right beyond four. Counts show only when non-zero.
  *
  * A second machine peeks out behind the first. With `glyph` the centre shows the agent's
  * mark instead of machine initials (Fleet rows, where the row is the machine). The host has
@@ -58,6 +64,21 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
         {{ first()?.initials ?? '··' }}
       }
     </span>
+    @if (orbit(); as o) {
+      @if (o.dots.length) {
+        <span class="ks-sp-orbit" aria-hidden="true" data-testid="spinner-orbit">
+          @for (d of o.dots; track $index) {
+            <span class="ks-sp-dot" [attr.data-dot]="d.state" [style.transform]="'rotate(' + d.angle + 'deg) translateY(calc(var(--ks-sz) * -0.633))'"></span>
+          }
+        </span>
+      }
+      @if (o.more) {
+        <span class="ks-sp-more" aria-hidden="true" data-testid="spinner-more">+{{ o.more }}</span>
+      }
+    }
+    @if (detail()?.shells; as n) {
+      <span class="ks-sp-shells" [class.ks-sp-shells-busy]="(detail()?.shellsBusy ?? 0) > 0" aria-hidden="true" data-testid="spinner-shells">❯{{ n }}</span>
+    }
     @if (badge(); as b) {
       <span class="ks-sp-badge" [attr.data-badge]="state()" aria-hidden="true">{{ b }}</span>
     }
@@ -125,6 +146,71 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
     }
     .ks-sp-ring[data-ring='done'] {
       background: rgba(255, 255, 255, 0.16);
+    }
+    .ks-sp-ring[data-ring='waiting'] {
+      background: rgba(255, 255, 255, 0.22);
+    }
+    .ks-sp-orbit {
+      position: absolute;
+      inset: calc(var(--ks-sz) * -0.133);
+      border-radius: 50%;
+      animation: ks-spin 9s linear infinite;
+      pointer-events: none;
+    }
+    .ks-sp-dot {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(4px, calc(var(--ks-sz) * 0.2));
+      height: max(4px, calc(var(--ks-sz) * 0.2));
+      margin: calc(max(4px, calc(var(--ks-sz) * 0.2)) / -2) 0 0 calc(max(4px, calc(var(--ks-sz) * 0.2)) / -2);
+      border-radius: 50%;
+      box-shadow: 0 0 0 1.2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+    }
+    .ks-sp-dot[data-dot='thinking'] {
+      background: #b9a8ff;
+      animation: ks-breath 2s ease-in-out infinite;
+    }
+    .ks-sp-dot[data-dot='working'] {
+      background: #e6e8ee;
+      animation: ks-blink 0.8s ease-in-out infinite;
+    }
+    .ks-sp-dot[data-dot='speaking'] {
+      background: #8fe0b0;
+    }
+    .ks-sp-dot[data-dot='asking'] {
+      background: #e0a84c;
+    }
+    .ks-sp-more {
+      position: absolute;
+      right: calc(var(--ks-sz) * -0.3);
+      top: calc(var(--ks-sz) * -0.23);
+      padding: 1px 3px;
+      border-radius: 6px;
+      font: 700 max(6.5px, calc(var(--ks-sz) * 0.23)) / 1.2 'JetBrains Mono', ui-monospace, monospace;
+      color: #c9cbd1;
+      background: #2a2c31;
+      box-shadow: 0 0 0 1.5px var(--ks-spinner-hole, var(--ks-bg-chrome));
+    }
+    .ks-sp-shells {
+      position: absolute;
+      left: calc(var(--ks-sz) * -0.133);
+      bottom: calc(var(--ks-sz) * -0.133);
+      min-width: max(11px, calc(var(--ks-sz) * 0.433));
+      height: max(11px, calc(var(--ks-sz) * 0.433));
+      padding: 0 2px;
+      box-sizing: border-box;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font: 700 max(6.5px, calc(var(--ks-sz) * 0.25)) / 1 'JetBrains Mono', ui-monospace, monospace;
+      color: #ececed;
+      background: #2a2c31;
+      box-shadow: 0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+    }
+    .ks-sp-shells-busy {
+      animation: ks-pulse 1.2s ease-in-out infinite;
     }
     .ks-sp-ring[data-ring='error'] {
       background: #e86b6b;
@@ -231,6 +317,28 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
         opacity: 1;
       }
     }
+    @keyframes ks-blink {
+      0%,
+      100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.35;
+      }
+    }
+    @keyframes ks-pulse {
+      0%,
+      100% {
+        box-shadow:
+          0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome)),
+          0 0 0 2px rgba(230, 232, 238, 0);
+      }
+      50% {
+        box-shadow:
+          0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome)),
+          0 0 0 3.5px rgba(230, 232, 238, 0.75);
+      }
+    }
     @keyframes ks-ripple {
       0% {
         box-shadow: 0 0 0 0 rgba(143, 224, 176, 0.6);
@@ -243,7 +351,10 @@ import { SpinnerMachine, SpinnerState, describeMachine, describeSpinner, heatFil
       .ks-sp-ring,
       .ks-sp-ripple,
       .ks-sp-drift,
-      .ks-sp-second {
+      .ks-sp-second,
+      .ks-sp-orbit,
+      .ks-sp-dot,
+      .ks-sp-shells {
         animation: none !important;
       }
       .ks-sp-ripple {
@@ -265,6 +376,12 @@ export class ActivitySpinnerComponent {
   readonly size = input(30);
   /** Overrides the generated accessible name / title. */
   readonly label = input('');
+  /** Shells and sub-agents beside the main loop (badge and orbiting dots). */
+  readonly detail = input<SpinnerDetail | null>(null);
+  readonly orbit = computed(() => {
+    const d = this.detail();
+    return d && d.subs.length ? orbitDots(d.subs) : null;
+  });
 
   private readonly view = computed(() =>
     this.machines()
@@ -295,7 +412,9 @@ export class ActivitySpinnerComponent {
   });
 
   readonly description = computed(
-    () => this.label() || describeSpinner(this.state(), this.machines(), { coarse: this.coarse(), tps: this.tps(), agent: this.glyph() ? this.agent() : '' }),
+    () =>
+      this.label() ||
+      describeSpinner(this.state(), this.machines(), { coarse: this.coarse(), tps: this.tps(), agent: this.glyph() ? this.agent() : '', detail: this.detail() }),
   );
 }
 
