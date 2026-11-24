@@ -111,6 +111,7 @@ type shell struct {
 	id       procID
 	start    time.Time
 	cmd      string
+	cmdFinal bool // cmd is settled (see command); until then it is re-read each tick
 	busy     bool
 	since    time.Time
 	dangling bool
@@ -359,8 +360,11 @@ func (tr *Tracker) Tick(roots map[string]int) map[string]activity.Shells {
 					found[id] = true
 					sh := s.shells[id]
 					if sh == nil {
-						sh = &shell{id: id, start: p.Start, since: now, cmd: tr.command(t, p)}
+						sh = &shell{id: id, start: p.Start, since: now}
 						s.shells[id] = sh
+					}
+					if !sh.cmdFinal {
+						sh.cmd, sh.cmdFinal = tr.command(t, p, now)
 					}
 					sh.dangling = false
 					tr.update(t, p, sh, now, dt)
@@ -409,18 +413,28 @@ func (tr *Tracker) update(t *table, p *Proc, sh *shell, now time.Time, dt time.D
 	sh.cpu, sh.cpuKnown = cpu, known
 }
 
-// command returns p's cleaned command line (cached per process).
-func (tr *Tracker) command(t *table, p *Proc) string {
+// argvSettle is how old a process must be before an argument-less command line is
+// trusted: a snapshot taken between fork and exec sees the parent's image (a bare "sh").
+const argvSettle = 2 * time.Second
+
+// command returns p's cleaned command line and whether it is settled. A command line with
+// arguments, or one read from a process older than argvSettle, is settled and cached per
+// process; anything else is re-read on the next tick.
+func (tr *Tracker) command(t *table, p *Proc, now time.Time) (string, bool) {
 	id := procID{p.PID, startKey(p.Start)}
 	if c, ok := tr.argv[id]; ok {
-		return c
+		return c, true
 	}
-	c := CleanCommand(t.src.Argv(p.PID))
+	argv := t.src.Argv(p.PID)
+	c := CleanCommand(argv)
 	if c == "" {
 		c = p.Name
 	}
+	if len(argv) < 2 && (p.Start.IsZero() || now.Sub(p.Start) < argvSettle) {
+		return c, false
+	}
 	tr.argv[id] = c
-	return c
+	return c, true
 }
 
 func report(s *session) activity.Shells {

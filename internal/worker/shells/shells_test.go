@@ -376,3 +376,30 @@ func TestCleanCommand(t *testing.T) {
 		t.Errorf("cap: %d runes", len([]rune(got)))
 	}
 }
+
+func TestTrackerRereadsArgvCaughtBeforeExec(t *testing.T) {
+	// A snapshot between fork and exec shows the parent's image: a bare "sh" with no
+	// arguments. The command must be read again once exec has replaced it.
+	src := newFake()
+	src.add(100, 1, 100, "claude", 0)
+	src.add(150, 100, 100, "sh", 3600, "sh") // started just now (the clock is t0+1h)
+	tr, c, _, _ := newTracker(src)
+	if got := tr.Tick(map[string]int{"task:t": 100})["task:t"]; got.Count != 1 || got.List[0].Command != "sh" {
+		t.Fatalf("first tick: %+v", got)
+	}
+	src.mu.Lock()
+	src.argv[150] = []string{"sh", "-c", "sleep 300; true"}
+	src.mu.Unlock()
+	c.add(time.Second)
+	if got := tr.Tick(map[string]int{"task:t": 100})["task:t"]; got.List[0].Command != "sleep 300; true" {
+		t.Fatalf("after exec: %+v", got)
+	}
+	// Settled now: a later change to argv (a process rewriting its title) is ignored.
+	src.mu.Lock()
+	src.argv[150] = []string{"renamed"}
+	src.mu.Unlock()
+	c.add(5 * time.Second)
+	if ch := tr.Tick(map[string]int{"task:t": 100}); len(ch) != 0 {
+		t.Fatalf("settled command changed: %v", ch)
+	}
+}
