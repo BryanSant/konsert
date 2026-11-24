@@ -1,9 +1,11 @@
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
+import { Veto, formatDuration } from '../../core/models/control.models';
 import { isPending } from '../../core/models/question.models';
 import { ControlStore } from '../../core/state/control.store';
-import { NeedsYouEntry, NeedsYouStore, vetoDetails } from '../../core/state/needs-you.store';
+import { FleetStore } from '../../core/state/fleet.store';
+import { NeedsYouEntry, NeedsYouStore, overrideScope, vetoDetails, vetoEscalated } from '../../core/state/needs-you.store';
 import { QuestionsStore } from '../../core/state/questions.store';
 import { fromTextField, queueKey } from '../../core/state/questions-logic';
 import { WorkStore } from '../../core/state/work.store';
@@ -17,8 +19,8 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
  * The one Needs-you dialog every page opens: a carousel over the whole queue that starts on
  * the item you picked, shows where you are ("2 of 5" and a strip of dots), and moves on to
  * the next unanswered item once you answer (or snooze, or let the orchestrator decide).
- * Questions get the full card with Ask about this inside it; requests, vetoes and reviews
- * their own body in the same shell. j/k or arrows (swipe on a phone) move, 1–9 pick an
+ * Questions get the full card with Ask about this inside it; requests, override requests,
+ * vetoes and reviews their own body in the same shell. j/k or arrows (swipe on a phone) move, 1–9 pick an
  * option, ? asks, o hands it to the orchestrator; Esc or × close and focus goes back to
  * where you came from. On a phone it is a full-screen sheet.
  */
@@ -112,26 +114,82 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
                         }
                       </article>
                     }
+                    @case ('override') {
+                      @let o = e.override!;
+                      <article class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-2)] p-4 space-y-3" data-testid="needs-you-override" [attr.data-override]="e.sid">
+                        <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">The orchestrator asks for an override · {{ e.sid }}</div>
+                        <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--ks-text)]">{{ e.title }}</h3>
+                        <dl class="ks-ny-facts m-0 text-[12.5px]">
+                          <dt>Scope</dt>
+                          <dd data-testid="override-scope">{{ scope(e) }}</dd>
+                          <dt>Duration</dt>
+                          <dd data-testid="override-duration">{{ duration(o.duration_seconds) }} from when you approve, then it expires by itself</dd>
+                          <dt>Reason</dt>
+                          <dd data-testid="override-reason">{{ o.reason }}</dd>
+                          <dt>If you approve</dt>
+                          <dd data-testid="override-consequences">{{ o.consequences }}</dd>
+                        </dl>
+                        @if (e.pending) {
+                          <input
+                            type="text"
+                            class="ks-field w-full text-[12.5px]"
+                            placeholder="Note for the orchestrator (optional)"
+                            aria-label="Note for the orchestrator (optional)"
+                            data-testid="override-note"
+                            [value]="noteFor(e.key)"
+                            (input)="setNote(e.key, $any($event.target).value)"
+                          />
+                          <div class="flex flex-wrap gap-2">
+                            <button type="button" class="ks-btn ks-btn-primary h-10" data-testid="override-approve" [disabled]="control.isBusy(o.id)" (click)="decide(e, 'approve')">
+                              <app-icon name="check" [size]="12" />
+                              Approve for {{ duration(o.duration_seconds) }}
+                            </button>
+                            <button type="button" class="ks-btn ks-btn-soft h-10" data-testid="override-deny" [disabled]="control.isBusy(o.id)" (click)="decide(e, 'deny')">Deny</button>
+                          </div>
+                          <p class="m-0 text-[12px] text-[var(--ks-text-muted)]">Konsert enforces an approved override until it expires, counts whether it was used, and tells the orchestrator your decision either way.</p>
+                        } @else {
+                          <p class="m-0 text-[12.5px] text-[#8fcb9b]" role="status" data-testid="override-decided">{{ decided()[e.key] === 'deny' ? 'Denied' : 'Approved' }}: the orchestrator was told.</p>
+                        }
+                      </article>
+                    }
                     @case ('veto') {
-                      <article class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-red-soft)] p-4 space-y-3" data-testid="needs-you-veto">
-                        <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#f3a3a3]">Veto · {{ veto(e).reason }}</div>
+                      @let v = e.veto!;
+                      @let late = escalated(v);
+                      <article class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-red-soft)] p-4 space-y-3" data-testid="needs-you-veto" [attr.data-veto]="v.sid" [attr.data-veto-status]="late ? 'escalated' : v.status">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10.5px] font-semibold uppercase tracking-wide text-[#f3a3a3]">Veto · {{ veto(e).reason }}</span>
+                          @if (late && e.pending) {
+                            <span class="ks-badge ks-ny-late" data-testid="veto-escalated">Not acknowledged</span>
+                          }
+                        </div>
                         <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--ks-text)]">{{ e.title }}</h3>
                         @if (veto(e).note) {
                           <p class="m-0 text-[13px] text-[var(--ks-text-secondary)]">“{{ veto(e).note }}”</p>
                         }
-                        <ol class="m-0 p-0 list-none space-y-1 text-[12.5px]">
+                        <ol class="m-0 p-0 list-none space-y-1 text-[12.5px]" data-testid="veto-steps">
                           <li><span class="text-[#8fcb9b]" aria-hidden="true">✓</span> Sent and enforced: its processes were stopped and it is on hold</li>
-                          <li><span class="text-[#8fcb9b]" aria-hidden="true">✓</span> The orchestrator was told and remembers not to retry it this way</li>
+                          @if (v.delivered_at) {
+                            <li><span class="text-[#8fcb9b]" aria-hidden="true">✓</span> Told to {{ v.delivered_to || 'the agent' }} at {{ clock(v.delivered_at) }}</li>
+                          } @else {
+                            <li><span class="text-[var(--ks-text-muted)]" aria-hidden="true">○</span> Waiting to tell the orchestrator (or the vetoed chat) on its next turn</li>
+                          }
+                          @if (!e.pending) {
+                            <li data-testid="veto-resolved"><span class="text-[#8fcb9b]" aria-hidden="true">✓</span> {{ dismissedHere()[e.key] ? 'Dismissed by you' : 'Acknowledged by the agent on its next turn' }}</li>
+                          } @else if (late) {
+                            <li><span class="text-[#f3a3a3]" aria-hidden="true">!</span> Not acknowledged by {{ clock(v.ack_deadline) }}: the agent has not finished a turn with the veto yet. Check the session, or dismiss this once you are sure it got the message.</li>
+                          } @else {
+                            <li data-testid="veto-waiting"><span class="text-[var(--ks-text-muted)]" aria-hidden="true">○</span> Waiting for the agent to acknowledge it on its next turn; this resolves by itself (escalates at {{ clock(v.ack_deadline) }})</li>
+                          }
                         </ol>
                         @if (e.pending) {
                           <div class="flex flex-wrap gap-2">
-                            <button type="button" class="ks-btn ks-btn-primary h-10" data-testid="veto-ack" (click)="ack(e)">Got it</button>
+                            @if (late) {
+                              <button type="button" class="ks-btn ks-btn-primary h-10" data-testid="veto-dismiss" [disabled]="control.isBusy(v.id)" (click)="dismiss(e)">Dismiss</button>
+                            }
                             @if (e.sessionId && work.byId()[e.sessionId]) {
                               <button type="button" class="ks-btn ks-btn-soft h-10" (click)="openSession(e)">Open the session</button>
                             }
                           </div>
-                        } @else {
-                          <p class="m-0 text-[12.5px] text-[var(--ks-text-muted)]" role="status">Acknowledged.</p>
                         }
                       </article>
                     }
@@ -208,6 +266,22 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
     .ks-ny-slide {
       animation: ks-ny-in 220ms var(--ks-ease-out) both;
     }
+    .ks-ny-facts {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 14px;
+    }
+    .ks-ny-facts dt {
+      color: var(--ks-text-muted);
+    }
+    .ks-ny-facts dd {
+      margin: 0;
+      color: var(--ks-text);
+    }
+    .ks-ny-late {
+      background: var(--ks-red);
+      color: #1e0b0b;
+    }
     .ks-ny-slide.ks-ny-from-left {
       animation-name: ks-ny-in-left;
     }
@@ -252,6 +326,7 @@ export class NeedsYouDialogComponent {
   readonly questions = inject(QuestionsStore);
   readonly control = inject(ControlStore);
   readonly work = inject(WorkStore);
+  private readonly fleet = inject(FleetStore);
   private readonly router = inject(Router);
 
   /** Direction of the last move, for the slide (1: forward, -1: back). */
@@ -310,8 +385,59 @@ export class NeedsYouDialogComponent {
     this.store.go(e.key);
   }
 
+  /** Notes typed for override decisions, by entry key. */
+  private readonly notes = signal<Record<string, string>>({});
+  /** Decisions and dismissals made here, for the receipts. */
+  readonly decided = signal<Record<string, 'approve' | 'deny'>>({});
+  readonly dismissedHere = signal<Record<string, boolean>>({});
+
   veto(e: NeedsYouEntry): { reason: string; note: string } {
     return e.veto ? vetoDetails(e.veto) : { reason: '', note: '' };
+  }
+
+  escalated(v: Veto): boolean {
+    return vetoEscalated(v, this.store.now());
+  }
+
+  duration(seconds: number): string {
+    return formatDuration(seconds);
+  }
+
+  clock(iso: string | undefined): string {
+    return iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  }
+
+  scope(e: NeedsYouEntry): string {
+    const o = e.override;
+    if (!o) return '';
+    const machine = o.worker_id ? this.fleet.workersById()[o.worker_id]?.name : undefined;
+    const hold = this.control.holds().find((h) => h.id === o.hold_id);
+    const session = e.sessionId ? this.work.byId()[e.sessionId] : undefined;
+    return overrideScope(o, machine, hold, session ? `${session.sid} (${session.title})` : undefined);
+  }
+
+  noteFor(key: string): string {
+    return this.notes()[key] ?? '';
+  }
+
+  setNote(key: string, value: string): void {
+    this.notes.update((n) => ({ ...n, [key]: value }));
+  }
+
+  async decide(e: NeedsYouEntry, decision: 'approve' | 'deny'): Promise<void> {
+    if (!e.override) return;
+    if (await this.store.decideOverride(e.override, decision, this.noteFor(e.key))) {
+      this.decided.update((d) => ({ ...d, [e.key]: decision }));
+      this.forward(() => this.store.advance(e.key));
+    }
+  }
+
+  async dismiss(e: NeedsYouEntry): Promise<void> {
+    if (!e.veto) return;
+    if (await this.store.dismissVeto(e.veto)) {
+      this.dismissedHere.update((d) => ({ ...d, [e.key]: true }));
+      this.forward(() => this.store.advance(e.key, 400));
+    }
   }
 
   reviewItem(e: NeedsYouEntry) {
@@ -320,12 +446,6 @@ export class NeedsYouDialogComponent {
 
   async resolve(e: NeedsYouEntry, status: 'done' | 'declined'): Promise<void> {
     if (e.request && (await this.control.resolveRequest(e.request, status))) this.forward(() => this.store.advance(e.key));
-  }
-
-  ack(e: NeedsYouEntry): void {
-    if (!e.veto) return;
-    this.store.dismissVeto(e.veto);
-    this.forward(() => this.store.advance(e.key, 400));
   }
 
   openSession(e: NeedsYouEntry): void {

@@ -34,8 +34,10 @@ import {
   FleetPause,
   FleetPauseResult,
   Hold,
+  OverrideRequest,
   TaskActionResult,
   UserRequest,
+  Veto,
   VetoReason,
   WorkerControlResult,
 } from '../models/control.models';
@@ -354,6 +356,26 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ status, note: note || undefined }),
     });
+  }
+
+  listOverrides(q: { status?: string } = {}): Promise<{ overrides: OverrideRequest[] }> {
+    const qs = q.status ? `?status=${encodeURIComponent(q.status)}` : '';
+    return this.request(`/api/overrides${qs}`);
+  }
+
+  decideOverride(id: string, decision: 'approve' | 'deny', note?: string): Promise<OverrideRequest> {
+    return this.request(`/api/overrides/${encodeURIComponent(id)}/${decision}`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || undefined }),
+    });
+  }
+
+  listVetoes(q: { open?: boolean } = {}): Promise<{ vetoes: Veto[]; ack_minutes?: number }> {
+    return this.request(`/api/vetoes${q.open ? '?open=1' : ''}`);
+  }
+
+  dismissVeto(id: string): Promise<Veto> {
+    return this.request(`/api/vetoes/${encodeURIComponent(id)}/dismiss`, { method: 'POST' });
   }
 
   // --- Questions (PRD §5.8b) ---

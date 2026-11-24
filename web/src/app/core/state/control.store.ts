@@ -3,10 +3,13 @@ import {
   FleetEvent,
   FleetPause,
   Hold,
+  OverrideRequest,
   UserRequest,
+  Veto,
   VetoReason,
   isTimelineEvent,
   mergeFleetEvents,
+  vetoOpen,
 } from '../models/control.models';
 import { ApiClientService } from '../services/api-client.service';
 
@@ -15,8 +18,10 @@ export const TIMELINE_PAGE_SIZE = 60;
 
 /**
  * Human control state (PRD §5.8a): fleet Pause everything, active holds, open requests
- * from agents and the "Your actions" timeline. Loaded over REST and kept current by
- * fleet.update frames of kinds "pause", "hold", "request" and "fleet_event".
+ * from agents, override requests from the orchestrator, vetoes awaiting the agent's
+ * acknowledgement and the "Your actions" timeline. Loaded over REST and kept current by
+ * fleet.update frames of kinds "pause", "hold", "request", "override", "veto" and
+ * "fleet_event".
  */
 @Injectable({ providedIn: 'root' })
 export class ControlStore {
@@ -27,6 +32,10 @@ export class ControlStore {
   readonly holds = signal<Hold[]>([]);
   /** Open requests from agents, newest first. */
   readonly requests = signal<UserRequest[]>([]);
+  /** Override requests waiting for the user's decision, newest first. */
+  readonly overrides = signal<OverrideRequest[]>([]);
+  /** Vetoes the agent has not acknowledged yet (and the user has not dismissed), newest first. */
+  readonly vetoes = signal<Veto[]>([]);
   /** Timeline events (user actions and responses), newest first. */
   readonly events = signal<FleetEvent[]>([]);
   readonly eventsCursor = signal<number | undefined>(undefined);
@@ -58,7 +67,14 @@ export class ControlStore {
 
   /** Loads everything; individual failures leave the previous value in place. */
   async load(): Promise<void> {
-    await Promise.all([this.loadPause(), this.loadHolds(), this.loadRequests(), this.loadEvents()]);
+    await Promise.all([
+      this.loadPause(),
+      this.loadHolds(),
+      this.loadRequests(),
+      this.loadOverrides(),
+      this.loadVetoes(),
+      this.loadEvents(),
+    ]);
   }
 
   async loadPause(): Promise<void> {
@@ -82,6 +98,24 @@ export class ControlStore {
     try {
       const res = await this.api.listRequests({ status: 'open' });
       this.requests.set(sortNewest((res.requests ?? []).filter((r) => r.status === 'open')));
+    } catch {
+      // keep
+    }
+  }
+
+  async loadOverrides(): Promise<void> {
+    try {
+      const res = await this.api.listOverrides({ status: 'pending' });
+      this.overrides.set(sortNewest((res.overrides ?? []).filter((o) => o.status === 'pending')));
+    } catch {
+      // keep
+    }
+  }
+
+  async loadVetoes(): Promise<void> {
+    try {
+      const res = await this.api.listVetoes({ open: true });
+      this.vetoes.set(sortNewest((res.vetoes ?? []).filter(vetoOpen)));
     } catch {
       // keep
     }
@@ -134,6 +168,22 @@ export class ControlStore {
     this.requests.update((list) => {
       const rest = list.filter((x) => x.id !== r.id);
       return r.status === 'open' ? sortNewest([r, ...rest]) : rest;
+    });
+  }
+
+  applyOverride(o: OverrideRequest | undefined | null): void {
+    if (!o?.id) return;
+    this.overrides.update((list) => {
+      const rest = list.filter((x) => x.id !== o.id);
+      return o.status === 'pending' ? sortNewest([o, ...rest]) : rest;
+    });
+  }
+
+  applyVeto(v: Veto | undefined | null): void {
+    if (!v?.id) return;
+    this.vetoes.update((list) => {
+      const rest = list.filter((x) => x.id !== v.id);
+      return vetoOpen(v) ? sortNewest([v, ...rest]) : rest;
     });
   }
 
@@ -205,6 +255,22 @@ export class ControlStore {
       this.api.resolveRequest(req.id, status, note),
     );
     if (res) this.applyRequest({ ...req, ...res, status: res.status || status });
+    return !!res;
+  }
+
+  /** Approves or denies an override request (with an optional note for the orchestrator). */
+  async decideOverride(o: OverrideRequest, decision: 'approve' | 'deny', note?: string): Promise<boolean> {
+    const res = await this.run(o.id, 'Could not decide the override request', () =>
+      this.api.decideOverride(o.id, decision, note),
+    );
+    if (res) this.applyOverride({ ...o, ...res, status: res.status || (decision === 'approve' ? 'approved' : 'denied') });
+    return !!res;
+  }
+
+  /** Dismisses a veto the agent never acknowledged. */
+  async dismissVeto(v: Veto): Promise<boolean> {
+    const res = await this.run(v.id, 'Could not dismiss the veto', () => this.api.dismissVeto(v.id));
+    if (res) this.applyVeto({ ...v, ...res, dismissed_at: res.dismissed_at || new Date().toISOString() });
     return !!res;
   }
 

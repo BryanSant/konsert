@@ -9,7 +9,7 @@ import { ModeUiStore } from '../mode-ui.store';
 
 /**
  * Command's right rail, the one Needs-you area on the page: every question, agent request,
- * veto to acknowledge and review as the same compact item, each opening the Needs-you
+ * override request, veto awaiting the agent's acknowledgement and review as the same compact item, each opening the Needs-you
  * dialog. Below: the holds the user placed and "Your actions".
  */
 @Component({
@@ -43,7 +43,7 @@ import { ModeUiStore } from '../mode-ui.store';
       } @else {
         @if (store.empty()) {
           <p class="px-1 text-[12.5px] leading-relaxed text-[var(--ks-text-muted)]" data-testid="rail-empty">
-            Nothing needs you. Questions, requests from agents, vetoes and finished work to review land here.
+            Nothing needs you. Questions, requests and override requests from agents, vetoes and finished work to review land here.
           </p>
         }
         <ul class="m-0 p-0 list-none space-y-1.5">
@@ -79,7 +79,7 @@ export class NeedsYouRailComponent {
   readonly ui = inject(ModeUiStore);
 
   constructor() {
-    // Keep "blocked 12m" and the veto window current while the rail is on screen.
+    // Keep "blocked 12m" and veto escalation current while the rail is on screen.
     const timer = setInterval(() => this.store.now.set(Date.now()), 30_000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
   }

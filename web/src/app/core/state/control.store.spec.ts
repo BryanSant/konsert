@@ -123,6 +123,19 @@ describe('ControlStore', () => {
         throw new Error('chat not found');
       }),
       setWorkerDrained: vi.fn(async () => ({ ok: true, worker_id: 'w1', drained: true })),
+      listOverrides: vi.fn(async () => ({
+        overrides: [
+          { id: 'o1', sid: 'o-1', scope_kind: 'machine_slots', duration_seconds: 1800, reason: 'r', consequences: 'c', status: 'pending', created_at: '2026-11-23T10:00:00Z', use_count: 0 },
+          { id: 'o2', sid: 'o-2', scope_kind: 'hold', duration_seconds: 600, reason: 'r', consequences: 'c', status: 'approved', created_at: '2026-11-23T09:00:00Z', use_count: 1 },
+        ],
+      })),
+      listVetoes: vi.fn(async () => ({
+        vetoes: [
+          { id: 'v1', sid: 'v-1', reason: 'not_now', summary: 's', fleet_event_id: 3, created_at: '2026-11-23T10:00:00Z', status: 'sent', ack_deadline: '2026-11-23T10:10:00Z' },
+          { id: 'v2', sid: 'v-2', reason: 'not_now', summary: 's', fleet_event_id: 4, created_at: '2026-11-23T10:01:00Z', status: 'acknowledged', acked_at: '2026-11-23T10:02:00Z', ack_deadline: '2026-11-23T10:11:00Z' },
+        ],
+      })),
+      decideOverride: vi.fn(async (id: string) => ({ id, status: 'denied' })),
     };
     TestBed.configureTestingModule({ providers: [{ provide: ApiClientService, useValue: api }] });
     store = TestBed.inject(ControlStore);
@@ -138,6 +151,10 @@ describe('ControlStore', () => {
     expect(store.requests().map((r) => r.id)).toEqual(['r1']);
     expect(store.events().map((e) => e.id)).toEqual([5]);
     expect(store.eventsCursor()).toBe(4);
+    expect(store.overrides().map((o) => o.id)).toEqual(['o1']);
+    expect(store.vetoes().map((v) => v.id)).toEqual(['v1']);
+    expect(api['listOverrides']).toHaveBeenCalledWith({ status: 'pending' });
+    expect(api['listVetoes']).toHaveBeenCalledWith({ open: true });
     expect(store.attentionCount()).toBe(2);
     expect(api['listHolds']).toHaveBeenCalledWith({ active: true });
     expect(api['listFleetEvents']).toHaveBeenCalledWith(expect.objectContaining({ notable: true }));
@@ -165,6 +182,13 @@ describe('ControlStore', () => {
     expect(store.paused()).toBe(true);
     store.applyPause({ paused: false });
     expect(store.paused()).toBe(false);
+  });
+
+  it('denies an override request with a note', async () => {
+    await store.load();
+    expect(await store.decideOverride(store.overrides()[0], 'deny', 'not today')).toBe(true);
+    expect(api['decideOverride']).toHaveBeenCalledWith('o1', 'deny', 'not today');
+    expect(store.overrides()).toEqual([]);
   });
 
   it('pauses and resumes everything', async () => {

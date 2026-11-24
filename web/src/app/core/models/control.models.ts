@@ -19,7 +19,7 @@ export interface Cause {
   hold_id?: string;
 }
 
-export type FleetEventKind = 'status' | 'action' | 'hold' | 'request' | 'veto' | 'notice';
+export type FleetEventKind = 'status' | 'action' | 'hold' | 'request' | 'veto' | 'override' | 'notice';
 
 export interface FleetEvent {
   id: number;
@@ -92,6 +92,83 @@ export interface UserRequest {
   resolved_by?: string;
   resolution?: string;
   command_id?: string;
+}
+
+export type OverrideScope = 'machine_slots' | 'hold' | 'session' | 'machine';
+export type OverrideStatus = 'pending' | 'approved' | 'denied' | 'expired';
+
+/**
+ * A time-boxed exception an orchestrator asked for (break-glass): extra slots on a machine,
+ * or holds lifted for a while. Enforced once approved until `expires_at`; `use_count`
+ * measures whether it was actually used.
+ */
+export interface OverrideRequest {
+  id: string;
+  sid: string;
+  /** The requesting orchestrator chat. */
+  chat_id?: string;
+  scope_kind: OverrideScope | string;
+  worker_id?: string;
+  task_id?: string;
+  target_chat_id?: string;
+  hold_id?: string;
+  extra_slots?: number;
+  duration_seconds: number;
+  reason: string;
+  /** What approving allows, in Konsert's words. */
+  consequences: string;
+  status: OverrideStatus | string;
+  created_at: string;
+  decided_at?: string;
+  decided_by?: string;
+  decision_note?: string;
+  approved_at?: string;
+  expires_at?: string;
+  ended_at?: string;
+  use_count: number;
+  first_used_at?: string;
+  last_used_at?: string;
+}
+
+export type VetoStatus = 'sent' | 'delivered' | 'acknowledged' | 'escalated' | 'dismissed';
+
+/** A veto, tracked until the agent it was told to acknowledges it on its next turn. */
+export interface Veto {
+  id: string;
+  sid: string;
+  reason: VetoReason | string;
+  note?: string;
+  summary: string;
+  worker_id?: string;
+  task_id?: string;
+  chat_id?: string;
+  fleet_event_id: number;
+  created_at: string;
+  delivered_at?: string;
+  delivered_chat_id?: string;
+  acked_at?: string;
+  acked_chat_id?: string;
+  escalated_at?: string;
+  dismissed_at?: string;
+  dismissed_by?: string;
+  status: VetoStatus | string;
+  /** When it escalates if still unacknowledged. */
+  ack_deadline: string;
+  /** "the orchestrator (chat c-…)" */
+  delivered_to?: string;
+  acked_by?: string;
+}
+
+/** Whether a veto still waits for the agent (or a dismissal). */
+export function vetoOpen(v: Veto): boolean {
+  return !v.acked_at && !v.dismissed_at;
+}
+
+/** "30m", "2h", "1h30m". */
+export function formatDuration(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m}m`;
+  return m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h${m % 60}m`;
 }
 
 export interface FleetPause {

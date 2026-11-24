@@ -2,13 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { UrlSegment } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { modeMatcher } from '../app.routes';
-import { Hold } from '../core/models/control.models';
+import { Hold, OverrideRequest, Veto, formatDuration } from '../core/models/control.models';
 import { ChatSession, Task, Worker } from '../core/models/konsert.models';
 import { QuestionView } from '../core/models/question.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { ControlStore } from '../core/state/control.store';
 import { FleetStore } from '../core/state/fleet.store';
-import { NeedsYouStore, nextPendingKey, recentVetoes, vetoDetails } from '../core/state/needs-you.store';
+import { NeedsYouStore, nextPendingKey, overrideScope, overrideTitle, vetoDetails, vetoEscalated } from '../core/state/needs-you.store';
 import { OrchestratorStore } from '../core/state/orchestrator.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { WorkInputs, buildWorkItems, groupByProject, machineLoadLabel, occupiesSlot } from '../core/state/work-logic';
@@ -58,6 +58,41 @@ const task = (id: string, status: Task['status'], over: Partial<Task> = {}): Tas
 
 const chat = (id: string, status: string, over: Partial<ChatSession> = {}): ChatSession =>
   ({ id, sid: `c-${id}`, title: `Chat ${id}`, provider: '', model: '', created_at: '', updated_at: new Date(NOW).toISOString(), backend: 'agent', agent: 'codex', worker_id: 'w1', status, ...over }) as ChatSession;
+
+/** Lets chained promise continuations (store -> API mock -> component) run. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+}
+
+const veto = (id: string, over: Partial<Veto> = {}): Veto => ({
+  id,
+  sid: `v-${id}`,
+  reason: 'wrong_machine',
+  note: 'use CI',
+  summary: `The user vetoed task t-${id} (claude on desk: "x") — reason: wrong machine`,
+  task_id: id,
+  fleet_event_id: 1,
+  created_at: new Date(Date.now() - 60_000).toISOString(),
+  status: 'sent',
+  ack_deadline: new Date(Date.now() + 9 * 60_000).toISOString(),
+  ...over,
+});
+
+const override = (id: string, over: Partial<OverrideRequest> = {}): OverrideRequest => ({
+  id,
+  sid: `o-${id}`,
+  chat_id: 'c-orch',
+  scope_kind: 'machine_slots',
+  worker_id: 'w1',
+  extra_slots: 1,
+  duration_seconds: 1800,
+  reason: 'The e2e suite must run next to the build',
+  consequences: 'desk may run up to 3 sessions at once instead of 2 for 30m after you approve.',
+  status: 'pending',
+  created_at: new Date(Date.now() - 30_000).toISOString(),
+  use_count: 0,
+  ...over,
+});
 
 const question = (id: string, over: Partial<QuestionView> = {}): QuestionView =>
   ({
@@ -177,12 +212,25 @@ describe('needs-you queue', () => {
     expect(nextPendingKey(['a'], ['a'], 'a')).toBeNull();
   });
 
-  it('keeps vetoes for two hours unless acknowledged and reads their reason', () => {
-    const ev = { id: 1, kind: 'veto', action: 'wrong_machine', created_at: new Date(Date.now() - 60_000).toISOString(), summary: '', cause: { actor: 'user', confidence: 'certain' }, meta_json: '{"reason":"wrong_machine","note":"use CI"}' };
-    const old = { ...ev, id: 2, created_at: new Date(Date.now() - 3 * 3600_000).toISOString() };
-    expect(recentVetoes([ev, old], {}).map((e) => e.id)).toEqual([1]);
-    expect(recentVetoes([ev], { 'veto:1': Date.now() })).toEqual([]);
-    expect(vetoDetails(ev)).toEqual({ reason: 'Wrong machine', note: 'use CI' });
+  it('reads a veto\'s reason and knows when it went unacknowledged past its deadline', () => {
+    expect(vetoDetails(veto('a'))).toEqual({ reason: 'Wrong machine', note: 'use CI' });
+    expect(vetoEscalated(veto('a'))).toBe(false);
+    expect(vetoEscalated(veto('a'), Date.now() + 10 * 60_000)).toBe(true);
+    expect(vetoEscalated(veto('a', { escalated_at: new Date().toISOString() }))).toBe(true);
+    expect(vetoEscalated(veto('a', { acked_at: new Date().toISOString() }), Date.now() + 3600_000)).toBe(false);
+  });
+
+  it('describes override requests: title, scope and duration', () => {
+    expect(formatDuration(1800)).toBe('30m');
+    expect(formatDuration(5400)).toBe('1h30m');
+    expect(formatDuration(7200)).toBe('2h');
+    expect(overrideTitle(override('a'), 'mac')).toBe('Allow 1 extra session on mac for 30m');
+    expect(overrideTitle(override('a', { extra_slots: 2, duration_seconds: 3600 }), 'mac')).toBe('Allow 2 extra sessions on mac for 1h');
+    const hold = { id: 'h1', sid: 'h-1', scope_kind: 'machine', summary: 'The user stopped everything on mac', cause: { actor: 'user', confidence: 'certain' }, created_at: '' };
+    expect(overrideTitle(override('b', { scope_kind: 'hold', hold_id: 'h1' }), 'mac', hold)).toBe('Lift hold h-1 on mac for 30m');
+    expect(overrideScope(override('b', { scope_kind: 'hold', hold_id: 'h1' }), 'mac', hold)).toBe('Hold h-1 on mac: The user stopped everything on mac');
+    expect(overrideScope(override('a'), 'mac')).toBe('mac: 1 more session at once than its slot limit');
+    expect(overrideScope(override('c', { scope_kind: 'machine' }), 'mac')).toBe('Every machine and resource hold on mac');
   });
 
   describe('NeedsYouStore and the dialog', () => {
@@ -195,6 +243,8 @@ describe('needs-you queue', () => {
         listQuestions: vi.fn(async () => ({ questions: [] })),
         answerQuestion: vi.fn(async (id: string) => question(id, { status: 'answered', answer: { by: { actor: 'user' }, at: '' } as QuestionView['answer'] })),
         resolveRequest: vi.fn(async (id: string, status: string) => ({ id, status })),
+        decideOverride: vi.fn(async (id: string, decision: string) => override(id, { status: decision === 'approve' ? 'approved' : 'denied' })),
+        dismissVeto: vi.fn(async (id: string) => veto(id, { dismissed_at: new Date().toISOString(), status: 'dismissed' })),
       };
       TestBed.configureTestingModule({ providers: [{ provide: ApiClientService, useValue: api }] });
     });
@@ -228,6 +278,87 @@ describe('needs-you queue', () => {
       expect(store.caughtUp()).toBe(true);
       vi.advanceTimersByTime(2000);
       expect(store.isOpen()).toBe(false);
+    });
+
+    it('orders vetoes and override requests; a veto resolves itself once acknowledged', () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      TestBed.inject(FleetStore).upsertWorker(worker());
+      TestBed.inject(QuestionsStore).apply(question('a'));
+      control.applyVeto(veto('waiting', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the orchestrator (chat c-o)' }));
+      control.applyVeto(veto('late', { escalated_at: new Date().toISOString(), status: 'escalated' }));
+      control.applyOverride(override('o1'));
+      expect(store.entries().map((e) => e.key)).toEqual(['v:late', 'q:a', 'o:o1', 'v:waiting']);
+      const [late, , ov, waiting] = store.entries();
+      expect(late.tag).toBe('P1');
+      expect(late.meta).toContain('not acknowledged');
+      expect(waiting.tag).toBe('P3');
+      expect(waiting.meta).toContain('waiting for the agent');
+      expect(ov).toMatchObject({ kind: 'override', tag: 'P2', sid: 'o-o1', title: 'Allow 1 extra session on desk for 30m' });
+      expect(ov.meta).toContain('orchestrator');
+
+      // The agent acknowledges on its next turn: the hub's update removes it.
+      control.applyVeto(veto('waiting', { acked_at: new Date().toISOString(), status: 'acknowledged' }));
+      expect(store.entries().map((e) => e.key)).toEqual(['v:late', 'q:a', 'o:o1']);
+      // A decided override leaves too.
+      control.applyOverride(override('o1', { status: 'approved' }));
+      expect(store.entries().map((e) => e.key)).toEqual(['v:late', 'q:a']);
+    });
+
+    it('the override card shows scope, duration, reason and consequences; Approve sends the note and moves on', async () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      TestBed.inject(FleetStore).upsertWorker(worker());
+      control.applyOverride(override('o1'));
+      control.applyOverride(override('o2', { created_at: new Date(Date.now() - 90_000).toISOString() }));
+      store.open('o:o1');
+      const fixture = TestBed.createComponent(NeedsYouDialogComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const card = root.querySelector('[data-testid="needs-you-override"]')!;
+      expect(card.getAttribute('data-override')).toBe('o-o1');
+      expect(card.querySelector('[data-testid="override-scope"]')?.textContent).toContain('desk: 1 more session at once');
+      expect(card.querySelector('[data-testid="override-duration"]')?.textContent).toContain('30m');
+      expect(card.querySelector('[data-testid="override-reason"]')?.textContent).toContain('e2e suite');
+      expect(card.querySelector('[data-testid="override-consequences"]')?.textContent).toContain('up to 3 sessions');
+      const note = card.querySelector<HTMLInputElement>('[data-testid="override-note"]')!;
+      note.value = 'today only';
+      note.dispatchEvent(new Event('input'));
+      card.querySelector<HTMLButtonElement>('[data-testid="override-approve"]')!.click();
+      await flushMicrotasks();
+      expect(api['decideOverride']).toHaveBeenCalledWith('o1', 'approve', 'today only');
+      expect(control.overrides().map((o) => o.id)).toEqual(['o2']);
+      fixture.detectChanges();
+      expect(root.querySelector('[data-testid="override-decided"]')?.textContent).toContain('Approved');
+      vi.advanceTimersByTime(1300);
+      expect(store.current()?.key).toBe('o:o2');
+      fixture.destroy();
+    });
+
+    it('the veto card waits for the agent; only an escalated veto can be dismissed', async () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      control.applyVeto(veto('w', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the orchestrator (chat c-o)' }));
+      store.open('v:w');
+      const fixture = TestBed.createComponent(NeedsYouDialogComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('[data-testid="veto-waiting"]')).toBeTruthy();
+      expect(root.querySelector('[data-testid="veto-steps"]')?.textContent).toContain('Told to the orchestrator (chat c-o)');
+      expect(root.querySelector('[data-testid="veto-dismiss"]')).toBeNull();
+      expect(root.querySelector('[data-testid="veto-ack"]')).toBeNull();
+
+      control.applyVeto(veto('w', { status: 'escalated', escalated_at: new Date().toISOString(), delivered_at: new Date().toISOString() }));
+      fixture.detectChanges();
+      expect(root.querySelector('[data-testid="needs-you-veto"]')?.getAttribute('data-veto-status')).toBe('escalated');
+      expect(root.querySelector('[data-testid="veto-escalated"]')?.textContent).toContain('Not acknowledged');
+      root.querySelector<HTMLButtonElement>('[data-testid="veto-dismiss"]')!.click();
+      await flushMicrotasks();
+      expect(api['dismissVeto']).toHaveBeenCalledWith('w');
+      expect(control.vetoes()).toEqual([]);
+      fixture.detectChanges();
+      expect(root.querySelector('[data-testid="veto-resolved"]')?.textContent).toContain('Dismissed by you');
+      fixture.destroy();
     });
 
     it('the dialog moves with j/k and arrows, shows its position, and Esc closes it', async () => {
