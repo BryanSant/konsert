@@ -439,6 +439,9 @@ type FleetUpdatePayload struct {
 	Activity any `json:"activity,omitzero"`
 	// Review carries a store.Review (decision, Expedite) when Kind is "review".
 	Review any `json:"review,omitzero"`
+	// Device carries a signed-in device (Settings → Devices) when Kind is "device";
+	// "device_revoked" uses DeletedID.
+	Device any `json:"device,omitzero"`
 }
 
 type GitChangedFile struct {

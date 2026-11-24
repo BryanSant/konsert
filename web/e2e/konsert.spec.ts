@@ -27,9 +27,11 @@ async function loginThroughUI(page: Page, env: E2EEnv): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Konsert' })).toBeVisible();
 
   // An invalid token is rejected first.
+  // Signed out, the login page offers pairing; the recovery key is the fallback.
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill('wrong-token');
   await page.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page.getByText(/invalid token/i)).toBeVisible();
+  await expect(page.getByText(/invalid recovery key/i)).toBeVisible();
 
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
@@ -191,7 +193,8 @@ test.describe('Konsert E2E Suite (Desktop & Mobile PWA)', () => {
     const table = audit.getByRole('table');
     await expect(table.getByRole('columnheader', { name: 'User' })).toBeVisible();
     const takeRow = table.getByRole('row').filter({ hasText: 'Take control' }).first();
-    await expect(takeRow).toContainText('operator');
+    // Signed in with the recovery key, this browser is a device of its own: "<name> (dv-…)".
+    await expect(takeRow).toContainText(/\(dv-[0-9a-z]{5,12}\)/);
     await expect(takeRow).toContainText(env.workerName);
     await expect(takeRow).toContainText(taskSid);
     await expect(takeRow).not.toContainText(taskId);

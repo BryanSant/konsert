@@ -22,7 +22,7 @@ func TestRemoteClientPassesCSRFGuard(t *testing.T) {
 	}
 	defer st.Close()
 	cfg := config.DefaultControllerConfig()
-	cfg.AdminToken = "admin-tok"
+	cfg.RecoveryKey = "admin-tok"
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()

@@ -21,6 +21,7 @@ func (h *Hub) ServeBrowserConn(ctx context.Context, conn *websocket.Conn, user s
 
 	client := &browserClient{
 		user:     user,
+		deviceID: identityFrom(ctx).DeviceID(),
 		conn:     conn,
 		sendCh:   make(chan wsFrame, 256), // Bounded queue for backpressure protection
 		cancel:   cancel,
@@ -293,6 +294,29 @@ func (h *Hub) unsubscribeBrowserPty(c *browserClient, taskID string) {
 	}
 }
 
+// DisconnectDevice closes every browser socket opened with a device's credential (the
+// device was revoked). Returns how many were closed.
+func (h *Hub) DisconnectDevice(deviceID string) int {
+	if deviceID == "" {
+		return 0
+	}
+	h.mu.RLock()
+	var victims []*browserClient
+	for c := range h.clients {
+		if c.deviceID == deviceID {
+			victims = append(victims, c)
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range victims {
+		go func() {
+			_ = c.conn.Close(websocket.StatusPolicyViolation, "signed out")
+			c.cancel()
+		}()
+	}
+	return len(victims)
+}
+
 func (h *Hub) cleanupBrowserClient(c *browserClient) {
 	c.mu.Lock()
 	subIDs := make([]string, 0, len(c.subs))
@@ -408,7 +432,9 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Activity = item
 	case "review":
 		p.Review = item
-	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted":
+	case "device":
+		p.Device = item
+	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}

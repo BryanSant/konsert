@@ -52,7 +52,7 @@ func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 	defer st.Close()
 
 	cfg := config.DefaultControllerConfig()
-	cfg.AdminToken = "admin-tok"
+	cfg.RecoveryKey = "admin-tok"
 	srv := NewServer(cfg, st, nil, "1.5.0")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()

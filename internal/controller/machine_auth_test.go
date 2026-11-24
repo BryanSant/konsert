@@ -50,7 +50,7 @@ func newMachineAuthServer(t *testing.T) (*Server, *httptest.Server, *time.Time) 
 	t.Helper()
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = machineAdminTok
+		c.RecoveryKey = machineAdminTok
 		c.PublicURL = "https://hub.example.ts.net"
 	})
 	now := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)

@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, output, signal } from '@angular/core';
+import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -126,6 +127,23 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
+        <!-- Sign-in & devices -->
+        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Sign-in &amp; devices</div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="ks-btn ks-btn-sm" data-testid="settings-devices" (click)="openDevices.emit('list')">Devices…</button>
+            <button type="button" class="ks-btn ks-btn-sm" (click)="openDevices.emit('add')">Add a device…</button>
+            <button type="button" class="ks-btn ks-btn-sm" (click)="openDevices.emit('mcp')">Connect an MCP client…</button>
+          </div>
+          <div class="flex items-center gap-2">
+            <label for="settings-modal-device-idle-days" class="text-[#d4d4d8]">Keep devices signed in while used every</label>
+            <input id="settings-modal-device-idle-days" type="number" name="deviceIdleDays" min="1" max="3650"
+              [ngModel]="deviceIdleDays()" (ngModelChange)="deviceIdleDays.set(+$event)"
+              class="ks-field w-20 font-mono-ide" />
+            <span class="text-[#d4d4d8]">days</span>
+          </div>
+        </div>
+
         <!-- Orchestrator LLM Section -->
         <details class="rounded-[var(--ks-radius-lg)] bg-black/20 group" [open]="apiKeySet()">
           <summary class="cursor-pointer list-none px-3.5 py-3 text-[12px] text-[#a1a3ab] hover:text-[#ececed] flex items-center justify-between">
@@ -238,6 +256,8 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
 })
 export class SettingsModalComponent implements OnInit {
   readonly close = output<void>();
+  /** Opens Settings → Devices on a view. */
+  readonly openDevices = output<DevicesView>();
 
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
@@ -283,6 +303,7 @@ export class SettingsModalComponent implements OnInit {
   readonly fontSize = signal(13);
   readonly notifySound = signal(true);
   readonly notifyDesktop = signal(false);
+  readonly deviceIdleDays = signal(90);
 
   readonly saving = signal(false);
   readonly error = signal('');
@@ -304,6 +325,7 @@ export class SettingsModalComponent implements OnInit {
       this.fontSize.set(s.terminal_font_size || 13);
       this.notifySound.set(!!s.notify_sound);
       this.notifyDesktop.set(!!s.notify_desktop);
+      this.deviceIdleDays.set(s.device_idle_days || 90);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
     }
@@ -358,6 +380,7 @@ export class SettingsModalComponent implements OnInit {
         terminal_font_size: this.fontSize(),
         notify_sound: this.notifySound(),
         notify_desktop: this.notifyDesktop(),
+        device_idle_days: Math.min(3650, Math.max(1, Math.round(this.deviceIdleDays() || 90))),
       });
       this.fleet.settings.set(updated);
       this.auth.provider.set(updated.llm_provider);

@@ -12,13 +12,13 @@ import (
 )
 
 // newTokenRotateCmd is `konsert token rotate`, a group with one subcommand per kind of
-// credential (KON-W1YRP): `machines` here; `recovery` (the user recovery key) joins it.
+// credential (KON-W1YRP): `recovery` (the hub's recovery key) and `machines`.
 func newTokenRotateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate credentials",
 	}
-	cmd.AddCommand(newRotateMachinesCmd())
+	cmd.AddCommand(newRotateRecoveryCmd(), newRotateMachinesCmd())
 	return cmd
 }
 

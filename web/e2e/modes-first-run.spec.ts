@@ -27,7 +27,7 @@ async function startHub(): Promise<Hub> {
   const baseURL = `http://127.0.0.1:${port}`;
   const proc = spawn(
     path.join(repoRoot, 'bin', 'konsert'),
-    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db'), '--admin-token', ADMIN],
+    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db'), '--recovery-key', ADMIN],
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -52,6 +52,8 @@ async function stopHub(hub: Hub): Promise<void> {
 
 async function login(page: Page, hub: Hub): Promise<void> {
   await page.goto(hub.baseURL, { waitUntil: 'networkidle' });
+  // Signed out, the login page offers pairing; the recovery key is the fallback.
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill(ADMIN);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();

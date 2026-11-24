@@ -60,6 +60,8 @@ test('activity states and machine heat reach the browser', async ({ page }) => {
   });
 
   await page.goto(env.baseURL);
+  // Signed out, the login page offers pairing; the recovery key is the fallback.
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();

@@ -414,7 +414,7 @@ const errBadJoinCode = "invalid or expired join code"
 // code is the credential), so failures are rate-limited per client and fleet-wide.
 func (s *Server) handleMachineJoin(w http.ResponseWriter, r *http.Request) {
 	ctx := withAuditActor(r.Context(), "konsertd join", auditSourceREST)
-	ip := clientIP(r)
+	ip := auth.ClientIP(r)
 	for _, l := range []struct {
 		lim *auth.LoginLimiter
 		key string

@@ -23,7 +23,6 @@ import (
 
 const (
 	auditAdminTok = "admin-tok"
-	auditMCPTok   = "mcp-tok"
 	auditTSUser   = "alice@example.com"
 )
 
@@ -35,6 +34,11 @@ type auditEnv struct {
 	api    *httptest.Server
 	th     *testHub
 	cookie *http.Cookie
+	// user is the cookie's audit identity ("operator (dv-…)"); mcpTok is an MCP-only
+	// device credential whose audit identity is mcpUser.
+	user    string
+	mcpTok  string
+	mcpUser string
 }
 
 func newAuditEnv(t *testing.T) *auditEnv {
@@ -45,8 +49,7 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	}
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = false
-	cfg.AdminToken = auditAdminTok
-	cfg.MCPToken = auditMCPTok
+	cfg.RecoveryKey = auditAdminTok
 	cfg.EnableMCPHTTP = true
 	cfg.TrustTailscaleHeaders = true
 	srv := NewServer(cfg, st, nil, "test")
@@ -66,11 +69,20 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	})
 	env := &auditEnv{srv: srv, api: api, th: th}
 
-	// Browser session login: the cookie identity is "operator".
-	resp := doReq(t, http.MethodPost, api.URL+"/api/auth/login", strings.NewReader(`{"token":"`+auditAdminTok+`"}`),
+	// Browser session login with the recovery key: the cookie identity is a new device
+	// named "operator".
+	resp := doReq(t, http.MethodPost, api.URL+"/api/auth/login", strings.NewReader(`{"token":"`+auditAdminTok+`","name":"operator"}`),
 		map[string]string{"Content-Type": "application/json"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	var login struct {
+		User string `json:"user"`
+	}
+	_ = json.UnmarshalRead(resp.Body, &login)
+	env.user = login.User
+	if !strings.HasPrefix(env.user, "operator (dv-") {
+		t.Fatalf("login user = %q", env.user)
 	}
 	for _, c := range resp.Cookies() {
 		if c.Value != "" {
@@ -80,6 +92,17 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	if env.cookie == nil {
 		t.Fatal("login set no session cookie")
 	}
+	code, raw := env.do(t, credCookie, http.MethodPost, "/api/devices/mcp", `{"name":"mcp"}`)
+	var minted struct {
+		Token  string `json:"token"`
+		Device struct {
+			SID string `json:"sid"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal([]byte(raw), &minted); code != http.StatusCreated || err != nil || minted.Token == "" {
+		t.Fatalf("mint MCP credential: %d %s", code, raw)
+	}
+	env.mcpTok, env.mcpUser = minted.Token, "mcp ("+minted.Device.SID+")"
 	return env
 }
 
@@ -194,7 +217,7 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 	if code, _ := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/control", `{"enabled":false}`); code != http.StatusOK {
 		t.Fatalf("release control: %d", code)
 	}
-	expectAudit(t, e.latest(t, AuditReleaseControl), AuditReleaseControl, "operator", "rest", "w1", "t1")
+	expectAudit(t, e.latest(t, AuditReleaseControl), AuditReleaseControl, e.user, "rest", "w1", "t1")
 	if code, _ := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/control", `{}`); code != http.StatusBadRequest {
 		t.Fatalf("control without enabled: %d", code)
 	}
@@ -212,7 +235,7 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 	}
 	w.expect(protocol.MsgTaskSteer, 3*time.Second)
 	got := e.latest(t, AuditSteer)
-	expectAudit(t, got, AuditSteer, "operator", "rest", "w1", "t1")
+	expectAudit(t, got, AuditSteer, e.user, "rest", "w1", "t1")
 	if strings.Contains(got.Message+got.MetaJSON, secret) {
 		t.Fatalf("steer text leaked into the audit log: %+v", got)
 	}
@@ -223,11 +246,11 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 	if _, err := cli.SteerTask(context.Background(), "t1", "y", false); err != nil {
 		t.Fatal(err)
 	}
-	expectAudit(t, e.latest(t, AuditSteer), AuditSteer, "token", "cli", "w1", "t1")
+	expectAudit(t, e.latest(t, AuditSteer), AuditSteer, "recovery key", "cli", "w1", "t1")
 	if _, err := cli.CancelTask(context.Background(), "t2"); err != nil {
 		t.Fatal(err)
 	}
-	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "token", "cli", "w1", "t2")
+	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "recovery key", "cli", "w1", "t2")
 
 	// REST cancel with a Tailscale identity.
 	if code, _ := e.do(t, credTailscale, http.MethodPost, "/api/tasks/t3/cancel", ""); code != http.StatusOK {
@@ -235,12 +258,12 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 	}
 	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, auditTSUser, "rest", "w1", "t3")
 
-	// MCP (scoped MCP token): attributed to "mcp".
-	sess := connectMCPHTTP(t, e.api.URL, auditMCPTok)
+	// MCP (MCP-only device credential): attributed to that device.
+	sess := connectMCPHTTP(t, e.api.URL, e.mcpTok)
 	callTool(t, sess, "steer_task", map[string]any{"task_id": "t1", "input_text": secret})
-	expectAudit(t, e.latest(t, AuditSteer), AuditSteer, "mcp", "mcp", "w1", "t1")
+	expectAudit(t, e.latest(t, AuditSteer), AuditSteer, e.mcpUser, "mcp", "w1", "t1")
 	callTool(t, sess, "cancel_task", map[string]any{"task_id": "t4"})
-	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "mcp", "mcp", "w1", "t4")
+	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, e.mcpUser, "mcp", "w1", "t4")
 
 	// MCP's read-only audit tool sees the same log.
 	res := callTool(t, sess, "list_audit", map[string]any{"task_id": "t1", "action": AuditSteer})
@@ -297,14 +320,14 @@ func TestAuditGitCommitWorkerRemovalAndWakeLock(t *testing.T) {
 		t.Fatalf("host wakelock: %d %s", code, raw)
 	}
 	got = e.latest(t, AuditWakeLockHost)
-	expectAudit(t, got, AuditWakeLockHost, "operator", "rest", "w1", "")
+	expectAudit(t, got, AuditWakeLockHost, e.user, "rest", "w1", "")
 	if !strings.Contains(got.Message, "long build") {
 		t.Fatalf("wakelock message = %q", got.Message)
 	}
 	if code, _ := e.do(t, credBearer, http.MethodPost, "/api/wakelock", `{"enabled":false}`); code != http.StatusOK {
 		t.Fatalf("fleet wakelock: %d", code)
 	}
-	expectAudit(t, e.latest(t, AuditWakeLockFleet), AuditWakeLockFleet, "token", "rest", "", "")
+	expectAudit(t, e.latest(t, AuditWakeLockFleet), AuditWakeLockFleet, "recovery key", "rest", "", "")
 
 	// Worker removal.
 	if err := e.th.st.UpsertWorker(context.Background(), store.Worker{ID: "w2", Name: "beta", HostGroup: "g", OS: "linux", Arch: "amd64", Status: "offline", LastSeenAt: time.Now()}); err != nil {
@@ -337,7 +360,7 @@ func TestAuditSettingsRecordKeysNeverSecrets(t *testing.T) {
 		t.Fatalf("PUT settings: %d %s", code, raw)
 	}
 	got := e.latest(t, AuditSettingsUpdate)
-	expectAudit(t, got, AuditSettingsUpdate, "operator", "rest", "", "")
+	expectAudit(t, got, AuditSettingsUpdate, e.user, "rest", "", "")
 	var meta struct {
 		Keys []string `json:"keys"`
 	}
@@ -351,12 +374,12 @@ func TestAuditSettingsRecordKeysNeverSecrets(t *testing.T) {
 	// The admin token over MCP may replace the key; still keys only.
 	admin := connectMCPHTTP(t, e.api.URL, auditAdminTok)
 	callTool(t, admin, "update_settings", map[string]any{"updates": map[string]string{"llm_api_key": mcpSecret}})
-	expectAudit(t, e.latest(t, AuditSettingsUpdate), AuditSettingsUpdate, "mcp", "mcp", "", "")
+	expectAudit(t, e.latest(t, AuditSettingsUpdate), AuditSettingsUpdate, "recovery key", "mcp", "", "")
 
 	if code, _ := e.do(t, credBearer, http.MethodPut, "/api/settings", `{"clear_api_key":true}`); code != http.StatusOK {
 		t.Fatalf("clear key: %d", code)
 	}
-	expectAudit(t, e.latest(t, AuditSettingsUpdate), AuditSettingsUpdate, "token", "rest", "", "")
+	expectAudit(t, e.latest(t, AuditSettingsUpdate), AuditSettingsUpdate, "recovery key", "rest", "", "")
 
 	// A rejected change records nothing.
 	before := len(e.list(t, "action="+AuditSettingsUpdate).Events)
@@ -421,7 +444,7 @@ func TestAuditAPIFiltersPagingAndAuth(t *testing.T) {
 			t.Fatal("paging did not terminate")
 		}
 	}
-	if pages != 3 || len(seen) != 25 {
+	if pages != 3 || len(seen) != 27 { // 25 seeded + the env's recovery login and MCP credential
 		t.Fatalf("pages=%d rows=%d", pages, len(seen))
 	}
 
@@ -431,7 +454,7 @@ func TestAuditAPIFiltersPagingAndAuth(t *testing.T) {
 		"task_id=t0":            7,
 		"user=bob&worker_id=w1": 4,
 		"action=task.cancel":    0,
-		"since=" + url.QueryEscape(base.Add(20*time.Hour).Format(time.RFC3339)):                                                                          5,
+		"since=" + url.QueryEscape(base.Add(20*time.Hour).Format(time.RFC3339)):                                                                          7, // + the env's 2 (now)
 		"until=" + fmt.Sprint(base.Add(4*time.Hour).Unix()):                                                                                              5,
 		"since=" + url.QueryEscape(base.Add(2*time.Hour).Format(time.RFC3339)) + "&until=" + url.QueryEscape(base.Add(3*time.Hour).Format(time.RFC3339)): 2,
 	} {
@@ -452,16 +475,16 @@ func TestAuditAPIFiltersPagingAndAuth(t *testing.T) {
 	if code, _ := e.do(t, -1, http.MethodGet, "/api/audit", ""); code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated GET /api/audit: %d", code)
 	}
-	// The MCP token is not a browser credential.
+	// An MCP credential is not a REST credential.
 	req, _ := http.NewRequest(http.MethodGet, e.api.URL+"/api/audit", nil)
-	req.Header.Set("Authorization", "Bearer "+auditMCPTok)
+	req.Header.Set("Authorization", "Bearer "+e.mcpTok)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("MCP token on /api/audit: %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("MCP credential on /api/audit: %d", resp.StatusCode)
 	}
 }
 

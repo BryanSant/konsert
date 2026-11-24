@@ -26,6 +26,7 @@ function loadEnv(): E2EEnv {
 
 async function login(page: Page, env: E2EEnv): Promise<void> {
   await page.goto(env.baseURL, { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.locator('#token')).toBeHidden();
@@ -69,10 +70,11 @@ test.describe('Manual machine join', () => {
     await expect(joined).toContainText(name, { timeout: 15_000 });
     await expect(modal.getByTestId('joined-state')).toHaveText(/Online/, { timeout: 15_000 });
     await shot(page, 'add-machine-manual-joined.png');
+    const sid = (await joined.locator('.font-mono-ide').textContent())!.trim();
     await page.keyboard.press('Escape');
+    await expect(modal).toBeHidden();
 
     // Fleet → Details → Revoke credential (confirmed) disconnects it.
-    const sid = (await joined.locator('.font-mono-ide').textContent())!.trim();
     await page.getByTestId(`machine-details-${sid}`).click();
     const details = page.locator('app-machine-detail-modal .ks-modal');
     const cred = details.getByTestId('machine-credential');

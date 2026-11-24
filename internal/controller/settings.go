@@ -15,10 +15,10 @@ import (
 	"github.com/BryanSant/konsert/internal/store"
 )
 
-// errAdminScopeRequired is returned when a caller without the admin scope (e.g. an
-// MCP client holding only the MCP token) tries to change where the LLM API key is
+// errAdminScopeRequired is returned when a caller without the admin scope (an MCP
+// client holding an MCP-only device credential) tries to change where the LLM API key is
 // sent (llm_base_url) or the key itself.
-var errAdminScopeRequired = errors.New("changing llm_base_url or the LLM API key requires the admin token")
+var errAdminScopeRequired = errors.New("changing llm_base_url or the LLM API key needs a full-access credential, not an MCP-only one")
 
 // errInvalidSettings wraps validation failures so handlers can map them to 400.
 type errInvalidSettings struct{ err error }
@@ -41,6 +41,8 @@ type SettingsUpdate struct {
 	NotifySound           *bool   `json:"notify_sound"`
 	NotifyDesktop         *bool   `json:"notify_desktop"`
 	VetoAckMinutes        *int    `json:"veto_ack_minutes"`
+	// DeviceIdleDays is the sliding expiry of device credentials (1-3650 days).
+	DeviceIdleDays *int `json:"device_idle_days"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -121,6 +123,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		updates[vetoAckSetting] = strconv.Itoa(*u.VetoAckMinutes)
 	}
+	if u.DeviceIdleDays != nil {
+		if *u.DeviceIdleDays < 1 || *u.DeviceIdleDays > maxDeviceIdleDays {
+			return errInvalidSettings{errors.New("device_idle_days must be between 1 and 3650")}
+		}
+		updates[deviceIdleSetting] = strconv.Itoa(*u.DeviceIdleDays)
+	}
 
 	if len(updates) > 0 {
 		if err := s.store.SetSettings(ctx, updates); err != nil {
@@ -133,6 +141,9 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 			return errInvalidSettings{err}
 		}
 		s.orch.SetMaxTokens(next.MaxTokens)
+	}
+	if u.DeviceIdleDays != nil {
+		s.auth.SetIdleExpiry(idleDuration(*u.DeviceIdleDays))
 	}
 	recordSettingsAudit(ctx, s.hub, updates)
 	return nil
@@ -205,6 +216,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.VetoAckMinutes = &n
+		case deviceIdleSetting:
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.DeviceIdleDays = &n
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -240,6 +257,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"notify_sound":            r.NotifySound,
 		"notify_desktop":          r.NotifyDesktop,
 		"veto_ack_minutes":        r.VetoAckMinutes,
+		"device_idle_days":        r.DeviceIdleDays,
 		"orchestrator_backend":    r.OrchestratorBackend,
 		"api_key_required":        r.APIKeyRequired,
 	}
@@ -259,17 +277,17 @@ func (b serverControlPlane) GetSettingsMap(ctx context.Context) (map[string]any,
 }
 
 // SteerTask, CancelTask and UpdateSettingsMap attribute MCP-initiated control
-// actions to "mcp" in the audit log.
+// actions to the calling MCP credential (or "mcp" when there is none) in the audit log.
 func (b serverControlPlane) SteerTask(ctx context.Context, taskID, inputText string, appendNewline bool) (ActionResult, error) {
-	return b.FleetService.SteerTask(withAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID, inputText, appendNewline)
+	return b.FleetService.SteerTask(withDefaultAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID, inputText, appendNewline)
 }
 
 func (b serverControlPlane) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
-	return b.FleetService.CancelTask(withAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID)
+	return b.FleetService.CancelTask(withDefaultAuditActor(ctx, auditSourceMCP, auditSourceMCP), taskID)
 }
 
 func (b serverControlPlane) UpdateSettingsMap(ctx context.Context, updates map[string]string) (map[string]any, error) {
-	ctx = withAuditActor(ctx, auditSourceMCP, auditSourceMCP)
+	ctx = withDefaultAuditActor(ctx, auditSourceMCP, auditSourceMCP)
 	u, err := settingsUpdateFromMap(updates)
 	if err != nil {
 		return nil, err

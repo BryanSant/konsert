@@ -54,6 +54,17 @@ const modeRoutes: Route[] = [
 ];
 
 export const routes: Routes = [
+  // Sign-in links. Signed out, the app shows the pairing page for /pair/{code}; signed in
+  // there is nothing to pair. /approve/{code} approves a `konsert login` request.
+  {
+    path: 'pair/:code',
+    loadComponent: () => import('./features/auth/pair-redirect.component').then((m) => m.PairRedirectComponent),
+  },
+  {
+    path: 'approve/:code',
+    title: 'Approve sign-in · Konsert',
+    loadComponent: () => import('./features/auth/approve-login.component').then((m) => m.ApproveLoginComponent),
+  },
   {
     path: '',
     loadComponent: () => import('./modes/workspace-root.component').then((m) => m.WorkspaceRootComponent),

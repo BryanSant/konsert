@@ -15,11 +15,16 @@ type ControllerConfig struct {
 	// all interfaces when auth is on, loopback only with --no-auth.
 	ListenAddr string `yaml:"listen_addr"`
 	DBPath     string `yaml:"db_path"`
-	AdminToken string `yaml:"admin_token"`
-	MCPToken   string `yaml:"mcp_token"`
-	// TokensFile is where an auto-generated admin token are persisted (0600) when
-	// none are configured. Empty means "konsert-tokens.yaml" next to DBPath.
+	// RecoveryKey is the hidden emergency credential (Bearer token, or the login page's
+	// "Use recovery key" fallback). Normally unset: the hub generates one into TokensFile
+	// and never prints it. People sign in by pairing devices instead.
+	RecoveryKey string `yaml:"recovery_key"`
+	// TokensFile is where the generated recovery key is persisted
+	// (0600). Empty means "konsert-tokens.yaml" next to DBPath.
 	TokensFile string `yaml:"tokens_file"`
+	// RecoveryKeyInTokensFile is set when the recovery key came from (or was generated
+	// into) TokensFile, so rotating it can rewrite the file.
+	RecoveryKeyInTokensFile bool `yaml:"-"`
 	// SecretKeyFile holds the master key that encrypts secrets (the LLM API key) in the
 	// database. Empty means "konsert-secret.key" next to DBPath. KONSERT_SECRET_KEY
 	// (base64 of 32 bytes) supplies the key directly instead.
@@ -163,11 +168,8 @@ func applyControllerEnv(cfg *ControllerConfig) {
 	if v := os.Getenv("KONSERT_DB_PATH"); v != "" {
 		cfg.DBPath = v
 	}
-	if v := os.Getenv("KONSERT_ADMIN_TOKEN"); v != "" {
-		cfg.AdminToken = v
-	}
-	if v := os.Getenv("KONSERT_MCP_TOKEN"); v != "" {
-		cfg.MCPToken = v
+	if v := os.Getenv("KONSERT_RECOVERY_KEY"); v != "" {
+		cfg.RecoveryKey = v
 	}
 	if v := os.Getenv("KONSERT_TOKENS_FILE"); v != "" {
 		cfg.TokensFile = v

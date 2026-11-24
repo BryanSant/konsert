@@ -107,7 +107,7 @@ func TestClientWSRejectsCrossOrigin(t *testing.T) {
 func TestWorkerWSWithoutOriginStillAccepted(t *testing.T) {
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = "admin"
+		c.RecoveryKey = "admin"
 	})
 	cred := testMachineCredential(t, srv, "worker-origin-1")
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
@@ -278,7 +278,7 @@ func TestRequestBodyLimits(t *testing.T) {
 func TestLoginThrottle(t *testing.T) {
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = "right"
+		c.RecoveryKey = "right"
 	})
 	now := time.Unix(1_700_000_000, 0)
 	srv.loginLimiter.Now = func() time.Time { return now }

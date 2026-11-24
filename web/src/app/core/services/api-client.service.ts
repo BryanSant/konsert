@@ -30,6 +30,7 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { HeatHistory } from '../models/activity.models';
+import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, Review, ReviewDecision, ReviewResult } from '../models/review.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
 import {
@@ -73,7 +74,7 @@ export class ApiError extends Error {
 export const KONSERT_REQUEST_HEADER = 'X-Konsert-Request';
 
 /** Paths whose 401 means "bad credentials" rather than "session expired". */
-const AUTH_EXEMPT_PATHS = ['/api/auth/login'];
+const AUTH_EXEMPT_PATHS = ['/api/auth/login', '/api/auth/pair'];
 
 export interface SSHBootstrapRequest {
   target: string;
@@ -185,15 +186,50 @@ export class ApiClientService {
     return this.request<AuthMe>('/api/auth/me');
   }
 
-  login(token: string): Promise<{ authenticated: boolean; user: string }> {
+  /** The login page's "Use recovery key" fallback: signs this browser in as a new device. */
+  login(token: string, name = ''): Promise<PairResponse> {
     return this.request('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, name }),
     });
   }
 
+  /** Signing out revokes this browser's device credential. */
   logout(): Promise<{ ok: boolean }> {
     return this.request('/api/auth/logout', { method: 'POST' });
+  }
+
+  /** Redeems a pairing code (/pair/{code}); the hub sets the session cookie. */
+  pair(code: string, name: string): Promise<PairResponse> {
+    return this.request('/api/auth/pair', { method: 'POST', body: JSON.stringify({ code, name }) });
+  }
+
+  listDevices(): Promise<DevicesResponse> {
+    return this.request<DevicesResponse>('/api/devices');
+  }
+
+  renameDevice(id: string, name: string): Promise<Device> {
+    return this.request<Device>(`/api/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  }
+
+  revokeDevice(id: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  createPairingCode(): Promise<PairingCode> {
+    return this.request<PairingCode>('/api/pairing-codes', { method: 'POST' });
+  }
+
+  createMcpCredential(name: string): Promise<McpCredential> {
+    return this.request<McpCredential>('/api/devices/mcp', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  getLoginRequest(code: string): Promise<LoginRequest> {
+    return this.request<LoginRequest>(`/api/auth/device-code/${encodeURIComponent(code)}`);
+  }
+
+  decideLoginRequest(code: string, approve: boolean): Promise<{ ok: boolean }> {
+    return this.request(`/api/auth/device-code/${encodeURIComponent(code)}/${approve ? 'approve' : 'deny'}`, { method: 'POST' });
   }
 
   getFleet(): Promise<FleetSnapshotResponse> {

@@ -49,7 +49,8 @@ func newFakeController(t *testing.T) *fakeController {
 	}))
 	t.Cleanup(fc.ts.Close)
 	t.Setenv("KONSERT_URL", fc.ts.URL)
-	t.Setenv("KONSERT_ADMIN_TOKEN", "admin-secret")
+	t.Setenv("KONSERT_TOKEN", "admin-secret")
+	t.Setenv("KONSERT_CONFIG_DIR", t.TempDir())
 	return fc
 }
 
@@ -161,7 +162,7 @@ func TestCmdErrorMessages(t *testing.T) {
 		status int
 		want   string
 	}{
-		{401, "KONSERT_ADMIN_TOKEN"},
+		{401, "konsert login"},
 		{403, "forbidden"},
 		{404, "task not found (HTTP 404)"},
 		{413, "too large"},

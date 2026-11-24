@@ -22,18 +22,18 @@ func TestResolveMCPBridge(t *testing.T) {
 	if base != "https://hub.example" || tok != "" {
 		t.Fatalf("defaults: base=%q tok=%q (the machine credential must never be used)", base, tok)
 	}
-	base, tok = resolveMCPBridge(cfg, nil, nil, envMap(map[string]string{"KONSERT_URL": "http://other:1", "KONSERT_ADMIN_TOKEN": "adm"}))
+	base, tok = resolveMCPBridge(cfg, nil, nil, envMap(map[string]string{"KONSERT_URL": "http://other:1", "KONSERT_TOKEN": "adm"}))
 	if base != "http://other:1" || tok != "adm" {
 		t.Fatalf("env: base=%q tok=%q", base, tok)
 	}
 	u, f := "http://flag:2/", "flagtok"
-	base, tok = resolveMCPBridge(cfg, &u, &f, envMap(map[string]string{"KONSERT_URL": "http://other:1", "KONSERT_ADMIN_TOKEN": "adm"}))
+	base, tok = resolveMCPBridge(cfg, &u, &f, envMap(map[string]string{"KONSERT_URL": "http://other:1", "KONSERT_TOKEN": "adm"}))
 	if base != "http://flag:2" || tok != "flagtok" {
 		t.Fatalf("flags: base=%q tok=%q", base, tok)
 	}
 }
 
-// konsertd mcp against an auth-enabled hub whose admin and MCP tokens differ.
+// konsertd mcp against an auth-enabled hub: a machine credential is not an /api credential.
 func TestMCPBridgeAgainstAuthEnabledHub(t *testing.T) {
 	ctx := context.Background()
 	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
@@ -42,16 +42,15 @@ func TestMCPBridgeAgainstAuthEnabledHub(t *testing.T) {
 	}
 	defer st.Close()
 	hubCfg := config.DefaultControllerConfig()
-	hubCfg.AdminToken = "admin-tok"
-	hubCfg.MCPToken = "mcp-tok"
+	hubCfg.RecoveryKey = "admin-tok"
 	ts := httptest.NewServer(controller.NewServer(hubCfg, st, nil, "test"))
 	defer ts.Close()
 
 	workerCfg := config.WorkerConfig{ControllerURL: "ws" + ts.URL[len("http"):] + "/ws/worker", Credential: "kmc_machine"}
 
-	base, tok := resolveMCPBridge(workerCfg, nil, nil, envMap(map[string]string{"KONSERT_ADMIN_TOKEN": "admin-tok"}))
+	base, tok := resolveMCPBridge(workerCfg, nil, nil, envMap(map[string]string{"KONSERT_TOKEN": "admin-tok"}))
 	if _, err := controller.NewRemoteFleetClient(base, tok).FleetStatus(ctx); err != nil {
-		t.Fatalf("FleetStatus with the admin token from KONSERT_ADMIN_TOKEN failed: %v", err)
+		t.Fatalf("FleetStatus with the credential from KONSERT_TOKEN failed: %v", err)
 	}
 
 	// A machine credential is rejected by /api, which is why it is never used.

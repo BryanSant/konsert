@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +14,7 @@ func TestPrepareRejectsInvalidConfigBeforeGeneratingTokens(t *testing.T) {
 	cfg := config.DefaultControllerConfig()
 	cfg.DBPath = filepath.Join(dir, "konsert.db")
 	cfg.Orchestrator.Provider = "antropic"
-	var out bytes.Buffer
-	err := prepareServeConfig(&cfg, &out, discardLogger())
+	err := prepareServeConfig(&cfg, discardLogger())
 	if err == nil || !strings.Contains(err.Error(), "antropic") {
 		t.Fatalf("expected provider validation error, got %v", err)
 	}

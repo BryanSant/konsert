@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -68,13 +70,16 @@ func runServe(ctx context.Context, cfg config.ControllerConfig, logger *slog.Log
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
 
-	logger.Info("konsert controller listening",
-		"addr", ln.Addr().String(),
-		"db", cfg.DBPath,
-		"mcp_http", cfg.EnableMCPHTTP,
-		"auth_enabled", !cfg.NoAuth,
-	)
+	logger.Info("Listening on " + ln.Addr().String())
+	logger.Debug("controller config", "db", cfg.DBPath, "mcp_http", cfg.EnableMCPHTTP, "auth_enabled", !cfg.NoAuth)
 	srv.SetListenAddr(ln.Addr().String())
+	if cfg.RecoveryKeyInTokensFile {
+		path := resolveTokensFile(cfg)
+		srv.SetRecoveryKeyRotator(func(k string) error { return rotateRecoveryKeyInFile(path, k) })
+	}
+	if !cfg.NoAuth {
+		announceSignIn(lifeCtx, srv, cfg, ln.Addr().String(), logger)
+	}
 	// Start configured daemons (local and SSH hosts) that do not reconnect on their own.
 	srv.StartLaunchReconciler(launchGrace)
 	if onListening != nil {
@@ -106,4 +111,26 @@ func runServe(ctx context.Context, cfg config.ControllerConfig, logger *slog.Log
 	}
 	bg.Wait()
 	return runErr
+}
+
+// signInQROut receives the startup sign-in QR code when it is a terminal (a variable
+// for tests).
+var signInQROut io.Writer = os.Stderr
+
+// announceSignIn mints a pairing code at startup and prints one short line with its
+// link (plus a QR code in a terminal), so the first browser or phone signs in by
+// opening the link: nobody copies a token.
+func announceSignIn(ctx context.Context, srv *controller.Server, cfg config.ControllerConfig, listenAddr string, logger *slog.Logger) {
+	base, loopbackOnly := controller.BestBaseURL(listenAddr, cfg.PublicURL)
+	pc, err := srv.MintPairingCode(ctx, base, "hub startup", "")
+	if err != nil {
+		logger.Warn("could not create a sign-in link; run konsert pair", "err", err)
+		return
+	}
+	note := "10 min"
+	if loopbackOnly {
+		note = "10 min, loopback"
+	}
+	logger.Info(fmt.Sprintf("Sign in: %s (%s)", pc.URL, note))
+	writeQR(signInQROut, pc.URL)
 }

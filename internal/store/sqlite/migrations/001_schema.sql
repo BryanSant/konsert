@@ -519,6 +519,55 @@ CREATE TABLE vetoes (
 CREATE INDEX idx_vetoes_open ON vetoes(acked_at, dismissed_at);
 CREATE INDEX idx_vetoes_event ON vetoes(fleet_event_id);
 
+-- ---------------------------------------------------------------------------------
+-- Device sign-in (KON-W0P8B, KON-V5JZB, KON-A29CT). Self-contained block.
+-- ---------------------------------------------------------------------------------
+
+-- Devices: one revocable credential per signed-in browser, phone, CLI or MCP client.
+-- Only the SHA-256 of the secret is stored. Expiry slides: a credential expires after
+-- the configured idle period (settings device_idle_days) without use; expires_at is
+-- last_used_at plus that period as of the last use.
+CREATE TABLE devices (
+    id              TEXT PRIMARY KEY,
+    sid             TEXT NOT NULL UNIQUE, -- dv-…
+    name            TEXT NOT NULL,
+    kind            TEXT NOT NULL, -- browser | phone | cli | mcp
+    secret_hash     TEXT NOT NULL UNIQUE, -- hex SHA-256 of the bearer/cookie secret
+    created_at      TEXT NOT NULL,
+    created_by      TEXT NOT NULL DEFAULT '', -- how it was issued (pairing code sid, recovery key, device)
+    last_used_at    TEXT NOT NULL,
+    last_ip         TEXT NOT NULL DEFAULT '',
+    last_user_agent TEXT NOT NULL DEFAULT '', -- short summary ("Chrome on macOS"), not the raw header
+    expires_at      TEXT NOT NULL,
+    revoked_at      TEXT
+);
+CREATE INDEX idx_devices_active ON devices(revoked_at, last_used_at);
+
+-- Pairing codes: single-use, short-lived XXXX-XXXX codes. purpose 'pair' signs in the
+-- browser that redeems it (/pair/{code}); purpose 'login' is the CLI device-code flow:
+-- a signed-in browser approves it and the CLI, polling with its own secret (poll_hash),
+-- receives the new credential. Only hashes are stored.
+CREATE TABLE pairing_codes (
+    id          TEXT PRIMARY KEY,
+    sid         TEXT NOT NULL UNIQUE, -- pc-…
+    purpose     TEXT NOT NULL, -- pair | login
+    code_hash   TEXT NOT NULL UNIQUE,
+    poll_hash   TEXT NOT NULL DEFAULT '',
+    kind        TEXT NOT NULL DEFAULT '', -- device kind a login code issues (cli | mcp)
+    device_name TEXT NOT NULL DEFAULT '', -- the name a login code's device asked for
+    created_by  TEXT NOT NULL DEFAULT '',
+    created_ip  TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    approved_at TEXT,
+    approved_by TEXT NOT NULL DEFAULT '',
+    denied_at   TEXT,
+    redeemed_at TEXT,
+    device_id   TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX idx_pairing_codes_poll ON pairing_codes(poll_hash) WHERE poll_hash != '';
+CREATE INDEX idx_pairing_codes_expires ON pairing_codes(expires_at);
+
 -- Machine credentials and join codes (KON-RK9YD). Each konsertd authenticates with its
 -- own credential, bound to its machine (worker_id): it can only register as that
 -- machine. Only a SHA-256 of each secret is stored. A credential is minted when a

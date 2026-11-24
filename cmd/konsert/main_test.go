@@ -22,6 +22,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("KONSERT_STATE_DIR", dir)
 	os.Setenv("KONSERT_ATTACHMENTS_DIR", dir+"/attachments")
 	os.Setenv("KONSERT_DISABLE_AGENT_DISCOVERY", "1")
+	// Never read or write the developer's CLI credentials (credentials.yaml, local-hub.yaml).
+	os.Setenv("KONSERT_CONFIG_DIR", dir+"/config")
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
 	os.Setenv(secrets.KeyEnv, base64.StdEncoding.EncodeToString(key))

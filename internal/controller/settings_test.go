@@ -79,13 +79,12 @@ func getSettings(t *testing.T, baseURL, adminToken string) (settingsResponse, st
 func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
-		c.AdminToken = "admin-tok"
-		c.MCPToken = "mcp-tok"
+		c.RecoveryKey = "admin-tok"
 		c.EnableMCPHTTP = true
 		c.Orchestrator.APIKey = "sk-original-secret"
 	})
 
-	scoped := connectMCPHTTP(t, ts.URL, "mcp-tok")
+	scoped := connectMCPHTTP(t, ts.URL, mintMCPCredential(t, ts.URL, "admin-tok"))
 
 	// A model change through MCP takes effect immediately (no restart).
 	res, err := callUpdateSettings(t, scoped, map[string]string{"llm_model": "gpt-4.1"})
