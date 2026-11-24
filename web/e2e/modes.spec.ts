@@ -363,7 +363,19 @@ test.describe('Mode UI (desktop)', () => {
         await expect(ranges.locator(`[data-range="${id}"]`)).toHaveAttribute('aria-checked', 'true');
         await expect(ranges.locator('[aria-checked="true"]')).toHaveCount(1);
         await expect(strip).toHaveAttribute('aria-label', new RegExp(`last ${title}`));
+        // 24h reads hourly roll-ups: one cell per hour.
+        if (id === '24h') await expect(strip.locator('span')).toHaveCount(24);
       }
+      // Retention is stated in plain words on the range label.
+      await page.getByTestId('heat-retention').hover();
+      await expect(page.getByRole('tooltip')).toContainText('every sample for 12 hours, hourly summaries for 30 days');
+
+      // Details asks the machine for its listening ports (not in heartbeats any more); the
+      // hub itself listens on this machine, so there is at least one.
+      await row.getByTestId(`machine-details-${env.workerSid}`).click();
+      await expect(page.getByTestId('machine-ports')).toBeVisible();
+      await expect(page.getByTestId('machine-ports')).toContainText('live');
+      await page.keyboard.press('Escape');
 
       await expect(page.getByTestId('fleet-queue')).toContainText('Queue');
       // The session card opens the session in Command.

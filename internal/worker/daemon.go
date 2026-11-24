@@ -58,6 +58,8 @@ type Daemon struct {
 	// helloAt is when worker.hello was last written on a connection (zero if the last
 	// attempt never got that far). Only touched by the Run goroutine.
 	helloAt time.Time
+	// helloWall is helloAt's wall clock (unix ns) for other goroutines (linkedSinceWake).
+	helloWall atomic.Int64
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
@@ -325,6 +327,22 @@ func (d *Daemon) linkConfig() linkwatch.Config {
 	return linkwatch.Config{QuietAfter: d.LinkQuiet, DeadAfter: d.LinkDead}
 }
 
+// linkedSinceWake reports whether the current link was made after the latest wake: the
+// watcher reports a wake on its first tick after it (up to WatchEvery + slack later), and
+// by then the read loop may already have noticed the dead link and redialed. The wall
+// clock counts the time asleep, so a link made before the sleep never looks this fresh.
+func (d *Daemon) linkedSinceWake() bool {
+	at := d.helloWall.Load()
+	if at == 0 {
+		return false
+	}
+	every := d.WatchEvery
+	if every <= 0 {
+		every = linkwatch.DefaultWatchEvery
+	}
+	return time.Since(time.Unix(0, at)) < every+linkwatch.DefaultWakeSlack
+}
+
 // errLinkDead reports a link on which nothing arrived for the liveness timeout.
 var errLinkDead = errors.New("no traffic from the hub")
 
@@ -358,11 +376,18 @@ func (d *Daemon) Run(ctx context.Context) error {
 		var redial atomic.Pointer[string]
 		attemptDone := make(chan struct{})
 		go func() {
-			select {
-			case r := <-kick:
-				redial.Store(&r)
-				cancelAttempt()
-			case <-attemptDone:
+			for {
+				select {
+				case r := <-kick:
+					if r == linkwatch.ReasonWake && d.linkedSinceWake() {
+						continue // this link was made after the wake (it noticed first)
+					}
+					redial.Store(&r)
+					cancelAttempt()
+					return
+				case <-attemptDone:
+					return
+				}
 			}
 		}()
 		err := d.connectAndServe(ctx, attemptCtx)
@@ -538,6 +563,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	}
 	lv.Sent()
 	d.helloAt = time.Now()
+	d.helloWall.Store(d.helloAt.UnixNano())
 	// Report the host wake lock state right after hello so the hub knows it after every
 	// reconnect (the writer below sends queued control messages after hello).
 	d.wake.Connected()

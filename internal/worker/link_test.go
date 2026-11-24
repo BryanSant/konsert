@@ -189,7 +189,24 @@ func TestLinkTrackerLogsQuietly(t *testing.T) {
 	if lost != 1 || still < 9 || still > 10 || back != 1 || len(lines) != 2+lost+still {
 		t.Fatalf("lost %d, still %d, back %d in %d lines:\n%s", lost, still, back, len(lines), strings.Join(lines, "\n"))
 	}
-	if st := tr.status(); st.State != LinkConnected || st.Attempts != 0 {
+	if st := tr.status(); st.State != LinkConnected || st.Attempts != 0 || st.LastError != "" {
 		t.Fatalf("status after reconnect %+v", st)
+	}
+}
+
+// TestLinkedSinceWake: a wake reported just after a fresh link was made (the read loop
+// noticed the dead link first) does not drop it again; one made before a long sleep does.
+func TestLinkedSinceWake(t *testing.T) {
+	d := &Daemon{WatchEvery: 5 * time.Second}
+	if d.linkedSinceWake() {
+		t.Fatal("no link yet")
+	}
+	d.helloWall.Store(time.Now().Add(-3 * time.Second).UnixNano())
+	if !d.linkedSinceWake() {
+		t.Fatal("a link made 3 s ago is newer than the wake reported now")
+	}
+	d.helloWall.Store(time.Now().Add(-2 * time.Hour).UnixNano()) // made before the machine slept
+	if d.linkedSinceWake() {
+		t.Fatal("a link from before the sleep must be redialed")
 	}
 }

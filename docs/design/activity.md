@@ -1,7 +1,7 @@
 # Live work data: session activity, machine heat, project narration (design)
 
 Status: active (pre-alpha). Tickets: KON-NAYVC (activity), KON-RJ8P7 (heat), KON-H5BXK
-(narration), KON-ZAY87 (shells and sub-agents), under the UI rebuild KON-88NN9. This is the data layer only; the Work, Command
+(narration), KON-ZAY87 (shells and sub-agents), KON-G8WA3 (vitals heartbeat, link liveness), KON-WY5F2 (machine history retention), under the UI rebuild KON-88NN9. This is the data layer only; the Work, Command
 and Fleet modes render it.
 
 ## Session activity
@@ -218,37 +218,104 @@ immediately** (`full: true`, cause `slots`). Levels: **cool < 0.4, warm 0.4–0.
 Exposed as `Worker.heat` (`score`, `raw`, `level`, `cause`, `components`, `full`, `updated_at`)
 in worker updates and `GET /api/fleet`, and as `FleetStore.heatByWorker` (online workers only).
 
-### Heat history
+### Vitals heartbeat (KON-G8WA3)
 
-For the Fleet heat strips (12h / 24h / 3d / 1w) the hub keeps a downsampled history per machine
-(`internal/controller/heat_history.go`):
+konsertd's heartbeat carries only vitals it can read without a subprocess, in well under a
+millisecond (`internal/worker/vitals_<os>.go`; `BenchmarkVitalsSample`):
 
-* **Storage**: one row per machine per **1-minute bucket** in SQLite (`worker_heat_samples`:
-  `bucket_start` unix seconds, `score_max`, `score_avg`, `samples`, `cause` at the max). The
-  current minute accumulates in memory on each heartbeat; when a heartbeat lands in the next
-  minute the finished one is written with one upsert on a background goroutine, and hub
-  shutdown flushes every in-progress minute. The upsert merges into an existing row (max of
-  maxes, sample-weighted mean), so a minute split by a restart or reconnect stays correct.
-  Minutes are the finest step any strip needs (1w at 336 points is 30 min, 12h at 336 is
-  ~2 min), cost ~10k rows per machine per week, and are cheap to aggregate on read; raw
-  heartbeats (~6/min) would be 6× the rows with no visible gain. **Retention: 8 days** (the
-  longest range plus a day), pruned at most hourly on a flush. Removing a machine deletes its
-  rows (`DeleteWorker`, plus `ON DELETE CASCADE`). History survives hub restarts.
+| OS | CPU % | Load | Memory / swap |
+|---|---|---|---|
+| Linux | busy share of `/proc/stat` jiffies since the previous sample | `/proc/loadavg` | `/proc/meminfo` (used = total − available; swap total − free) |
+| macOS | load average / cores (a per-tick CPU % needs `host_statistics`, i.e. cgo) | `sysctl vm.loadavg` | `sysctl`: app (internal − purgeable) + wired pages + `vm.compressor_bytes_used`, which tracks the old `vm_stat` active + wired + compressor figure within ~1 %; `vm.swapusage` |
+| Windows | `GetSystemTimes` busy share since the previous sample | none | `GlobalMemoryStatusEx` (page file beyond RAM as swap) |
+
+No process count. While sessions run (a PTY task or an agent chat turn) a heartbeat goes out
+every 10 s: it feeds heat and doubles as liveness. When idle, konsertd sends one whenever the
+link has been quiet for 15 s (the liveness keepalive, below), and at least every minute.
+Out of the heartbeat:
+
+* **GPU %** (`ioreg` on macOS, `nvidia-smi` on Linux) is read for every heartbeat only while
+  sessions run, otherwise every 5 minutes; the last reading rides along in between.
+* **Listening ports** (`lsof` / `ss`) come in `worker.ports`: every 5 minutes, and as the reply
+  to `worker.ports.request` when a machine's Details opens (`GET /api/workers/{id}/ports`,
+  falling back to the last list the machine sent, `fresh: false`).
+* **Disk free** is a machine fact (refreshed every 5 minutes).
+
+### Link liveness (KON-G8WA3)
+
+`internal/linkwatch`, on every transport (outbound, ssh, local):
+
+* Each side notes when it last sent and received anything. A side that has **sent nothing for
+  15 s** sends a keepalive (the hub a WebSocket ping, konsertd a vitals heartbeat); regular
+  traffic suppresses them. A side that has **received nothing for 45 s** (data, ping or pong)
+  calls the link dead, checked every 3 s. konsertd redials (outbound) or waits for the hub to
+  attach again (ssh/local); the hub drops the connection and **marks the machine offline at
+  once**. Its tasks are left alone for the rest of `StaleWorkerTimeout` (150 s): sessions live
+  in the daemon and are re-adopted from `worker.hello`; if it has not come back by then, the
+  orphan policies apply as before.
+* **Wake and network changes**: a watcher ticks every 5 s; a tick more than 10 s late by the
+  wall or the monotonic clock (the machine slept) or a change in the machine's routable
+  addresses (IPv4, and IPv6 /64 prefixes so privacy-address rotation does not count) drops the
+  link and redials at once with the backoff reset. konsertd does this for its outbound link,
+  the hub for its ssh/local attach loops.
+* Backoff 1 → 2 → 4 → 8 → 16 → 30 s (cap) with up to 25 % jitter, forever; reset after a link
+  that lasted more than 10 s. Removed (4001) stops konsertd; no credential exits; a revoked
+  credential retries at the cap, re-reading the saved one.
+* Logs: the first failure of an outage, then at most one "still disconnected after …: N
+  attempts, last error: …" a minute, then one "reconnected to the hub after …" line.
+* `konsertd status` shows the link: state (connected, disconnected, waiting for the hub),
+  transport, since when, the last error and the next attempt. The running daemon keeps
+  `<state dir>/run/<worker id>.link.json` (0600) current and `status` reads it (a file rather
+  than a socket query: outbound daemons have no socket, and a stopped daemon's last state is
+  still shown, marked not running).
+
+### Machine history and retention (KON-WY5F2)
+
+For the Fleet heat strips (12h / 24h / 3d / 1w) and future vitals views the hub keeps every
+machine's vitals and heat in three tiers (`internal/controller/heat_history.go`,
+`internal/store/sqlite/vitals.go`):
+
+| Tier | Table | Resolution | Kept |
+|---|---|---|---|
+| raw | `machine_vitals` | one row per 15 s bucket: the mean of its heartbeats (CPU %, load, memory and swap MB, memory total, GPU % when any heartbeat had it), mean and max smoothed heat, cause at the max, sample count `n` | 12 hours |
+| hourly | `machine_vitals_rollup` (period 3600) | min / sample-weighted mean / max per metric, cause at the heat max, `n` | 30 days |
+| daily | `machine_vitals_rollup` (period 86400, UTC days) | the same, from the hourly rows | 365 days |
+
+That bounds a machine at ~2.9k raw + 720 hourly + 365 daily rows, however old it is.
+
+* **Writes**: each heartbeat folds into the machine's current 15 s bucket in memory; finished
+  buckets are written once a minute in one transaction, and hub shutdown writes the
+  in-progress ones. The upsert merges into an existing row by sample count, so a bucket split
+  by a restart stays correct; samples of machines removed meanwhile are dropped.
+* **Roll-ups** run on the hub once an hour and once at start (catching up after downtime): one
+  transaction recomputes the hourly row of every complete hour still in the raw tier, the
+  daily row of every complete day those hours touch, then deletes raw rows before the hour
+  12 h back, hourly rows past 30 days and daily rows past 365 days. Rows are recomputed from
+  the finer tier (`INSERT OR REPLACE`), never incremented, and raw rows go on an hour
+  boundary (the oldest raw hour is always complete), so a re-run, a late run or a gap never
+  double-counts. Removing a machine deletes its rows (`DeleteWorker`, plus `ON DELETE CASCADE`).
 * **Endpoint**: `GET /api/fleet/heat?range=12h|24h|3d|1w&points=N` (browser auth; default
   `12h`, 48 points; `points` clamped to 12..336; an unknown range or non-integer points is 400).
+  12h reads the raw tier; 24h, 3d and 1w read hourly roll-ups (hours still in the raw tier,
+  including those not rolled up yet, are summed from raw).
 
 ```json
 {"range":"12h","start":"2026-01-01T22:15:00Z","end":"2026-01-02T10:15:00Z","step_seconds":900,
+ "tier":"raw","retention":"Machine history keeps every sample for 12 hours, …",
  "workers":[{"worker_id":"…","samples":[{"score":0.41,"max":0.62,"cause":"cpu"},null,…]}]}
 ```
 
-`step_seconds` is range / points rounded up to whole seconds; `end` is the end of the
-step-aligned (unix epoch) bucket holding the current minute, so points stay put between polls,
-and `start` = `end` − points × step. `samples` has exactly `points` entries, oldest first; each
-aggregates the minutes starting in it (`score` = mean of the minute means, `max` = max of the
-minute maxes, `cause` = cause at that max, 3 decimals) or is `null` with no data (offline, or
-before history began). The in-progress minute is included, so a live machine's last point is
-never empty. Every known machine is listed (in `ListWorkers` order), even with all nulls.
+`step_seconds` is range / points rounded up to a multiple of the tier's resolution (15 s raw,
+one hour hourly), so the hub may return **fewer points than asked**: 24h gives 24, 3d at 48
+gives 36 (2 h steps), 1w at 48 gives 42 (4 h steps). `end` is the end of the step-aligned
+(unix epoch) bucket holding the current 15 s / hour, so points stay put between polls, and
+`start` = `end` − points × step. Every machine's `samples` has the same length, oldest first;
+each aggregates the buckets starting in it (`score` = sample-weighted mean heat, `max` = the
+highest heat, `cause` = the cause at it, 3 decimals) or is `null` with no data (offline, or
+before history began). Buckets not yet written are included, so a live machine's last point is
+never empty. Every known machine is listed (in `ListWorkers` order), even with all nulls. The
+Fleet strips draw as many cells as the response has points; the retention sentence is the
+tooltip of the "Heat over the last" label and is repeated in Settings → Machine history.
 
 ## Project narration
 

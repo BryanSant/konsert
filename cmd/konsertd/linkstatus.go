@@ -12,7 +12,7 @@ import (
 
 // printLinkStatus adds the daemon's link to the hub to `konsertd status`, from the state
 // file the running daemon keeps (<state dir>/run/<worker id>.link.json).
-func printLinkStatus(w io.Writer, configPath string) {
+func printLinkStatus(w io.Writer, configPath, name string) {
 	path := ""
 	if configPath != "" {
 		if _, err := os.Stat(configPath); err == nil {
@@ -22,6 +22,9 @@ func printLinkStatus(w io.Writer, configPath string) {
 	cfg, err := config.LoadWorkerConfig(path)
 	if err != nil {
 		return
+	}
+	if path == "" && name != "" {
+		cfg.Name = name // `status --name` of an instance run by hand, without a config file
 	}
 	id, ok := worker.LookupWorkerID(cfg)
 	if !ok {
@@ -58,7 +61,7 @@ func writeLinkStatus(w io.Writer, ls worker.LinkStatus, now time.Time, alive boo
 		fmt.Fprintf(w, "  Last error : %s\n", ls.LastError)
 	}
 	if !ls.NextAttempt.IsZero() {
-		next := "now"
+		next := "dialing now"
 		if d := ls.NextAttempt.Sub(now); d > 0 {
 			next = "in " + d.Round(time.Second).String()
 		}

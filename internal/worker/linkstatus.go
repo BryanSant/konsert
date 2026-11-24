@@ -110,7 +110,7 @@ func (t *linkTracker) up(transport, peer string) {
 	n := t.now()
 	attempts, down := t.st.Attempts, t.downSince
 	t.st.State, t.st.Transport, t.st.Peer, t.st.Since = LinkConnected, transport, peer, n
-	t.st.NextAttempt, t.st.Attempts = time.Time{}, 0
+	t.st.NextAttempt, t.st.Attempts, t.st.LastError = time.Time{}, 0, ""
 	t.downSince, t.lastSummary, t.wasUp = time.Time{}, time.Time{}, true
 	t.writeLocked(n)
 	t.mu.Unlock()

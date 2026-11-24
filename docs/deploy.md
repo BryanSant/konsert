@@ -143,7 +143,10 @@ konsertd join https://<host>.<tailnet>.ts.net ABCD-EFGH   # code from Add machin
 ```
 
 They authenticate with their own machine credential (the identity header is not used
-for `/ws/worker`) and reconnect with backoff if the controller restarts.
+for `/ws/worker`) and reconnect on their own: with backoff (1 s doubling to 30 s, forever)
+when the controller restarts or the network drops, at once after a wake from sleep or a
+network change, and within ~45 s of a link that went silent (both sides ping when quiet).
+`konsertd status` shows the link state, the last error and the next attempt.
 
 ### Verification checklist
 
@@ -220,8 +223,9 @@ A worker reaches the hub one of three ways (Fleet shows it as the machine's tran
   credential, and the hub's port never has to be reachable from the machine (keep it on
   127.0.0.1 behind Tailscale Serve). The hub keeps one `ssh` per machine (keepalives,
   pinned host keys from `known_hosts`, `BatchMode`), re-dials with backoff when the link
-  drops, and the daemon re-sends its live sessions, so agents survive dropped links and
-  hub restarts. Removing the machine drops its id from that line (the line goes with the
+  drops (at once after the hub's machine wakes or its network changes; a link silent for
+  45 s counts as dropped), and the daemon re-sends its live sessions, so agents survive
+  dropped links and hub restarts. Removing the machine drops its id from that line (the line goes with the
   last id); konsertd stops.
 - **local**: **Add machine → This machine** runs `konsertd install` on the hub's machine;
   the hub attaches to the same local socket directly, without SSH or a credential.
@@ -270,7 +274,7 @@ starts it now. It takes the same flags as `konsertd run`:
 ```bash
 konsertd join https://konsert-hub.example-tailnet.ts.net ABCD-EFGH   # join + install
 konsertd install --controller wss://konsert-hub.example-tailnet.ts.net/ws/worker   # reinstall
-konsertd status        # installed? running? where are the config and logs?
+konsertd status        # installed? running? linked to the hub? where are the config and logs?
 konsertd uninstall     # stop it and remove the unit/agent/task and its config
 ```
 
@@ -413,6 +417,8 @@ upgrade the PWA shows a "new version available" prompt.
 | Worker logs "credential rejected" or "revoked" | Its credential was revoked or rotated; join again with a new code (the running daemon picks it up). |
 | Worker logs "retry later" (`1013`) | Another konsertd with the same identity is connected; it takes over when that one stops. |
 | Worker stops with "removed from fleet" | The machine was removed in the UI; re-run konsertd to add it back. |
+| Worker logs "hub link lost" then "still disconnected …" once a minute | The hub is unreachable (or went silent for 45 s). konsertd keeps retrying on its own; `konsertd status` shows the last error and the next attempt. It logs "reconnected" when the link is back. |
+| A machine goes offline after ~45 s while its daemon still runs | Nothing crossed the link for 45 s in one direction (a half-open connection, a stopped hub, a dead network path). The daemon redials; its sessions keep running and are re-adopted. |
 | `trust_tailscale_headers` has no effect | The controller isn't on a loopback listener, or the request didn't come through Tailscale Serve. |
 | Keep Awake shows "idle only" on a Linux host | polkit refused the sleep inhibitor; see the polkit rule in section 6. |
 | Version badge on a machine | That konsertd's version differs from the controller's; upgrade the worker. |
