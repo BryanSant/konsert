@@ -120,9 +120,14 @@ func TestWatcherWakeAndNetwork(t *testing.T) {
 	now := t0
 	step := func(d time.Duration, want string) {
 		t.Helper()
+		prev := now
 		now = now.Add(d)
-		if got := w.Step(now); got != want {
-			t.Fatalf("at %v: got %q, want %q", now.Sub(t0), got, want)
+		got := w.Step(now)
+		if got.Reason != want {
+			t.Fatalf("at %v: got %q, want %q", now.Sub(t0), got.Reason, want)
+		}
+		if want != "" && !got.Since.Equal(prev) {
+			t.Fatalf("at %v: since %v, want the previous tick %v", now.Sub(t0), got.Since, prev)
 		}
 	}
 	step(0, "") // baseline
@@ -162,7 +167,7 @@ func TestWatcherRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		w.Run(ctx, clk.Now(), ticks, func(r string) { got <- r })
+		w.Run(ctx, clk.Now(), ticks, func(c Change) { got <- c.Reason })
 		close(done)
 	}()
 	clk.Advance(time.Second)
@@ -183,6 +188,30 @@ func TestWatcherRun(t *testing.T) {
 	}
 	if len(reasons) != 2 || reasons[0] != ReasonNetwork || reasons[1] != ReasonWake {
 		t.Fatalf("reasons = %q", reasons)
+	}
+}
+
+// A change only drops links whose attempt started before it: one that redialed after
+// the change (it noticed the dead link first) is kept, so it does not reconnect twice.
+func TestChangePredates(t *testing.T) {
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	c := Change{Reason: ReasonWake, Since: since}
+	if !c.Predates(time.Time{}) {
+		t.Fatal("no attempt under way: redial")
+	}
+	if !c.Predates(since.Add(-2 * time.Hour)) {
+		t.Fatal("a link from before the sleep must be redialed")
+	}
+	if !c.Predates(since) {
+		t.Fatal("a link made at the last tick before the change predates it")
+	}
+	if c.Predates(since.Add(time.Millisecond)) {
+		t.Fatal("a link made after the change must be kept")
+	}
+	// Monotonic readings are ignored (they stop while the machine sleeps).
+	now := time.Now()
+	if (Change{Since: now.Add(-time.Second)}).Predates(now) {
+		t.Fatal("monotonic reading confused the comparison")
 	}
 }
 

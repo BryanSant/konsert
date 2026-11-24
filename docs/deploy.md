@@ -223,8 +223,8 @@ A worker reaches the hub one of three ways (Fleet shows it as the machine's tran
   credential, and the hub's port never has to be reachable from the machine (keep it on
   127.0.0.1 behind Tailscale Serve). The hub keeps one `ssh` per machine (keepalives,
   pinned host keys from `known_hosts`, `BatchMode`), re-dials with backoff when the link
-  drops (at once after the hub's machine wakes or its network changes; a link silent for
-  45 s counts as dropped), and the daemon re-sends its live sessions, so agents survive
+  drops (at once after the hub's machine wakes or its network changes, unless the link
+  already re-dialed after the change; a link silent for 45 s counts as dropped), and the daemon re-sends its live sessions, so agents survive
   dropped links and hub restarts. Removing the machine drops its id from that line (the line goes with the
   last id); konsertd stops.
 - **local**: **Add machine → This machine** runs `konsertd install` on the hub's machine;

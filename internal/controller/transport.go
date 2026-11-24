@@ -194,7 +194,7 @@ func (a *attacher) ensure(w store.Worker) {
 			}
 			a.mu.Unlock()
 		}()
-		a.run(ctx, w.ID, loop.redial)
+		a.run(ctx, w.ID, loop)
 	}) {
 		delete(a.loops, w.ID)
 		cancel()
@@ -205,22 +205,41 @@ type attachLoop struct {
 	cancel context.CancelFunc
 	// redial asks the loop to drop its link (or its wait) and dial again at once.
 	redial chan struct{}
+	// attemptAt is when the current dial attempt started (unix ns, wall clock); 0
+	// while the loop waits between attempts.
+	attemptAt atomic.Int64
 }
 
-// redialAll asks every attach loop to redial now: the hub's machine woke from sleep or
-// its network changed, so SSH links are probably dead (local socket links are not
-// affected, and a redial costs them nothing but a fresh worker.hello).
-func (a *attacher) redialAll(reason string) {
+// attemptStart is when the loop's current attempt started (zero: none under way).
+func (l *attachLoop) attemptStart() time.Time {
+	if ns := l.attemptAt.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
+// redialAll asks every attach loop whose link predates c to redial now: the hub's
+// machine woke from sleep or its network changed, so SSH links are probably dead (local
+// socket links are not affected, and a redial costs them nothing but a fresh
+// worker.hello). A loop that already dialed again after the change (its link noticed
+// the drop before the watcher's tick) is left alone, so it does not reconnect twice.
+func (a *attacher) redialAll(c linkwatch.Change) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.loops) > 0 {
-		a.s.logger.Info(reason + ": re-dialing machine links")
-	}
-	for _, l := range a.loops {
+	n := 0
+	for id, l := range a.loops {
+		if !c.Predates(l.attemptStart()) {
+			a.s.logger.Debug(c.Reason+": link already re-dialed since the change", "worker_id", id)
+			continue
+		}
+		n++
 		select {
 		case l.redial <- struct{}{}:
 		default:
 		}
+	}
+	if n > 0 {
+		a.s.logger.Info(c.Reason + ": re-dialing machine links")
 	}
 }
 
@@ -251,7 +270,8 @@ func (a *attacher) running(workerID string) bool {
 
 // run attaches to workerID until ctx ends or the machine is removed or no longer uses
 // a hub-dialed transport, re-dialing with backoff (reset after a link that lasted).
-func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struct{}) {
+func (a *attacher) run(ctx context.Context, workerID string, loop *attachLoop) {
+	redial := loop.redial
 	backoff := a.minBackoff
 	failures := 0
 	for ctx.Err() == nil {
@@ -271,6 +291,7 @@ func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struc
 				return
 			}
 			start := time.Now()
+			loop.attemptAt.Store(start.UnixNano())
 			attemptCtx, cancelAttempt := context.WithCancel(ctx)
 			var redialed atomic.Bool
 			attemptDone := make(chan struct{})
@@ -283,6 +304,7 @@ func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struc
 				}
 			}()
 			up, err := a.attachOnce(attemptCtx, w)
+			loop.attemptAt.Store(0)
 			close(attemptDone)
 			cancelAttempt()
 			if ctx.Err() != nil {

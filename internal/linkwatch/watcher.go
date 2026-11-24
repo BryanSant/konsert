@@ -59,20 +59,39 @@ func (w *Watcher) addrs() (string, error) {
 	return AddrFingerprint()
 }
 
+// Change is a wake from sleep or a network change seen by a Watcher.
+type Change struct {
+	// Reason is ReasonWake or ReasonNetwork ("" for no change).
+	Reason string
+	// Since is when the watcher last saw the old state (its previous tick, wall clock):
+	// the change happened after it.
+	Since time.Time
+}
+
+// Predates reports whether a link attempt that started at started (zero: no attempt
+// under way) began before c, so its link is probably dead and should be redialed. An
+// attempt that started after Since already runs on the new state: typically the link
+// noticed the dead connection and redialed before the watcher's next tick, and
+// redialing it again would only reconnect twice.
+func (c Change) Predates(started time.Time) bool {
+	return started.IsZero() || !started.Round(0).After(c.Since.Round(0))
+}
+
 // Step looks at the clock (now, which may carry a monotonic reading) and the network,
-// and returns a change reason or "". The first call only takes the baseline. A failed
+// and returns the change, if any. The first call only takes the baseline. A failed
 // address read keeps the previous fingerprint.
-func (w *Watcher) Step(now time.Time) string {
+func (w *Watcher) Step(now time.Time) Change {
 	addr, err := w.addrs()
 	if !w.started {
 		w.started, w.prev = true, now
 		if err == nil {
 			w.prevAddr = addr
 		}
-		return ""
+		return Change{}
 	}
 	// Sub uses the monotonic readings when both times have one; Round(0) strips them.
 	gap := max(now.Sub(w.prev), now.Round(0).Sub(w.prev.Round(0)))
+	since := w.prev.Round(0)
 	w.prev = now
 	reason := ""
 	if gap > w.every()+w.slack() {
@@ -84,28 +103,30 @@ func (w *Watcher) Step(now time.Time) string {
 		}
 		w.prevAddr = addr
 	}
-	return reason
+	if reason == "" {
+		return Change{}
+	}
+	return Change{Reason: reason, Since: since}
 }
 
-// Run calls onChange with the reason for every change seen on ticks (at the tick's time;
-// a real ticker: Watch) until ctx ends; start is the baseline. onChange must not block
-// for long.
-func (w *Watcher) Run(ctx context.Context, start time.Time, ticks <-chan time.Time, onChange func(reason string)) {
+// Run calls onChange for every change seen on ticks (at the tick's time; a real ticker:
+// Watch) until ctx ends; start is the baseline. onChange must not block for long.
+func (w *Watcher) Run(ctx context.Context, start time.Time, ticks <-chan time.Time, onChange func(Change)) {
 	w.Step(start)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case t := <-ticks:
-			if r := w.Step(t); r != "" {
-				onChange(r)
+			if c := w.Step(t); c.Reason != "" {
+				onChange(c)
 			}
 		}
 	}
 }
 
 // Watch runs the watcher on a real ticker until ctx ends.
-func (w *Watcher) Watch(ctx context.Context, onChange func(reason string)) {
+func (w *Watcher) Watch(ctx context.Context, onChange func(Change)) {
 	t := time.NewTicker(w.every())
 	defer t.Stop()
 	w.Run(ctx, time.Now(), t.C, onChange)
