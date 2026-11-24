@@ -139,6 +139,8 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		return
 	}
 	counts := h.ActiveTaskCounts()
+	// Approved machine_slots overrides raise a machine's slot limit while they last.
+	workers, slots := h.applySlotOverrides(ctx, workers)
 
 	// ListTasks returns newest first; dispatch oldest first.
 	for i := len(tasks) - 1; i >= 0; i-- {
@@ -153,9 +155,11 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		// Held machines (and machines holding a resource the task's prompt names) get no
 		// automatic placement; the task waits until the user releases the hold.
 		eligible := make([]store.Worker, 0, len(workers))
+		lifted := map[string]*store.Override{}
 		for _, w := range workers {
-			if _, held := h.holdBlocking(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
+			if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
 				eligible = append(eligible, w)
+				lifted[w.ID] = ov
 			}
 		}
 		w, ok := SelectWorker(eligible, counts, sel, t.Agent, t.PermissionMode)
@@ -176,6 +180,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
 			continue
 		}
+		if ov := lifted[w.ID]; ov != nil {
+			h.useOverride(ctx, *ov)
+		}
+		h.placed(ctx, slots, w.ID, counts[w.ID])
 		counts[w.ID]++
 		if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
 			h.recordTaskTransition(ctx, updated, protocol.TaskStatusQueued, causeScheduler, "placed on "+w.Name)

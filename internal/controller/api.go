@@ -201,6 +201,12 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/holds/{id}/release", s.requireBrowserAuth(s.byRef(ids.Hold, s.handleReleaseHold)))
 	s.mux.Handle("GET /api/requests", s.requireBrowserAuth(s.handleListRequests))
 	s.mux.Handle("POST /api/requests/{id}/resolve", s.requireBrowserAuth(s.byRef(ids.Request, s.handleResolveRequest)))
+	s.mux.Handle("GET /api/overrides", s.requireBrowserAuth(s.handleListOverrides))
+	s.mux.Handle("POST /api/overrides", s.requireBrowserAuth(s.handleCreateOverride))
+	s.mux.Handle("POST /api/overrides/{id}/approve", s.requireBrowserAuth(s.byRef(ids.Override, s.decideOverrideHandler(true))))
+	s.mux.Handle("POST /api/overrides/{id}/deny", s.requireBrowserAuth(s.byRef(ids.Override, s.decideOverrideHandler(false))))
+	s.mux.Handle("GET /api/vetoes", s.requireBrowserAuth(s.handleListVetoes))
+	s.mux.Handle("POST /api/vetoes/{id}/dismiss", s.requireBrowserAuth(s.byRef(ids.Veto, s.handleDismissVeto)))
 	s.mux.Handle("GET /api/events", s.requireBrowserAuth(s.handleListFleetEvents))
 	s.mux.Handle("GET /api/events/recent", s.requireBrowserAuth(s.handleRecentEvents))
 	// Questions (PRD §5.8b): the fleet-wide queue, side conversations, delegation.
@@ -691,6 +697,9 @@ type settingsResponse struct {
 	TerminalFontSize      int    `json:"terminal_font_size"`
 	NotifySound           bool   `json:"notify_sound"`
 	NotifyDesktop         bool   `json:"notify_desktop"`
+	// VetoAckMinutes is how long a veto waits for the agent's acknowledgement before it
+	// escalates in Needs you.
+	VetoAckMinutes int `json:"veto_ack_minutes"`
 	// OrchestratorBackend is "agent": the orchestrator is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -730,6 +739,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		TerminalFontSize:      fontSize,
 		NotifySound:           notifySound,
 		NotifyDesktop:         notifyDesktop,
+		VetoAckMinutes:        int(s.hub.vetoAckTimeout(ctx).Minutes()),
 		OrchestratorBackend:   store.ChatBackendAgent,
 		OrchestratorChatID:    saved[orchestratorChatSetting],
 	}

@@ -229,6 +229,81 @@ test.describe('Human control (mock engine)', () => {
     await chat.getByTestId('header-stop').click();
   });
 
+  test('approves and denies the orchestrator’s override requests from Needs you', async ({ page }) => {
+    const env = loadEnv();
+    const ask = (reason: string) =>
+      postJSON<{ id: string; sid: string }>(page, '/api/overrides', {
+        scope: 'machine_slots',
+        machine: env.workerSid,
+        duration_minutes: 30,
+        reason,
+      });
+    const first = await ask('The e2e suite must run next to the build to finish before the release');
+    const second = await ask('A second lint run in parallel');
+    expect(first.sid).toMatch(/^o-[0-9a-z]{5,12}$/);
+
+    // Both show in Command's Needs-you rail; the item opens the dialog on its card.
+    const rail = page.getByTestId('needs-you-rail');
+    await expect(rail.locator(`[data-override="${first.sid}"]`)).toContainText(`Allow 1 extra session on ${env.workerName} for 30m`);
+    await expect(rail.locator(`[data-override="${second.sid}"]`)).toBeVisible();
+    await rail.locator(`[data-override="${first.sid}"]`).click();
+    const card = page.getByTestId('questions-detail').locator(`[data-testid="needs-you-override"][data-override="${first.sid}"]`);
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId('override-scope')).toContainText(`${env.workerName}: 1 more session at once than its slot limit`);
+    await expect(card.getByTestId('override-duration')).toContainText('30m');
+    await expect(card.getByTestId('override-reason')).toContainText('finish before the release');
+    await expect(card.getByTestId('override-consequences')).toContainText('sessions at once instead of');
+    await card.getByTestId('override-note').fill('today only');
+    await card.getByTestId('override-approve').click();
+    await expect(card.getByTestId('override-decided')).toContainText('Approved');
+
+    // Pick the other request from the dialog's queue and deny it.
+    await page.getByTestId('needs-you-dialog').locator(`[data-queue-item="${second.sid}"]`).click();
+    const next = page.getByTestId('questions-detail').locator(`[data-testid="needs-you-override"][data-override="${second.sid}"]`);
+    await expect(next).toBeVisible();
+    await next.getByTestId('override-deny').click();
+    await expect(next.getByTestId('override-decided')).toContainText('Denied');
+    await page.keyboard.press('Escape');
+    await expect(rail.locator(`[data-override="${first.sid}"]`)).toHaveCount(0);
+    await expect(rail.locator(`[data-override="${second.sid}"]`)).toHaveCount(0);
+
+    // Enforced and measured on the hub: approved with an expiry, the note kept; denied.
+    const { overrides } = await getJSON<{
+      overrides: Array<{ id: string; status: string; decision_note?: string; expires_at?: string; use_count: number }>;
+    }>(page, '/api/overrides');
+    const a = overrides.find((o) => o.id === first.id)!;
+    expect(a.status).toBe('approved');
+    expect(a.decision_note).toBe('today only');
+    expect(Date.parse(a.expires_at!) - Date.now()).toBeGreaterThan(25 * 60_000);
+    expect(overrides.find((o) => o.id === second.id)?.status).toBe('denied');
+  });
+
+  test('a vetoed task: the orchestrator acknowledges it on its next turn and Needs you clears by itself', async ({ page }) => {
+    const env = loadEnv();
+    await postJSON(page, '/api/chats/orchestrator', {});
+    const t = await dispatchMockTask(page, env);
+    await expect.poll(() => taskStatus(page, t.task_id), { timeout: 10_000 }).not.toMatch(/queued|assigned/);
+    await postJSON(page, `/api/tasks/${t.task_id}/veto`, { reason: 'not_now', note: 'after the release' });
+
+    type VetoRow = { sid: string; task_id?: string; status: string; delivered_to?: string; acked_by?: string };
+    const vetoFor = async () => (await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes')).vetoes.find((v) => v.task_id === t.task_id);
+    // Konsert tells the orchestrator in a turn of its own; that turn ending acknowledges it.
+    await expect.poll(async () => (await vetoFor())?.status, { timeout: 20_000 }).toBe('acknowledged');
+    const v = (await vetoFor())!;
+    expect(v.acked_by).toMatch(/^the orchestrator \(chat c-/);
+    // Nothing is left for the user: no "Got it" to click, no item in the rail.
+    await expect(page.getByTestId('needs-you-rail').locator(`[data-veto="${v.sid}"]`)).toHaveCount(0);
+    const open = await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes?open=1');
+    expect(open.vetoes.some((x) => x.sid === v.sid)).toBe(false);
+    // The timeline records the acknowledgement.
+    await expect
+      .poll(async () => {
+        const res = await getJSON<{ events: Array<{ kind: string; action?: string; summary: string }> }>(page, '/api/events?limit=100');
+        return res.events.some((e) => e.action === 'veto_ack' && e.summary.includes(v.sid));
+      })
+      .toBe(true);
+  });
+
   test('releases a hold placed by taking control of a terminal task', async ({ page }) => {
     const env = loadEnv();
     const t = await dispatchMockTask(page, env);

@@ -23,6 +23,8 @@ import { IconComponent } from '../../shared/icon.component';
       [attr.data-kind]="e.kind"
       [attr.data-question]="e.kind === 'question' ? e.sid : null"
       [attr.data-request]="e.kind === 'request' ? e.sid : null"
+      [attr.data-override]="e.kind === 'override' ? e.sid : null"
+      [attr.data-veto]="e.kind === 'veto' ? e.sid : null"
       [attr.aria-label]="label()"
       (click)="store.open(e.key)"
     >
@@ -95,7 +97,8 @@ export class NeedsYouItemComponent {
 
   label(): string {
     const e = this.entry();
-    const kind = { question: 'Question', request: 'Request', veto: 'Veto to acknowledge', review: 'Ready for review', override: 'Override request' }[e.kind];
+    const veto = e.tag === 'P1' ? 'Veto not acknowledged' : 'Veto awaiting acknowledgement';
+    const kind = { question: 'Question', request: 'Request', veto, review: 'Ready for review', override: 'Override request' }[e.kind];
     return `${kind}: ${e.title}. ${e.meta}`;
   }
 }

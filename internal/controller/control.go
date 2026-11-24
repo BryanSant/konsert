@@ -313,11 +313,13 @@ func (h *Hub) recordVeto(ctx context.Context, reason, label, note, what, workerI
 	}); err != nil {
 		h.logger.Warn("store veto memory failed", "err", err)
 	}
-	h.recordFleetEvent(ctx, store.FleetEvent{
+	ev := h.recordFleetEvent(ctx, store.FleetEvent{
 		Kind: store.EventKindVeto, Action: reason, Cause: cause,
 		WorkerID: workerID, TaskID: taskID, ChatID: chatID, Summary: text,
 		MetaJSON: auditMeta(map[string]any{"reason": reason, "note": note, "memory_scope": scope, "memory_key": key}),
 	})
+	// Tracked until the agent it is told to acknowledges it (vetoes.go).
+	h.trackVeto(ctx, ev, reason, note)
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditVeto, WorkerID: workerID, TaskID: taskID, Message: text,
 		MetaJSON: auditMeta(map[string]any{"reason": reason, "chat_id": chatID})})
 }

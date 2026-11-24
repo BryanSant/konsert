@@ -29,7 +29,7 @@ import { AuditStore } from '../state/audit.store';
 import { QuestionView } from '../models/question.models';
 import { QuestionsStore } from '../state/questions.store';
 import { ControlStore } from '../state/control.store';
-import { FleetEvent, FleetPause, Hold, UserRequest } from '../models/control.models';
+import { FleetEvent, FleetPause, Hold, OverrideRequest, UserRequest, Veto } from '../models/control.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 import { FleetStore } from '../state/fleet.store';
 import { OrchestratorStore } from '../state/orchestrator.store';
@@ -251,6 +251,8 @@ export class KonsertSocketService {
           fleet_event?: FleetEvent;
           hold?: Hold;
           request?: UserRequest;
+          override?: OverrideRequest;
+          veto?: Veto;
           pause?: FleetPause;
           question?: QuestionView;
           activity?: SessionActivity;
@@ -281,6 +283,10 @@ export class KonsertSocketService {
           this.controlStore.applyHold(p.hold);
         } else if (p.kind === 'request' && p.request) {
           this.controlStore.applyRequest(p.request);
+        } else if (p.kind === 'override' && p.override) {
+          this.controlStore.applyOverride(p.override);
+        } else if (p.kind === 'veto' && p.veto) {
+          this.controlStore.applyVeto(p.veto);
         } else if (p.kind === 'pause' && p.pause) {
           this.controlStore.applyPause(p.pause);
         } else if (p.kind === 'question' && p.question) {

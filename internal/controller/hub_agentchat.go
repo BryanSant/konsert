@@ -258,6 +258,10 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 			rt.turnID = ""
 		}
 	}
+	if ev.Kind == protocol.EventTurnEnd && ev.TurnID != "" && ev.StopReason != "cancelled" && ev.StopReason != "error" {
+		// The turn that carried a veto ended normally: the agent acknowledged it.
+		h.ackVetoes(ctx, chatID, ev.TurnID)
+	}
 	if o.fromWorker == nil {
 		h.hubChatActivity(cs, ev)
 	}
@@ -967,7 +971,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 	}
 	// Tell the agent what the user (or Konsert) did since its last turn that concerns it.
 	text := req.Content
-	if note := h.noteForPrompt(ctx, cs.ID); note != "" {
+	if note := h.noteForPrompt(ctx, cs.ID, turnID); note != "" {
 		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
 		text = note + "\n\n" + text
 	}

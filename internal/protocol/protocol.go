@@ -424,6 +424,10 @@ type FleetUpdatePayload struct {
 	Hold       any `json:"hold,omitzero"`
 	Request    any `json:"request,omitzero"`
 	Pause      any `json:"pause,omitzero"`
+	// Override carries an override request (break-glass) when Kind is "override"; Veto a
+	// veto with its acknowledgement state when Kind is "veto".
+	Override any `json:"override,omitzero"`
+	Veto     any `json:"veto,omitzero"`
 	// Question carries a question (with its side conversation) when Kind is "question".
 	Question any `json:"question,omitzero"`
 	// Activity carries a SessionActivity when Kind is "activity".

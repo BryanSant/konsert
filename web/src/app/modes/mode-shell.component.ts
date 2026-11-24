@@ -81,7 +81,7 @@ export function modeForKey(ev: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey'
           class="ks-chip ks-chip-amber min-h-8"
           data-testid="needs-you-count"
           [attr.aria-label]="needsYou.count() + ' need you'"
-          ksTooltip="Go through what needs you: questions, requests, vetoes and reviews"
+          ksTooltip="Go through what needs you: questions, requests, overrides, vetoes and reviews"
         >
           <app-icon name="bell" [size]="13" />
           <span class="font-mono-ide font-semibold">{{ needsYou.count() }}</span>
