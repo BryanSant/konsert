@@ -396,6 +396,10 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Hold = item
 	case "request":
 		p.Request = item
+	case "override":
+		p.Override = item
+	case "veto":
+		p.Veto = item
 	case "pause":
 		p.Pause = item
 	case "question":

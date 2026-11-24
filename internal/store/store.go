@@ -515,6 +515,31 @@ type Store interface {
 	// ResolveUserRequest closes an open request; false when it was no longer open.
 	ResolveUserRequest(ctx context.Context, id, status, by, resolution, commandID string, at time.Time) (bool, error)
 
+	// Override requests (break-glass) and vetoes awaiting acknowledgement.
+	CreateOverride(ctx context.Context, o Override) (Override, error)
+	GetOverride(ctx context.Context, id string) (Override, error)
+	ListOverrides(ctx context.Context, f OverrideFilter) ([]Override, error)
+	// DecideOverride approves (expiresAt set) or denies a pending override; false when
+	// it was no longer pending.
+	DecideOverride(ctx context.Context, id, status, by, note string, at time.Time, expiresAt *time.Time) (bool, error)
+	// ExpireOverride ends an approved override; false when it was not approved.
+	ExpireOverride(ctx context.Context, id string, at time.Time) (bool, error)
+	// MarkOverrideUsed counts one action the override let through.
+	MarkOverrideUsed(ctx context.Context, id string, at time.Time) error
+	CreateVeto(ctx context.Context, v Veto) (Veto, error)
+	GetVeto(ctx context.Context, id string) (Veto, error)
+	ListVetoes(ctx context.Context, f VetoFilter) ([]Veto, error)
+	// MarkVetoesDelivered records that the open vetoes of these fleet events were told to
+	// chatID in turn turnID; it returns the vetoes it updated.
+	MarkVetoesDelivered(ctx context.Context, fleetEventIDs []int64, chatID, turnID string, at time.Time) ([]Veto, error)
+	// AckVetoes acknowledges the open vetoes last delivered in chatID's turn turnID and
+	// returns them.
+	AckVetoes(ctx context.Context, chatID, turnID string, at time.Time) ([]Veto, error)
+	// EscalateVeto marks an open, unescalated veto escalated; false otherwise.
+	EscalateVeto(ctx context.Context, id string, at time.Time) (bool, error)
+	// DismissVeto closes an open veto without acknowledgement; false when not open.
+	DismissVeto(ctx context.Context, id, by string, at time.Time) (bool, error)
+
 	// Questions (PRD §5.8b).
 	CreateQuestion(ctx context.Context, q Question) (Question, error)
 	GetQuestion(ctx context.Context, id string) (Question, error)

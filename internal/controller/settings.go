@@ -40,6 +40,7 @@ type SettingsUpdate struct {
 	TerminalFontSize      *int    `json:"terminal_font_size"`
 	NotifySound           *bool   `json:"notify_sound"`
 	NotifyDesktop         *bool   `json:"notify_desktop"`
+	VetoAckMinutes        *int    `json:"veto_ack_minutes"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -113,6 +114,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 	}
 	if u.NotifyDesktop != nil {
 		updates["notify_desktop"] = strconv.FormatBool(*u.NotifyDesktop)
+	}
+	if u.VetoAckMinutes != nil {
+		if *u.VetoAckMinutes < 1 || *u.VetoAckMinutes > 24*60 {
+			return errInvalidSettings{errors.New("veto_ack_minutes must be between 1 and 1440")}
+		}
+		updates[vetoAckSetting] = strconv.Itoa(*u.VetoAckMinutes)
 	}
 
 	if len(updates) > 0 {
@@ -192,6 +199,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("terminal_font_size: %w", err)}
 			}
 			u.TerminalFontSize = &n
+		case vetoAckSetting:
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.VetoAckMinutes = &n
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -226,6 +239,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"terminal_font_size":      r.TerminalFontSize,
 		"notify_sound":            r.NotifySound,
 		"notify_desktop":          r.NotifyDesktop,
+		"veto_ack_minutes":        r.VetoAckMinutes,
 		"orchestrator_backend":    r.OrchestratorBackend,
 		"api_key_required":        r.APIKeyRequired,
 	}

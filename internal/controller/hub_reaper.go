@@ -38,6 +38,7 @@ func (h *Hub) RunReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			h.reapStaleWorkers(ctx)
+			h.sweepControl(ctx, time.Now().UTC())
 		}
 	}
 }

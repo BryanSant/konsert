@@ -79,6 +79,10 @@ func eventRelevant(e store.FleetEvent) bool {
 	switch e.Kind {
 	case store.EventKindHold, store.EventKindRequest, store.EventKindVeto:
 		return true
+	case EventKindOverride:
+		// The orchestrator hears the user's decision on its override request and when an
+		// approved one expires.
+		return e.Action == store.OverrideApproved || e.Action == store.OverrideDenied || e.Action == store.OverrideExpired
 	case store.EventKindAction:
 		if e.Action == "command" {
 			return strings.Contains(e.MetaJSON, `"intervention":true`)
@@ -94,6 +98,10 @@ func eventRelevant(e store.FleetEvent) bool {
 func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
 	if !eventRelevant(e) || e.Cause.ActorID == cs.ID {
 		return false
+	}
+	if e.Kind == EventKindOverride {
+		// Overrides are the orchestrator's business only.
+		return cs.FleetTools
 	}
 	if cs.FleetTools {
 		// The requesting chat's own request stays with it; the orchestrator hears about
@@ -134,6 +142,10 @@ func (h *Hub) orchestratorWorkOf(ctx context.Context, chatID string) orchestrato
 // affectsWork reports whether an event touches an orchestrator's work (which starts a
 // turn rather than waiting for its next prompt).
 func (w orchestratorWork) affects(chatID string, e store.FleetEvent) bool {
+	if e.Kind == EventKindOverride {
+		// A decision on (or the expiry of) its own override request.
+		return e.ChatID == chatID
+	}
 	if e.ChatID == chatID && e.TaskID == "" {
 		// The user acted on the orchestrator chat itself (stopped, suspended, vetoed it):
 		// starting a turn would defy them. It hears about it before its next prompt.
@@ -199,12 +211,13 @@ func (h *Hub) notifyOrchestrators(ctx context.Context) {
 			continue // told before its next prompt instead
 		}
 		dctx := withCause(ctx, store.Cause{Actor: store.ActorSystem, Source: "delivery", Confidence: store.ConfidenceCertain})
-		note := h.takeNote(dctx, cs.ID)
+		turnID := ids.UUID()
+		note := h.takeNote(dctx, cs.ID, turnID)
 		if note == "" {
 			continue
 		}
 		note += "\nThe user is in charge: don't undo or work around their actions. If this affects work you started, tell the user what is paused or blocked and ask (ask_user) whether to restart, wait or change plans."
-		if err := h.sendAgentChat(dctx, cs, chatSendRequest{SessionID: cs.ID, Content: note}); err != nil {
+		if err := h.sendAgentChat(dctx, cs, chatSendRequest{SessionID: cs.ID, Content: note, TurnID: turnID}); err != nil {
 			h.logger.Warn("orchestrator notification failed", "chat_id", cs.ID, "err", err)
 			continue
 		}
@@ -238,9 +251,11 @@ func (h *Hub) undeliveredEvents(ctx context.Context, cs store.ChatSession) []sto
 	return out
 }
 
-// takeNote builds the note for chat chatID from the events it hasn't been told about and
-// advances its cursor (so each event is told once). "" when there is nothing to tell.
-func (h *Hub) takeNote(ctx context.Context, chatID string) string {
+// takeNote builds the note for chat chatID's turn turnID from the events it hasn't been
+// told about and advances its cursor (so each event is told once). Vetoes in the note are
+// marked delivered in that turn (its normal end acknowledges them). "" when there is
+// nothing to tell.
+func (h *Hub) takeNote(ctx context.Context, chatID, turnID string) string {
 	ctx = context.WithoutCancel(ctx)
 	rt := h.chatRT(chatID)
 	rt.mu.Lock()
@@ -260,6 +275,7 @@ func (h *Hub) takeNote(ctx context.Context, chatID string) string {
 	if len(events) == 0 {
 		return ""
 	}
+	h.markVetoesDelivered(ctx, events[max(0, len(events)-maxNoteLines):], chatID, turnID)
 	return h.formatNote(ctx, events)
 }
 
@@ -295,10 +311,10 @@ func (h *Hub) eventLine(_ context.Context, e store.FleetEvent) string {
 	return line
 }
 
-// noteForPrompt returns the note to prepend to a chat's next prompt (and advances its
+// noteForPrompt returns the note to prepend to a chat's turn turnID (and advances its
 // cursor), or "" when nothing happened.
-func (h *Hub) noteForPrompt(ctx context.Context, chatID string) string {
-	return h.takeNote(ctx, chatID)
+func (h *Hub) noteForPrompt(ctx context.Context, chatID, turnID string) string {
+	return h.takeNote(ctx, chatID, turnID)
 }
 
 // initNotesCursor starts a new chat's note cursor at the newest event: a new chat is

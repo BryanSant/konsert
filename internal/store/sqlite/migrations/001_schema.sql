@@ -8,7 +8,7 @@
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
 --       r-… repo, s-… space, ws-… workspace, wt-… worktree,
---       h-… hold, rq-… user request, q-… question.
+--       h-… hold, rq-… user request, q-… question, o-… override request, v-… veto.
 -- Event/log/child tables keep integer or composite keys. External identities live in
 -- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
 -- tasks.external_id (the worker's key for a discovered session).
@@ -437,3 +437,58 @@ CREATE INDEX idx_question_rejects_time ON question_rejects(created_at);
 
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.
+
+-- Override requests (break-glass): an orchestrator asks the user for a time-boxed
+-- exception to a slot limit or hold. Approved ones are enforced until expires_at and
+-- measured (use_count).
+CREATE TABLE override_requests (
+    id               TEXT PRIMARY KEY,
+    sid              TEXT NOT NULL UNIQUE, -- o-…
+    chat_id          TEXT NOT NULL DEFAULT '', -- the requesting orchestrator chat
+    scope_kind       TEXT NOT NULL, -- machine_slots | hold | session | machine
+    worker_id        TEXT NOT NULL DEFAULT '',
+    task_id          TEXT NOT NULL DEFAULT '',
+    target_chat_id   TEXT NOT NULL DEFAULT '',
+    hold_id          TEXT NOT NULL DEFAULT '',
+    extra_slots      INTEGER NOT NULL DEFAULT 0,
+    duration_seconds INTEGER NOT NULL,
+    reason           TEXT NOT NULL,
+    consequences     TEXT NOT NULL DEFAULT '',
+    status           TEXT NOT NULL, -- pending | approved | denied | expired
+    created_at       TEXT NOT NULL,
+    decided_at       TEXT,
+    decided_by       TEXT NOT NULL DEFAULT '',
+    decision_note    TEXT NOT NULL DEFAULT '',
+    approved_at      TEXT,
+    expires_at       TEXT,
+    ended_at         TEXT,
+    use_count        INTEGER NOT NULL DEFAULT 0,
+    first_used_at    TEXT,
+    last_used_at     TEXT
+);
+CREATE INDEX idx_override_requests_status ON override_requests(status, expires_at);
+
+-- Vetoes awaiting the agent's acknowledgement (its next turn after delivery ending
+-- normally); escalated when unacknowledged past the deadline.
+CREATE TABLE vetoes (
+    id                TEXT PRIMARY KEY,
+    sid               TEXT NOT NULL UNIQUE, -- v-…
+    reason            TEXT NOT NULL,
+    note              TEXT NOT NULL DEFAULT '',
+    summary           TEXT NOT NULL DEFAULT '',
+    worker_id         TEXT NOT NULL DEFAULT '',
+    task_id           TEXT NOT NULL DEFAULT '',
+    chat_id           TEXT NOT NULL DEFAULT '',
+    fleet_event_id    INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL,
+    delivered_at      TEXT,
+    delivered_chat_id TEXT NOT NULL DEFAULT '',
+    delivered_turn_id TEXT NOT NULL DEFAULT '',
+    acked_at          TEXT,
+    acked_chat_id     TEXT NOT NULL DEFAULT '',
+    escalated_at      TEXT,
+    dismissed_at      TEXT,
+    dismissed_by      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_vetoes_open ON vetoes(acked_at, dismissed_at);
+CREATE INDEX idx_vetoes_event ON vetoes(fleet_event_id);

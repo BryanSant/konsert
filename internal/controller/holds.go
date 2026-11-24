@@ -46,17 +46,51 @@ type holdCheck struct {
 }
 
 // holdBlocking returns the first active hold that refuses the action described by c.
+// A hold lifted by an approved override (overrides.go) does not refuse it, and the
+// override is counted as used: callers proceed with the action when nothing blocks.
 func (h *Hub) holdBlocking(ctx context.Context, c holdCheck) (store.Hold, bool) {
+	hd, held, ov := h.holdVerdict(ctx, c)
+	if !held && ov != nil {
+		h.useOverride(ctx, *ov)
+	}
+	return hd, held
+}
+
+// holdVerdict is holdBlocking without counting the override: it also returns the
+// override that lifted a covering hold, for callers that only later know whether the
+// action happens there (placement across several machines).
+func (h *Hub) holdVerdict(ctx context.Context, c holdCheck) (store.Hold, bool, *store.Override) {
 	holds, err := h.store.ListHolds(ctx, store.HoldFilter{ActiveOnly: true})
 	if err != nil {
-		return store.Hold{}, false
+		return store.Hold{}, false, nil
 	}
+	var (
+		ovs    []store.Override
+		loaded bool
+		lifted *store.Override
+	)
 	for _, hd := range holds {
-		if holdCovers(hd, c) {
-			return hd, true
+		if !holdCovers(hd, c) {
+			continue
+		}
+		if !loaded {
+			ovs, loaded = h.activeOverrides(ctx, time.Now().UTC()), true
+		}
+		var by *store.Override
+		for i := range ovs {
+			if overrideLifts(ovs[i], hd) {
+				by = &ovs[i]
+				break
+			}
+		}
+		if by == nil {
+			return hd, true, nil
+		}
+		if lifted == nil {
+			lifted = by
 		}
 	}
-	return store.Hold{}, false
+	return store.Hold{}, false, lifted
 }
 
 // holdCovers reports whether hold hd refuses the action c.

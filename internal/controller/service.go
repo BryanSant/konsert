@@ -519,6 +519,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	// (not drained) and, for automatic dispatch, are not held.
 	onlineWorkers := make([]store.Worker, 0, len(workers))
 	pinnedID := req.WorkerSelector.WorkerID
+	lifted := map[string]*store.Override{}
 	for _, w := range workers {
 		if w.Status != "online" || !s.hub.IsWorkerConnected(w.ID) {
 			continue
@@ -529,17 +530,21 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 			continue
 		}
 		if isAutomatic(cause) {
-			if hold, held := s.hub.holdBlocking(ctx, holdCheck{workerID: w.ID, text: req.Prompt}); held {
+			hold, held, ov := s.hub.holdVerdict(ctx, holdCheck{workerID: w.ID, text: req.Prompt})
+			if held {
 				if w.ID == pinnedID {
 					return DispatchResult{}, holdError(hold, w.Name)
 				}
 				continue
 			}
+			lifted[w.ID] = ov
 		}
 		onlineWorkers = append(onlineWorkers, w)
 	}
 
 	counts := s.hub.ActiveTaskCounts()
+	// Approved machine_slots overrides raise a machine's slot limit while they last.
+	onlineWorkers, slots := s.hub.applySlotOverrides(ctx, onlineWorkers)
 	req.AccountID = strings.TrimSpace(req.AccountID)
 	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
 	if ok {
@@ -661,6 +666,12 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 				task.WorkerID = ""
 			}
 			s.hub.kickScheduler()
+		} else {
+			// Measure the overrides that made this placement possible.
+			if ov := lifted[selected.ID]; ov != nil {
+				s.hub.useOverride(ctx, *ov)
+			}
+			s.hub.placed(ctx, slots, selected.ID, counts[selected.ID])
 		}
 	}
 

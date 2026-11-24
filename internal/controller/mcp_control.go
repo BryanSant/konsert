@@ -333,6 +333,20 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 	}
 	if fleet != nil {
 		addHumanControlTools(srv, fleet, recent, h.chatConfirm(chatID))
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "request_override",
+			Description: "Break glass: ask the user for a time-boxed exception to a limit or hold when the work truly needs it — e.g. " +
+				"scope=machine_slots machine=mac extra_slots=1 duration_minutes=30 to allow a 2nd session on mac for 30m, or scope=hold hold_id=h-… to lift a hold for a while. " +
+				"The request shows in Konsert's Needs you with your reason and what approving allows; it returns at once. Nothing changes until the user approves: " +
+				"you are told the decision (and later the expiry) before your next turn, or a turn starts if you are idle. Konsert enforces an approved override until it expires. " +
+				"Never use it to undo something the user did on purpose without saying so in the reason.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in requestOverrideInput) (*mcp.CallToolResult, any, error) {
+			o, err := h.createOverride(ctx, chatID, in)
+			if err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: requestOverrideReply(o)}}}, nil, nil
+		})
 	} else {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "recent_events", Description: recentEventsDescription,
