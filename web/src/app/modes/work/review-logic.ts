@@ -6,21 +6,9 @@ export interface ReceiptLine {
   kind: 'commit' | 'diff' | 'summary' | 'milestone';
 }
 
-/**
- * Acceptance criteria as the work's prompt states them: its bullet or numbered lines, or
- * the goal itself when there are none. (Tickets with real acceptance lists replace this
- * once the hub links work to them.)
- */
-export function acceptanceFrom(prompt: string | undefined, goal: string): string[] {
-  const lines = (prompt ?? '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^([-*•]|\d+[.)]|\[[ x]\])\s+/i.test(l))
-    .map((l) => l.replace(/^([-*•]|\d+[.)]|\[[ x]\])\s+/i, '').trim())
-    .filter(Boolean);
-  if (lines.length) return lines.slice(0, 12);
-  return goal ? [goal] : [];
-}
+// Acceptance criteria come from the hub (GET /api/tasks/{id}/acceptance: the linked ka
+// ticket's items, else the prompt's bullets); requested changes are delivered by the hub
+// (POST /api/tasks/{id}/review).
 
 /** What the agent can show for its work: commits, the diff stat, milestones, its summary. */
 export function receiptsFor(item: WorkItem, events: readonly TaskEvent[] = []): ReceiptLine[] {
@@ -39,16 +27,4 @@ export function receiptsFor(item: WorkItem, events: readonly TaskEvent[] = []): 
   const summary = item.task?.summary?.trim();
   if (summary) out.push({ kind: 'summary', text: summary.length > 400 ? `${summary.slice(0, 399)}…` : summary });
   return out.slice(-20);
-}
-
-/** The prompt for a follow-up session that applies requested changes to finished work. */
-export function changeRequestPrompt(item: WorkItem, note: string): string {
-  const original = item.task?.prompt?.trim() || item.goal;
-  return [
-    `Changes requested on ${item.sid} ("${item.title}"):`,
-    note.trim(),
-    '',
-    'The original task was:',
-    original,
-  ].join('\n');
 }

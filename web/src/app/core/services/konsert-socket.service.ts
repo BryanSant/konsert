@@ -22,6 +22,7 @@ import {
 } from '../models/konsert.models';
 import { AgentAccount } from '../models/agent-chat.models';
 import { SessionActivity } from '../models/activity.models';
+import { Review } from '../models/review.models';
 import { ActivityStore } from '../state/activity.store';
 import { AgentAccountsStore } from '../state/agent-accounts.store';
 import { AgentChatStore } from '../state/agent-chat.store';
@@ -254,6 +255,7 @@ export class KonsertSocketService {
           pause?: FleetPause;
           question?: QuestionView;
           activity?: SessionActivity;
+          review?: Review;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -273,6 +275,8 @@ export class KonsertSocketService {
           this.activity.forget(`chat:${p.deleted_id}`);
         } else if (p.kind === 'activity' && p.activity) {
           this.activity.apply(p.activity);
+        } else if (p.kind === 'review' && p.review) {
+          this.fleetStore.upsertReview(p.review);
         } else if (p.kind === 'audit' && p.audit) {
           this.auditStore.publish(p.audit);
         } else if (p.kind === 'fleet_event' && p.fleet_event) {

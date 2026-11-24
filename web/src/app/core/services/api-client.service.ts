@@ -26,6 +26,7 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { HeatHistory } from '../models/activity.models';
+import { Acceptance, Review, ReviewDecision, ReviewResult } from '../models/review.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
 import {
   ChatActionResult,
@@ -198,6 +199,27 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify(req),
     });
+  }
+
+  /** Approve or request changes on finished work; the hub also reviews the PR with gh. */
+  reviewTask(taskId: string, decision: ReviewDecision, note?: string): Promise<ReviewResult> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note: note || undefined }),
+    });
+  }
+
+  /** Puts a task or chat in (or takes it out of) the Expedite lane. */
+  setExpedite(kind: 'task' | 'chat', id: string, expedite: boolean): Promise<{ review: Review }> {
+    return this.request(`/api/${kind === 'task' ? 'tasks' : 'chats'}/${encodeURIComponent(id)}/expedite`, {
+      method: 'PUT',
+      body: JSON.stringify({ expedite }),
+    });
+  }
+
+  /** The task's acceptance criteria: its ka ticket's items, else its prompt's bullets. */
+  getTaskAcceptance(taskId: string): Promise<Acceptance> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/acceptance`);
   }
 
   steerTask(taskId: string, inputText: string, appendNewline = true): Promise<{ ok: boolean }> {

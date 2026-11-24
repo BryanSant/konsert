@@ -245,11 +245,23 @@ test.describe('Mode UI (desktop)', () => {
       await expect(panel).toContainText('Write the migration guide');
       await expect(panel).toContainText('cover the new config keys');
       await expect(panel).toContainText('Receipts vs acceptance');
+      // Acceptance comes from the hub: the prompt's bullets (no ka ticket linked).
+      await expect(panel.getByTestId('acceptance-source')).toHaveText('Asked for (from the prompt)');
+      await expect(panel.getByTestId('acceptance').locator('li')).toHaveCount(2);
 
-      // Expedite moves the card into the Expedite lane.
+      // Expedite moves the card into the Expedite lane, and it is kept on the hub: it
+      // survives a reload (and any other client sees it).
       await panel.getByTestId('toggle-expedite').click();
       await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toBeVisible();
+      const reviews = await api<{ reviews: Array<{ task_id?: string; expedite: boolean; sid: string }> }>(page, 'GET', '/api/reviews');
+      expect(reviews.reviews.find((r) => r.task_id === task.id)).toMatchObject({ expedite: true, sid: expect.stringMatching(/^rv-/) });
+      await page.reload();
+      await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toBeVisible();
+      await expect(panel.getByTestId('toggle-expedite')).toHaveText(/Remove from Expedite/);
+      await expect(panel.getByTestId('toggle-expedite')).toHaveAttribute('aria-pressed', 'true');
       await panel.getByTestId('toggle-expedite').click();
+      await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toHaveCount(0);
+      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('konsert.review')))).toEqual([]);
 
       await page.getByTestId('view-list').click();
       await expect(page.getByTestId('work-list').locator(`[data-row="${task.sid}"]`)).toBeVisible();
@@ -299,8 +311,20 @@ test.describe('Mode UI (desktop)', () => {
       await expect(panel.getByTestId('review-receipts')).toContainText('CHANGELOG.md');
       await panel.getByTestId('review-approve').click();
       await expect(panel.getByTestId('review-message')).toContainText('Approved');
+      // No GitHub remote: the decision is recorded and the panel says it wasn't sent.
+      await expect(panel.getByTestId('review-message')).toContainText('Not sent to GitHub');
       await expect.poll(column).toBe('done');
       if (await dialog.isVisible()) await page.keyboard.press('Escape');
+
+      // The decision is kept on the hub: after a reload the card is still done, and its
+      // panel shows who approved it and what happened on GitHub.
+      await page.reload();
+      await expect.poll(column).toBe('done');
+      await card.click();
+      const aside = page.locator('aside[aria-label="Review"]').getByTestId('review-panel');
+      await expect(aside.getByTestId('review-decision')).toContainText('Approved');
+      await expect(aside.getByTestId('review-decision')).toContainText('no GitHub remote');
+      await expect(aside.getByTestId('review-approve')).toHaveCount(0);
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });
     }

@@ -1,5 +1,6 @@
 import type { SessionActivity, WorkerHeat } from './activity.models';
 import { Cause, FleetPause } from './control.models';
+import type { Review } from './review.models';
 
 export type PermissionMode = 'full_access' | 'sandboxed';
 export type TaskOrigin = 'orchestrator' | 'direct' | 'scratch';
@@ -521,6 +522,8 @@ export interface FleetSnapshotResponse {
   pause?: FleetPause;
   /** Latest activity of every known session. */
   activity?: SessionActivity[];
+  /** Review decisions and Expedite flags (KON-BM8JR). */
+  reviews?: Review[];
 }
 
 export interface DispatchTaskRequest {

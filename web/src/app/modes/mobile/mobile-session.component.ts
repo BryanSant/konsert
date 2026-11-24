@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { VETO_REASONS, VetoReason, causeLine } from '../../core/models/control.models';
+import { githubLine } from '../../core/models/review.models';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { ControlStore } from '../../core/state/control.store';
 import { formatSince } from '../../core/state/questions-logic';
@@ -67,11 +68,14 @@ import { NeedsYouStore } from '../../core/state/needs-you.store';
         }
         <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red-soft)] text-[#f3a3a3]" data-testid="mobile-veto" [disabled]="busy() || !(actions().veto || it.column === 'review')" (click)="vetoing.set(true)">Veto…</button>
         @if (it.column === 'review') {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px]" (click)="work.approve(it.id)">Approve</button>
+          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-approve" [disabled]="approving()" (click)="approve()">Approve</button>
         } @else {
           <a class="ks-btn ks-btn-soft h-[44px] no-underline" [routerLink]="['/command', it.sid]">Open full view</a>
         }
       </div>
+      @if (reviewNote()) {
+        <p class="mx-4 mt-2 mb-0 text-[12.5px] text-[var(--ks-text-secondary)]" role="status" data-testid="mobile-review-note">{{ reviewNote() }}</p>
+      }
 
       @if (it.kind === 'chat' && it.chat) {
         <form class="mx-4 mt-4 flex gap-2" (submit)="$event.preventDefault(); reply()">
@@ -182,6 +186,24 @@ export class MobileSessionComponent {
     if (ok) {
       this.vetoing.set(false);
       this.reason.set('');
+    }
+  }
+
+  readonly approving = signal(false);
+  readonly reviewNote = signal('');
+
+  /** Approves the work on the hub (which also approves its PR with gh). */
+  async approve(): Promise<void> {
+    const it = this.item();
+    if (!it) return;
+    this.approving.set(true);
+    try {
+      const res = await this.work.review(it.id, 'approved');
+      this.reviewNote.set(['Approved.', githubLine(res.review)].filter(Boolean).join(' '));
+    } catch (err) {
+      this.reviewNote.set(err instanceof Error ? err.message : 'Could not approve');
+    } finally {
+      this.approving.set(false);
     }
   }
 
