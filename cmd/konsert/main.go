@@ -14,6 +14,7 @@ import (
 	"github.com/BryanSant/konsert/internal/auth"
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/controller"
+	"github.com/BryanSant/konsert/internal/logx"
 	"github.com/spf13/cobra"
 )
 
@@ -21,9 +22,12 @@ var version = "dev"
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:     "konsert",
-		Short:   "Konsert distributed agent control plane",
-		Version: version,
+		// Runtime errors are printed once, by main, without the usage text.
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Use:           "konsert",
+		Short:         "Konsert distributed agent control plane",
+		Version:       version,
 	}
 
 	rootCmd.AddCommand(
@@ -39,6 +43,7 @@ func main() {
 	)
 
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsert", err)
 		os.Exit(1)
 	}
 }
@@ -101,7 +106,7 @@ func newServeCmd() *cobra.Command {
 				cfg.AllowedOrigins = allowedOrigins
 			}
 
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			logger := logx.New(os.Stderr, slog.LevelInfo)
 			if err := prepareServeConfig(&cfg, os.Stderr, logger); err != nil {
 				return err
 			}

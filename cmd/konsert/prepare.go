@@ -24,16 +24,10 @@ func prepareServeConfig(cfg *config.ControllerConfig, out io.Writer, logger *slo
 	}
 	loopback := isLoopbackListenAddr(cfg.ListenAddr)
 	if cfg.NoAuth && !loopback {
-		logger.Warn("!!! AUTHENTICATION IS DISABLED (--no-auth) ON A NON-LOOPBACK ADDRESS !!! "+
-			"Anyone who can reach this port can run arbitrary commands on every connected worker. "+
-			"Bind to 127.0.0.1 or drop --no-auth.",
-			"addr", cfg.ListenAddr)
+		logger.Warn("--no-auth on " + cfg.ListenAddr + ": anyone who can reach it controls your machines")
 	}
 	if cfg.TrustTailscaleHeaders && !loopback {
-		logger.Warn("--trust-tailscale-headers is set but the listener is not loopback-only; "+
-			"Tailscale-User-Login is honored only from loopback peers (Tailscale Serve), "+
-			"so bind to 127.0.0.1 and let Tailscale Serve front it",
-			"addr", cfg.ListenAddr)
+		logger.Warn("--trust-tailscale-headers only trusts loopback peers; listen on 127.0.0.1 behind Tailscale Serve")
 	}
 	return nil
 }

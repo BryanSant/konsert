@@ -18,7 +18,7 @@ import (
 // there are no upgrade paths: delete the database and start fresh. Each applied migration
 // records the SHA-256 of its file, so editing 001_schema.sql in place also refuses
 // databases created by the previous version of it.
-var ErrIncompatibleSchema = errors.New("database was created by an older, incompatible Konsert schema (pre-1.0 databases are not upgraded): delete it and restart")
+var ErrIncompatibleSchema = errors.New("made by an older Konsert; delete it and restart")
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS

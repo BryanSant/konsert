@@ -118,7 +118,7 @@ func TestPrepareNoAuthDefaultsToLoopback(t *testing.T) {
 	if err := prepareServeConfig(&cfg, &out, slog.New(slog.NewTextHandler(&logBuf, nil))); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ListenAddr != ":8420" || !strings.Contains(logBuf.String(), "AUTHENTICATION IS DISABLED") {
+	if cfg.ListenAddr != ":8420" || !strings.Contains(logBuf.String(), "--no-auth on :8420") {
 		t.Fatalf("expected loud warning for non-loopback --no-auth, got %q", logBuf.String())
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/controller"
+	"github.com/BryanSant/konsert/internal/logx"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
@@ -27,9 +28,12 @@ var version = "dev"
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:     "konsertd",
-		Short:   "Konsert cross-platform worker daemon",
-		Version: version,
+		// Runtime errors are printed once, by main, without the usage text.
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Use:           "konsertd",
+		Short:         "Konsert cross-platform worker daemon",
+		Version:       version,
 	}
 
 	rootCmd.AddCommand(newRunCmd(), newIDCmd())
@@ -41,6 +45,7 @@ func main() {
 	rootCmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsertd", err)
 		os.Exit(1)
 	}
 }
@@ -149,9 +154,9 @@ func newRunCmd() *cobra.Command {
 				defer func() { _ = f.Close() }()
 				logOut = f
 			}
-			logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: slog.LevelInfo}))
+			logger := logx.New(logOut, slog.LevelInfo)
 			if cfg.FleetToken == "" {
-				logger.Warn("no fleet token configured (--token / KONSERT_FLEET_TOKEN); only a hub started with --no-auth will accept this worker")
+				logger.Warn("no fleet token (--token); only a --no-auth hub will accept this machine")
 			}
 			daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
 			sandboxShell := o.sandboxShell
