@@ -1014,6 +1014,9 @@ func (m *Manager) emitLocked(c *chatState, ev protocol.AgentChatEvent) {
 
 // subagentChatter reports a sub-agent's text or thought event (not for the transcript).
 func subagentChatter(ev protocol.AgentChatEvent) bool {
+	if ev.Kind == protocol.EventSubagent {
+		return true
+	}
 	if ev.ParentToolCallID == "" {
 		return false
 	}

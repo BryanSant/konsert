@@ -74,20 +74,33 @@ func shellScript(argv []string) (string, bool) {
 	return "", false
 }
 
-// cleanScript removes agent wrapper steps from a shell script.
+// cleanScript removes agent wrapper steps from a shell script. claude runs every Bash call
+// as
+//
+//	source …/shell-snapshots/snapshot-zsh-….sh 2>/dev/null || true && \builtin setopt … ||
+//	true && { \builtin unalias -- 'which'; … } >/dev/null 2>&1 || true && eval 'CMD' < /dev/null
+//	&& pwd -P >| /tmp/claude-…-cwd
+//
+// and writes its shell snapshot with a script starting SNAPSHOT_FILE=….
 func cleanScript(s string) string {
 	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "SNAPSHOT_FILE=") {
+		return "claude: shell snapshot"
+	}
 	parts := splitAnd(s)
 	var keep []string
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
+		bare := strings.TrimPrefix(strings.TrimPrefix(p, `\`), "builtin ")
 		switch {
 		case p == "":
 			continue
 		case (strings.HasPrefix(p, "source ") || strings.HasPrefix(p, ". ")) && strings.Contains(p, "snapshot"):
 			continue // claude's shell snapshot
-		case strings.HasPrefix(p, "setopt ") || strings.HasPrefix(p, "shopt ") || strings.HasPrefix(p, "unsetopt "):
+		case strings.HasPrefix(bare, "setopt ") || strings.HasPrefix(bare, "shopt ") || strings.HasPrefix(bare, "unsetopt "):
 			continue
+		case strings.HasPrefix(p, "{") && strings.Contains(p, "unalias"):
+			continue // claude drops aliases that would shadow builtins
 		case strings.HasPrefix(p, "pwd -P >") || strings.HasPrefix(p, "pwd >"):
 			continue // the agent records the working directory
 		case strings.HasPrefix(p, "eval "):

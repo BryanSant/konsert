@@ -153,7 +153,8 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
         // Only work Konsert ran counts toward the bar (an idle observed session isn't "done").
         if (at >= inp.today && !it.observed) doneToday++;
         // Shells still running after the end keep the line until they exit.
-        if ((inp.now - at < DONE_FADE_MS || (it.activity.shells ?? 0) > 0) && !it.observed) done.push(lineFor(it, inp));
+        const running = (it.activity.shells ?? 0) > 0 || !!it.activity.subagents?.length;
+        if ((inp.now - at < DONE_FADE_MS || running) && !it.observed) done.push(lineFor(it, inp));
         continue;
       }
       if (it.bucket === 'queued') queued.push(lineFor(it, inp));

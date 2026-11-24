@@ -54,6 +54,9 @@ type subagent struct {
 	since        time.Time
 	tools        []runningTool
 	pending      map[string]string // open elicitations: id → question
+	// background: it runs on after its Task call returns and after the turn, until the
+	// agent reports it done (EventSubagent).
+	background bool
 }
 
 type rateSample struct {
@@ -91,6 +94,10 @@ func (c *Chat) Observe(ev protocol.AgentChatEvent, now time.Time) bool {
 	before := c.view()
 	beforeTPS := c.tps
 	beforeSubs := c.subsSig()
+	if ev.Kind == protocol.EventSubagent {
+		c.onSubagentEvent(ev.Subagent, now)
+		return c.state != "" && c.subsSig() != beforeSubs
+	}
 	if ev.ParentToolCallID != "" && c.onSubagent(ev, now) {
 		subsChanged := c.subsSig() != beforeSubs
 		if c.view() != before {
@@ -178,6 +185,27 @@ func (c *Chat) Observe(ev protocol.AgentChatEvent, now time.Time) bool {
 		return true
 	}
 	return c.tps != beforeTPS || c.subsSig() != beforeSubs
+}
+
+// onSubagentEvent folds the agent's own report of a sub-agent's lifecycle.
+func (c *Chat) onSubagentEvent(sa *protocol.AgentSubagent, now time.Time) {
+	if sa == nil || sa.ID == "" {
+		return
+	}
+	if sa.Status == protocol.SubagentDone {
+		c.dropSub(sa.ID)
+		return
+	}
+	s := c.sub(sa.ID, now)
+	if t := oneLine(sa.Title); t != "" {
+		s.title = t
+	}
+	if sa.Background {
+		s.background = true
+	}
+	if sa.Label != "" && len(s.tools) == 0 && len(s.pending) == 0 {
+		s.set(protocol.ActivityWorking, sa.Label, now)
+	}
 }
 
 // onSubagent folds an event of a sub-agent into its state. It reports false for events
@@ -303,6 +331,15 @@ func subagentTitle(label string) string {
 	return oneLine(label)
 }
 
+func (c *Chat) findSub(id string) *subagent {
+	for _, s := range c.subs {
+		if s.id == id {
+			return s
+		}
+	}
+	return nil
+}
+
 func (c *Chat) dropSub(id string) {
 	for i, s := range c.subs {
 		if s.id == id {
@@ -417,7 +454,10 @@ func (c *Chat) onTool(tc *protocol.AgentToolCall, now time.Time) {
 		if idx >= 0 {
 			c.tools = append(c.tools[:idx], c.tools[idx+1:]...)
 		}
-		c.dropSub(tc.ID) // a sub-agent ends with its parent's tool result
+		// A sub-agent ends with its parent's tool result, unless it runs in the background.
+		if s := c.findSub(tc.ID); s != nil && !s.background {
+			c.dropSub(tc.ID)
+		}
 		if len(c.tools) == 0 && len(c.pending) == 0 {
 			// The result goes back to the model.
 			c.set(protocol.ActivityThinking, "", "")
@@ -489,9 +529,17 @@ func (c *Chat) toolAsks() bool {
 func (c *Chat) endTurn() {
 	c.tools = nil
 	c.pending = map[string]string{}
-	c.subs = nil
 	c.elicitSub = map[string]string{}
 	c.suspended = false
+	// Background sub-agents outlive the turn; the others ended with it.
+	var keep []*subagent
+	for _, s := range c.subs {
+		if s.background {
+			s.tools, s.pending = nil, map[string]string{}
+			keep = append(keep, s)
+		}
+	}
+	c.subs = keep
 }
 
 // waiting reports a parent whose running tool calls all start sub-agents.
@@ -559,13 +607,11 @@ func (c *Chat) Activity(now time.Time) protocol.SessionActivity {
 		Since:        c.since.UTC(),
 		At:           now.UTC(),
 	}
-	if !protocol.ActivityTerminal(c.state) {
-		for _, s := range c.subs {
-			if len(a.Subagents) == protocol.MaxSubagents {
-				break
-			}
-			a.Subagents = append(a.Subagents, protocol.SubagentActivity{ID: s.id, Title: s.title, State: s.state, Label: s.label, Since: s.since.UTC()})
+	for _, s := range c.subs {
+		if len(a.Subagents) == protocol.MaxSubagents {
+			break
 		}
+		a.Subagents = append(a.Subagents, protocol.SubagentActivity{ID: s.id, Title: s.title, State: s.state, Label: s.label, Since: s.since.UTC()})
 	}
 	return a
 }

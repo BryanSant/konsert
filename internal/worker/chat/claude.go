@@ -272,14 +272,17 @@ type claudeSession struct {
 	forkFrom       string // start as a fork of this session (until our own is stored)
 	turn           *claudeTurn
 	pending        map[string]*claudePending
-	lastActivity   time.Time
-	watchdogFired  bool
-	lastRejected   *protocol.AgentRateLimit
-	mcpFile        string
-	suspended      bool // process tree frozen by the user; the watchdog does not run
-	closed         bool
-	stop           chan struct{}
-	stopOnce       sync.Once
+	// agentTasks maps claude's task ids of running sub-agents to their Task tool_use id
+	// (task events; background sub-agents outlive the turn).
+	agentTasks    map[string]string
+	lastActivity  time.Time
+	watchdogFired bool
+	lastRejected  *protocol.AgentRateLimit
+	mcpFile       string
+	suspended     bool // process tree frozen by the user; the watchdog does not run
+	closed        bool
+	stop          chan struct{}
+	stopOnce      sync.Once
 }
 
 func (s *claudeSession) AgentSessionID() string {
@@ -931,8 +934,10 @@ type claudeLine struct {
 	Event           jsontext.Value `json:"event"`
 	Message         jsontext.Value `json:"message"`
 	ParentToolUseID *string        `json:"parent_tool_use_id"`
-	Model           string         `json:"model"`
-	PermissionMode  string         `json:"permissionMode"`
+	// Raw is the whole line (system lines only: task events are decoded from it).
+	Raw            jsontext.Value `json:"-"`
+	Model          string         `json:"model"`
+	PermissionMode string         `json:"permissionMode"`
 
 	IsError        bool                 `json:"is_error"`
 	Result         string               `json:"result"`
@@ -1017,6 +1022,9 @@ func (s *claudeSession) readLoop(proc ccProcess, gen int) {
 		var l claudeLine
 		if err := unmarshal(line, &l); err != nil {
 			continue // non-JSON noise
+		}
+		if l.Type == "system" {
+			l.Raw = append(jsontext.Value(nil), line...)
 		}
 		s.mu.Lock()
 		current := gen == s.procGen
@@ -1109,6 +1117,8 @@ func (s *claudeSession) handleSystem(l *claudeLine) {
 			s.mode = l.PermissionMode
 			s.mu.Unlock()
 		}
+	case "task_started", "task_progress", "task_updated", "task_notification":
+		s.handleTaskEvent(l)
 	case "api_retry":
 		msg := "claude is retrying the request"
 		if l.ErrorStatus != nil {
@@ -1116,6 +1126,73 @@ func (s *claudeSession) handleSystem(l *claudeLine) {
 		}
 		s.emit(protocol.AgentChatEvent{Kind: protocol.EventStatus, TurnID: s.turnID(), Status: protocol.ChatStatusWorking, Text: msg})
 	}
+}
+
+// handleTaskEvent maps claude's own task events for sub-agents (task_type local_agent) to
+// EventSubagent: they carry the sub-agent's description, say whether it runs in the
+// background (outliving its Task call and the turn), what it does meanwhile, and when it
+// ends. Background shells have task events too; only agents are reported.
+func (s *claudeSession) handleTaskEvent(l *claudeLine) {
+	var ev struct {
+		TaskID       string `json:"task_id"`
+		ToolUseID    string `json:"tool_use_id"`
+		TaskType     string `json:"task_type"`
+		SubagentType string `json:"subagent_type"`
+		Description  string `json:"description"`
+		Background   bool   `json:"is_backgrounded"`
+		Status       string `json:"status"`
+		Patch        struct {
+			Status string `json:"status"`
+		} `json:"patch"`
+	}
+	if unmarshal(l.Raw, &ev) != nil || ev.TaskID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.agentTasks == nil {
+		s.agentTasks = map[string]string{}
+	}
+	id := ev.ToolUseID
+	if id == "" {
+		id = s.agentTasks[ev.TaskID]
+	}
+	sa := &protocol.AgentSubagent{ID: id}
+	switch l.Subtype {
+	case "task_started":
+		if ev.TaskType != "local_agent" && ev.SubagentType == "" {
+			s.mu.Unlock()
+			return
+		}
+		s.agentTasks[ev.TaskID] = id
+		sa.Status, sa.Title, sa.Background = protocol.SubagentRunning, ev.Description, ev.Background
+	case "task_progress":
+		if _, ok := s.agentTasks[ev.TaskID]; !ok {
+			s.mu.Unlock()
+			return
+		}
+		sa.Status = protocol.SubagentRunning
+		if s.turn == nil {
+			// After the turn its lines aren't followed: claude's progress line says what it does.
+			sa.Label = ev.Description
+		}
+	default: // task_updated, task_notification
+		st := firstNonEmpty(ev.Status, ev.Patch.Status)
+		if _, ok := s.agentTasks[ev.TaskID]; !ok || (st != "completed" && st != "failed" && st != "killed" && st != "cancelled" && st != "stopped") {
+			s.mu.Unlock()
+			return
+		}
+		delete(s.agentTasks, ev.TaskID)
+		sa.Status = protocol.SubagentDone
+	}
+	tid := ""
+	if s.turn != nil {
+		tid = s.turn.id
+	}
+	s.mu.Unlock()
+	if sa.ID == "" {
+		return
+	}
+	s.emit(protocol.AgentChatEvent{Kind: protocol.EventSubagent, TurnID: tid, Subagent: sa})
 }
 
 func (s *claudeSession) handleStreamEvent(l *claudeLine) {
@@ -1622,8 +1699,17 @@ func (s *claudeSession) handleExit(gen, code int, stderr string) {
 	s.pending = map[string]*claudePending{}
 	closed := s.closed
 	rejected := s.lastRejected
+	orphans := make([]string, 0, len(s.agentTasks))
+	for _, id := range s.agentTasks {
+		orphans = append(orphans, id)
+	}
+	s.agentTasks = nil
 	s.mu.Unlock()
 	s.failWaiters()
+	// Its sub-agents (background ones included) died with the process.
+	for _, id := range orphans {
+		s.emit(protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: id, Status: protocol.SubagentDone}})
+	}
 	if closed || t == nil {
 		return // idle exit: the next Prompt restarts with --resume
 	}

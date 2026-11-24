@@ -133,9 +133,16 @@ feeds a sub-agent's text and thoughts only to the activity deriver (never the tr
 while its tool calls stay in the transcript as before. `activity.Chat` keeps one state per
 sub-agent, from its Task call (title = the Task's `description`, thinking) until the Task's
 tool result: thought → thinking, text → speaking, tool call → working (label = the call),
-permission prompt → asking. A sub-agent's permission prompt is named ("Sub-agent “…”
-asks: …") in the transcript, the Needs-you item and the session's label. Codex and ACP
-agents expose no sub-agent signal: they report none.
+permission prompt → asking. claude's own task events (`system` `task_started` /
+`task_progress` / `task_updated` / `task_notification`, `task_type: local_agent`) become
+`EventSubagent` (activity only): they confirm the title and say whether the sub-agent runs
+in the **background** (`is_backgrounded`, Agent `run_in_background`). A background
+sub-agent outlives its Task call (which returns at once) and the turn: it stays listed,
+with claude's progress line as its label after the turn, until claude reports it done or
+the claude process exits. Background *shells* have task events too; they are ignored (the
+process tree counts them). A sub-agent's permission prompt is named ("Sub-agent “…” asks:
+…") in the transcript, the Needs-you item and the session's label. Codex and ACP agents
+expose no sub-agent signal: they report none.
 
 **Cleanup** (Fleet): `POST /api/tasks/{id}/shells/kill`, `POST /api/chats/{id}/shells/kill`
 with `{"shells": [{"pid", "started_at"}]}` (no list: all of them). The hub checks each shell
@@ -176,7 +183,7 @@ mapping (unit-tested with fake engines) and should be confirmed live when those 
 
 | Agent (path) | thinking | working + label | speaking + tok/s | asking | blocked | queued | done / error | shells | sub-agents | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| claude chat (`-p` stream-json) | ✓ `thinking_delta`, and waiting on the model | ✓ `tool_use` (title from the input: "Run: …", "Edit: …") | ✓ `text_delta`, estimated rate | ✓ `can_use_tool` permission, `ask_user` (hub), `request_user_action` | ✓ suspend | ✓ engine start | ✓ `result` | ✓ process tree (incl. `run_in_background`) | ✓ `parent_tool_use_id` lines: thinking / working / speaking / asking + label, until the Task result | A tool shows once its input is complete (assistant line); while a long tool input streams (a big Write) the previous state stays. |
+| claude chat (`-p` stream-json) | ✓ `thinking_delta`, and waiting on the model | ✓ `tool_use` (title from the input: "Run: …", "Edit: …") | ✓ `text_delta`, estimated rate | ✓ `can_use_tool` permission, `ask_user` (hub), `request_user_action` | ✓ suspend | ✓ engine start | ✓ `result` | ✓ process tree (incl. `run_in_background`) | ✓ `parent_tool_use_id` lines: thinking / working / speaking / asking + label, until the Task result; background sub-agents via task events until done (verified live, claude 2.1.331) | A tool shows once its input is complete (assistant line); while a long tool input streams (a big Write) the previous state stays. |
 | codex chat (app-server) | ✓ reasoning summary deltas when codex sends them; otherwise waiting on the model | ✓ commandExecution / fileChange / mcpToolCall items | ✓ `item/agentMessage/delta` | ✓ exec/patch/permission approvals, `requestUserInput`, MCP elicitations, `ask_user` | ✓ | ✓ | ✓ `turn/completed`, errors | ✓ process tree (incl. background terminals) | ✗ no signal on the wire | |
 | grok, agy, copilot, cursor chat (ACP) | ✓ `agent_thought_chunk` when the agent streams thoughts (agent-dependent); otherwise waiting on the model | ✓ `tool_call` / `tool_call_update` with status; label = the agent's title | ✓ `agent_message_chunk` | ✓ `session/request_permission`, `ask_user` (name or title match) | ✓ | ✓ | ✓ stop reason, errors | ✓ process tree | ✗ no signal in ACP | Tool names come from `_meta`; ask_user is also matched by title. |
 | mock chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ (in-process) | ✓ prompt `subagents` | Prompt `activity` walks thinking → working → speaking → done with 1.2 s per state; `subagents` runs two sub-agents, one asks a permission; `ask`/`permission` → asking; suspend → blocked; `crash`/`fail auth` → error. |

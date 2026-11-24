@@ -9,6 +9,50 @@ import (
 	"github.com/BryanSant/konsert/internal/worker/activity"
 )
 
+// TestClaudeTaskEvents: claude's own task events (sanitized from claude 2.1.331) become
+// EventSubagent: started with the description and whether it runs in the background,
+// progress after the turn, done on task_updated / task_notification, and done for every
+// running sub-agent when the process exits. Background shells' task events are ignored.
+func TestClaudeTaskEvents(t *testing.T) {
+	e, l := newTestClaude(t, fakeClaudeOpts{onUser: func(p *ccFakeProc, _ map[string]any, _ int) {
+		p.send(`{"type":"system","subtype":"task_started","task_id":"a5229","tool_use_id":"toolu_A","description":"Count files","subagent_type":"general-purpose","is_backgrounded":true,"task_type":"local_agent"}`)
+		p.send(`{"type":"system","subtype":"task_started","task_id":"b0001","tool_use_id":"toolu_S","description":"sleep 300","task_type":"local_bash"}`)
+		p.send(`{"type":"system","subtype":"task_started","task_id":"c0002","tool_use_id":"toolu_C","description":"Docs","subagent_type":"general-purpose","is_backgrounded":false,"task_type":"local_agent"}`)
+		p.send(`{"type":"system","subtype":"task_updated","task_id":"c0002","patch":{"status":"completed","end_time":1795489544080}}`)
+		p.send(`{"type":"result","subtype":"success","is_error":false,"result":"ok","stop_reason":"end_turn","session_id":"s"}`)
+	}})
+	rec := newCCRecorder()
+	s, err := e.Open(context.Background(), Account{ID: "claude"}, protocol.AgentChatOpen{Cwd: t.TempDir()}, rec.emit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	_ = s.Prompt(context.Background(), protocol.AgentChatPrompt{TurnID: "t", Text: "go"})
+	_, seen := rec.wait(t, isKind(protocol.EventTurnEnd))
+	var subs []protocol.AgentSubagent
+	for _, ev := range seen {
+		if ev.Kind == protocol.EventSubagent {
+			subs = append(subs, *ev.Subagent)
+		}
+	}
+	if len(subs) != 3 || subs[0] != (protocol.AgentSubagent{ID: "toolu_A", Title: "Count files", Status: protocol.SubagentRunning, Background: true}) ||
+		subs[1].ID != "toolu_C" || subs[2] != (protocol.AgentSubagent{ID: "toolu_C", Status: protocol.SubagentDone}) {
+		t.Fatalf("subagent events %+v", subs)
+	}
+	// After the turn, progress carries claude's description; the exit ends it.
+	p := l.last()
+	p.send(`{"type":"system","subtype":"task_progress","task_id":"a5229","tool_use_id":"toolu_A","description":"Running List files","last_tool_name":"Bash"}`)
+	prog, _ := rec.wait(t, isKind(protocol.EventSubagent))
+	if prog.Subagent.Label != "Running List files" || prog.Subagent.Status != protocol.SubagentRunning {
+		t.Fatalf("progress %+v", prog.Subagent)
+	}
+	go p.exit(0, "")
+	done, _ := rec.wait(t, isKind(protocol.EventSubagent))
+	if *done.Subagent != (protocol.AgentSubagent{ID: "toolu_A", Status: protocol.SubagentDone}) {
+		t.Fatalf("exit: %+v", done.Subagent)
+	}
+}
+
 // TestClaudeSubagentLines: lines with parent_tool_use_id belong to the sub-agent started
 // by that Task call. Their stream deltas are reported (marked with the parent) instead of
 // dropped, their tool calls and permission prompts carry the parent, and the activity

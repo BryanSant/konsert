@@ -209,8 +209,8 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       if (it.bucket === 'done') {
         if (it.observed) continue;
         const at = Date.parse(mi?.finishedAt || it.activity.since || '') || 0;
-        // Shells left running keep the card (to clean them up) until they exit.
-        if (inp.now - at >= FLEET_DONE_MS && !(it.activity.shells ?? 0)) continue;
+        // Shells left running (or background sub-agents) keep the card until they end.
+        if (inp.now - at >= FLEET_DONE_MS && !(it.activity.shells ?? 0) && !it.activity.subagents?.length) continue;
       }
       const state = spinnerStateOf(it.activity, mi?.control);
       const doneAgo = inp.now - (Date.parse(mi?.finishedAt || it.activity.since || '') || inp.now);
@@ -236,7 +236,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
         kind: it.kind,
         detail: spinnerDetailOf(it.activity),
         shellList: it.activity.shell_list ?? [],
-        subagents: it.bucket === 'done' ? [] : (it.activity.subagents ?? []),
+        subagents: it.activity.subagents ?? [],
       });
     }
   }

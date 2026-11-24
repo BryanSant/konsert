@@ -91,8 +91,8 @@ describe('spinner logic', () => {
     expect(describeSpinner('thinking', [{ name: 'desk', heat: 0.55, cause: 'cpu' }], { detail: d })).toBe(
       'desk · warm 55% · cpu — thinking · 3 shells (2 busy) · 2 sub-agents',
     );
-    // Done: sub-agents are gone, shells left running stay.
-    expect(spinnerDetailOf({ state: 'done', shells: 1, subagents: [{ id: 'a', state: 'working', since: '' }] })).toEqual({ shells: 1, shellsBusy: 0, subs: [] });
+    // Done: shells left running and background sub-agents stay.
+    expect(spinnerDetailOf({ state: 'done', shells: 1, subagents: [{ id: 'a', state: 'working', since: '' }] })).toEqual({ shells: 1, shellsBusy: 0, subs: ['working'] });
     // Four dots, then "+N".
     const o = orbitDots(['working', 'working', 'thinking', 'speaking', 'working', 'thinking']);
     expect(o.dots.length).toBe(4);

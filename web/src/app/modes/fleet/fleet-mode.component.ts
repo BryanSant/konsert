@@ -161,7 +161,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
               </div>
 
               <div class="flex flex-col gap-2 min-w-0">
-                <ul class="m-0 p-0 list-none flex flex-wrap gap-2" [attr.aria-label]="'Sessions on ' + r.w.name">
+                <ul class="m-0 p-0 list-none flex flex-wrap items-start gap-2" [attr.aria-label]="'Sessions on ' + r.w.name">
                   @for (s of r.sessions; track s.key) {
                     <li class="ks-sess-li" [class.ks-sess-li-wide]="!!s.detail" [class.ks-sess-done]="s.done" [attr.data-session-card]="s.sid">
                       <button type="button" class="ks-focusable ks-sess" [class.ks-sess-left]="s.done && !!s.detail?.shells" [attr.data-session]="s.sid" [attr.data-state]="s.state" [disabled]="!s.item" (click)="open(s)">

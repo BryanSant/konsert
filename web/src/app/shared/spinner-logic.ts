@@ -81,8 +81,8 @@ export function spinnerStateOf(activity: Pick<SessionActivity, 'state' | 'waitin
 export function spinnerDetailOf(a: Pick<SessionActivity, 'state' | 'shells' | 'shells_busy' | 'subagents'> | undefined | null): SpinnerDetail | null {
   if (!a) return null;
   const shells = a.shells ?? 0;
-  const live = a.state !== 'done' && a.state !== 'error';
-  const subs = live ? (a.subagents ?? []).map((s) => s.state) : [];
+  // After the turn only background sub-agents remain (konsertd drops the others).
+  const subs = (a.subagents ?? []).map((s) => s.state);
   if (!shells && !subs.length) return null;
   return { shells, shellsBusy: Math.min(a.shells_busy ?? 0, shells), subs };
 }

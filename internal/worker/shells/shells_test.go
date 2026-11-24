@@ -351,6 +351,10 @@ func TestCleanCommand(t *testing.T) {
 	}{
 		{[]string{"/bin/zsh", "-c", "-l", "source /Users/u/.claude/shell-snapshots/snapshot-zsh-1.sh && setopt NO_EXTENDED_GLOB 2>/dev/null || true && eval 'go test ./...' \\< /dev/null && pwd -P >| /var/folders/x/claude-ab-cwd"}, "go test ./..."},
 		{[]string{"/bin/bash", "-c", "-l", "source /h/.claude/shell-snapshots/s.sh && shopt -u extglob 2>/dev/null || true && eval 'echo it'\\''s && sleep 1' < /dev/null && pwd -P >| /tmp/c"}, "echo it's && sleep 1"},
+		// claude 2.1.33x, as seen in ps (zsh -c, no -l; the snapshot may be absent).
+		{[]string{"/bin/zsh", "-c", `source /Users/u/.claude/shell-snapshots/snapshot-zsh-1795407075142-ma2t8r.sh 2>/dev/null || true && \builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST NO_EQUALS 2>/dev/null || true && { \builtin unalias -- 'which'; \builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \builtin unalias -- 'unsetenv'; \builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'cd /repo && npm run dev -- --port 5173' < /dev/null && pwd -P >| /var/tmp/claude-ce03-cwd`}, "cd /repo && npm run dev -- --port 5173"},
+		{[]string{"/bin/zsh", "-c", `\builtin setopt NO_EXTENDED_GLOB 2>/dev/null || true && { \builtin unalias -- 'which'; \builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && eval 'sleep 25 && echo it'"'"'s done | wc -c' < /dev/null && pwd -P >| /var/tmp/claude-f54a-cwd`}, "sleep 25 && echo it's done | wc -c"},
+		{[]string{"/bin/zsh", "-c", `SNAPSHOT_FILE=/Users/u/.claude/shell-snapshots/snapshot-zsh-1.sh source "/Users/u/.zshrc" < /dev/null # First, create/clear the snapshot file`}, "claude: shell snapshot"},
 		{[]string{"bash", "-lc", "npm run dev"}, "npm run dev"},
 		{[]string{"sh", "-c", "--", "make -j8", "sh"}, "make -j8"},
 		{[]string{"cmd.exe", "/c", "dir", "/s"}, "dir /s"},

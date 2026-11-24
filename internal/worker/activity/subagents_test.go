@@ -84,6 +84,43 @@ func TestChatSubagentsHaveTheirOwnState(t *testing.T) {
 	check(11, protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, StopReason: "end_turn"}, want{state: protocol.ActivityDone, changed: true})
 }
 
+func TestChatBackgroundSubagentOutlivesItsTaskAndTheTurn(t *testing.T) {
+	c := NewChat("c1")
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	c.Observe(status(protocol.ChatStatusWorking), now)
+	c.Observe(tool("A", "Agent", "Agent: Watch the build", "running"), now)
+	started := protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: "A", Title: "Watch the build", Status: protocol.SubagentRunning, Background: true}}
+	c.Observe(started, now)
+	// The Task call returns at once ("launched in the background") and the turn ends.
+	c.Observe(tool("A", "Agent", "", "completed"), now)
+	c.Observe(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, StopReason: "end_turn"}, now)
+	a := c.Activity(now)
+	if a.State != protocol.ActivityDone || len(a.Subagents) != 1 || a.Subagents[0].Title != "Watch the build" {
+		t.Fatalf("after the turn: %+v", a)
+	}
+	// claude's progress line says what it does; then it finishes.
+	if !c.Observe(protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: "A", Status: protocol.SubagentRunning, Label: "Running go build"}}, now) {
+		t.Fatal("progress is a change")
+	}
+	if s := c.Activity(now).Subagents[0]; s.State != protocol.ActivityWorking || s.Label != "Running go build" {
+		t.Fatalf("progress: %+v", s)
+	}
+	if !c.Observe(protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: "A", Status: protocol.SubagentDone}}, now) {
+		t.Fatal("done is a change")
+	}
+	if n := len(c.Activity(now).Subagents); n != 0 {
+		t.Fatalf("%d sub-agents after done", n)
+	}
+	// A foreground one (task_started without background) still ends with its Task result.
+	c.Observe(status(protocol.ChatStatusWorking), now)
+	c.Observe(tool("B", "Agent", "Agent: Count files", "running"), now)
+	c.Observe(protocol.AgentChatEvent{Kind: protocol.EventSubagent, Subagent: &protocol.AgentSubagent{ID: "B", Title: "Count files", Status: protocol.SubagentRunning}}, now)
+	c.Observe(tool("B", "Agent", "", "completed"), now)
+	if n := len(c.Activity(now).Subagents); n != 0 {
+		t.Fatalf("foreground sub-agent kept: %d", n)
+	}
+}
+
 func TestChatSubagentWithoutKnownParentTool(t *testing.T) {
 	// A sub-agent line can come before (or without) the parent's tool call.
 	c := NewChat("c1")
