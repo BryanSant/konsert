@@ -169,7 +169,7 @@ Users mostly answer questions agents are unsure about, not do complex steering. 
 
 ## 6. Non-functional requirements
 
-- **Security:** fleet token for daemons, authenticated browser sessions (or trusted Tailscale identity), bearer tokens for MCP, secrets encrypted at rest, real email addresses never written into repos. Daemons never accept inbound connections.
+- **Security:** per-machine credentials for daemons (one-time join codes for manual machines), authenticated browser sessions (or trusted Tailscale identity), bearer tokens for MCP, secrets encrypted at rest, real email addresses never written into repos. Daemons never accept inbound connections.
 - **Overhead:** observation must be cheap: daemon CPU < 1% average on an idle machine; incremental tailing of session stores; sampling intervals adaptive (faster while work runs).
 - **Scale target:** 20 machines, 200 concurrent sessions, 1 year of downsampled history in SQLite.
 - **Reliability:** hub restarts don't stop work; daemons re-adopt managed sessions; observed sessions are re-discovered.

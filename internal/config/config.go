@@ -15,12 +15,11 @@ type ControllerConfig struct {
 	// all interfaces when auth is on, loopback only with --no-auth.
 	ListenAddr string `yaml:"listen_addr"`
 	DBPath     string `yaml:"db_path"`
-	FleetToken string `yaml:"fleet_token"`
 	// RecoveryKey is the hidden emergency credential (Bearer token, or the login page's
 	// "Use recovery key" fallback). Normally unset: the hub generates one into TokensFile
 	// and never prints it. People sign in by pairing devices instead.
 	RecoveryKey string `yaml:"recovery_key"`
-	// TokensFile is where the generated recovery key and fleet token are persisted
+	// TokensFile is where the generated recovery key is persisted
 	// (0600). Empty means "konsert-tokens.yaml" next to DBPath.
 	TokensFile string `yaml:"tokens_file"`
 	// RecoveryKeyInTokensFile is set when the recovery key came from (or was generated
@@ -70,7 +69,6 @@ type OrchestratorConfig struct {
 // WorkerConfig holds configuration for the konsertd worker daemon.
 type WorkerConfig struct {
 	ControllerURL    string            `yaml:"controller_url"`
-	FleetToken       string            `yaml:"fleet_token"`
 	WorkerID         string            `yaml:"worker_id"`
 	Name             string            `yaml:"name"`
 	HostGroup        string            `yaml:"host_group"`
@@ -83,6 +81,11 @@ type WorkerConfig struct {
 	// Accounts are extra agent accounts (e.g. a second subscription of the same CLI) on
 	// top of each installed CLI's default account. See docs/design/agent-chat.md.
 	Accounts []AgentAccountConfig `yaml:"accounts"`
+
+	// Credential is this machine's own hub credential (KON-RK9YD). It is never part of
+	// the YAML config: konsertd keeps it in its state directory (worker.LoadCredential),
+	// next to its identity, and `konsertd join` or the hub puts it there.
+	Credential string `yaml:"-"`
 }
 
 // AgentAccountConfig is one extra agent account in konsertd's YAML config:
@@ -165,9 +168,6 @@ func applyControllerEnv(cfg *ControllerConfig) {
 	if v := os.Getenv("KONSERT_DB_PATH"); v != "" {
 		cfg.DBPath = v
 	}
-	if v := os.Getenv("KONSERT_FLEET_TOKEN"); v != "" {
-		cfg.FleetToken = v
-	}
 	if v := os.Getenv("KONSERT_RECOVERY_KEY"); v != "" {
 		cfg.RecoveryKey = v
 	}
@@ -244,9 +244,6 @@ func LoadWorkerConfig(path string) (WorkerConfig, error) {
 func applyWorkerEnv(cfg *WorkerConfig) {
 	if v := os.Getenv("KONSERT_CONTROLLER_URL"); v != "" {
 		cfg.ControllerURL = v
-	}
-	if v := os.Getenv("KONSERT_FLEET_TOKEN"); v != "" {
-		cfg.FleetToken = v
 	}
 	if v := os.Getenv("KONSERT_WORKER_ID"); v != "" {
 		cfg.WorkerID = v

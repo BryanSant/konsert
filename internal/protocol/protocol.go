@@ -52,6 +52,11 @@ const (
 	// from the fleet so konsertd exits cleanly instead of auto-reconnecting.
 	WSCloseWorkerRemoved = 4001
 
+	// WSCloseCredentialRevoked is sent by the controller when an operator revokes the
+	// machine's credential. konsertd keeps retrying slowly (re-reading its saved
+	// credential), so `konsertd join` with a new code brings it back.
+	WSCloseCredentialRevoked = 4003
+
 	// WSCloseTryAgainLater (RFC 6455 1013) is sent by the controller to a new worker
 	// connection while another live connection holds the same identity. konsertd
 	// reconnects with backoff; only WSCloseWorkerRemoved makes it exit.

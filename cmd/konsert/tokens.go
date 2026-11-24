@@ -16,11 +16,10 @@ import (
 // SQLite database.
 const tokensFileName = "konsert-tokens.yaml"
 
-// persistedTokens is the tokens file: the hidden recovery key (never printed) and the
-// fleet token konsertd workers use.
+// persistedTokens is the tokens file: the hidden recovery key (never printed).
+// Machines have their own credentials (konsertd join), so there is no fleet token.
 type persistedTokens struct {
 	RecoveryKey string `yaml:"recovery_key,omitempty"`
-	FleetToken  string `yaml:"fleet_token,omitempty"`
 }
 
 // resolveTokensFile returns the path used to persist the hub's tokens.
@@ -54,15 +53,14 @@ func readTokensFile(path string) (persistedTokens, error) {
 }
 
 // ensureAuthTokens makes the controller fail closed. Unless --no-auth is set, a
-// missing recovery key or fleet token is loaded from the tokens file or, failing
-// that, generated and persisted there with mode 0600. Nothing is printed: people sign
+// missing recovery key is loaded from the tokens file or, failing that, generated and persisted there with mode 0600. Nothing is printed: people sign
 // in by pairing (the startup sign-in link), and the recovery key stays in the file
 // for emergencies.
 func ensureAuthTokens(cfg *config.ControllerConfig) error {
 	if cfg.NoAuth {
 		return nil
 	}
-	if cfg.RecoveryKey != "" && cfg.FleetToken != "" {
+	if cfg.RecoveryKey != "" {
 		return nil
 	}
 	path := resolveTokensFile(*cfg)
@@ -90,9 +88,6 @@ func ensureAuthTokens(cfg *config.ControllerConfig) error {
 		cfg.RecoveryKeyInTokensFile = true
 	}
 	if err := fill(&cfg.RecoveryKey, &saved.RecoveryKey, "recovery key"); err != nil {
-		return err
-	}
-	if err := fill(&cfg.FleetToken, &saved.FleetToken, "fleet token"); err != nil {
 		return err
 	}
 	if !generated {

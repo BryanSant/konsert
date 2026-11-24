@@ -9,11 +9,12 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
+import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent],
   template: `
     <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
@@ -237,6 +238,8 @@ import { YourActionsComponent } from '../features/control/your-actions.component
           </ul>
         </div>
       }
+
+      <app-machine-credential [worker]="worker()" />
 
       <!-- Cached Machine Facts -->
       @if (worker().facts; as f) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// WriteSecretFile atomically writes data (which may hold the fleet token) to path so
+// WriteSecretFile atomically writes data (a config or a machine credential) to path so
 // only the current user can read it: mode 0600 in a 0700 directory on Unix, a protected
 // DACL granting only the user and SYSTEM on Windows. The permissions are applied to the
 // temp file before any byte is written, so the secret is never briefly readable by others.

@@ -60,6 +60,39 @@ type Worker struct {
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 
+// MachineCredential is one konsertd credential (KON-RK9YD). The secret itself is never
+// stored, only its hash (see internal/auth). A credential authenticates exactly its
+// machine (WorkerID).
+type MachineCredential struct {
+	ID            string     `json:"id"`
+	SID           string     `json:"sid"`
+	WorkerID      string     `json:"worker_id"`
+	Source        string     `json:"source"` // MachineCredJoin, MachineCredLocal, ...
+	CreatedAt     time.Time  `json:"created_at"`
+	LastUsedAt    *time.Time `json:"last_used_at,omitzero"`
+	RevokedAt     *time.Time `json:"revoked_at,omitzero"`
+	RevokedReason string     `json:"revoked_reason,omitempty"`
+}
+
+// Machine credential sources: how the credential reached the machine.
+const (
+	MachineCredJoin   = "join"   // traded for a join code (konsertd join)
+	MachineCredLocal  = "local"  // the hub installed konsertd on its own machine
+	MachineCredSSH    = "ssh"    // the hub installed konsertd over SSH
+	MachineCredRotate = "rotate" // pushed to a connected konsertd by a rotation
+)
+
+// MachineJoinCode is a short-lived, single-use code a machine trades for a credential.
+// Only the code's hash is stored.
+type MachineJoinCode struct {
+	ID        string     `json:"id"`
+	CreatedBy string     `json:"created_by,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitzero"`
+	WorkerID  string     `json:"worker_id,omitempty"`
+}
+
 // Worker launch modes and states (workers.launch / workers.launch_state).
 const (
 	LaunchManual = ""
@@ -378,6 +411,31 @@ type Store interface {
 	EnsureWorker(ctx context.Context, w Worker) (Worker, error)
 	// SetWorkerLaunchState records the outcome of a start attempt ("" clears it).
 	SetWorkerLaunchState(ctx context.Context, id, state, errMsg string, at time.Time) error
+
+	// Machine credentials (KON-RK9YD). CreateMachineCredential stores c (minting its ids)
+	// with the hex SHA-256 of its secret. GetMachineCredential returns a credential and
+	// its secret hash, or ErrNotFound. ListMachineCredentials lists a machine's
+	// credentials (every machine's when workerID is ""), newest first.
+	CreateMachineCredential(ctx context.Context, c MachineCredential, secretHash string) (MachineCredential, error)
+	GetMachineCredential(ctx context.Context, id string) (MachineCredential, string, error)
+	ListMachineCredentials(ctx context.Context, workerID string) ([]MachineCredential, error)
+	// TouchMachineCredential records a successful authentication.
+	TouchMachineCredential(ctx context.Context, id string, at time.Time) error
+	// RevokeMachineCredentials revokes every active credential of workerID except
+	// exceptID ("" revokes all) and returns how many it revoked.
+	RevokeMachineCredentials(ctx context.Context, workerID, exceptID, reason string, at time.Time) (int, error)
+	// RevokeMachineCredential revokes one credential (no-op when already revoked).
+	RevokeMachineCredential(ctx context.Context, id, reason string, at time.Time) error
+
+	// Machine join codes. CreateMachineJoinCode stores c with the hex SHA-256 of the code
+	// and deletes codes that expired over a day before c.CreatedAt. RedeemMachineJoinCode
+	// atomically marks the unused, unexpired code with codeHash as used by workerID and
+	// returns it (ErrNotFound when there is none). CountActiveMachineJoinCodes counts the
+	// unused, unexpired codes.
+	CreateMachineJoinCode(ctx context.Context, c MachineJoinCode, codeHash string) (MachineJoinCode, error)
+	GetMachineJoinCode(ctx context.Context, id string) (MachineJoinCode, error)
+	RedeemMachineJoinCode(ctx context.Context, codeHash, workerID string, at time.Time) (MachineJoinCode, error)
+	CountActiveMachineJoinCodes(ctx context.Context, at time.Time) (int, error)
 	UpdateWorkerFacts(ctx context.Context, id, factsJSON string, updatedAt time.Time) error
 	// TouchWorker marks an existing worker online at seenAt. Unlike UpsertWorker it
 	// never recreates a row, so a heartbeat racing a fleet removal can't resurrect it.

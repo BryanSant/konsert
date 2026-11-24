@@ -17,6 +17,11 @@ import (
 // DisconnectWorker closes any active WebSocket session for workerID with WSCloseWorkerRemoved
 // so the remote konsertd exits cleanly instead of auto-reconnecting.
 func (h *Hub) DisconnectWorker(workerID string) {
+	h.disconnectWorkerWith(workerID, protocol.WSCloseWorkerRemoved, "worker removed from fleet")
+}
+
+// disconnectWorkerWith closes workerID's WebSocket session with the given close code.
+func (h *Hub) disconnectWorkerWith(workerID string, code int, reason string) {
 	h.mu.Lock()
 	wc, ok := h.workers[workerID]
 	delete(h.workers, workerID)
@@ -24,8 +29,8 @@ func (h *Hub) DisconnectWorker(workerID string) {
 	h.mu.Unlock()
 	h.forgetHeat(workerID)
 	if ok && wc != nil {
-		// Send WebSocket close frame 4001 BEFORE canceling connCtx so coder/websocket doesn't hard-abort TCP with EOF.
-		_ = wc.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
+		// Send the WebSocket close frame BEFORE canceling connCtx so coder/websocket doesn't hard-abort TCP with EOF.
+		_ = wc.conn.Close(websocket.StatusCode(code), reason)
 		wc.cancel()
 	}
 }
@@ -53,6 +58,14 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	hello, err := protocol.DecodePayload[protocol.WorkerHelloPayload](env)
 	if err != nil || hello.Worker.ID == "" {
 		_ = conn.Close(websocket.StatusProtocolError, "invalid worker.hello")
+		return
+	}
+
+	// A credential authenticates exactly its machine: it cannot register as another.
+	if b, ok := boundMachineFrom(ctx); ok && b.workerID != hello.Worker.ID {
+		h.logger.Warn("rejecting konsertd: credential belongs to another machine",
+			"credential", b.credSID, "claimed", hello.Worker.ID)
+		_ = conn.Close(websocket.StatusPolicyViolation, "credential belongs to another machine")
 		return
 	}
 

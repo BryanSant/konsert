@@ -16,6 +16,10 @@ import {
   SSHBootstrapResult,
   SetupStatus,
   AddLocalWorkerResult,
+  JoinCode,
+  JoinCodeStatus,
+  MachineCredentialInfo,
+  RotationResponse,
   SSHHost,
   SessionDefaults,
   Space,
@@ -678,6 +682,33 @@ export class ApiClientService {
   /** Adds the hub's machine: attaches a running konsertd or starts one. */
   addLocalWorker(): Promise<AddLocalWorkerResult> {
     return this.request('/api/workers/local', { method: 'POST' });
+  }
+
+  /** Creates a short-lived join code for `konsertd join` (Add machine → Manual). */
+  createJoinCode(): Promise<JoinCode> {
+    return this.request('/api/machines/join-codes', { method: 'POST' });
+  }
+
+  getJoinCode(id: string): Promise<JoinCodeStatus> {
+    return this.request(`/api/machines/join-codes/${encodeURIComponent(id)}`);
+  }
+
+  getMachineCredential(workerId: string): Promise<MachineCredentialInfo> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/credential`);
+  }
+
+  /** Revokes a machine's credential; the hub disconnects it at once. */
+  revokeMachineCredential(workerId: string): Promise<{ ok: boolean; revoked: number }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/credential/revoke`, { method: 'POST' });
+  }
+
+  /** Revokes the credentials of machines that joined by hand (they need new join codes). */
+  rotateMachineCredentials(machine?: string): Promise<RotationResponse> {
+    return this.request('/api/machines/credentials/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(machine ? { machine } : {}),
+    });
   }
 
   /** Retries starting a hub-managed machine's konsertd. */

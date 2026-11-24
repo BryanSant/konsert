@@ -32,10 +32,10 @@ const cookieMaxAge = 400 * 24 * 3600
 // DefaultIdleExpiry is how long a device credential may go unused before it expires.
 const DefaultIdleExpiry = 90 * 24 * time.Hour
 
-// Manager handles authentication for workers, browser PWA sessions, the CLI and MCP
-// HTTP clients.
+// Manager handles authentication for browser PWA sessions, the CLI and MCP HTTP
+// clients. Worker (konsertd) connections authenticate with per-machine credentials
+// (see machine.go), which the controller checks against its store.
 type Manager struct {
-	fleetToken            string
 	recoveryKey           atomic.Pointer[string]
 	noAuth                bool
 	trustTailscaleHeaders bool
@@ -49,7 +49,6 @@ type Manager struct {
 
 // Options configures auth.Manager.
 type Options struct {
-	FleetToken            string
 	RecoveryKey           string
 	NoAuth                bool
 	TrustTailscaleHeaders bool
@@ -64,7 +63,6 @@ type Options struct {
 // NewManager creates an auth.Manager.
 func NewManager(opts Options) *Manager {
 	m := &Manager{
-		fleetToken:            opts.FleetToken,
 		noAuth:                opts.NoAuth,
 		trustTailscaleHeaders: opts.TrustTailscaleHeaders,
 		devices:               opts.Devices,
@@ -123,22 +121,6 @@ func extractBearer(r *http.Request) string {
 		return strings.TrimSpace(h[7:])
 	}
 	return ""
-}
-
-// CheckFleetAuth verifies the outbound worker WebSocket Authorization header.
-// It fails closed: an unset fleet token denies every worker unless --no-auth is set.
-func (m *Manager) CheckFleetAuth(r *http.Request) bool {
-	if m.noAuth {
-		return true
-	}
-	if m.fleetToken == "" {
-		return false
-	}
-	tok := extractBearer(r)
-	if tok == "" {
-		return false
-	}
-	return constantTimeEquals(tok, m.fleetToken)
 }
 
 // CheckRecoveryKey verifies a candidate recovery key. An unset key denies every

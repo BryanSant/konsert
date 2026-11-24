@@ -27,7 +27,7 @@ async function startHub(): Promise<Hub> {
   const baseURL = `http://127.0.0.1:${port}`;
   const proc = spawn(
     path.join(repoRoot, 'bin', 'konsert'),
-    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db'), '--recovery-key', ADMIN, '--fleet-token', 'modes-first-run-fleet'],
+    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db'), '--recovery-key', ADMIN],
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],

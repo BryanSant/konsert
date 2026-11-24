@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -42,7 +43,7 @@ func main() {
 	rootCmd.AddCommand(newHookEventCmd())
 	rootCmd.AddCommand(newDaemonMCPCmd())
 	rootCmd.AddCommand(newMCPBridgeCmd())
-	rootCmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStatusCmd())
+	rootCmd.AddCommand(newJoinCmd(), newInstallCmd(), newUninstallCmd(), newStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsertd", err)
@@ -55,7 +56,7 @@ func main() {
 type runOptions struct {
 	configPath       string
 	controllerURL    string
-	fleetToken       string
+	credentialStdin  bool
 	workerID         string
 	name             string
 	hostGroup        string
@@ -72,7 +73,7 @@ type runOptions struct {
 func (o *runOptions) bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.configPath, "config", "c", "", "Path to worker YAML config file")
 	fs.StringVar(&o.controllerURL, "controller", "ws://127.0.0.1:8420/ws/worker", "Controller WebSocket URL")
-	fs.StringVar(&o.fleetToken, "token", "", "Pre-shared fleet token for /ws/worker (env KONSERT_FLEET_TOKEN); required unless the hub runs --no-auth")
+	fs.BoolVar(&o.credentialStdin, "credential-stdin", false, "Read this machine's credential from stdin and save it (the hub uses this; people use konsertd join)")
 	fs.StringVar(&o.workerID, "id", "", "Stable worker id, a UUID (defaults to the persisted identity in ~/.konsert/worker-id)")
 	fs.StringVar(&o.name, "name", "", "Worker display name (defaults to hostname)")
 	fs.StringVar(&o.hostGroup, "host-group", "", "Physical host group name (defaults to name)")
@@ -94,9 +95,6 @@ func (o *runOptions) resolve(fs *pflag.FlagSet) (config.WorkerConfig, error) {
 	}
 	if fs.Changed("controller") {
 		cfg.ControllerURL = o.controllerURL
-	}
-	if fs.Changed("token") {
-		cfg.FleetToken = o.fleetToken
 	}
 	if fs.Changed("id") {
 		cfg.WorkerID = o.workerID
@@ -144,40 +142,57 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			var logOut io.Writer = os.Stderr
-			if o.logFile != "" {
-				f, err := openLogFile(o.logFile)
+			if o.credentialStdin {
+				cred, err := readLine(bufio.NewReader(cmd.InOrStdin()))
 				if err != nil {
-					return fmt.Errorf("open --log-file: %w", err)
+					return fmt.Errorf("read the credential from stdin: %w", err)
 				}
-				defer func() { _ = f.Close() }()
-				logOut = f
+				cfg.Credential = cred
+				if err := worker.SaveCredential("", worker.WorkerIDFor(cfg), cred); err != nil {
+					return fmt.Errorf("save the machine credential: %w", err)
+				}
 			}
-			logger := logx.New(logOut, slog.LevelInfo)
-			if cfg.FleetToken == "" {
-				logger.Warn("no fleet token (--token); only a --no-auth hub will accept this machine")
-			}
-			daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
-			sandboxShell := o.sandboxShell
-			if !cmd.Flags().Changed("sandbox-allow-shell") {
-				sandboxShell = envBool("KONSERTD_SANDBOX_ALLOW_SHELL")
-			}
-			if cfg.Sandbox && sandboxShell {
-				logger.Warn("sandboxed worker opted in to the unrestricted shell driver (--sandbox-allow-shell)")
-			}
-			daemon.SetAllowSandboxShell(sandboxShell)
-			daemon.SetVersion(version)
-
-			err = runDaemon(daemon.Run)
-			if err != nil && err != context.Canceled {
-				return err
-			}
-			return nil
+			return runWorker(cmd, &o, cfg)
 		},
 	}
 	o.bind(cmd.Flags())
 	return cmd
+}
+
+// runWorker runs the daemon with cfg until it stops.
+func runWorker(cmd *cobra.Command, o *runOptions, cfg config.WorkerConfig) error {
+	var logOut io.Writer = os.Stderr
+	if o.logFile != "" {
+		f, err := openLogFile(o.logFile)
+		if err != nil {
+			return fmt.Errorf("open --log-file: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		logOut = f
+	}
+	logger := logx.New(logOut, slog.LevelInfo)
+	if cfg.Credential == "" {
+		cfg.Credential, _ = worker.LoadCredential("", worker.WorkerIDFor(cfg))
+	}
+	if cfg.Credential == "" {
+		logger.Warn("no machine credential; only a --no-auth hub accepts this")
+	}
+	daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
+	sandboxShell := o.sandboxShell
+	if !cmd.Flags().Changed("sandbox-allow-shell") {
+		sandboxShell = envBool("KONSERTD_SANDBOX_ALLOW_SHELL")
+	}
+	if cfg.Sandbox && sandboxShell {
+		logger.Warn("sandboxed worker opted in to the unrestricted shell driver (--sandbox-allow-shell)")
+	}
+	daemon.SetAllowSandboxShell(sandboxShell)
+	daemon.SetVersion(version)
+
+	err := runDaemon(daemon.Run)
+	if err != nil && err != context.Canceled {
+		return err
+	}
+	return nil
 }
 
 // newIDCmd prints the worker identity (the hub's workers.id) that `konsertd run` with the
@@ -203,6 +218,7 @@ id. The hub runs this (locally or over SSH) to know a host before its daemon con
 	}
 	o.bind(cmd.Flags())
 	_ = cmd.Flags().MarkHidden("log-file")
+	_ = cmd.Flags().MarkHidden("credential-stdin")
 	return cmd
 }
 
@@ -410,8 +426,8 @@ func newDaemonMCPCmd() *cobra.Command {
 
 The bridge calls the hub's /api endpoints, which require a device credential
 (create one with ` + "`konsert login`" + ` and pass it here, or use the hub's recovery key on
-the hub's machine). The fleet token only authorizes worker connections on
-/ws/worker and is never used here.
+the hub's machine). This machine's own credential only authorizes its
+worker connection on /ws/worker and is never used here.
 
 Hub URL:   --controller, else $KONSERT_URL, else the worker config's controller_url
            (ws:// -> http://, trailing /ws/worker removed).
@@ -441,12 +457,12 @@ Token:     --token, else $KONSERT_TOKEN. With neither set, requests are sent
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to worker YAML config file")
 	cmd.Flags().StringVar(&controllerURL, "controller", "", "Konsert hub URL (default $KONSERT_URL, else the worker config controller_url)")
-	cmd.Flags().StringVar(&token, "token", "", "Konsert hub device credential for /api calls (default $KONSERT_TOKEN; the fleet token is not accepted there)")
+	cmd.Flags().StringVar(&token, "token", "", "Konsert hub device credential for /api calls (default $KONSERT_TOKEN; machine credentials are not accepted there)")
 	return cmd
 }
 
 // resolveMCPBridge picks the hub base URL and bearer token for `konsertd mcp`. The token is
-// a device credential (flag, then KONSERT_TOKEN); the worker's fleet token is never used
+// a device credential (flag, then KONSERT_TOKEN); the machine credential is never used
 // because the hub's /api rejects it.
 func resolveMCPBridge(cfg config.WorkerConfig, flagURL, flagToken *string, getenv func(string) string) (base, token string) {
 	switch {

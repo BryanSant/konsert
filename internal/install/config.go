@@ -9,7 +9,7 @@ import (
 )
 
 const configHeader = "# konsertd worker config written by `konsertd install`.\n" +
-	"# It can hold the fleet token: keep it readable only by you.\n"
+	"# It can hold agent account settings: keep it readable only by you.\n"
 
 // MarshalWorkerConfig renders cfg as YAML with only the fields that were set. Unset
 // fields are left out (not written as zero values) so `konsertd run` still applies its

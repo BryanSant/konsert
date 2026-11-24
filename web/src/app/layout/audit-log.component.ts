@@ -21,6 +21,12 @@ export const AUDIT_ACTIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'settings.update', label: 'Settings change' },
   { id: 'wakelock.host', label: 'Keep Awake (host)' },
   { id: 'wakelock.fleet', label: 'Keep Awake (fleet)' },
+  { id: 'machine.join_code', label: 'Join code created' },
+  { id: 'machine.join', label: 'Machine joined' },
+  { id: 'machine.join_failed', label: 'Join refused' },
+  { id: 'machine.credential_mint', label: 'Machine credential issued' },
+  { id: 'machine.credential_revoke', label: 'Machine credential revoked' },
+  { id: 'machine.credential_rotate', label: 'Machine credentials rotated' },
 ];
 
 const ACTION_LABELS: Record<string, string> = Object.fromEntries(AUDIT_ACTIONS.map((a) => [a.id, a.label]));

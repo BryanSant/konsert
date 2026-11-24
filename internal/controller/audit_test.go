@@ -50,7 +50,6 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = false
 	cfg.RecoveryKey = auditAdminTok
-	cfg.FleetToken = "fleet-tok"
 	cfg.EnableMCPHTTP = true
 	cfg.TrustTailscaleHeaders = true
 	srv := NewServer(cfg, st, nil, "test")

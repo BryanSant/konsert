@@ -249,16 +249,6 @@ func (in *Installer) Render(spec Spec) (string, []byte, error) {
 	return b.render(in, spec)
 }
 
-// ExistingConfig returns the instance's currently installed config, if any, so a
-// reinstall without --token keeps the token it already has.
-func (in *Installer) ExistingConfig(instance string) ([]byte, bool) {
-	data, err := os.ReadFile(in.ConfigPath(instance))
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
 // writeFile writes a non-secret definition file atomically.
 func writeFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

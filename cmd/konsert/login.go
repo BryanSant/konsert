@@ -216,20 +216,17 @@ func newLogoutCmd() *cobra.Command {
 	return cmd
 }
 
-func newTokenRotateCmd() *cobra.Command {
+// newRotateRecoveryCmd is `konsert token rotate recovery`.
+func newRotateRecoveryCmd() *cobra.Command {
 	var urlFlag, tokensFile string
 	cmd := &cobra.Command{
-		Use:   "rotate recovery",
+		Use:   "recovery",
 		Short: "Replace the hub's recovery key (run on the hub's machine)",
 		Long: "Generate a new recovery key and store it in the hub's tokens file. A running hub\n" +
 			"switches at once and the old key stops working. The key is never printed: it stays\n" +
 			"in the tokens file (mode 0600) for emergencies. Signed-in devices are unaffected.",
-		Args:      cobra.ExactArgs(1),
-		ValidArgs: []string{"recovery"},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if args[0] != "recovery" {
-				return fmt.Errorf("unknown credential %q (only \"recovery\" can be rotated here)", args[0])
-			}
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			return rotateRecovery(cmd.Context(), cmd.OutOrStdout(), urlFlag, localTokensFile(tokensFile))
 		},
 	}

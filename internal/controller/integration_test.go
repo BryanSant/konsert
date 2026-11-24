@@ -96,7 +96,6 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	defer st.Close()
 
 	cfg := config.DefaultControllerConfig()
-	cfg.FleetToken = "fleet-tok-123"
 	cfg.RecoveryKey = "admin-tok-456"
 	cfg.EnableMCPHTTP = true
 
@@ -120,11 +119,11 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	}
 	_ = loginResp.Body.Close()
 
-	// 2. Start konsertd worker daemon with mock driver and fleet token.
+	// 2. Start konsertd worker daemon with mock driver and its machine credential.
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	wCfg := config.DefaultWorkerConfig()
 	wCfg.ControllerURL = wsURL
-	wCfg.FleetToken = "fleet-tok-123"
+	wCfg.Credential = testMachineCredential(t, srv, "worker-e2e-1")
 	wCfg.WorkerID = "worker-e2e-1"
 	wCfg.Name = "e2e-node"
 	wCfg.HostGroup = "homelab-1"

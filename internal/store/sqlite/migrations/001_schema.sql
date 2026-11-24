@@ -567,3 +567,34 @@ CREATE TABLE pairing_codes (
 );
 CREATE UNIQUE INDEX idx_pairing_codes_poll ON pairing_codes(poll_hash) WHERE poll_hash != '';
 CREATE INDEX idx_pairing_codes_expires ON pairing_codes(expires_at);
+
+-- Machine credentials and join codes (KON-RK9YD). Each konsertd authenticates with its
+-- own credential, bound to its machine (worker_id): it can only register as that
+-- machine. Only a SHA-256 of each secret is stored. A credential is minted when a
+-- machine joins with a code, or by the hub when it installs konsertd (local or SSH).
+-- Rows stay after revocation for the record; removing the machine deletes them.
+CREATE TABLE machine_credentials (
+    id             TEXT PRIMARY KEY,
+    sid            TEXT NOT NULL UNIQUE, -- mc-…
+    worker_id      TEXT NOT NULL,
+    secret_hash    TEXT NOT NULL, -- hex SHA-256 of the 32-byte secret
+    source         TEXT NOT NULL DEFAULT '', -- join | local | ssh | rotate
+    created_at     TEXT NOT NULL,
+    last_used_at   TEXT,
+    revoked_at     TEXT,
+    revoked_reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_machine_credentials_worker ON machine_credentials(worker_id, revoked_at);
+
+-- Short-lived, single-use codes a manual machine trades for its credential
+-- (`konsertd join <hub> <code>`). Only a SHA-256 of the code is stored.
+CREATE TABLE machine_join_codes (
+    id         TEXT PRIMARY KEY,
+    code_hash  TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT,
+    worker_id  TEXT NOT NULL DEFAULT '' -- the machine that joined with it
+);
+CREATE INDEX idx_machine_join_codes_expiry ON machine_join_codes(expires_at);

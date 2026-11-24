@@ -95,7 +95,6 @@ func newLaunchTest(t *testing.T) *launchTest {
 	}
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = true
-	cfg.FleetToken = "fleet-tok"
 	srv := NewServer(cfg, st, nil, "test")
 	lt := &launchTest{srv: srv, st: st, runner: &fakeRunner{id: localID}}
 	l := srv.launch
@@ -103,7 +102,7 @@ func newLaunchTest(t *testing.T) *launchTest {
 	l.findKonsertd = func() string { return "/opt/konsert/bin/konsertd" }
 	l.hostname = func() string { return "hubhost" }
 	l.connectTimeout = 2 * time.Second
-	l.startChild = func(context.Context, string, []string, []string) error {
+	l.startChild = func(context.Context, string, []string, string) error {
 		t.Error("startChild called outside dry-run")
 		return nil
 	}
@@ -277,13 +276,12 @@ func TestAddLocalStartsKonsertdInstall(t *testing.T) {
 		return w.LaunchState == store.LaunchStateNone && w.LaunchAt != nil
 	})
 	calls, stdins := lt.runner.installCalls()
-	want := []string{"/opt/konsert/bin/konsertd", "install", "--controller", "ws://127.0.0.1:8420/ws/worker", "--name", "hubhost", "--token-stdin"}
+	want := []string{"/opt/konsert/bin/konsertd", "install", "--controller", "ws://127.0.0.1:8420/ws/worker", "--name", "hubhost", "--credential-stdin"}
 	if len(calls) != 1 || !slices.Equal(calls[0], want) {
 		t.Fatalf("install calls = %q, want %q", calls, want)
 	}
-	if stdins[0] != "fleet-tok\n" {
-		t.Fatalf("token must go over stdin, got %q", stdins[0])
-	}
+	// The machine's own credential goes over stdin.
+	assertCredentialFor(t, lt.srv, strings.TrimSuffix(stdins[0], "\n"), localID)
 	w := lt.worker(t, localID)
 	if w.Launch != store.LaunchLocal || w.ControllerURL != "ws://127.0.0.1:8420/ws/worker" || w.Status != "online" {
 		t.Fatalf("local worker = %+v", w)
@@ -325,9 +323,9 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	lt := newLaunchTest(t)
 	lt.srv.launch.dryRun = true
 	var child []string
-	var childEnv []string
-	lt.srv.launch.startChild = func(_ context.Context, exe string, args, env []string) error {
-		child, childEnv = append([]string{exe}, args...), env
+	var childStdin string
+	lt.srv.launch.startChild = func(_ context.Context, exe string, args []string, stdin string) error {
+		child, childStdin = append([]string{exe}, args...), stdin
 		lt.dialAsync(t, testWorkerInfo(localID, "hubhost"))
 		return nil
 	}
@@ -339,10 +337,10 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	if len(calls) != 1 || calls[0][len(calls[0])-1] != "--dry-run" {
 		t.Fatalf("dry run must pass --dry-run to install: %q", calls)
 	}
-	if strings.Join(child, " ") != "/opt/konsert/bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --name hubhost" ||
-		!slices.Contains(childEnv, "KONSERT_FLEET_TOKEN=fleet-tok") {
-		t.Fatalf("child = %q env = %q", child, childEnv)
+	if strings.Join(child, " ") != "/opt/konsert/bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --name hubhost --credential-stdin" {
+		t.Fatalf("child = %q", child)
 	}
+	assertCredentialFor(t, lt.srv, strings.TrimSuffix(childStdin, "\n"), localID)
 }
 
 func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
@@ -371,7 +369,7 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 		t.Fatalf("local installs = %q", calls)
 	}
 	boots := lt.bootstraps()
-	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].ControllerURL != "ws://hub:8420/ws/worker" || boots[0].FleetToken != "fleet-tok" {
+	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].ControllerURL != "ws://hub:8420/ws/worker" || boots[0].Credential == nil {
 		t.Fatalf("bootstraps = %+v", boots)
 	}
 	if w := lt.worker(t, remoteID); !strings.Contains(w.LaunchError, "unreachable") {
@@ -435,7 +433,7 @@ func TestSSHBootstrapRecordsLaunch(t *testing.T) {
 	if _, body := lt.do(t, http.MethodGet, "/api/setup"); body["needs_setup"] != false {
 		t.Fatalf("adding a host completes setup: %v", body)
 	}
-	if boots := lt.bootstraps(); len(boots) != 1 || boots[0].FleetToken != "fleet-tok" {
+	if boots := lt.bootstraps(); len(boots) != 1 || boots[0].Credential == nil {
 		t.Fatalf("bootstraps = %+v", boots)
 	}
 }

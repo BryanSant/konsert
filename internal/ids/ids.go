@@ -12,7 +12,7 @@
 //     kind is clear wherever it shows up alone (logs, URLs): t-7qk3m task, c-yvp2f chat,
 //     m-… machine, p-… project, r-… repo, s-… space, ws-… workspace, wt-… worktree, h-… hold,
 //     rq-… user request, q-… question, o-… override request, v-… veto, rv-… review,
-//     dv-… device credential, pc-… pairing code. The hub
+//     dv-… device credential, pc-… pairing code, mc-… machine credential. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -48,10 +48,12 @@ const (
 	Device Kind = "dv"
 	// PairingCode is a one-time sign-in code (pairing link or CLI device-code login).
 	PairingCode Kind = "pc"
+	// MachineCredential is a konsertd's own credential (KON-RK9YD).
+	MachineCredential Kind = "mc"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question, Override, Veto, Review, Device, PairingCode}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Space, Workspace, Worktree, Hold, Request, Question, Override, Veto, Review, Device, PairingCode, MachineCredential}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

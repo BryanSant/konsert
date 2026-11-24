@@ -28,6 +28,8 @@ var idTables = map[ids.Kind]string{
 	ids.Review:      "reviews",
 	ids.Device:      "devices",
 	ids.PairingCode: "pairing_codes",
+
+	ids.MachineCredential: "machine_credentials",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its

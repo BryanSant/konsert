@@ -80,7 +80,6 @@ func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
 		c.RecoveryKey = "admin-tok"
-		c.FleetToken = "fleet-tok"
 		c.EnableMCPHTTP = true
 		c.Orchestrator.APIKey = "sk-original-secret"
 	})

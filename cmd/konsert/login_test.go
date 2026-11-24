@@ -38,7 +38,7 @@ func TestResolveHubOrder(t *testing.T) {
 	}
 	// The local hub's recovery key is used for a loopback URL only.
 	tokens := filepath.Join(dir, "hub", tokensFileName)
-	if err := writeTokensFile(tokens, persistedTokens{RecoveryKey: "local-rk", FleetToken: "f"}); err != nil {
+	if err := writeTokensFile(tokens, persistedTokens{RecoveryKey: "local-rk"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := recordLocalHub("[::]:9123", tokens); err != nil {
@@ -84,7 +84,7 @@ func authHub(t *testing.T) (*controller.Server, string) {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultControllerConfig()
-	cfg.RecoveryKey, cfg.FleetToken = "rk-test", "fleet"
+	cfg.RecoveryKey = "rk-test"
 	srv := controller.NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() {
@@ -173,7 +173,7 @@ func TestRotateRecoveryKey(t *testing.T) {
 	isolateConfig(t)
 	dir := t.TempDir()
 	tokens := filepath.Join(dir, tokensFileName)
-	if err := writeTokensFile(tokens, persistedTokens{RecoveryKey: "old", FleetToken: "fleet"}); err != nil {
+	if err := writeTokensFile(tokens, persistedTokens{RecoveryKey: "old"}); err != nil {
 		t.Fatal(err)
 	}
 	// No hub listening: the file is rotated directly.
@@ -188,7 +188,7 @@ func TestRotateRecoveryKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, _ := readTokensFile(tokens)
-	if saved.RecoveryKey == "old" || saved.RecoveryKey == "" || saved.FleetToken != "fleet" || strings.Contains(out.String(), saved.RecoveryKey) {
+	if saved.RecoveryKey == "old" || saved.RecoveryKey == "" || strings.Contains(out.String(), saved.RecoveryKey) {
 		t.Fatalf("offline rotation: %+v / %q", saved, out.String())
 	}
 	// A remote URL never receives the recovery key.
@@ -228,7 +228,7 @@ func TestRunServeAnnouncesSignInLink(t *testing.T) {
 	if line := "15:04:05 INFO Sign in: " + m[1] + " (10 min, loopback)"; len(line) > 80 {
 		t.Fatalf("sign-in line is %d columns: %q", len(line), line)
 	}
-	if strings.Contains(logs.String(), cfg.RecoveryKey) || strings.Contains(logs.String(), cfg.FleetToken) {
+	if strings.Contains(logs.String(), cfg.RecoveryKey) {
 		t.Fatal("a token was logged")
 	}
 }

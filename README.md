@@ -48,11 +48,10 @@ Start the controller with auth on (the default; or `--trust-tailscale-headers` b
 Tailscale Serve):
 
 ```bash
-FLEET_TOKEN=$(./bin/konsert token generate)
 ./bin/konsert serve \
   --listen :8420 \
   --db /var/lib/konsert/konsert.db \
-  --fleet-token "$FLEET_TOKEN"
+  --public-url https://konsert.tailnet.ts.net
 ```
 
 Nobody copies a token to sign in. The hub prints one line, plus a QR code in a terminal:
@@ -67,25 +66,22 @@ signed in while it is used at least every 90 days (a setting). For another link 
 `konsert pair` on the hub, or use **Add a device** in a signed-in browser. See
 [docs/deploy.md](docs/deploy.md#1-signing-in) for the CLI, MCP clients and the recovery key.
 
-Connect workers outbound:
+Add machines from the PWA (**Add machine**). The hub's own machine and hosts in your
+`~/.ssh/config` are added with one click. Any other machine joins with a one-time code:
+**Add machine → Manual** shows a single command to run on it, for example
 
 ```bash
-./bin/konsertd run \
-  --controller wss://konsert.tailnet.ts.net/ws/worker \
-  --token "$FLEET_TOKEN" \
-  --host-group fedora-main \
-  --max-concurrent 4
+konsertd join https://konsert.tailnet.ts.net ABCD-EFGH
 ```
 
-To opt into sandboxing on sensitive hosts:
-
-```bash
-./bin/konsertd run \
-  --controller wss://konsert.tailnet.ts.net/ws/worker \
-  --token "$FLEET_TOKEN" \
-  --sandbox \
-  --allowed-roots /home/dev/repos,/tmp/work
-```
+The code works once, for 15 minutes. `konsertd join` trades it for the machine's own
+credential (kept in `~/.konsert`, readable only by you) and installs konsertd to start at
+login; add run flags as needed (`--sandbox --allowed-roots /home/dev/repos`,
+`--host-group fedora-main`, `--max-concurrent 4`) or `--foreground` to run it in the
+terminal. Nobody copies a token: each machine has its own credential, which
+**Fleet → Details → Revoke credential** cuts off immediately, and
+`konsert token rotate machines` (or **Settings → Security**) revokes for every machine
+that joined by hand.
 
 ### 4. MCP Integration
 

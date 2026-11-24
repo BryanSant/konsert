@@ -189,14 +189,14 @@ func withFakeSSH(t *testing.T, f *fakeSSH) {
 
 const testHostBlob = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
-func TestBootstrapNeverPutsTokenInArgv(t *testing.T) {
+func TestBootstrapNeverPutsCredentialInArgv(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
-	const token = "fleet-super-secret-token"
+	const token = "kmc_super-secret-credential"
 	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{
 		Target:        "me@box",
 		ControllerURL: "wss://konsert.example.ts.net/ws/worker",
-		FleetToken:    token,
+		Credential:    fixedCred(token),
 	})
 	// The fake reports konsertd as already installed, so no scp happens here.
 	if !res.OK {
@@ -206,13 +206,13 @@ func TestBootstrapNeverPutsTokenInArgv(t *testing.T) {
 	for i, c := range f.calls {
 		for _, a := range c {
 			if strings.Contains(a, token) {
-				t.Fatalf("fleet token leaked into argv: %q", c)
+				t.Fatalf("credential leaked into argv: %q", c)
 			}
 		}
 		if strings.Contains(string(f.stdins[i]), token) {
 			sawStdin = true
-			if !strings.Contains(c[len(c)-1], " install ") || !strings.HasSuffix(c[len(c)-1], " --token-stdin") {
-				t.Fatalf("token stdin sent to unexpected command %q", c)
+			if !strings.Contains(c[len(c)-1], " install ") || !strings.HasSuffix(c[len(c)-1], " --credential-stdin") {
+				t.Fatalf("credential stdin sent to unexpected command %q", c)
 			}
 		}
 		if c[0] == "ssh" && !slices.Contains(c, "--") {
@@ -220,7 +220,7 @@ func TestBootstrapNeverPutsTokenInArgv(t *testing.T) {
 		}
 	}
 	if !sawStdin {
-		t.Fatal("the fleet token must reach konsertd install over stdin")
+		t.Fatal("the credential must reach konsertd install over stdin")
 	}
 }
 
@@ -238,7 +238,7 @@ func TestBootstrapUnknownHostKeyRequiresConfirmation(t *testing.T) {
 	withFakeSSH(t, f)
 	fp, _ := FingerprintSHA256(testHostBlob)
 
-	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", FleetToken: "t"})
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", Credential: fixedCred("t")})
 	if res.OK || !res.HostKeyConfirmationRequired || res.Stage != StageHostKeyConfirmation {
 		t.Fatalf("expected host key confirmation, got %+v", res)
 	}
@@ -256,7 +256,7 @@ func TestBootstrapUnknownHostKeyRequiresConfirmation(t *testing.T) {
 	}
 
 	// The confirmed fingerprint lets bootstrap proceed and is persisted.
-	res = BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", AcceptHostKey: fp, FleetToken: "t"})
+	res = BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", AcceptHostKey: fp, Credential: fixedCred("t")})
 	if !res.OK {
 		t.Fatalf("confirmed bootstrap failed: %+v", res)
 	}

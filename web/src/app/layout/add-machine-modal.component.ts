@@ -24,6 +24,7 @@ import { SetupStore } from '../core/state/setup.store';
 import { IconComponent } from '../shared/icon.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
+import { ManualJoinComponent } from './manual-join.component';
 
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
 export function workerMatchesHost(w: Worker, host: SSHHost): boolean {
@@ -64,7 +65,7 @@ function isAbort(err: unknown): boolean {
   selector: 'app-add-machine-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent, ManualJoinComponent],
   template: `
     <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5" (close)="close.emit()">
       <div class="flex items-start justify-between gap-3">
@@ -77,7 +78,8 @@ function isAbort(err: unknown): boolean {
               Agents run on machines you connect. Start with this one, add others over ssh, or close this to use
               Konsert as a control plane only.
             } @else {
-              A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, and agents there keep running while your laptop sleeps.
+              A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, or it joins with a one-time code. Agents
+              there keep running while your laptop sleeps.
             }
           </p>
         </div>
@@ -91,6 +93,42 @@ function isAbort(err: unknown): boolean {
         </button>
       </div>
 
+      <div class="flex items-center gap-1 rounded-lg bg-[#151619] p-1 text-[12px]" role="tablist" aria-label="How to add the machine">
+        <button
+          type="button"
+          role="tab"
+          id="add-machine-tab-auto"
+          [attr.aria-selected]="tab() === 'auto'"
+          (click)="tab.set('auto')"
+          class="flex-1 rounded-md px-3 py-1.5 transition cursor-pointer"
+          [class.bg-[#2a2c34]]="tab() === 'auto'"
+          [class.text-[#ececed]]="tab() === 'auto'"
+          [class.text-[#8a8c94]]="tab() !== 'auto'"
+          data-testid="add-machine-tab-auto"
+        >
+          This machine &amp; ssh
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="add-machine-tab-manual"
+          [attr.aria-selected]="tab() === 'manual'"
+          (click)="tab.set('manual')"
+          class="flex-1 rounded-md px-3 py-1.5 transition cursor-pointer"
+          [class.bg-[#2a2c34]]="tab() === 'manual'"
+          [class.text-[#ececed]]="tab() === 'manual'"
+          [class.text-[#8a8c94]]="tab() !== 'manual'"
+          data-testid="add-machine-tab-manual"
+        >
+          Manual
+        </button>
+      </div>
+
+      @if (tab() === 'manual') {
+        <div role="tabpanel" aria-labelledby="add-machine-tab-manual">
+          <app-manual-join />
+        </div>
+      } @else {
       <!-- This machine (the hub's host) -->
       <div class="space-y-2" data-testid="local-host">
         <div class="text-[11px] text-[#8a8c94]">This machine</div>
@@ -291,47 +329,17 @@ function isAbort(err: unknown): boolean {
         }
       }
 
-      <!-- Collapsible manual konsertd command for containers / Windows / no-SSH hosts -->
-      <div class="pt-1 border-t border-white/[0.06]">
-        <button
-          type="button"
-          (click)="showManualConnect.set(!showManualConnect())"
-          class="inline-flex items-center gap-1.5 text-[11px] text-[#8a8c94] hover:text-[#c8cad0] transition cursor-pointer"
-        >
-          <app-icon [name]="showManualConnect() ? 'chevron-down' : 'chevron-right'" [size]="12" />
-          <span>Manual konsertd command (containers, Windows, or outbound-only hosts)</span>
-        </button>
-
-        @if (showManualConnect()) {
-          <div class="mt-2.5 space-y-2.5 text-[12px]">
-            <div class="flex items-center gap-3 text-[11px]">
-              <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
-                <input type="checkbox" [ngModel]="sandbox()" (ngModelChange)="sandbox.set($event)" class="accent-[#4a668a]" />
-                <span>Opt-in sandboxed mode</span>
-              </label>
-              <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
-                <input type="checkbox" [ngModel]="enableMock()" (ngModelChange)="enableMock.set($event)" class="accent-[#4a668a]" />
-                <span>Include mock driver</span>
-              </label>
-            </div>
-
-            <div class="rounded-lg bg-[#111214] p-3 space-y-2">
-              <div class="flex items-center justify-between text-[11px] text-[#8a8c94]">
-                <span>Connect command</span>
-                <button
-                  type="button"
-                  (click)="copyConnectCmd()"
-                  class="inline-flex items-center gap-1 rounded px-2 py-0.5 bg-[#202228] hover:bg-[#2a2c34] active:scale-95 text-[#d4d4d8] transition cursor-pointer"
-                >
-                  <app-icon name="copy" [size]="11" />
-                  <span>{{ copiedCmd() ? 'Copied' : 'Copy' }}</span>
-                </button>
-              </div>
-              <pre class="font-mono-ide text-[11px] text-[#e4e4e7] whitespace-pre-wrap break-all">{{ connectCommand() }}</pre>
-            </div>
-          </div>
-        }
+      <div class="flex items-center gap-3 pt-1 text-[11px]">
+        <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
+          <input type="checkbox" [ngModel]="sandbox()" (ngModelChange)="sandbox.set($event)" class="accent-[#4a668a]" />
+          <span>Opt-in sandboxed mode</span>
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-[#b4b6be] cursor-pointer">
+          <input type="checkbox" [ngModel]="enableMock()" (ngModelChange)="enableMock.set($event)" class="accent-[#4a668a]" />
+          <span>Include mock driver</span>
+        </label>
       </div>
+      }
     </app-modal-dialog>
   `,
 })
@@ -354,10 +362,10 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   readonly sshStageDetail = signal('');
   readonly sshStatusMsg = signal('');
   readonly sshErrorMsg = signal('');
-  readonly showManualConnect = signal(false);
+  /** Which way to add: this machine and ssh hosts, or a manual join code. */
+  readonly tab = signal<'auto' | 'manual'>('auto');
   readonly sandbox = signal(false);
   readonly enableMock = signal(false);
-  readonly copiedCmd = signal(false);
   /** Unknown host key awaiting the operator's fingerprint confirmation. */
   readonly hostKeyPrompt = signal<{ target: string; keys: SSHHostKey[] } | null>(null);
   /** The hub refuses changed host keys outright; flag that error prominently. */
@@ -386,14 +394,6 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
   private bootstrapAbort: AbortController | null = null;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private destroyed = false;
-
-  readonly connectCommand = computed(() => {
-    const parts = [`konsertd run --controller ${workerControllerUrl()}`];
-    parts.push('--token "$KONSERT_FLEET_TOKEN"');
-    if (this.sandbox()) parts.push('--sandbox');
-    if (this.enableMock()) parts.push('--enable-mock-driver');
-    return parts.join(' ');
-  });
 
   async ngOnInit(): Promise<void> {
     void this.setup.load();
@@ -532,16 +532,6 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     await this.bootstrapSSHHost(target);
     if (!this.sshErrorMsg() && !this.hostKeyPrompt()) {
       this.customSshTarget.set('');
-    }
-  }
-
-  async copyConnectCmd(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(this.connectCommand());
-      this.copiedCmd.set(true);
-      this.later(() => this.copiedCmd.set(false), 1800);
-    } catch {
-      // ignore
     }
   }
 

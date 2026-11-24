@@ -57,7 +57,6 @@ func newServeCmd() *cobra.Command {
 		configPath            string
 		listenAddr            string
 		dbPath                string
-		fleetToken            string
 		recoveryKey           string
 		tokensFile            string
 		publicURL             string
@@ -84,9 +83,6 @@ func newServeCmd() *cobra.Command {
 			}
 			if cmd.Flags().Changed("db") {
 				cfg.DBPath = dbPath
-			}
-			if cmd.Flags().Changed("fleet-token") {
-				cfg.FleetToken = fleetToken
 			}
 			if cmd.Flags().Changed("recovery-key") {
 				cfg.RecoveryKey = recoveryKey
@@ -132,10 +128,9 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to controller YAML config")
 	cmd.Flags().StringVar(&listenAddr, "listen", "", "HTTP/WS listen address (default :8420, or 127.0.0.1:8420 with --no-auth)")
 	cmd.Flags().StringVar(&dbPath, "db", "konsert.db", "SQLite database path")
-	cmd.Flags().StringVar(&fleetToken, "fleet-token", "", "Pre-shared bearer token for konsertd workers (auto-generated if unset)")
 	cmd.Flags().StringVar(&recoveryKey, "recovery-key", "", "Emergency recovery key (default: generated into the tokens file, never printed)")
 	_ = cmd.Flags().MarkHidden("recovery-key")
-	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that keeps the recovery key and fleet token, mode 0600 (default konsert-tokens.yaml next to --db)")
+	cmd.Flags().StringVar(&tokensFile, "tokens-file", "", "File that keeps the recovery key, mode 0600 (default konsert-tokens.yaml next to --db)")
 	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "Disable authentication (isolated local development only; binds to loopback by default)")
 	cmd.Flags().BoolVar(&trustTailscaleHeaders, "trust-tailscale-headers", false, "Trust Tailscale-User-Login headers from Tailscale Serve (honored only from loopback peers)")
 	cmd.Flags().BoolVar(&enableMCPHTTP, "enable-mcp-http", true, "Enable Streamable HTTP/SSE MCP endpoint at /mcp")

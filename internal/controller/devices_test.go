@@ -27,7 +27,6 @@ func newAuthTestServer(t *testing.T) (*Server, string) {
 	srv, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
 		c.RecoveryKey = testRecoveryKey
-		c.FleetToken = "fleet"
 		c.EnableMCPHTTP = true
 	})
 	return srv, ts.URL
@@ -96,7 +95,7 @@ func pairPhone(t *testing.T, base string) (*http.Cookie, PairingCode) {
 		!strings.HasSuffix(pc.URL, "/pair/"+pc.Code) || pc.QR.Size == 0 || pc.QR.Path == "" {
 		t.Fatalf("create pairing code: %d %s", resp.StatusCode, raw)
 	}
-	resp, raw = call(t, http.MethodPost, base+"/api/auth/pair", "", nil, `{"code":"`+strings.ToLower(pc.Code)+`","name":"Bryan's iPhone"}`, nil)
+	resp, raw = call(t, http.MethodPost, base+"/api/auth/pair", "", nil, `{"code":"`+strings.ToLower(pc.Code)+`","name":"Test iPhone"}`, nil)
 	cookie := sessionCookie(resp)
 	if resp.StatusCode != http.StatusOK || cookie == nil {
 		t.Fatalf("pair: %d %s", resp.StatusCode, raw)
@@ -140,12 +139,12 @@ func TestPairingLinkSignsInADevice(t *testing.T) {
 		} `json:"device"`
 	}
 	call(t, http.MethodGet, base+"/api/auth/me", "", cookie, "", &me)
-	if !me.Authenticated || me.Method != auth.MethodDevice || me.Device.Kind != store.DeviceKindPhone || !strings.HasPrefix(me.User, "Bryan's iPhone (dv-") {
+	if !me.Authenticated || me.Method != auth.MethodDevice || me.Device.Kind != store.DeviceKindPhone || !strings.HasPrefix(me.User, "Test iPhone (dv-") {
 		t.Fatalf("me = %+v", me)
 	}
 	var list devicesList
 	call(t, http.MethodGet, base+"/api/devices", "", cookie, "", &list)
-	if len(list.Devices) != 1 || !list.Devices[0].Current || list.Devices[0].Name != "Bryan's iPhone" ||
+	if len(list.Devices) != 1 || !list.Devices[0].Current || list.Devices[0].Name != "Test iPhone" ||
 		list.Devices[0].LastUserAgent != "Safari on iPhone" || list.IdleDays != 90 {
 		t.Fatalf("devices = %+v", list)
 	}

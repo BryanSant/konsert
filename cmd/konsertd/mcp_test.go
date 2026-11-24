@@ -16,11 +16,11 @@ func envMap(m map[string]string) func(string) string {
 }
 
 func TestResolveMCPBridge(t *testing.T) {
-	cfg := config.WorkerConfig{ControllerURL: "wss://hub.example/ws/worker", FleetToken: "fleet"}
+	cfg := config.WorkerConfig{ControllerURL: "wss://hub.example/ws/worker", Credential: "kmc_machine"}
 
 	base, tok := resolveMCPBridge(cfg, nil, nil, envMap(nil))
 	if base != "https://hub.example" || tok != "" {
-		t.Fatalf("defaults: base=%q tok=%q (fleet token must never be used)", base, tok)
+		t.Fatalf("defaults: base=%q tok=%q (the machine credential must never be used)", base, tok)
 	}
 	base, tok = resolveMCPBridge(cfg, nil, nil, envMap(map[string]string{"KONSERT_URL": "http://other:1", "KONSERT_TOKEN": "adm"}))
 	if base != "http://other:1" || tok != "adm" {
@@ -33,7 +33,7 @@ func TestResolveMCPBridge(t *testing.T) {
 	}
 }
 
-// konsertd mcp against an auth-enabled hub whose fleet token and recovery key differ.
+// konsertd mcp against an auth-enabled hub: a machine credential is not an /api credential.
 func TestMCPBridgeAgainstAuthEnabledHub(t *testing.T) {
 	ctx := context.Background()
 	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
@@ -42,23 +42,22 @@ func TestMCPBridgeAgainstAuthEnabledHub(t *testing.T) {
 	}
 	defer st.Close()
 	hubCfg := config.DefaultControllerConfig()
-	hubCfg.FleetToken = "fleet-tok"
 	hubCfg.RecoveryKey = "admin-tok"
 	ts := httptest.NewServer(controller.NewServer(hubCfg, st, nil, "test"))
 	defer ts.Close()
 
-	workerCfg := config.WorkerConfig{ControllerURL: "ws" + ts.URL[len("http"):] + "/ws/worker", FleetToken: "fleet-tok"}
+	workerCfg := config.WorkerConfig{ControllerURL: "ws" + ts.URL[len("http"):] + "/ws/worker", Credential: "kmc_machine"}
 
 	base, tok := resolveMCPBridge(workerCfg, nil, nil, envMap(map[string]string{"KONSERT_TOKEN": "admin-tok"}))
 	if _, err := controller.NewRemoteFleetClient(base, tok).FleetStatus(ctx); err != nil {
 		t.Fatalf("FleetStatus with the credential from KONSERT_TOKEN failed: %v", err)
 	}
 
-	// The old default (the fleet token) is rejected by /api, which is why it is no longer used.
-	if _, err := controller.NewRemoteFleetClient(base, workerCfg.FleetToken).FleetStatus(ctx); err == nil {
-		t.Fatal("expected the fleet token to be rejected by /api")
+	// A machine credential is rejected by /api, which is why it is never used.
+	if _, err := controller.NewRemoteFleetClient(base, workerCfg.Credential).FleetStatus(ctx); err == nil {
+		t.Fatal("expected the machine credential to be rejected by /api")
 	}
-	// Without any admin token the bridge does not silently fall back to the fleet token.
+	// Without any admin token the bridge does not silently fall back to the credential.
 	if _, tok := resolveMCPBridge(workerCfg, nil, nil, envMap(nil)); tok != "" {
 		t.Fatalf("expected no token, got %q", tok)
 	}

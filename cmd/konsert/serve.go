@@ -70,12 +70,8 @@ func runServe(ctx context.Context, cfg config.ControllerConfig, logger *slog.Log
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
 
-	logger.Info("konsert controller listening",
-		"addr", ln.Addr().String(),
-		"db", cfg.DBPath,
-		"mcp_http", cfg.EnableMCPHTTP,
-		"auth_enabled", !cfg.NoAuth,
-	)
+	logger.Info("Listening on " + ln.Addr().String())
+	logger.Debug("controller config", "db", cfg.DBPath, "mcp_http", cfg.EnableMCPHTTP, "auth_enabled", !cfg.NoAuth)
 	srv.SetListenAddr(ln.Addr().String())
 	if cfg.RecoveryKeyInTokensFile {
 		path := resolveTokensFile(cfg)

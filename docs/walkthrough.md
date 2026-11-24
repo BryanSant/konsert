@@ -22,10 +22,11 @@ Allow about 30 minutes. Keep prompts tiny: every one of them uses real subscript
 - [ ] Start the hub and a worker on the same machine, **without** `--enable-mock-driver`:
 
       ```sh
-      bin/konsert serve --listen 127.0.0.1:8420 --db /var/tmp/konsert-walkthrough/konsert.db \
-        --fleet-token "$FLEET"
-      bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --token "$FLEET"
+      bin/konsert serve --listen 127.0.0.1:8420 --db /var/tmp/konsert-walkthrough/konsert.db
       ```
+
+      Sign in, open **Add machine → Manual** and run the command it shows with
+      `--foreground` (for example `bin/konsertd join http://desk:8420 ABCD-EFGH --foreground`).
 
       (Or use the hub and `konsertd install` service you already run, upgraded to the
       candidate.)

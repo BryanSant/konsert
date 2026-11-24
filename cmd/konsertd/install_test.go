@@ -22,7 +22,6 @@ func parseInstall(t *testing.T, args ...string) *pflag.FlagSet {
 func TestBuildInstallConfigPersistsRunFlags(t *testing.T) {
 	fs := parseInstall(t,
 		"--controller", "wss://hub.example/ws/worker",
-		"--token", "flag-token",
 		"--name", "builder",
 		"--sandbox",
 		"--sandbox-allow-shell",
@@ -31,11 +30,11 @@ func TestBuildInstallConfigPersistsRunFlags(t *testing.T) {
 		"--max-concurrent", "4",
 		"--no-linger", "--dry-run", // install-only flags: never persisted
 	)
-	cfg, extra, err := buildInstallConfig(fs, func(string) string { return "" })
+	cfg, extra, err := buildInstallConfig(fs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ControllerURL != "wss://hub.example/ws/worker" || cfg.FleetToken != "flag-token" || cfg.Name != "builder" ||
+	if cfg.ControllerURL != "wss://hub.example/ws/worker" || cfg.Name != "builder" ||
 		!cfg.Sandbox || cfg.MaxConcurrent != 4 || cfg.Tags["gpu"] != "yes" || cfg.Tags["zone"] != "a" ||
 		strings.Join(cfg.AllowedRoots, ",") != "/src,/work" {
 		t.Errorf("cfg = %+v", cfg)
@@ -44,59 +43,47 @@ func TestBuildInstallConfigPersistsRunFlags(t *testing.T) {
 		t.Errorf("extra args = %v", extra)
 	}
 	// Unset flags (e.g. --controller's default, --isolation) are not persisted.
-	cfg2, _, _ := buildInstallConfig(parseInstall(t), func(string) string { return "" })
+	cfg2, _, _ := buildInstallConfig(parseInstall(t))
 	if cfg2.ControllerURL != "" || cfg2.Isolation != "" || cfg2.MaxConcurrent != 0 {
 		t.Errorf("defaults leaked into the persisted config: %+v", cfg2)
 	}
 }
 
-func TestBuildInstallConfigMergesConfigFileAndEnvToken(t *testing.T) {
+func TestBuildInstallConfigMergesConfigFile(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "src.yaml")
 	if err := os.WriteFile(src, []byte("controller_url: wss://from-file/ws/worker\nname: filename\ntags:\n  a: b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	fs := parseInstall(t, "--config", src, "--name", "override", "--tag", "c=d")
-	env := map[string]string{"KONSERT_FLEET_TOKEN": "env-token"}
-	cfg, extra, err := buildInstallConfig(fs, func(k string) string { return env[k] })
+	cfg, extra, err := buildInstallConfig(fs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ControllerURL != "wss://from-file/ws/worker" || cfg.Name != "override" || cfg.Tags["a"] != "b" || cfg.Tags["c"] != "d" {
 		t.Errorf("cfg = %+v", cfg)
 	}
-	if cfg.FleetToken != "env-token" {
-		t.Errorf("token = %q, want the KONSERT_FLEET_TOKEN value", cfg.FleetToken)
-	}
 	if len(extra) != 0 {
 		t.Errorf("--config must not be passed through: %v", extra)
 	}
 
-	// An explicit --token wins over the environment.
-	fs = parseInstall(t, "--token", "flag")
-	cfg, _, _ = buildInstallConfig(fs, func(k string) string { return env[k] })
-	if cfg.FleetToken != "flag" {
-		t.Errorf("token = %q", cfg.FleetToken)
+	// --credential-stdin is install's own flag, never persisted or passed through.
+	cfg, extra, _ = buildInstallConfig(parseInstall(t, "--credential-stdin"))
+	if len(extra) != 0 || cfg.Credential != "" {
+		t.Errorf("--credential-stdin leaked: cfg=%+v extra=%v", cfg, extra)
 	}
 }
 
 func TestBuildInstallConfigRejectsBadTag(t *testing.T) {
-	if _, _, err := buildInstallConfig(parseInstall(t, "--tag", "novalue"), func(string) string { return "" }); err == nil {
+	if _, _, err := buildInstallConfig(parseInstall(t, "--tag", "novalue")); err == nil {
 		t.Fatal("expected an error for --tag without =")
 	}
 }
 
-func TestRedactToken(t *testing.T) {
-	got := string(redactToken([]byte("controller_url: x\nfleet_token: s3cret\nname: y\n")))
-	if strings.Contains(got, "s3cret") || !strings.Contains(got, "fleet_token: <redacted>") || !strings.Contains(got, "name: y") {
-		t.Errorf("redactToken = %q", got)
-	}
-}
-
 func TestValidateInstalledConfig(t *testing.T) {
-	if err := validateInstalledConfig([]byte("controller_url: ws://h/ws/worker\n")); err != nil {
-		t.Errorf("valid config rejected: %v", err)
+	if cfg, err := installedRunConfig([]byte("controller_url: ws://h/ws/worker\n")); err != nil || cfg.MaxConcurrent != 2 || cfg.Name == "" {
+		t.Errorf("valid config rejected or defaults missing: %+v %v", cfg, err)
 	}
-	if err := validateInstalledConfig([]byte("isolation: bogus\n")); err == nil {
+	if _, err := installedRunConfig([]byte("isolation: bogus\n")); err == nil {
 		t.Error("invalid isolation accepted")
 	}
 }
