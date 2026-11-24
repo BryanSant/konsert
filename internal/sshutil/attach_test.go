@@ -2,6 +2,8 @@ package sshutil
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
@@ -59,14 +61,14 @@ func TestCommandConn(t *testing.T) {
 	_ = c.Close()
 }
 
-func TestRemoveHubKeyRunsKonsertdOverUserSSH(t *testing.T) {
+func TestUninstallRemoteRunsKonsertdOverUserSSH(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
-	if err := RemoveHubKey(context.Background(), "me@box", "hub1", testWorkerID); err != nil {
+	if _, err := UninstallRemote(context.Background(), "me@box", "hub1", testWorkerID); err != nil {
 		t.Fatal(err)
 	}
 	cmds := f.remoteCmds()
-	if indexOf(cmds, "/home/me/.local/bin/konsertd hub-key remove --hub hub1 --worker "+testWorkerID) < 0 {
+	if indexOf(cmds, "/home/me/.local/bin/konsertd uninstall --worker "+testWorkerID+" --hub hub1") < 0 {
 		t.Fatalf("cmds = %q", cmds)
 	}
 	for _, c := range f.calls {
@@ -83,7 +85,48 @@ func TestRemoveHubKeyRunsKonsertdOverUserSSH(t *testing.T) {
 		return posixRemote(cmd, stdin)
 	}}
 	withFakeSSH(t, f2)
-	if err := RemoveHubKey(context.Background(), "me@box", "hub1", testWorkerID); err != nil || indexOf(f2.remoteCmds(), "hub-key") >= 0 {
-		t.Fatalf("err=%v cmds=%q", err, f2.remoteCmds())
+	if out, err := UninstallRemote(context.Background(), "me@box", "hub1", testWorkerID); err != nil || indexOf(f2.remoteCmds(), "uninstall") >= 0 || !strings.Contains(out, "not installed") {
+		t.Fatalf("out=%q err=%v cmds=%q", out, err, f2.remoteCmds())
+	}
+
+	// An unreachable host is reported as such, so the hub retries later.
+	f3 := &fakeSSH{knownKey: true, hostBlob: testHostBlob, remote: func(string, []byte) (string, error) {
+		return "", errors.New("ssh: connect to host box port 22: Operation timed out")
+	}}
+	withFakeSSH(t, f3)
+	if _, err := UninstallRemote(context.Background(), "me@box", "hub1", testWorkerID); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("unreachable host: err = %v, want ErrUnreachable", err)
+	}
+}
+
+// A Windows host runs the same uninstall through PowerShell.
+func TestUninstallRemoteWindows(t *testing.T) {
+	const exe = `C:\Users\me\AppData\Local\Programs\konsertd\konsertd.exe`
+	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
+	f.remote = func(cmd string, _ []byte) (string, error) {
+		if strings.HasPrefix(cmd, "uname") {
+			return "", errors.New("uname : The term 'uname' is not recognized")
+		}
+		script, ok := decodePS(cmd)
+		if !ok {
+			return "", fmt.Errorf("non-PowerShell command sent to Windows: %q", cmd)
+		}
+		switch {
+		case script == windowsProbeScript:
+			return "Win32NT\r\nAMD64\r\n", nil
+		case strings.Contains(script, "Test-Path -LiteralPath $p) { \"found"):
+			return "found:" + exe + "\r\nmanaged:" + exe + "\r\n", nil
+		case strings.Contains(script, "'uninstall'"):
+			return "Deleted scheduled task \\konsertd\r\nRemoved the scheduled task for win\r\n", nil
+		}
+		return "", nil
+	}
+	withFakeSSH(t, f)
+	out, err := UninstallRemote(context.Background(), "me@win", "hub1", testWorkerID)
+	if err != nil || !strings.Contains(out, "Removed the scheduled task") {
+		t.Fatalf("out=%q err=%v", out, err)
+	}
+	if indexOf(f.remoteCmds(), "& '"+exe+"' 'uninstall' '--worker' '"+testWorkerID+"' '--hub' 'hub1'") < 0 {
+		t.Fatalf("no konsertd uninstall on Windows: %q", f.remoteCmds())
 	}
 }

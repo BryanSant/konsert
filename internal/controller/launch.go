@@ -35,7 +35,7 @@ const setupCompletedSetting = "setup_completed"
 // starting the local konsertd runs `konsertd install --dry-run` (which validates the
 // arguments and changes nothing) and then runs the daemon as a child process for the
 // hub's lifetime. The e2e suite sets it so tests never install a real service.
-const InstallDryRunEnv = "KONSERT_INSTALL_DRY_RUN"
+const InstallDryRunEnv = install.DryRunEnv
 
 // launcher holds the hub's process-starting dependencies; tests replace them.
 type launcher struct {
@@ -45,9 +45,9 @@ type launcher struct {
 	findKonsertd func() string
 	// bootstrap runs the SSH install/start path.
 	bootstrap func(context.Context, sshutil.BootstrapOptions) sshutil.BootstrapResult
-	// removeHubKey drops a machine from the hub key's authorized_keys line over the
-	// user's SSH (target, hub id, worker id).
-	removeHubKey func(ctx context.Context, target, hubID, workerID string) error
+	// uninstallRemote runs `konsertd uninstall --worker <id> --hub <hub id>` on a removed
+	// ssh machine over the user's SSH (target, hub id, worker id) and returns its output.
+	uninstallRemote func(ctx context.Context, target, hubID, workerID string) (string, error)
 	// startChild runs a local daemon as a hub child process (dry-run mode only), with
 	// stdin as its standard input.
 	startChild func(ctx context.Context, exe string, args []string, stdin string) error
@@ -63,16 +63,16 @@ type launcher struct {
 
 func newLauncher() *launcher {
 	return &launcher{
-		runner:         install.ExecRunner{},
-		findKonsertd:   func() string { return sshutil.FindKonsertd(runtime.GOOS, runtime.GOARCH) },
-		bootstrap:      sshutil.BootstrapRemoteWorker,
-		removeHubKey:   sshutil.RemoveHubKey,
-		startChild:     startChildDaemon,
-		hostname:       func() string { h, _ := os.Hostname(); return h },
-		connectTimeout: 45 * time.Second,
-		dryRun:         envTrue(os.Getenv(InstallDryRunEnv)),
-		inFlight:       map[string]bool{},
-		attempted:      map[string]bool{},
+		runner:          install.ExecRunner{},
+		findKonsertd:    func() string { return sshutil.FindKonsertd(runtime.GOOS, runtime.GOARCH) },
+		bootstrap:       sshutil.BootstrapRemoteWorker,
+		uninstallRemote: sshutil.UninstallRemote,
+		startChild:      startChildDaemon,
+		hostname:        func() string { h, _ := os.Hostname(); return h },
+		connectTimeout:  45 * time.Second,
+		dryRun:          envTrue(os.Getenv(InstallDryRunEnv)),
+		inFlight:        map[string]bool{},
+		attempted:       map[string]bool{},
 	}
 }
 
@@ -300,6 +300,7 @@ func (s *Server) handleAddLocalWorker(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+		s.forgetRemoval(ctx, row.ID)
 		s.markSetupCompleted(ctx)
 		s.hub.broadcastWorkerView(ctx, row.ID)
 		writeJSON(w, http.StatusOK, map[string]any{"worker_id": row.ID, "worker_sid": row.SID, "state": "connected"})
@@ -321,6 +322,7 @@ func (s *Server) handleAddLocalWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	s.forgetRemoval(ctx, row.ID)
 	s.markSetupCompleted(ctx)
 	if err := s.startWorker(ctx, row); err != nil && !errors.Is(err, errAlreadyStarting) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -520,6 +522,7 @@ func deferredMessage(res sshutil.BootstrapResult) string {
 // recordSSHWorker stores the machine an SSH bootstrap installed, so the hub knows it
 // (offline) before it attaches and restarts it later.
 func (s *Server) recordSSHWorker(ctx context.Context, res sshutil.BootstrapResult) (store.Worker, error) {
+	s.forgetRemoval(ctx, res.WorkerID)
 	return s.store.EnsureWorker(ctx, store.Worker{
 		ID: res.WorkerID, Name: res.Name, OS: res.RemoteOS, Arch: res.RemoteArch,
 		Launch: store.LaunchSSH, SSHTarget: res.Target,
@@ -562,6 +565,7 @@ func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapRes
 // connected: one attempt per machine per hub run (POST /api/workers/{id}/start retries).
 // The grace lets running daemons attach (or reconnect) first.
 func (s *Server) StartLaunchReconciler(grace time.Duration) {
+	s.hub.goBackground(s.removalLoop)
 	s.hub.goBackground(func(ctx context.Context) {
 		s.startAttachers(ctx)
 		t := time.NewTimer(grace)

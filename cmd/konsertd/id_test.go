@@ -68,7 +68,11 @@ func TestIDMatchesRun(t *testing.T) {
 	if runID(t) != runID(t, "--name", host) || runID(t) == runID(t, "--name", "sidecar") {
 		t.Fatal("identity files do not follow the name the way install instances do")
 	}
-	if _, err := os.Stat(filepath.Join(state, "worker-id")); err != nil {
+	matches, _ := filepath.Glob(filepath.Join(state, "worker-id-*-host"))
+	if len(matches) != 2 { // the hostname's and sidecar's
+		t.Fatalf("konsertd id must create one identity file per name, got %v", matches)
+	}
+	if _, err := os.Stat(matches[0]); err != nil {
 		t.Fatalf("konsertd id must create the identity file: %v", err)
 	}
 

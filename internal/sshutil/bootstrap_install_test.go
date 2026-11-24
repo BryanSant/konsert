@@ -164,15 +164,19 @@ func TestBootstrapFallsBackToNohupWithoutUserSystemd(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	cmds := f.remoteCmds()
-	un := indexOf(cmds, " uninstall --name box")
-	cfg := indexOf(cmds, "konsertd-nohup.yaml.tmp")
+	// install failed before writing anything; an uninstall would remove the config and
+	// unit of a host sharing this home directory.
+	if indexOf(cmds, " uninstall") >= 0 {
+		t.Fatalf("the nohup fallback must not run uninstall: %q", cmds)
+	}
+	cfg := indexOf(cmds, "konsertd-nohup-box.yaml.tmp")
 	start := indexOf(cmds, "nohup /home/me/.local/bin/konsertd run -c")
-	if un < 0 || cfg < 0 || start < 0 || !(un < cfg && cfg < start) {
+	if cfg < 0 || start < 0 || !(cfg < start) || !strings.Contains(cmds[start], "konsertd-nohup-box.pid") {
 		t.Fatalf("nohup fallback sequence wrong: %q", cmds)
 	}
 	for i, c := range f.calls {
 		// The nohup daemon serves the hub on its local socket too: no controller URL.
-		if strings.Contains(c[len(c)-1], "konsertd-nohup.yaml.tmp") && strings.Contains(string(f.stdins[i]), "controller") {
+		if strings.Contains(c[len(c)-1], "konsertd-nohup-box.yaml.tmp") && strings.Contains(string(f.stdins[i]), "controller") {
 			t.Fatalf("nohup config must not carry a controller URL, got %q", f.stdins[i])
 		}
 	}

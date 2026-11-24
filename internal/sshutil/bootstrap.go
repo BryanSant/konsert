@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/install"
 	"gopkg.in/yaml.v3"
 )
 
@@ -105,17 +106,22 @@ type nohupConfigFile struct {
 	EnableMockDriver bool   `yaml:"enable_mock_driver"`
 }
 
-// writeNohupConfigCmd reads the config from stdin and writes it readable only by the
-// user.
-const writeNohupConfigCmd = `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
-	`cat > "$HOME/.konsert/konsertd-nohup.yaml.tmp" && chmod 600 "$HOME/.konsert/konsertd-nohup.yaml.tmp" && ` +
-	`mv -f "$HOME/.konsert/konsertd-nohup.yaml.tmp" "$HOME/.konsert/konsertd-nohup.yaml"`
+// writeNohupConfigCmd reads the config from stdin and writes it, readable only by the
+// user, to ~/.konsert/<base>.yaml. The nohup files are keyed by the worker name
+// (install.NohupBase): hosts sharing a home directory each have their own.
+func writeNohupConfigCmd(base string) string {
+	f := `"$HOME/.konsert/` + base + `.yaml"`
+	tmp := `"$HOME/.konsert/` + base + `.yaml.tmp"`
+	return `umask 077 && mkdir -p "$HOME/.konsert" && chmod 700 "$HOME/.konsert" && ` +
+		`cat > ` + tmp + ` && chmod 600 ` + tmp + ` && mv -f ` + tmp + ` ` + f
+}
 
 // nohupStartCmd (re)starts the nohup daemon recorded in its pid file.
-func nohupStartCmd(exe string) string {
-	return `PIDF="$HOME/.konsert/konsertd-nohup.pid"
-if [ -f "$PIDF" ]; then OLD=$(cat "$PIDF"); if ps -p "$OLD" -o args= 2>/dev/null | grep -q 'konsertd.* run'; then kill "$OLD"; sleep 1; fi; fi
-nohup ` + shQuote(exe) + ` run -c "$HOME/.konsert/konsertd-nohup.yaml" </dev/null >>"$HOME/.konsert/konsertd.log" 2>&1 &
+func nohupStartCmd(exe, base string) string {
+	return `PIDF="$HOME/.konsert/` + base + `.pid"
+CFG="$HOME/.konsert/` + base + `.yaml"
+if [ -f "$PIDF" ]; then OLD=$(cat "$PIDF"); if ps -p "$OLD" -o args= 2>/dev/null | grep -q "konsertd.* run -c $CFG"; then kill "$OLD"; sleep 1; fi; fi
+nohup ` + shQuote(exe) + ` run -c "$CFG" </dev/null >>"$HOME/.konsert/` + base + `.log" 2>&1 &
 echo $! > "$PIDF"`
 }
 
@@ -332,8 +338,10 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("konsertd install failed: %v", err))
 		}
 		// No systemd user manager (container, WSL without systemd): run it under nohup,
-		// from a config written over stdin. The hub restarts it the same way.
-		_, _ = sess.ssh(ctx, sh.konsertd(exe, []string{"uninstall", "--name", name, "--keep-hooks"}, false), nil)
+		// from a config written over stdin. The hub restarts it the same way. (install
+		// failed before writing anything: on a home shared with the container's host,
+		// the config and unit names belong to the host's own konsertd.)
+		base := install.NohupBase(name)
 		cfg, merr := yaml.Marshal(nohupConfigFile{
 			Name: name, HostGroup: name,
 			Sandbox: opts.Sandbox, EnableMockDriver: opts.EnableMock,
@@ -341,10 +349,10 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		if merr != nil {
 			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("render worker config: %v", merr))
 		}
-		if _, err := sess.ssh(ctx, writeNohupConfigCmd, cfg); err != nil {
-			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("write ~/.konsert/konsertd-nohup.yaml failed: %v", err))
+		if _, err := sess.ssh(ctx, writeNohupConfigCmd(base), cfg); err != nil {
+			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("write ~/.konsert/%s.yaml failed: %v", base, err))
 		}
-		if _, err := sess.ssh(ctx, nohupStartCmd(exe), nil); err != nil {
+		if _, err := sess.ssh(ctx, nohupStartCmd(exe, base), nil); err != nil {
 			return fail("configuring_service", "Starting konsertd", rOS, rArch, fmt.Sprintf("start konsertd failed: %v", err))
 		}
 		serviceMode = "nohup"

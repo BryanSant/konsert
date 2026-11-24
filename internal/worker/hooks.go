@@ -177,6 +177,7 @@ func RemoveAgentHooks(homeDir string) (HookInstallReport, error) {
 		}
 	}
 	_ = os.Remove(filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry"))
+	_ = os.Remove(filepath.Join(homeDir, ".konsert", "hooks")) // only when empty
 	return report, nil
 }
 

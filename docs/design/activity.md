@@ -281,7 +281,8 @@ Out of the heartbeat:
   link and redials at once with the backoff reset. konsertd does this for its outbound link,
   the hub for its ssh/local attach loops.
 * Backoff 1 → 2 → 4 → 8 → 16 → 30 s (cap) with up to 25 % jitter, forever; reset after a link
-  that lasted more than 10 s. Removed (4001) stops konsertd; no credential exits; a revoked
+  that lasted more than 10 s. Removed (4001) uninstalls konsertd (service, key grant, and hooks if it was the account's
+  last konsertd) and stops it; no credential exits; a revoked
   credential retries at the cap, re-reading the saved one.
 * Logs: the first failure of an outage, then at most one "still disconnected after …: N
   attempts, last error: …" a minute, then one "reconnected to the hub after …" line.

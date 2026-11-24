@@ -23,6 +23,10 @@ import (
 // name, and the stem of its config and log files.
 const BaseName = "konsertd"
 
+// DryRunEnv, when set to a true value, keeps the hub from registering any service and
+// konsertd from uninstalling itself: the e2e suite runs daemons as hub children.
+const DryRunEnv = "KONSERT_INSTALL_DRY_RUN"
+
 // LaunchdLabelPrefix is the launchd label of the default instance.
 const LaunchdLabelPrefix = "dev.konsert.konsertd"
 
@@ -114,6 +118,9 @@ type Installer struct {
 	Runner Runner
 	Env    Env
 	Out    io.Writer
+	// Spawn starts a command detached, without waiting (self-removal); nil starts it
+	// for real. Tests record the call instead.
+	Spawn func(name string, args ...string) error
 }
 
 // backend is one OS mechanism.
@@ -188,6 +195,11 @@ func (in *Installer) printf(format string, a ...any) {
 func (in *Installer) install(ctx context.Context, b backend, spec Spec) error {
 	if !filepath.IsAbs(spec.Exe) {
 		return fmt.Errorf("konsertd binary path %q is not absolute", spec.Exe)
+	}
+	if pc, ok := b.(prechecker); ok {
+		if err := pc.precheck(ctx, in); err != nil {
+			return err
+		}
 	}
 	if err := WriteSecretFile(in.ConfigPath(spec.Instance), spec.Config); err != nil {
 		return err

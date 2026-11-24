@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/hubkey"
 	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/coder/websocket"
@@ -19,8 +18,9 @@ import (
 // session an outbound connection would. Sessions belong to the daemon, so a dropped
 // link or a restarted hub only ends the connection; the next attach sends worker.hello
 // with the live tasks and the hub resyncs. A newer attach replaces an older one (a
-// half-open SSH link the hub already gave up on). Removal by the hub (close 4001) drops
-// that hub's authorized_keys grant for this identity and stops the daemon.
+// half-open SSH link the hub already gave up on). Removal by the hub (close 4001)
+// uninstalls this identity (service, that hub's authorized_keys grant, hooks if it was
+// the account's last konsertd) and stops the daemon.
 func (d *Daemon) runLocal(ctx context.Context) error {
 	path := d.SocketPath
 	if path == "" {
@@ -33,7 +33,7 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 	}
 	srvCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	removed := make(chan struct{})
+	removed := make(chan string, 1)
 	var removedOnce sync.Once
 
 	mux := http.NewServeMux()
@@ -50,8 +50,7 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 		hubID := r.Header.Get(protocol.HubIDHeader)
 		peer := linkPeer{transport: attachTransport(r.Header.Get(protocol.TransportHeader)), addr: "local socket"}
 		if d.serveAttached(ctx, srvCtx, conn, peer, lv) {
-			d.dropHubGrant(hubID)
-			removedOnce.Do(func() { close(removed) })
+			removedOnce.Do(func() { removed <- hubID })
 		}
 	})
 	srv := &http.Server{
@@ -65,11 +64,13 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 	d.link.waiting("")
 
 	var runErr error
+	removedBy, wasRemoved := "", false
 	select {
 	case <-ctx.Done():
 		runErr = ctx.Err()
-	case <-removed:
-		d.logger.Info("removed from the hub; stopping")
+	case removedBy = <-removed:
+		wasRemoved = true
+		d.logger.Info("removed from the hub; uninstalling and stopping")
 	case err := <-serveErr:
 		if !errors.Is(err, http.ErrServerClosed) {
 			runErr = err
@@ -78,6 +79,9 @@ func (d *Daemon) runLocal(ctx context.Context) error {
 	cancel()
 	_ = srv.Close()
 	d.shutdown()
+	if wasRemoved {
+		d.removedByHub(ctx, removedBy)
+	}
 	return runErr
 }
 
@@ -141,19 +145,4 @@ func attachTransport(h string) string {
 		return h
 	}
 	return "local socket"
-}
-
-// dropHubGrant removes this identity from hubID's authorized_keys line, so the hub
-// that removed the machine can no longer attach.
-func (d *Daemon) dropHubGrant(hubID string) {
-	if !hubkey.ValidHubID(hubID) || !hubkey.ValidWorkerID(d.cfg.WorkerID) {
-		return
-	}
-	path, changed, err := hubkey.Uninstall(hubID, d.cfg.WorkerID)
-	switch {
-	case err != nil:
-		d.logger.Warn("could not remove the hub key", "file", path, "err", err)
-	case changed:
-		d.logger.Info("removed the hub key from " + path)
-	}
 }

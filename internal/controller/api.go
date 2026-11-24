@@ -65,6 +65,8 @@ type Server struct {
 	machines *machineAuth
 	// attach keeps the hub-dialed links to ssh and local machines (transport.go).
 	attach *attacher
+	// removals guards the pending uninstalls of removed machines (machine_removal.go).
+	removals *removals
 	// hubKeyFile overrides where the hub's SSH key lives (tests); hubIDMu serializes
 	// creating the hub id.
 	hubKeyFile string
@@ -127,6 +129,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		secrets:          box,
 		launch:           newLauncher(),
 		machines:         newMachineAuth(),
+		removals:         &removals{clock: func() time.Time { return time.Now().UTC() }},
 	}
 	s.attach = newAttacher(s)
 	hub.version = version
@@ -510,13 +513,15 @@ func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 	if getErr == nil {
 		name, sid = wk.Name, wk.SID
 	}
-	// The close code tells a konsertd on the SSH transport to drop the hub key itself
-	// and stop; the attach loop ends with the record.
+	connected := s.hub.IsWorkerConnected(id)
+	var creds []removedCred
+	if getErr == nil && wk.Launch == store.LaunchManual {
+		creds = s.removedCreds(r.Context(), id)
+	}
+	// The close code (4001) makes a connected konsertd uninstall itself and stop; the
+	// attach loop ends with the record. The hub uninstalls it as well (below).
 	s.hub.DisconnectWorker(id)
 	s.attach.stop(id)
-	if getErr == nil {
-		s.forgetSSHMachine(wk)
-	}
 	if err := s.store.DeleteWorker(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
@@ -537,6 +542,9 @@ func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 		Message:   msg,
 		MetaJSON:  auditMeta(map[string]any{"name": name}),
 	})
+	if getErr == nil {
+		s.uninstallRemovedMachine(r.Context(), wk, connected, creds)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
@@ -1222,6 +1230,15 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.logger.Warn("accept worker ws failed", "err", err)
+		return
+	}
+	if bound.removed != nil {
+		// A manual machine removed while offline: 4001 makes it uninstall itself.
+		rec := *bound.removed
+		s.forgetRemoval(r.Context(), rec.WorkerID)
+		s.auditUninstall(withAuditActor(r.Context(), "system", ""), rec, true,
+			"konsertd on "+machineLabel(rec)+" reconnected after its removal and was told to uninstall itself (close code 4001)", "")
+		_ = conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
 		return
 	}
 	ctx := withWorkerRemoteAddr(r.Context(), r.RemoteAddr)

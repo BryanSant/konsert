@@ -73,6 +73,8 @@ func newHubKeyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The machine is being added (again): forget an earlier removal.
+			worker.ClearRemovedMarker("", workerID)
 			fmt.Fprintln(cmd.OutOrStdout(), "hub key allowed in "+path)
 			return nil
 		},

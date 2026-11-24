@@ -124,6 +124,10 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 		return err
 	}
 	// An outbound daemon authenticates with the credential of the identity it runs as.
+	if !f.dryRun {
+		// Installing (again) supersedes an earlier removal by the hub.
+		worker.ClearRemovedMarker("", worker.WorkerIDFor(runCfg))
+	}
 	if runCfg.ControllerURL != "" && !f.dryRun {
 		if _, err := worker.LoadCredential("", worker.WorkerIDFor(runCfg)); err != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no machine credential yet; run konsertd join <hub-url> <code>")
@@ -178,52 +182,83 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 }
 
 func newUninstallCmd() *cobra.Command {
-	var (
-		name      string
-		service   bool
-		keepHooks bool
-	)
+	var o uninstallOptions
 	cmd := &cobra.Command{
 		Use:   "uninstall",
 		Short: "Stop konsertd and remove what `konsertd install` registered",
 		Long: `Stop konsertd and remove the unit, LaunchAgent, scheduled task or service that
 ` + "`konsertd install`" + ` created, plus its installed config file. Pass the same --name used at
-install time to remove a named instance. The agent hooks ` + "`konsertd install-hooks`" + `
-added go too (pass --keep-hooks to keep them); the rest of ~/.claude/settings.json is left
-as it was. Log files and the state directory (~/.konsert: worker ID, machine ID) are
-kept, so a reinstall keeps the same identity.`,
+install time to remove a named instance, or --worker to remove whatever is installed
+for that konsertd identity (the hub does this when you remove a machine; with --hub it
+also drops that hub's key grant). The machine credential and per-identity state go too.
+
+The agent hooks ` + "`konsertd install-hooks`" + ` added are removed when no other konsertd
+remains installed on this account (hosts sharing a home directory, such as a container
+and its host, share them); pass --keep-hooks to keep them regardless. The rest of
+~/.claude/settings.json is left as it was. Log files and the identity files in
+~/.konsert are kept, so a reinstall keeps the same identity.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			host, _ := os.Hostname()
-			instance := install.InstanceFor(name, host)
-			env, err := install.DefaultEnv()
-			if err != nil {
-				return err
-			}
-			in := &install.Installer{Runner: install.ExecRunner{}, Env: env, Out: cmd.OutOrStdout()}
-			if service {
-				err = in.UninstallService(cmd.Context(), instance)
-			} else {
-				err = in.Uninstall(cmd.Context(), instance)
-			}
-			if err != nil || keepHooks {
-				return err
-			}
-			rep, herr := worker.RemoveAgentHooks("")
-			if herr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "konsertd uninstall: removing the agent hooks: %v\n", herr)
-				return nil
-			}
-			for _, n := range rep.Notes {
-				fmt.Fprintln(cmd.OutOrStdout(), "Agent hooks: "+n)
-			}
-			return nil
+			return runUninstall(cmd.Context(), cmd.OutOrStdout(), o)
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "Instance to remove: the --name given to install")
-	cmd.Flags().BoolVar(&keepHooks, "keep-hooks", false, "Keep the agent hooks install-hooks added")
-	cmd.Flags().BoolVar(&service, "service", false, "Windows: remove the native service instead of the logon task (needs an elevated prompt)")
+	cmd.Flags().StringVar(&o.name, "name", "", "Instance to remove: the --name given to install")
+	cmd.Flags().StringVar(&o.workerID, "worker", "", "Remove everything installed for this konsertd identity (worker id)")
+	cmd.Flags().StringVar(&o.hubID, "hub", "", "With --worker: also remove this hub's key grant for the identity")
+	cmd.Flags().BoolVar(&o.keepHooks, "keep-hooks", false, "Keep the agent hooks install-hooks added")
+	cmd.Flags().BoolVar(&o.service, "service", false, "Windows: remove the native service instead of the logon task (needs an elevated prompt)")
 	return cmd
+}
+
+type uninstallOptions struct {
+	name, workerID, hubID string
+	keepHooks, service    bool
+}
+
+// runUninstall is `konsertd uninstall`.
+func runUninstall(ctx context.Context, out io.Writer, o uninstallOptions) error {
+	host, _ := os.Hostname()
+	instance := install.InstanceFor(o.name, host)
+	env, err := install.DefaultEnv()
+	if err != nil {
+		return err
+	}
+	in := &install.Installer{Runner: install.ExecRunner{}, Env: env, Out: out}
+	if o.service {
+		if err := in.UninstallService(ctx, instance); err != nil {
+			return err
+		}
+		o.workerID = ""
+	}
+	u := &worker.Uninstaller{Installer: in, KeepHooks: o.keepHooks}
+	workerID := strings.TrimSpace(o.workerID)
+	if workerID == "" && !o.service {
+		workerID, _ = worker.LookupWorkerID(config.WorkerConfig{Name: o.name})
+	}
+	var rep worker.UninstallReport
+	switch {
+	case workerID != "":
+		rep, err = u.RemoveIdentity(ctx, workerID, o.hubID)
+		if err == nil && !rep.Found && o.workerID == "" && !o.service {
+			// No config names this identity: remove a leftover registration of the named
+			// instance, unless its config belongs to another identity (a shared home).
+			if _, statErr := os.Stat(in.ConfigPath(instance)); statErr != nil {
+				err = in.Uninstall(ctx, instance)
+			}
+		}
+	case !o.service:
+		if err = in.Uninstall(ctx, instance); err == nil {
+			rep.Found = true
+			err = u.RemoveHooksIfLast(&rep)
+		}
+	default:
+		rep.Found = true
+		err = u.RemoveHooksIfLast(&rep)
+	}
+	for _, l := range rep.Lines() {
+		fmt.Fprintln(out, l)
+	}
+	return err
 }
 
 func newStatusCmd() *cobra.Command {

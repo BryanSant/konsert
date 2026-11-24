@@ -206,15 +206,16 @@ func TestAttachRejectsIdentityMismatch(t *testing.T) {
 	}
 }
 
-// Removing an SSH machine closes its link with 4001 (konsertd drops the key line and
-// stops), removes the grant over the user's SSH as well, and stops attaching.
-func TestRemoveSSHMachineDropsKeyAndStopsAttaching(t *testing.T) {
+// Removing an SSH machine closes its link with 4001 (konsertd uninstalls itself and
+// stops), runs `konsertd uninstall` over the user's SSH as well, records the result in
+// the audit log, and stops attaching.
+func TestRemoveSSHMachineUninstallsAndStopsAttaching(t *testing.T) {
 	lt := newLaunchTest(t)
 	type call struct{ target, hub, worker string }
 	calls := make(chan call, 4)
-	lt.srv.launch.removeHubKey = func(_ context.Context, target, hubID, workerID string) error {
+	lt.srv.launch.uninstallRemote = func(_ context.Context, target, hubID, workerID string) (string, error) {
 		calls <- call{target, hubID, workerID}
-		return nil
+		return "Removed the systemd user unit for box\nKept the agent hooks: still used by host on this account", nil
 	}
 	w := lt.addSSHWorker(t, remoteID, "box", "me@box")
 	lt.daemons.up(testWorkerInfo(remoteID, "box"))
@@ -237,11 +238,15 @@ func TestRemoveSSHMachineDropsKeyAndStopsAttaching(t *testing.T) {
 	select {
 	case c := <-calls:
 		if c != (call{"me@box", hubID, remoteID}) {
-			t.Fatalf("removeHubKey(%+v)", c)
+			t.Fatalf("uninstallRemote(%+v)", c)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("hub key not removed")
+	case <-time.After(10 * time.Second):
+		t.Fatal("konsertd not uninstalled over SSH")
 	}
+	waitFor(t, 5*time.Second, "uninstall audit", func() bool {
+		ev, err := lt.st.ListAudit(context.Background(), store.AuditFilter{Action: AuditWorkerUninstall})
+		return err == nil && len(ev) == 1 && strings.Contains(ev[0].Message, "Uninstalled konsertd from box: Removed the systemd user unit for box; Kept the agent hooks")
+	})
 	n := lt.daemons.dialCount(remoteID)
 	time.Sleep(300 * time.Millisecond)
 	if lt.daemons.dialCount(remoteID) != n || lt.srv.attach.running(remoteID) {
@@ -392,7 +397,7 @@ func TestSSHTransportSurvivesDroppedLinkAndHubRestart(t *testing.T) {
 	}
 
 	// 3. Remove the machine: konsertd drops the grant and stops.
-	srv2.launch.removeHubKey = func(context.Context, string, string, string) error { return nil }
+	srv2.launch.uninstallRemote = func(context.Context, string, string, string) (string, error) { return "", nil }
 	ts := httptest.NewServer(srv2)
 	defer ts.Close()
 	if resp := doReq(t, http.MethodDelete, ts.URL+"/api/workers/"+wid, nil, nil); resp.StatusCode != 200 {

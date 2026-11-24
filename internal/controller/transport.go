@@ -428,23 +428,3 @@ func (s *Server) startAttachers(ctx context.Context) {
 		s.attach.ensure(w)
 	}
 }
-
-// forgetSSHMachine removes w's grant from the hub key's authorized_keys line over the
-// user's own SSH (in the background). A connected konsertd already dropped it when the
-// hub removed it; this covers a machine that was offline.
-func (s *Server) forgetSSHMachine(w store.Worker) {
-	if w.Launch != store.LaunchSSH || w.SSHTarget == "" {
-		return
-	}
-	s.hub.goBackground(func(ctx context.Context) {
-		hubID, err := s.hubID(ctx)
-		if err != nil {
-			return
-		}
-		if err := s.launch.removeHubKey(ctx, w.SSHTarget, hubID, w.ID); err != nil {
-			s.logger.Warn("could not remove the hub key from "+w.SSHTarget, "err", err)
-			return
-		}
-		s.logger.Info("hub key removed from " + w.SSHTarget)
-	})
-}
