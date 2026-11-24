@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CompactionRun, RetentionDays, StorageResponse } from '../core/models/konsert.models';
 import { ApiClientService } from '../core/services/api-client.service';
+import { TooltipDirective } from '../shared/tooltip.directive';
 
 /** Bytes as a short human size (1.2 MB). */
 export function formatBytes(n: number | undefined | null): string {
@@ -18,13 +19,26 @@ export function formatBytes(n: number | undefined | null): string {
 
 /** Bar colors of the breakdown kinds (others fall back to grey). */
 const KIND_COLORS: Record<string, string> = {
-  transcripts: '#7aa2f7',
-  session_events: '#bb9af7',
+  conversations: '#7aa2f7',
+  session_detail: '#bb9af7',
   task_events: '#e0af68',
   fleet_timeline: '#9ece6a',
   usage: '#7dcfff',
   machine_history: '#f7768e',
   other: '#6b6f7a',
+};
+
+/** What each breakdown kind holds (the line's tooltip). */
+export const KIND_HINTS: Record<string, string> = {
+  conversations:
+    'Agent chat conversations (your prompts, the agent’s replies, questions and errors) plus orchestrator transcripts. Compaction keeps these.',
+  session_detail:
+    'Tool calls with their output, reasoning, plans and other streamed events of agent chats. Compaction drops these from finished work after the detail period.',
+  task_events: 'Events of tasks: tool calls and file edits (dropped by compaction), milestones and outcomes (kept).',
+  fleet_timeline: 'The fleet timeline and the audit log.',
+  usage: 'Token usage per call, and daily totals.',
+  machine_history: 'Machine vitals samples and their roll-ups.',
+  other: 'Everything else: tasks, chats, settings, machines, indexes and free pages.',
 };
 
 const STEP_LABELS: Record<string, string> = {
@@ -47,6 +61,7 @@ interface PeriodField {
  */
 @Component({
   selector: 'ks-storage-settings',
+  imports: [TooltipDirective],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -74,7 +89,7 @@ interface PeriodField {
         </div>
         <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 m-0 p-0 list-none" data-testid="storage-breakdown">
           @for (k of d.stats.breakdown; track k.kind) {
-            <li class="flex items-center gap-2" [attr.data-kind]="k.kind">
+            <li class="flex items-center gap-2" [attr.data-kind]="k.kind" [ksTooltip]="hint(k.kind)">
               <span class="inline-block h-2 w-2 shrink-0 rounded-full" [style.background]="color(k.kind)"></span>
               <span class="flex-1 text-[#d4d4d8]">{{ k.label }}</span>
               <span class="font-mono-ide text-[11px] text-[var(--ks-text)]">{{ fmt(k.bytes) }}</span>
@@ -203,6 +218,10 @@ export class StorageSettingsComponent implements OnInit {
 
   color(kind: string): string {
     return KIND_COLORS[kind] ?? '#6b6f7a';
+  }
+
+  hint(kind: string): string {
+    return KIND_HINTS[kind] ?? '';
   }
 
   setDraft(key: keyof RetentionDays, value: string): void {

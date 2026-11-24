@@ -332,10 +332,17 @@ func (s *SQLiteStore) SetChatKeep(ctx context.Context, id string, keep bool) err
 	return s.execOne(ctx, `UPDATE chat_sessions SET keep = ? WHERE id = ?`, boolInt(keep), id)
 }
 
+// storageChatEvents is the interim kind of the chat_events table, split afterwards
+// between conversations and session detail (splitChatEvents).
+const storageChatEvents = "chat_events"
+
+// chatEventRowBytes is the typical chat_events row size the estimate falls back to.
+const chatEventRowBytes = 700
+
 // storageKindOf maps a table to its breakdown kind.
 var storageKindOf = map[string]string{
-	"chat_messages":         store.StorageTranscripts,
-	"chat_events":           store.StorageSessionEvents,
+	"chat_messages":         store.StorageConversations,
+	"chat_events":           storageChatEvents,
 	"task_events":           store.StorageTaskEvents,
 	"fleet_events":          store.StorageFleet,
 	"audit_log":             store.StorageFleet,
@@ -351,8 +358,8 @@ var storageKinds = []struct {
 	kind, label string
 	rowBytes    int64
 }{
-	{store.StorageTranscripts, "Transcripts", 900},
-	{store.StorageSessionEvents, "Session events", 700},
+	{store.StorageConversations, "Conversations", 900},
+	{store.StorageSessionDetail, "Session detail", chatEventRowBytes},
 	{store.StorageTaskEvents, "Task events", 250},
 	{store.StorageFleet, "Fleet timeline and audit log", 350},
 	{store.StorageUsage, "Usage", 90},
@@ -452,14 +459,70 @@ func (s *SQLiteStore) StorageStats(ctx context.Context) (store.StorageStats, err
 			bytes[k.kind] = rowsBy[k.kind] * k.rowBytes
 			known += bytes[k.kind]
 		}
+		bytes[storageChatEvents] = rowsBy[storageChatEvents] * chatEventRowBytes
+		known += bytes[storageChatEvents]
 		if used > known {
 			bytes[store.StorageOther] = used - known
 		}
+	}
+	if err := s.splitChatEvents(ctx, bytes, rowsBy); err != nil {
+		return st, err
 	}
 	for _, k := range storageKinds {
 		st.Breakdown = append(st.Breakdown, store.StorageKind{Kind: k.kind, Label: k.label, Bytes: bytes[k.kind], Rows: rowsBy[k.kind]})
 	}
 	return st, nil
+}
+
+// splitChatEvents divides the chat_events table's measured space between conversations
+// (the kinds compaction keeps) and session detail (the rest). dbstat measures pages per
+// table, not per kind, so the split is proportional to SUM(length(json)) of each group;
+// row counts are exact.
+func (s *SQLiteStore) splitChatEvents(ctx context.Context, bytes, rowsBy map[string]int64) error {
+	total := bytes[storageChatEvents]
+	delete(bytes, storageChatEvents)
+	delete(rowsBy, storageChatEvents)
+	rows, err := s.db.QueryContext(ctx, `SELECT kind IN `+chatKeepKinds+` AS kept, COUNT(1), COALESCE(SUM(length(json)), 0)
+		FROM chat_events GROUP BY kept`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var keptRows, keptLen, otherRows, otherLen int64
+	for rows.Next() {
+		var kept bool
+		var n, l int64
+		if err := rows.Scan(&kept, &n, &l); err != nil {
+			return err
+		}
+		if kept {
+			keptRows, keptLen = n, l
+		} else {
+			otherRows, otherLen = n, l
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	keptBytes := splitShare(total, keptLen, otherLen, keptRows, otherRows)
+	bytes[store.StorageConversations] += keptBytes
+	bytes[store.StorageSessionDetail] += total - keptBytes
+	rowsBy[store.StorageConversations] += keptRows
+	rowsBy[store.StorageSessionDetail] += otherRows
+	return nil
+}
+
+// splitShare is the part of total belonging to a group with content length a and ra
+// rows against the other group's b and rb: proportional to length, or to rows when
+// neither group has content.
+func splitShare(total, a, b, ra, rb int64) int64 {
+	switch {
+	case a+b > 0:
+		return int64(float64(total) * float64(a) / float64(a+b))
+	case ra+rb > 0:
+		return int64(float64(total) * float64(ra) / float64(ra+rb))
+	}
+	return 0
 }
 
 // scanStrings reads a single-column result and closes rows.

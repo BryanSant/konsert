@@ -142,6 +142,15 @@ test.describe('History retention', () => {
     await storage.scrollIntoViewIfNeeded();
     await expect(storage.getByTestId('storage-total')).toContainText(/B$/);
     await expect(storage.getByTestId('storage-breakdown').locator('li')).toHaveCount(7);
+    // Agent-chat conversations are counted as conversations, not hidden in the event bulk.
+    const conv = storage.locator('[data-kind="conversations"]');
+    await expect(conv).toContainText('Conversations');
+    const tipId = await conv.getAttribute('aria-describedby');
+    await expect(page.locator(`[id="${tipId}"]`)).toHaveText(/Compaction keeps these/);
+    await expect(storage.locator('[data-kind="session_detail"]')).toContainText('Session detail');
+    const st = await api<{ stats: { breakdown: Array<{ kind: string; rows: number }> } }>(page, 'GET', '/api/storage?fresh=1');
+    const convRows = st.stats.breakdown.find((k) => k.kind === 'conversations')?.rows ?? 0;
+    expect(convRows).toBeGreaterThan(0);
     await expect(storage.getByTestId('storage-retention-text')).toContainText('30 days');
     const prev = (await api<{ compaction: { started_at?: string } }>(page, 'GET', '/api/storage/compact')).compaction.started_at ?? '';
     await storage.getByTestId('compact-now').click();

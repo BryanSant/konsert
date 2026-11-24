@@ -1,0 +1,54 @@
+{
+    "theme": "dark",
+    "statusLine": {
+        "type": "command",
+        "command": "~/.claude/statusline.sh"
+    },
+    "includeCoAuthoredBy": false,
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PreToolUse"
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PostToolUse"
+                    }
+                ]
+            }
+        ],
+        "Notification": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Notification"
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Stop"
+                    }
+                ]
+            }
+        ]
+    }
+}

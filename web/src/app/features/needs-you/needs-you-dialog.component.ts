@@ -14,6 +14,7 @@ import { IconComponent } from '../../shared/icon.component';
 import { ModalDialogComponent } from '../../shared/modal-dialog.component';
 import { QuestionCardComponent } from '../questions/question-card.component';
 import { SideConversationComponent } from '../questions/side-conversation.component';
+import { TooltipDirective } from '../../shared/tooltip.directive';
 
 /**
  * The one Needs-you dialog every page opens: a carousel over the whole queue that starts on
@@ -28,7 +29,7 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
   selector: 'ks-needs-you-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalDialogComponent, IconComponent, QuestionCardComponent, SideConversationComponent, ReviewPanelComponent],
+  imports: [ModalDialogComponent, IconComponent, QuestionCardComponent, SideConversationComponent, ReviewPanelComponent, TooltipDirective],
   template: `
     <app-modal-dialog
       labelledBy="ks-needs-you-heading"
@@ -190,6 +191,36 @@ import { SideConversationComponent } from '../questions/side-conversation.compon
                               <button type="button" class="ks-btn ks-btn-soft h-10" (click)="openSession(e)">Open the session</button>
                             }
                           </div>
+                        }
+                      </article>
+                    }
+                    @case ('shells') {
+                      @let r = e.shells!;
+                      <article class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-2)] p-4 space-y-3" data-testid="needs-you-shells" [attr.data-shells]="e.sid">
+                        <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">Shells left running</div>
+                        <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--ks-text)]">{{ e.title }}</h3>
+                        <p class="m-0 text-[12.5px] text-[var(--ks-text-secondary)]">{{ e.meta }}</p>
+                        @if (r.shell_list?.length) {
+                          <ul class="m-0 p-0 list-none space-y-1 text-[12px]" data-testid="shells-list">
+                            @for (s of r.shell_list; track s.pid) {
+                              <li class="flex items-baseline gap-2 min-w-0">
+                                <code class="font-mono-ide text-[11.5px] text-[var(--ks-text)] truncate" [ksTooltip]="s.command">{{ s.command }}</code>
+                                <span class="shrink-0 text-[var(--ks-text-muted)]">pid {{ s.pid }}</span>
+                              </li>
+                            }
+                          </ul>
+                        }
+                        @if (e.pending) {
+                          <div class="flex flex-wrap gap-2">
+                            <button type="button" class="ks-btn ks-btn-primary h-10" data-testid="shells-kill" [disabled]="control.isBusy(r.id)" (click)="remedy(e, 'kill')">Kill all</button>
+                            @if (r.can_ask) {
+                              <button type="button" class="ks-btn ks-btn-soft h-10" data-testid="shells-ask" [disabled]="control.isBusy(r.id)" (click)="remedy(e, 'ask')">Ask agent to clean up</button>
+                            }
+                            <button type="button" class="ks-btn ks-btn-soft h-10" data-testid="shells-keep" [disabled]="control.isBusy(r.id)" (click)="remedy(e, 'keep')" ksTooltip="Hides this for a day">Keep running</button>
+                          </div>
+                          <p class="m-0 text-[11.5px] text-[var(--ks-text-muted)]">Change what Konsert does about shells left running in Settings → Shells left running.</p>
+                        } @else {
+                          <p class="m-0 text-[12.5px] text-[#8fcb9b]" role="status">Done.</p>
                         }
                       </article>
                     }
@@ -446,6 +477,10 @@ export class NeedsYouDialogComponent {
 
   async resolve(e: NeedsYouEntry, status: 'done' | 'declined'): Promise<void> {
     if (e.request && (await this.control.resolveRequest(e.request, status))) this.forward(() => this.store.advance(e.key));
+  }
+
+  async remedy(e: NeedsYouEntry, action: 'kill' | 'ask' | 'keep'): Promise<void> {
+    if (e.shells && (await this.control.remedyShells(e.shells, action))) this.forward(() => this.store.advance(e.key));
   }
 
   openSession(e: NeedsYouEntry): void {

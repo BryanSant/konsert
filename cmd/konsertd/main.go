@@ -345,10 +345,29 @@ func newDoctorCmd() *cobra.Command {
 }
 
 func newInstallHooksCmd() *cobra.Command {
-	return &cobra.Command{
+	var remove bool
+	cmd := &cobra.Command{
 		Use:   "install-hooks",
 		Short: "Idempotently install Konsert telemetry hooks and skills for local coding agents",
+		Long: `Install Konsert's telemetry hooks for local coding agents: entries in
+~/.claude/settings.json (edited in place, keeping the file's own formatting, after a
+backup to settings.json.konsert-bak-<time>; the last 3 are kept), an Antigravity skill
+and a notify shim. Nothing changes when they are already installed. --remove takes them
+out again and leaves the rest of the settings as they were.`,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			if remove {
+				rep, err := worker.RemoveAgentHooks("")
+				if err != nil {
+					return err
+				}
+				if len(rep.Notes) == 0 {
+					fmt.Println("No Konsert hooks were installed.")
+				}
+				for _, n := range rep.Notes {
+					fmt.Println("Konsert hooks: " + n)
+				}
+				return nil
+			}
 			exe, _ := os.Executable()
 			if exe == "" {
 				exe = "konsertd"
@@ -362,9 +381,14 @@ func newInstallHooksCmd() *cobra.Command {
 			fmt.Printf("  Antigravity skill : %v\n", rep.AgySkillInstalled)
 			fmt.Printf("  Notify shim       : %s\n", rep.NotifyScriptPath)
 			fmt.Printf("  Events inbox      : %s\n", rep.EventsFilePath)
+			for _, n := range rep.Notes {
+				fmt.Printf("  Note              : %s\n", n)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&remove, "remove", false, "Remove the Konsert hooks instead (the rest of ~/.claude/settings.json is kept as it is)")
+	return cmd
 }
 
 func newHookEventCmd() *cobra.Command {

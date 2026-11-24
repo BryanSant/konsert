@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
 )
@@ -44,19 +46,83 @@ func ExecGH(ctx context.Context, dir string, args ...string) ([]byte, error) {
 // requires one).
 const defaultChangesBody = "Changes requested in Konsert."
 
-// ReviewPR approves (or requests changes on) the pull request of the checkout's branch
+// ghLoginTTL is how long the gh login of this machine is trusted before it is looked up
+// again (gh auth switch changes it).
+const ghLoginTTL = time.Hour
+
+// Messages of a review on the user's own pull request, which GitHub refuses: the decision
+// goes to the PR as a comment instead.
+const (
+	OwnPRApproveMessage = "GitHub doesn't let you approve your own pull request — added a comment instead."
+	OwnPRChangesMessage = "GitHub doesn't let you request changes on your own pull request — added a comment instead."
+)
+
+// PRReviewer sends review decisions to pull requests with gh. One per machine: it caches
+// the gh login (gh api user) so reviewing your own PR is detected without asking GitHub
+// every time.
+type PRReviewer struct {
+	// GH runs gh; nil = gh from PATH. Tests replace it so the real gh is never called.
+	GH GHRunner
+	// Now is the clock of the login cache; nil = time.Now.
+	Now func() time.Time
+
+	mu      sync.Mutex
+	login   string
+	loginAt time.Time
+}
+
+func (p *PRReviewer) gh() GHRunner {
+	if p.GH == nil {
+		return ExecGH
+	}
+	return p.GH
+}
+
+func (p *PRReviewer) now() time.Time {
+	if p.Now == nil {
+		return time.Now()
+	}
+	return p.Now()
+}
+
+// Login returns the GitHub login gh is authenticated as on this machine (cached for
+// ghLoginTTL). A failed lookup is not cached.
+func (p *PRReviewer) Login(ctx context.Context, dir string) (string, error) {
+	p.mu.Lock()
+	if p.login != "" && p.now().Sub(p.loginAt) < ghLoginTTL {
+		l := p.login
+		p.mu.Unlock()
+		return l, nil
+	}
+	p.mu.Unlock()
+	out, err := p.gh()(ctx, dir, "api", "user", "--jq", ".login")
+	if err != nil {
+		return "", err
+	}
+	login := strings.TrimSpace(string(out))
+	if login == "" {
+		return "", errors.New("gh api user: no login")
+	}
+	p.mu.Lock()
+	p.login, p.loginAt = login, p.now()
+	p.mu.Unlock()
+	return login, nil
+}
+
+// Review approves (or requests changes on) the pull request of the checkout's branch
 // with gh: nothing is sent when the checkout has no GitHub remote, gh is missing or the
-// branch has no open PR, and the result says which.
-func ReviewPR(ctx context.Context, dir string, req protocol.GitPRReviewRequest, gh GHRunner) protocol.GitPRReviewResult {
+// branch has no open PR, and the result says which. GitHub does not allow reviewing
+// your own pull request, so on your own PR the decision is posted as a comment instead
+// (status commented): detected up front from the PR author and the gh login, and from
+// GitHub's refusal when the login could not be looked up.
+func (p *PRReviewer) Review(ctx context.Context, dir string, req protocol.GitPRReviewRequest) protocol.GitPRReviewResult {
 	fail := func(format string, a ...any) protocol.GitPRReviewResult {
 		return protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: fmt.Sprintf(format, a...)}
 	}
 	if req.Action != protocol.PRReviewApprove && req.Action != protocol.PRReviewRequestChanges {
 		return fail("unknown review action %q", req.Action)
 	}
-	if gh == nil {
-		gh = ExecGH
-	}
+	gh := p.gh()
 	remotes, err := runGit(ctx, dir, "remote", "-v")
 	if err != nil {
 		return fail("%v", err)
@@ -70,7 +136,7 @@ func ReviewPR(ctx context.Context, dir string, req protocol.GitPRReviewRequest, 
 			return fail("the checkout is not on a branch (detached HEAD)")
 		}
 	}
-	raw, err := gh(ctx, dir, "pr", "view", branch, "--json", "number,url,state")
+	raw, err := gh(ctx, dir, "pr", "view", branch, "--json", "number,url,state,author")
 	switch {
 	case errors.Is(err, ErrNoGH):
 		return protocol.GitPRReviewResult{Status: protocol.PRReviewNoGH, Message: ErrNoGH.Error()}
@@ -83,6 +149,9 @@ func ReviewPR(ctx context.Context, dir string, req protocol.GitPRReviewRequest, 
 		Number int    `json:"number"`
 		URL    string `json:"url"`
 		State  string `json:"state"`
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
 	}
 	if err := json.Unmarshal(raw, &pr); err != nil || pr.Number == 0 {
 		return fail("gh pr view %s: unexpected output", branch)
@@ -92,8 +161,13 @@ func ReviewPR(ctx context.Context, dir string, req protocol.GitPRReviewRequest, 
 		res.Status, res.Message = protocol.PRReviewFailed, fmt.Sprintf("PR #%d is %s", pr.Number, strings.ToLower(pr.State))
 		return res
 	}
-	args := []string{"pr", "review", fmt.Sprint(pr.Number)}
 	body := strings.TrimSpace(req.Body)
+	if pr.Author.Login != "" {
+		if login, err := p.Login(ctx, dir); err == nil && strings.EqualFold(login, pr.Author.Login) {
+			return p.commentInstead(ctx, dir, req, body, res)
+		}
+	}
+	args := []string{"pr", "review", fmt.Sprint(pr.Number)}
 	if req.Action == protocol.PRReviewApprove {
 		args = append(args, "--approve")
 	} else {
@@ -106,11 +180,59 @@ func ReviewPR(ctx context.Context, dir string, req protocol.GitPRReviewRequest, 
 		args = append(args, "--body", body)
 	}
 	if _, err := gh(ctx, dir, args...); err != nil {
+		if IsOwnPRRefusal(err) {
+			return p.commentInstead(ctx, dir, req, strings.TrimSpace(req.Body), res)
+		}
 		res.Status, res.Message = protocol.PRReviewFailed, fmt.Sprintf("gh pr review #%d: %v", pr.Number, err)
 		return res
 	}
 	res.Status = protocol.PRReviewSent
 	return res
+}
+
+// commentInstead posts the decision on the user's own pull request as a comment.
+func (p *PRReviewer) commentInstead(ctx context.Context, dir string, req protocol.GitPRReviewRequest, note string, res protocol.GitPRReviewResult) protocol.GitPRReviewResult {
+	body, msg := OwnPRComment(req.Action, req.By, note)
+	if _, err := p.gh()(ctx, dir, "pr", "comment", fmt.Sprint(res.PRNumber), "--body", body); err != nil {
+		res.Status = protocol.PRReviewFailed
+		res.Message = fmt.Sprintf("GitHub doesn't let you review your own pull request, and adding a comment failed: %v", err)
+		return res
+	}
+	res.Status, res.Message = protocol.PRReviewCommented, msg
+	return res
+}
+
+// OwnPRComment is the comment posted on the user's own pull request for a decision
+// (action) by the named person or device, with the user's note, and the message that
+// tells the user so.
+func OwnPRComment(action, by, note string) (body, message string) {
+	by = strings.TrimSpace(by)
+	if by == "" {
+		by = "a Konsert user"
+	}
+	if action == protocol.PRReviewApprove {
+		body = "Approved in Konsert by " + by + "."
+		if note != "" {
+			body += "\n\n" + note
+		}
+		return body, OwnPRApproveMessage
+	}
+	body = "Changes requested in Konsert by " + by + "."
+	if note != "" {
+		body += "\n\n" + note
+	}
+	return body, OwnPRChangesMessage
+}
+
+// IsOwnPRRefusal reports whether a gh pr review error is GitHub refusing a review of the
+// caller's own pull request ("Can not approve your own pull request", "Can not request
+// changes on your own pull request").
+func IsOwnPRRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "your own pull request")
 }
 
 // hasGitHubRemote reports whether `git remote -v` output names a github.com remote.

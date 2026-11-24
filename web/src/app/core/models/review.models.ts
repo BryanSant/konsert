@@ -7,7 +7,7 @@
 export type ReviewDecision = 'approved' | 'changes_requested';
 
 /** What became of a decision on the task's pull request (gh on the owning machine). */
-export type GitHubReviewStatus = '' | 'sent' | 'failed' | 'no_github' | 'no_gh' | 'no_pr' | 'offline';
+export type GitHubReviewStatus = '' | 'sent' | 'commented' | 'failed' | 'no_github' | 'no_gh' | 'no_pr' | 'offline';
 
 export interface Review {
   id: string;
@@ -62,6 +62,11 @@ export function githubLine(r: Review | undefined): string {
   switch (r.github_status) {
     case 'sent':
       return `${what} on GitHub${r.github_url ? `: ${r.github_url}` : '.'}`;
+    case 'commented': {
+      // Your own PR: GitHub refuses the review, so the hub posted a comment instead.
+      const verb = r.decision === 'changes_requested' ? 'request changes on' : 'approve';
+      return r.github_message || `GitHub doesn't let you ${verb} your own pull request — added a comment instead.`;
+    }
     case 'failed':
       return `GitHub refused it: ${r.github_message || 'gh failed'}`;
     case 'no_github':

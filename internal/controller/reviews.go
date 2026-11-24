@@ -141,6 +141,19 @@ func (h *Hub) ReviewTask(ctx context.Context, svc *FleetService, taskID, decisio
 	return res, err
 }
 
+// reviewerLabel names who decided a review, for the comment Konsert posts on the user's
+// own PR: the signed-in device's name, else the acting user.
+func reviewerLabel(ctx context.Context) string {
+	if id := identityFrom(ctx); id.Device != nil && id.Device.Name != "" {
+		return id.Device.Name
+	}
+	c := causeFrom(ctx)
+	if c.Actor == store.ActorUser && c.ActorID != "" {
+		return c.ActorID
+	}
+	return ""
+}
+
 // reviewPullRequest runs the PR review with gh on the machine that owns the task's
 // checkout (git.pr.review).
 func (h *Hub) reviewPullRequest(ctx context.Context, t store.Task, action, note string) protocol.GitPRReviewResult {
@@ -155,7 +168,7 @@ func (h *Hub) reviewPullRequest(ctx context.Context, t store.Task, action, note 
 	rctx, cancel := context.WithTimeout(ctx, prReviewTimeout)
 	defer cancel()
 	env, err := h.RequestWorker(rctx, t.WorkerID, protocol.MsgGitPRReview, protocol.GitPRReviewRequest{
-		Workdir: dir, Branch: t.Branch, Action: action, Body: note,
+		Workdir: dir, Branch: t.Branch, Action: action, Body: note, By: reviewerLabel(ctx),
 	})
 	if err != nil {
 		return protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: "asking " + h.workerLabel(ctx, t.WorkerID) + " to run gh: " + err.Error()}

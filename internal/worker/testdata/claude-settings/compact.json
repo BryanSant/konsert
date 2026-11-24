@@ -1,0 +1,1 @@
+{"theme":"light","hooks":{"Notification":[{"matcher":"","hooks":[{"type":"command","command":"notify-send claude"}]}]}}

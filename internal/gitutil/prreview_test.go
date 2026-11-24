@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
 )
@@ -33,16 +34,24 @@ func prRepo(t *testing.T, origin string) string {
 
 // fakeGH records gh calls and answers them from a script.
 type fakeGH struct {
-	calls [][]string
-	view  string
-	viewE error
-	revE  error
+	calls    [][]string
+	view     string
+	viewE    error
+	revE     error
+	login    string
+	loginE   error
+	commentE error
 }
 
 func (f *fakeGH) run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, args)
-	if len(args) > 1 && args[1] == "view" {
+	switch {
+	case args[0] == "api":
+		return []byte(f.login + "\n"), f.loginE
+	case len(args) > 1 && args[1] == "view":
 		return []byte(f.view), f.viewE
+	case len(args) > 1 && args[1] == "comment":
+		return []byte("https://github.com/acme/wc/pull/12#issuecomment-1\n"), f.commentE
 	}
 	return nil, f.revE
 }
@@ -50,6 +59,7 @@ func (f *fakeGH) run(_ context.Context, _ string, args ...string) ([]byte, error
 func TestReviewPR(t *testing.T) {
 	ctx := context.Background()
 	open := `{"number":12,"url":"https://github.com/acme/wc/pull/12","state":"OPEN"}`
+	ownPR := `{"number":12,"url":"https://github.com/acme/wc/pull/12","state":"OPEN","author":{"login":"bryan"}}`
 	cases := []struct {
 		name     string
 		origin   string
@@ -104,8 +114,48 @@ func TestReviewPR(t *testing.T) {
 		{
 			name: "GitHub refuses", origin: "https://github.com/acme/wc",
 			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewApprove},
-			gh:  fakeGH{view: open, revE: errors.New("Can not approve your own pull request")}, status: protocol.PRReviewFailed,
-			msg: "Can not approve your own pull request",
+			gh:  fakeGH{view: open, revE: errors.New("Pull request is in draft state")}, status: protocol.PRReviewFailed,
+			msg: "draft",
+		},
+		{
+			name: "own PR approve comments instead", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewApprove, By: "Bryan's iPhone"},
+			gh:  fakeGH{view: ownPR, login: "Bryan"}, status: protocol.PRReviewCommented, msg: "doesn't let you approve your own pull request",
+			lastCall: []string{"pr", "comment", "12", "--body", "Approved in Konsert by Bryan's iPhone."},
+		},
+		{
+			name: "own PR request changes posts the note", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewRequestChanges, Body: "Handle empty input", By: "laptop"},
+			gh:  fakeGH{view: ownPR, login: "bryan"}, status: protocol.PRReviewCommented, msg: "request changes on your own pull request",
+			lastCall: []string{"pr", "comment", "12", "--body", "Changes requested in Konsert by laptop.\n\nHandle empty input"},
+		},
+		{
+			name: "someone else's PR is reviewed", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewApprove},
+			gh:  fakeGH{view: ownPR, login: "alice"}, status: protocol.PRReviewSent,
+			lastCall: []string{"pr", "review", "12", "--approve"},
+		},
+		{
+			name: "login unknown: GitHub's refusal falls back to a comment", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewApprove, Body: "Ship it"},
+			gh: fakeGH{view: ownPR, loginE: errors.New("HTTP 401"),
+				revE: errors.New("failed to create review: GraphQL: Review Can not approve your own pull request (addPullRequestReview)")},
+			status: protocol.PRReviewCommented, msg: "added a comment instead",
+			lastCall: []string{"pr", "comment", "12", "--body", "Approved in Konsert by a Konsert user.\n\nShip it"},
+		},
+		{
+			name: "request changes refusal falls back too", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewRequestChanges, Body: "Rename it"},
+			gh: fakeGH{view: open,
+				revE: errors.New("GraphQL: Review Can not request changes on your own pull request (addPullRequestReview)")},
+			status: protocol.PRReviewCommented, msg: "request changes on your own pull request",
+			lastCall: []string{"pr", "comment", "12", "--body", "Changes requested in Konsert by a Konsert user.\n\nRename it"},
+		},
+		{
+			name: "own PR comment fails", origin: "https://github.com/acme/wc",
+			req: protocol.GitPRReviewRequest{Action: protocol.PRReviewApprove},
+			gh:  fakeGH{view: ownPR, login: "bryan", commentE: errors.New("HTTP 403")}, status: protocol.PRReviewFailed,
+			msg: "adding a comment failed: HTTP 403",
 		},
 		{
 			name: "auth failure on view", origin: "https://github.com/acme/wc",
@@ -121,7 +171,7 @@ func TestReviewPR(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := prRepo(t, tc.origin)
 			gh := tc.gh
-			res := ReviewPR(ctx, dir, tc.req, gh.run)
+			res := (&PRReviewer{GH: gh.run}).Review(ctx, dir, tc.req)
 			if res.Status != tc.status || !strings.Contains(res.Message, tc.msg) {
 				t.Fatalf("ReviewPR = %+v, want status %s with %q", res, tc.status, tc.msg)
 			}
@@ -144,5 +194,34 @@ func TestReviewPR(t *testing.T) {
 				t.Fatalf("gh was called without a GitHub remote: %q", gh.calls)
 			}
 		})
+	}
+}
+
+// The gh login is looked up once per machine (per reviewer) and again after the TTL;
+// failures are not cached.
+func TestPRReviewerCachesLogin(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	gh := &fakeGH{loginE: errors.New("offline")}
+	p := &PRReviewer{GH: gh.run, Now: func() time.Time { return now }}
+	if _, err := p.Login(ctx, "."); err == nil {
+		t.Fatal("failed lookup returned a login")
+	}
+	gh.loginE, gh.login = nil, "bryan"
+	for range 3 {
+		if l, err := p.Login(ctx, "."); err != nil || l != "bryan" {
+			t.Fatalf("Login = %q, %v", l, err)
+		}
+	}
+	if len(gh.calls) != 2 {
+		t.Fatalf("gh api user ran %d times, want 2 (one failure, one cached success)", len(gh.calls))
+	}
+	gh.login = "alice"
+	now = now.Add(ghLoginTTL + time.Second)
+	if l, _ := p.Login(ctx, "."); l != "alice" {
+		t.Fatalf("Login after TTL = %q, want a fresh lookup", l)
+	}
+	if !slices.Equal(gh.calls[0], []string{"api", "user", "--jq", ".login"}) {
+		t.Fatalf("login call %q", gh.calls[0])
 	}
 }

@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { ShellReminder } from '../models/activity.models';
 import { Hold, OverrideRequest, UserRequest, VETO_REASONS, Veto, formatDuration, resourceLabel } from '../models/control.models';
 import { QuestionView, isPending } from '../models/question.models';
 import { ControlStore } from './control.store';
@@ -13,11 +14,11 @@ export const ADVANCE_DELAY_MS = 1200;
 /** How long "All caught up" shows before the dialog closes. */
 export const CAUGHT_UP_MS = 1600;
 
-export type NeedsYouKind = 'question' | 'request' | 'veto' | 'review' | 'override';
+export type NeedsYouKind = 'question' | 'request' | 'veto' | 'review' | 'override' | 'shells';
 
 /** One thing that wants the user, as every list and the dialog show it. */
 export interface NeedsYouEntry {
-  /** q:<question id> · r:<request id> · v:<veto id> · o:<override id> · rv:<work item id> */
+  /** q:<question id> · r:<request id> · v:<veto id> · o:<override id> · rv:<work item id> · sh:<session key> */
   key: string;
   kind: NeedsYouKind;
   /** P1 interrupt, P2 decision, P3 notify (ui-paradigms §4.8); ASK for tool approvals. */
@@ -36,6 +37,12 @@ export interface NeedsYouEntry {
   veto?: Veto;
   override?: OverrideRequest;
   review?: WorkItem;
+  shells?: ShellReminder;
+}
+
+/** One line for a shells reminder's list: machine, how long idle, and the policy note. */
+export function shellsMeta(r: ShellReminder, machine: string | undefined, now = Date.now()): string {
+  return [machine, `idle ${formatSince(r.idle_since, now)}`, r.note].filter(Boolean).join(' · ');
 }
 
 /** A veto's reason label and note. */
@@ -188,6 +195,20 @@ export class NeedsYouStore {
       });
     }
     out.push(...waiting);
+    for (const r of this.control.shellReminders()) {
+      out.push({
+        key: `sh:${r.id}`,
+        kind: 'shells',
+        tag: 'P3',
+        title: r.title,
+        meta: shellsMeta(r, r.worker_id ? names[r.worker_id]?.name : undefined, now),
+        at: r.created_at,
+        sid: r.id.replace(':', '-'),
+        pending: true,
+        sessionId: r.task_id || r.chat_id || undefined,
+        shells: r,
+      });
+    }
     for (const it of this.reviews()) {
       out.push({
         key: `rv:${it.id}`,

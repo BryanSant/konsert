@@ -1,0 +1,27 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": ["Bash(git status)", "Read(~/notes/**)"],
+    "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"pre — ✓\" >> ~/.claude/log"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "date" }]
+      }
+    ]
+  },
+  "env": { "FOO": "bar" },
+  "alwaysThinkingEnabled": true
+}

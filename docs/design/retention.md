@@ -68,6 +68,19 @@ The storage breakdown uses SQLite's `dbstat` (exact page usage, cached five minu
 `?fresh=1` re-measures), or row counts times typical row sizes when the SQLite build
 lacks it.
 
+The breakdown follows what compaction does rather than table names:
+
+- **Conversations**: `chat_messages` (orchestrator transcripts) plus the `chat_events` of
+  the transcript kinds compaction keeps (`store.ChatEventKeepKinds`). Agent-chat
+  conversations live in `chat_events`, so counting only `chat_messages` would make them
+  look tiny.
+- **Session detail**: every other `chat_events` row (tool calls with their output,
+  reasoning, plans, usage, status and other streamed events): the part compaction drops.
+
+`dbstat` measures pages per table, not per kind, so the `chat_events` space is split
+between the two in proportion to `SUM(length(json))` of each kind group (one grouped
+scan, done with the cached measurement); row counts are exact.
+
 ## Scale
 
 A synthetic database of 2,000 finished agent chats dated 60 days ago (12 turns each, six

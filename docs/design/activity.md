@@ -117,6 +117,28 @@ true`) until it exits; then one last report with zero, and the session is forgot
 publisher doesn't prune a finished session while it has shells, and the hub keeps konsertd's
 shells when it derives a state itself (a task's final status).
 
+**Shells left running (KON-DCEZV).** Killing someone's dev server on its own is
+destructive, so what Konsert does about shells a session left running when it ended (a
+task finished, a chat turn ended) is a policy: Settings → Shells left running sets a
+global mode and idle period (`shell_policy_mode`, `shell_policy_idle_minutes`, default
+`remind` and 30 minutes) and a mode per project (`shell_policy_project:<id>`; a chat's
+project is the repo its cwd is in). `GET/PUT /api/settings/shells`.
+
+| Mode | What happens |
+|---|---|
+| Remind me (default) | After the session has been idle for the idle period with shells left, one Needs-you item per session: "2 shells left running by *title*" with **Kill all**, **Ask agent to clean up** (only while the agent can still be asked) and **Keep running**, which snoozes it for a day (`POST /api/{tasks,chats}/{id}/shells/keep`). |
+| Ask the agent | A minute after the session ended with shells left, Konsert sends the agent one follow-up asking it to stop what it started (the same message as Fleet's Ask), once per set of shells, so an agent that says it still needs them isn't asked again. Not while the user is in control (a session hold); an ended task or a suspended session can't be asked. Shells still running after the idle period get the reminder. |
+| Stop after idle | Shells of a session idle for the idle period are killed, audit-logged (`session.shell_kill`, "after 30 minutes idle (Stop after idle)", cause `shell_policy`) and on the timeline. Never when the task or chat is pinned with Keep or held: then it reminds, saying why. |
+
+"Idle" is the session's (how long since it ended), not the shell's: a dev server's shell
+always runs a command, so a per-shell idle measure would never fire for the shells this is
+about. The hub checks every 30 seconds (`shellPolicyTick`, injectable clock). Reminders
+reach browsers as fleet.update kind `shell_reminder` (`resolved: true` when gone) and are
+listed at `GET /api/shells/reminders`; they go when the shells exit, the session runs
+again, or the user acts. The state is in memory like the activity it watches: after a hub
+restart konsertd re-reports the shells, the idle period starts again and snoozes are
+forgotten.
+
 Commands are cleaned for people: the script of `sh -c …` / `bash -lc …` / `pwsh -Command`
 / `cmd /c`, without claude's wrapper (`source …/shell-snapshots/…`, `setopt`/`shopt`,
 `eval '…' \< /dev/null`, `pwd -P >| …`); capped at 300 characters. The hub adds each
