@@ -83,6 +83,12 @@ export interface Worker {
   launch?: WorkerLaunch;
   /** SSH target the hub installs/starts konsertd through (launch 'ssh'). */
   ssh_target?: string;
+  /**
+   * How the machine reaches the hub: 'ssh' (the hub attaches over SSH with its own key),
+   * 'local' (the hub's own machine, over konsertd's socket) or 'outbound' (konsertd dials
+   * the hub with its machine credential).
+   */
+  transport?: WorkerTransport;
   /** Last start attempt by the hub; absent once the daemon is connected. */
   launch_state?: WorkerLaunchState;
   launch_error?: string;
@@ -95,6 +101,7 @@ export interface Worker {
 }
 
 export type WorkerLaunch = 'local' | 'ssh';
+export type WorkerTransport = 'ssh' | 'local' | 'outbound';
 export type WorkerLaunchState = 'starting' | 'failed';
 
 /** The hub's own machine, as GET /api/setup reports it. */

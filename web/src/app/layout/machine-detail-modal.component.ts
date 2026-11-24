@@ -9,6 +9,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
+import { transportHint, transportLabel } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -239,7 +240,15 @@ import { MachineCredentialComponent } from './machine-credential.component';
         </div>
       }
 
-      <app-machine-credential [worker]="worker()" />
+      <!-- How konsertd reaches the hub; only an outbound machine has a credential -->
+      <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]" data-testid="worker-transport">
+        <span class="text-[#86888f] mr-2">Transport</span>
+        <span class="font-mono-ide text-[#c8cad0]">{{ transport() }}</span>
+        <div class="text-[#86888f] mt-1">{{ transportHint() }}</div>
+      </div>
+      @if (transport() === 'outbound') {
+        <app-machine-credential [worker]="worker()" />
+      }
 
       <!-- Cached Machine Facts -->
       @if (worker().facts; as f) {
@@ -439,6 +448,9 @@ export class MachineDetailModalComponent {
     if (mins < 60) return `${mins}m ago`;
     return `${Math.floor(mins / 60)}h ago`;
   });
+
+  readonly transport = computed(() => transportLabel(this.worker()));
+  readonly transportHint = computed(() => transportHint(this.worker()));
 
   readonly launchLabel = computed(() => {
     const w = this.worker();

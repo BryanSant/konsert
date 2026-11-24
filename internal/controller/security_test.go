@@ -33,6 +33,8 @@ func newSecurityTestServer(t *testing.T, mutate func(*config.ControllerConfig)) 
 		mutate(&cfg)
 	}
 	srv := NewServer(cfg, st, nil, "test")
+	srv.hubKeyFile = filepath.Join(t.TempDir(), HubKeyFileName)
+	srv.attach.dialSSH = noSSH
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() {
 		ts.Close()

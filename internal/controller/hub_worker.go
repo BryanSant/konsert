@@ -61,11 +61,12 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		return
 	}
 
-	// A credential authenticates exactly its machine: it cannot register as another.
+	// A connection is bound to exactly one machine (its credential's, or the one the
+	// hub attached to over SSH or the local socket): it cannot register as another.
 	if b, ok := boundMachineFrom(ctx); ok && b.workerID != hello.Worker.ID {
-		h.logger.Warn("rejecting konsertd: credential belongs to another machine",
-			"credential", b.credSID, "claimed", hello.Worker.ID)
-		_ = conn.Close(websocket.StatusPolicyViolation, "credential belongs to another machine")
+		h.logger.Warn("rejecting konsertd: hello names another machine",
+			"bound", b.workerID, "credential", b.credSID, "via", b.via, "claimed", hello.Worker.ID)
+		_ = conn.Close(websocket.StatusPolicyViolation, "connection belongs to another machine")
 		return
 	}
 
@@ -87,7 +88,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		cancel:      cancel,
 		activeTasks: make(map[string]bool),
 		baseURL:     workerBaseURLFrom(ctx),
-		loopback:    isLoopbackAddr(workerRemoteAddrFrom(ctx)),
+		loopback:    isLoopbackAddr(workerRemoteAddrFrom(ctx)) || workerTransportFrom(ctx) == TransportLocal,
 		name:        hello.Worker.Name,
 		hostGroup:   hello.Worker.HostGroup,
 		hostname:    hello.Worker.Hostname,

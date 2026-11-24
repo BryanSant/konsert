@@ -45,8 +45,9 @@ type Worker struct {
 	Version string `json:"version,omitempty"`
 
 	// Launch is how the hub (re)starts this machine's konsertd: LaunchManual (""),
-	// LaunchLocal or LaunchSSH. SSHTarget and ControllerURL are what an SSH (re)start
-	// uses. The fields are set by EnsureWorker/SetWorkerLaunchState, never by
+	// LaunchLocal or LaunchSSH, which also picks the transport (local socket, SSH, or
+	// outbound for manual). SSHTarget is what an SSH (re)start and the SSH transport
+	// use; ControllerURL is the hub URL agents there use for MCP tools (optional). The fields are set by EnsureWorker/SetWorkerLaunchState, never by
 	// UpsertWorker, so a worker.hello keeps them.
 	Launch        string     `json:"launch,omitempty"`
 	SSHTarget     string     `json:"ssh_target,omitempty"`
@@ -67,7 +68,7 @@ type MachineCredential struct {
 	ID            string     `json:"id"`
 	SID           string     `json:"sid"`
 	WorkerID      string     `json:"worker_id"`
-	Source        string     `json:"source"` // MachineCredJoin, MachineCredLocal, ...
+	Source        string     `json:"source"` // MachineCredJoin, MachineCredRotate
 	CreatedAt     time.Time  `json:"created_at"`
 	LastUsedAt    *time.Time `json:"last_used_at,omitzero"`
 	RevokedAt     *time.Time `json:"revoked_at,omitzero"`
@@ -77,8 +78,6 @@ type MachineCredential struct {
 // Machine credential sources: how the credential reached the machine.
 const (
 	MachineCredJoin   = "join"   // traded for a join code (konsertd join)
-	MachineCredLocal  = "local"  // the hub installed konsertd on its own machine
-	MachineCredSSH    = "ssh"    // the hub installed konsertd over SSH
 	MachineCredRotate = "rotate" // pushed to a connected konsertd by a rotation
 )
 

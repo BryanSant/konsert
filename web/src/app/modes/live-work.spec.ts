@@ -30,6 +30,8 @@ import {
   shellRows,
   subagentChip,
   subagentText,
+  transportHint,
+  transportLabel,
 } from './fleet/fleet-logic';
 
 const NOW = Date.parse('2026-11-23T15:00:00Z');
@@ -303,5 +305,16 @@ describe('fleet machine rows', () => {
     expect(q.map((e) => e.sid)).toEqual(['t-q', 't-p']);
     expect(q[0].reasons.map((r) => r.text)).toEqual(['mac FULL (1/1)', 'desk draining', 'wsl ✗ no claude']);
     expect(q[1].reasons.map((r) => r.text)).toEqual(['mac FULL (1/1)']);
+  });
+});
+
+describe('machine transport', () => {
+  it('labels how each machine reaches the hub', () => {
+    expect(transportLabel(worker('a', 'box', { transport: 'ssh', ssh_target: 'me@box' }))).toBe('ssh');
+    expect(transportLabel(worker('b', 'hub', { transport: 'local' }))).toBe('local');
+    expect(transportLabel(worker('c', 'far', { transport: 'outbound' }))).toBe('outbound');
+    expect(transportLabel(worker('d', 'old'))).toBe('outbound');
+    expect(transportHint(worker('a', 'box', { transport: 'ssh', ssh_target: 'me@box' }))).toContain('over SSH (me@box)');
+    expect(transportHint(worker('c', 'far', { transport: 'outbound' }))).toContain('machine credential');
   });
 });

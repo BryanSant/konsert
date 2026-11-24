@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -85,6 +86,9 @@ type launchTest struct {
 	mu        sync.Mutex
 	bootstrap []sshutil.BootstrapOptions
 	bootRes   func(sshutil.BootstrapOptions) sshutil.BootstrapResult
+
+	// daemons are the fake konsertds the hub can attach to, by worker id.
+	daemons *fakeDaemons
 }
 
 func newLaunchTest(t *testing.T) *launchTest {
@@ -96,6 +100,7 @@ func newLaunchTest(t *testing.T) *launchTest {
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = true
 	srv := NewServer(cfg, st, nil, "test")
+	srv.hubKeyFile = filepath.Join(t.TempDir(), HubKeyFileName)
 	lt := &launchTest{srv: srv, st: st, runner: &fakeRunner{id: localID}}
 	l := srv.launch
 	l.runner = lt.runner
@@ -116,6 +121,11 @@ func newLaunchTest(t *testing.T) *launchTest {
 		}
 		return sshutil.BootstrapResult{OK: false, Target: o.Target, Error: "unreachable"}
 	}
+	// Attaching (ssh or local socket) reaches in-process fake daemons, never a real ssh.
+	lt.daemons = newFakeDaemons(t)
+	srv.attach.dialSSH = func(_ context.Context, _, _, workerID string) (net.Conn, error) { return lt.daemons.dial(workerID) }
+	srv.attach.dialLocal = func(_ context.Context, workerID string) (net.Conn, error) { return lt.daemons.dial(workerID) }
+	srv.attach.minBackoff, srv.attach.maxBackoff = 20*time.Millisecond, 100*time.Millisecond
 	lt.ts = httptest.NewServer(srv)
 	srv.SetListenAddr("127.0.0.1:8420")
 	t.Cleanup(func() {
@@ -158,15 +168,6 @@ func (lt *launchTest) dial(t *testing.T, info protocol.WorkerInfo) error {
 		cancel()
 	})
 	return nil
-}
-
-// dialAsync connects a fake konsertd from a background goroutine (as a started daemon would).
-func (lt *launchTest) dialAsync(t *testing.T, info protocol.WorkerInfo) {
-	go func() {
-		if err := lt.dial(t, info); err != nil {
-			t.Errorf("fake konsertd %s: %v", info.ID, err)
-		}
-	}()
 }
 
 // connect dials and waits until the hub registers the worker.
@@ -262,8 +263,8 @@ func TestAddLocalAttachesRunningDaemonWithoutInstall(t *testing.T) {
 func TestAddLocalStartsKonsertdInstall(t *testing.T) {
 	lt := newLaunchTest(t)
 	lt.runner.installFn = func([]string) error {
-		// The installed daemon comes up and connects.
-		lt.dialAsync(t, testWorkerInfo(localID, "hubhost"))
+		// The installed daemon comes up on its socket; the hub attaches.
+		lt.daemons.up(testWorkerInfo(localID, "hubhost"))
 		return nil
 	}
 	code, body := lt.do(t, http.MethodPost, "/api/workers/local")
@@ -276,15 +277,20 @@ func TestAddLocalStartsKonsertdInstall(t *testing.T) {
 		return w.LaunchState == store.LaunchStateNone && w.LaunchAt != nil
 	})
 	calls, stdins := lt.runner.installCalls()
-	want := []string{"/opt/konsert/bin/konsertd", "install", "--controller", "ws://127.0.0.1:8420/ws/worker", "--name", "hubhost", "--credential-stdin"}
-	if len(calls) != 1 || !slices.Equal(calls[0], want) {
-		t.Fatalf("install calls = %q, want %q", calls, want)
+	want := []string{"/opt/konsert/bin/konsertd", "install", "--name", "hubhost"}
+	if len(calls) != 1 || !slices.Equal(calls[0], want) || stdins[0] != "" {
+		t.Fatalf("install calls = %q stdin %q, want %q and no stdin", calls, stdins, want)
 	}
-	// The machine's own credential goes over stdin.
-	assertCredentialFor(t, lt.srv, strings.TrimSuffix(stdins[0], "\n"), localID)
+	// The local socket needs no credential.
+	if creds, _ := lt.st.ListMachineCredentials(context.Background(), localID); len(creds) != 0 {
+		t.Fatalf("local machine got credentials: %+v", creds)
+	}
 	w := lt.worker(t, localID)
-	if w.Launch != store.LaunchLocal || w.ControllerURL != "ws://127.0.0.1:8420/ws/worker" || w.Status != "online" {
+	if w.Launch != store.LaunchLocal || w.ControllerURL != "" || w.Status != "online" {
 		t.Fatalf("local worker = %+v", w)
+	}
+	if v := toWorkerView(w, 0, nil); v.Transport != TransportLocal {
+		t.Fatalf("transport = %q", v.Transport)
 	}
 	// Adding it again while connected attaches; no second install.
 	if code, body := lt.do(t, http.MethodPost, "/api/workers/local"); code != 200 || body["state"] != "connected" {
@@ -326,7 +332,7 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	var childStdin string
 	lt.srv.launch.startChild = func(_ context.Context, exe string, args []string, stdin string) error {
 		child, childStdin = append([]string{exe}, args...), stdin
-		lt.dialAsync(t, testWorkerInfo(localID, "hubhost"))
+		lt.daemons.up(testWorkerInfo(localID, "hubhost"))
 		return nil
 	}
 	if code, _ := lt.do(t, http.MethodPost, "/api/workers/local"); code != http.StatusAccepted {
@@ -337,10 +343,9 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	if len(calls) != 1 || calls[0][len(calls[0])-1] != "--dry-run" {
 		t.Fatalf("dry run must pass --dry-run to install: %q", calls)
 	}
-	if strings.Join(child, " ") != "/opt/konsert/bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --name hubhost --credential-stdin" {
-		t.Fatalf("child = %q", child)
+	if strings.Join(child, " ") != "/opt/konsert/bin/konsertd run --name hubhost" || childStdin != "" {
+		t.Fatalf("child = %q stdin %q", child, childStdin)
 	}
-	assertCredentialFor(t, lt.srv, strings.TrimSuffix(childStdin, "\n"), localID)
 }
 
 func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
@@ -369,7 +374,7 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 		t.Fatalf("local installs = %q", calls)
 	}
 	boots := lt.bootstraps()
-	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].ControllerURL != "ws://hub:8420/ws/worker" || boots[0].Credential == nil {
+	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].HubKey == nil || !strings.HasPrefix(boots[0].HubKey.PublicKey, "ssh-ed25519 ") {
 		t.Fatalf("bootstraps = %+v", boots)
 	}
 	if w := lt.worker(t, remoteID); !strings.Contains(w.LaunchError, "unreachable") {
@@ -385,7 +390,7 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 	// The API retries on demand; it refuses machines the hub does not start.
 	lt.mu.Lock()
 	lt.bootRes = func(o sshutil.BootstrapOptions) sshutil.BootstrapResult {
-		lt.dialAsync(t, testWorkerInfo(remoteID, "box"))
+		lt.daemons.up(testWorkerInfo(remoteID, "box"))
 		return sshutil.BootstrapResult{OK: true, Target: o.Target, WorkerID: remoteID, Name: "box"}
 	}
 	lt.mu.Unlock()
@@ -433,8 +438,17 @@ func TestSSHBootstrapRecordsLaunch(t *testing.T) {
 	if _, body := lt.do(t, http.MethodGet, "/api/setup"); body["needs_setup"] != false {
 		t.Fatalf("adding a host completes setup: %v", body)
 	}
-	if boots := lt.bootstraps(); len(boots) != 1 || boots[0].Credential == nil {
+	boots := lt.bootstraps()
+	if len(boots) != 1 || boots[0].HubKey == nil || !strings.HasPrefix(boots[0].HubKey.PublicKey, "ssh-ed25519 ") {
 		t.Fatalf("bootstraps = %+v", boots)
+	}
+	// The key lives next to the database, private; its comment names the hub.
+	keyPath := lt.srv.hubKeyPath()
+	if filepath.Base(keyPath) != HubKeyFileName || !strings.HasSuffix(boots[0].HubKey.PublicKey, "konsert-hub:"+boots[0].HubKey.HubID) {
+		t.Fatalf("hub key %s %q", keyPath, boots[0].HubKey.PublicKey)
+	}
+	if creds, _ := lt.st.ListMachineCredentials(context.Background(), remoteID); len(creds) != 0 {
+		t.Fatalf("an SSH machine must get no credential: %+v", creds)
 	}
 }
 

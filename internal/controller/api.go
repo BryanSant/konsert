@@ -65,6 +65,12 @@ type Server struct {
 	launch *launcher
 	// machines holds machine-credential state (machine_auth.go).
 	machines *machineAuth
+	// attach keeps the hub-dialed links to ssh and local machines (transport.go).
+	attach *attacher
+	// hubKeyFile overrides where the hub's SSH key lives (tests); hubIDMu serializes
+	// creating the hub id.
+	hubKeyFile string
+	hubIDMu    sync.Mutex
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -124,6 +130,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		launch:           newLauncher(),
 		machines:         newMachineAuth(),
 	}
+	s.attach = newAttacher(s)
 	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
 	hub.version = version
 	hub.chatFleetBackend = serverControlPlane{FleetService: svc, srv: s, admin: false}
@@ -492,10 +499,17 @@ func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var name, sid string
-	if wk, err := s.store.GetWorker(r.Context(), id); err == nil {
+	wk, getErr := s.store.GetWorker(r.Context(), id)
+	if getErr == nil {
 		name, sid = wk.Name, wk.SID
 	}
+	// The close code tells a konsertd on the SSH transport to drop the hub key itself
+	// and stop; the attach loop ends with the record.
 	s.hub.DisconnectWorker(id)
+	s.attach.stop(id)
+	if getErr == nil {
+		s.forgetSSHMachine(wk)
+	}
 	if err := s.store.DeleteWorker(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
@@ -614,17 +628,18 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	publicURL := s.cfg.PublicURL
 	s.cfgMu.RUnlock()
-	ctrlURL, err := workerControllerURL(publicURL, body.ControllerURL)
+	// Only agents' per-chat MCP calls use the hub URL; the SSH transport never does.
+	hubURL, _ := workerControllerURL(publicURL, body.ControllerURL)
+	// The hub attaches over SSH with its own key, which bootstrap allows (restricted to
+	// `konsertd attach`): no machine credential.
+	grant, err := s.hubKeyGrant(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	// The machine gets its own credential, minted once its identity is known.
-	pc := s.newProvisionCred(store.MachineCredSSH)
 	opts := sshutil.BootstrapOptions{
 		Target:        body.Target,
-		ControllerURL: ctrlURL,
-		Credential:    pc.mint,
+		HubKey:        grant,
 		Sandbox:       body.Sandbox,
 		EnableMock:    body.EnableMock,
 		AcceptHostKey: body.AcceptHostKey,
@@ -644,8 +659,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 			res := s.launch.bootstrap(r.Context(), opts)
-			pc.finish(r.Context(), res.OK)
-			s.afterSSHBootstrap(r.Context(), res, ctrlURL)
+			s.afterSSHBootstrap(r.Context(), res, hubURL)
 			b, _ := json.Marshal(map[string]any{"type": "done", "result": res}, protocol.JSONOptions)
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 			flusher.Flush()
@@ -654,8 +668,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := s.launch.bootstrap(r.Context(), opts)
-	pc.finish(r.Context(), res.OK)
-	s.afterSSHBootstrap(r.Context(), res, ctrlURL)
+	s.afterSSHBootstrap(r.Context(), res, hubURL)
 	switch {
 	case res.OK:
 		writeJSON(w, http.StatusOK, res)
@@ -666,10 +679,10 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// workerControllerURL picks the WebSocket URL handed (with its credential) to an
-// SSH-bootstrapped worker. The configured public URL wins; otherwise the
-// authenticated caller must supply a ws(s):// URL. The request Host header is never
-// used, so a spoofed Host cannot redirect the credential.
+// workerControllerURL picks the hub URL recorded for an SSH machine, which its agents
+// use for per-chat MCP tools when no public URL is set. The configured public URL wins;
+// otherwise the authenticated caller may supply a ws(s):// URL. The request Host header
+// is never used.
 func workerControllerURL(publicURL, requested string) (string, error) {
 	if pu := strings.TrimSpace(publicURL); pu != "" {
 		u, err := url.Parse(pu)

@@ -24,7 +24,7 @@ import (
 // installOnlyFlags are flags of install (and join) itself, never persisted as run flags.
 var installOnlyFlags = map[string]bool{
 	"status": true, "service": true, "user": true, "password-stdin": true,
-	"credential-stdin": true, "no-start": true, "no-linger": true, "dry-run": true,
+	"no-start": true, "no-linger": true, "dry-run": true,
 	"foreground": true,
 }
 
@@ -71,10 +71,12 @@ The run flags given here (--controller, --name, --sandbox, --tag, ...) are writt
 per-user config file readable only by you (0600, or a user-only ACL on Windows), which
 the daemon reads with --config. --config merges an existing YAML file into it.
 
-The daemon authenticates with this machine's own credential, which ` + "`konsertd join`" + `
-(or the hub, when it installs konsertd itself) saves in ~/.konsert. To add a machine by
-hand, use ` + "`konsertd join <hub-url> <code>`" + ` with a code from Add machine → Manual: it
-saves the credential and runs this install.
+Without --controller the daemon serves the hub on its local socket and the hub
+attaches to it (directly on its own machine, over SSH elsewhere): this is how the hub
+installs konsertd itself. With --controller it connects out to the hub with this
+machine's own credential: to add a machine the hub cannot reach over SSH, use
+` + "`konsertd join <hub-url> <code>`" + ` with a code from Add machine → Manual, which saves the
+credential and runs this install.
 
 --name other than the hostname installs a separate instance (konsertd-<name>), so
 several daemons can run side by side. Re-running install updates the instance in place.`,
@@ -104,10 +106,6 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 		name, _ := fs.GetString("name")
 		return printInstallStatus(ctx, cmd.OutOrStdout(), name, f.service)
 	}
-	credStdin, _ := fs.GetBool("credential-stdin")
-	if f.passwordStdin && credStdin {
-		return errors.New("--password-stdin and --credential-stdin both read stdin")
-	}
 	if f.passwordStdin && !f.service {
 		return errors.New("--password-stdin only applies with --service")
 	}
@@ -125,23 +123,11 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 	if err != nil {
 		return err
 	}
-	// The identity the installed daemon will run with, which its credential belongs to.
-	workerID := worker.WorkerIDFor(runCfg)
-	if credStdin {
-		cred, err := readLine(stdin)
-		if err != nil {
-			return fmt.Errorf("read the credential from stdin: %w", err)
+	// An outbound daemon authenticates with the credential of the identity it runs as.
+	if runCfg.ControllerURL != "" && !f.dryRun {
+		if _, err := worker.LoadCredential("", worker.WorkerIDFor(runCfg)); err != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no machine credential yet; run konsertd join <hub-url> <code>")
 		}
-		if !f.dryRun {
-			if err := worker.SaveCredential("", workerID, cred); err != nil {
-				return fmt.Errorf("save the machine credential: %w", err)
-			}
-		}
-	} else if _, err := worker.LoadCredential("", workerID); err != nil && !f.dryRun {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no machine credential yet; run konsertd join <hub-url> <code>")
-	}
-	if cfg.ControllerURL == "" {
-		fmt.Fprintln(cmd.ErrOrStderr(), "Warning: no --controller given; the daemon will connect to the default ws://127.0.0.1:8420/ws/worker.")
 	}
 
 	exe, err := installExecutable()

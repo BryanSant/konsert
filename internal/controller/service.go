@@ -50,7 +50,11 @@ type WorkerStatusView struct {
 	Version string `json:"version,omitempty"`
 	// Launch is how the hub (re)starts this machine's konsertd ("", "local", "ssh");
 	// LaunchState/LaunchError report the last start attempt ("starting", "failed").
-	Launch      string     `json:"launch,omitempty"`
+	Launch string `json:"launch,omitempty"`
+	// Transport is how the machine reaches the hub: "ssh" (the hub attaches over SSH),
+	// "local" (the hub's own machine, over konsertd's socket) or "outbound" (konsertd
+	// dials the hub with its machine credential).
+	Transport   string     `json:"transport"`
 	SSHTarget   string     `json:"ssh_target,omitempty"`
 	LaunchState string     `json:"launch_state,omitempty"`
 	LaunchError string     `json:"launch_error,omitempty"`
@@ -86,6 +90,7 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		Facts:          decodeWorkerFacts(w.FactsJSON),
 		Version:        w.Version,
 		Launch:         w.Launch,
+		Transport:      transportFor(w.Launch),
 		SSHTarget:      w.SSHTarget,
 		LaunchState:    w.LaunchState,
 		LaunchError:    w.LaunchError,

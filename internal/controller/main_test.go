@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -8,11 +9,24 @@ import (
 	"testing"
 
 	"github.com/BryanSant/konsert/internal/secrets"
+	"github.com/BryanSant/konsert/internal/worker"
 )
+
+// fakeSSHSocketEnv makes the test binary stand in for `ssh host konsertd attach`: on the
+// real machine sshd runs the hub key's forced command, which bridges the session's
+// stdin/stdout to konsertd's socket; here the test binary does the bridging itself.
+const fakeSSHSocketEnv = "KONSERT_TEST_FAKE_SSH_SOCKET"
 
 // TestMain points konsertd state (worker ID, machine ID, status outbox) at a
 // throwaway directory so tests never write into the developer's ~/.konsert.
 func TestMain(m *testing.M) {
+	if sock := os.Getenv(fakeSSHSocketEnv); sock != "" {
+		if err := worker.Attach(context.Background(), sock, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	dir, err := os.MkdirTemp("", "konsert-test-state-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create test state dir:", err)

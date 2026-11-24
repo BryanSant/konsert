@@ -171,7 +171,7 @@ func posixRemote(cmd string, _ []byte) (string, error) {
 	case strings.HasPrefix(cmd, "uname"):
 		return "Linux\nx86_64\n", nil
 	case strings.Contains(cmd, "command -v konsertd"):
-		return "found:/home/me/.local/bin/konsertd\n", nil
+		return "found:/home/me/.local/bin/konsertd\nmanaged:/home/me/.local/bin/konsertd\n", nil
 	case strings.HasPrefix(cmd, "/home/me/.local/bin/konsertd id "):
 		return testWorkerID + "\n", nil
 	}
@@ -189,38 +189,45 @@ func withFakeSSH(t *testing.T, f *fakeSSH) {
 
 const testHostBlob = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
-func TestBootstrapNeverPutsCredentialInArgv(t *testing.T) {
+const testHubPub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl konsert-hub:hub1"
+
+func testGrant() *HubKeyGrant { return &HubKeyGrant{HubID: "hub1", PublicKey: testHubPub} }
+
+// The hub key reaches `konsertd hub-key add` over stdin, before the daemon is installed
+// (without a controller URL or credential), and never appears in argv.
+func TestBootstrapAllowsHubKeyOverStdin(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
-	const token = "kmc_super-secret-credential"
-	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{
-		Target:        "me@box",
-		ControllerURL: "wss://konsert.example.ts.net/ws/worker",
-		Credential:    fixedCred(token),
-	})
-	// The fake reports konsertd as already installed, so no scp happens here.
-	if !res.OK {
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", HubKey: testGrant()})
+	if !res.OK || res.KonsertdPath != "/home/me/.local/bin/konsertd" {
 		t.Fatalf("bootstrap failed: %+v", res)
 	}
-	sawStdin := false
+	keyCall, installCall := -1, -1
 	for i, c := range f.calls {
 		for _, a := range c {
-			if strings.Contains(a, token) {
-				t.Fatalf("credential leaked into argv: %q", c)
+			if strings.Contains(a, "AAAAC3NzaC1lZDI1NTE5") {
+				t.Fatalf("hub key in argv: %q", c)
 			}
 		}
-		if strings.Contains(string(f.stdins[i]), token) {
-			sawStdin = true
-			if !strings.Contains(c[len(c)-1], " install ") || !strings.HasSuffix(c[len(c)-1], " --credential-stdin") {
-				t.Fatalf("credential stdin sent to unexpected command %q", c)
+		cmd := c[len(c)-1]
+		if strings.Contains(cmd, " hub-key add --hub hub1 --worker "+testWorkerID) {
+			keyCall = i
+			if string(f.stdins[i]) != testHubPub+"\n" {
+				t.Fatalf("hub-key add stdin = %q", f.stdins[i])
+			}
+		}
+		if strings.Contains(cmd, " install --name box") {
+			installCall = i
+			if strings.Contains(cmd, "--controller") || strings.Contains(cmd, "--credential") || f.stdins[i] != nil {
+				t.Fatalf("install must not get a controller URL or credential: %q stdin=%q", cmd, f.stdins[i])
 			}
 		}
 		if c[0] == "ssh" && !slices.Contains(c, "--") {
 			t.Fatalf("ssh invocation without --: %q", c)
 		}
 	}
-	if !sawStdin {
-		t.Fatal("the credential must reach konsertd install over stdin")
+	if keyCall < 0 || installCall < 0 || keyCall > installCall {
+		t.Fatalf("want hub-key add before install; calls %q", f.calls)
 	}
 }
 
@@ -238,7 +245,7 @@ func TestBootstrapUnknownHostKeyRequiresConfirmation(t *testing.T) {
 	withFakeSSH(t, f)
 	fp, _ := FingerprintSHA256(testHostBlob)
 
-	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", Credential: fixedCred("t")})
+	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", HubKey: testGrant()})
 	if res.OK || !res.HostKeyConfirmationRequired || res.Stage != StageHostKeyConfirmation {
 		t.Fatalf("expected host key confirmation, got %+v", res)
 	}
@@ -256,7 +263,7 @@ func TestBootstrapUnknownHostKeyRequiresConfirmation(t *testing.T) {
 	}
 
 	// The confirmed fingerprint lets bootstrap proceed and is persisted.
-	res = BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", AcceptHostKey: fp, Credential: fixedCred("t")})
+	res = BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", AcceptHostKey: fp, HubKey: testGrant()})
 	if !res.OK {
 		t.Fatalf("confirmed bootstrap failed: %+v", res)
 	}

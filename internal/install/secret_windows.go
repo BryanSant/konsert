@@ -58,3 +58,13 @@ func currentUserSID() (string, error) {
 	}
 	return tu.User.Sid.String(), nil
 }
+
+// RestrictDir replaces dir's DACL with a protected one granting SYSTEM and the current
+// user full control, inherited by everything created in it.
+func RestrictDir(dir string) error {
+	user, err := currentUserSID()
+	if err != nil {
+		return err
+	}
+	return setProtectedDACL(dir, "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;"+user+")")
+}
