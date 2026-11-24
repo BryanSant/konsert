@@ -1,6 +1,9 @@
 package nowline
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const live = "/private/var/tmp/konsert-live/run-1/wc"
 
@@ -304,12 +307,13 @@ func TestShortPath(t *testing.T) {
 }
 
 func TestSummarizeCapsLength(t *testing.T) {
-	long := "Search: " + string(make([]byte, 0)) + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	got := Summarize("Grep", long, Context{})
-	if r := []rune(got); len(r) > 54 || r[len(r)-1] != '…' {
+	// A search pattern is capped at 40 runes ("searching for " + 39 + "…").
+	got := Summarize("Grep", "Search: "+strings.Repeat("a", 95), Context{})
+	if r := []rune(got); len(r) != len("searching for ")+40 || r[len(r)-1] != '…' {
 		t.Errorf("Summarize(long) = %q", got)
 	}
-	unknown := "Doing " + string(make([]rune, 0)) + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	// Any line is capped at maxLen.
+	unknown := "Doing " + strings.Repeat("b", 120)
 	if got := Summarize("", unknown, Context{}); len([]rune(got)) != maxLen {
 		t.Errorf("Summarize(unknown long) has %d runes, want %d", len([]rune(got)), maxLen)
 	}
