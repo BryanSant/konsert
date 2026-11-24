@@ -11,6 +11,7 @@ import {
   mergeFleetEvents,
   vetoOpen,
 } from '../models/control.models';
+import { ShellReminder } from '../models/activity.models';
 import { ApiClientService } from '../services/api-client.service';
 
 /** Page size for the "Your actions" timeline. */
@@ -36,6 +37,8 @@ export class ControlStore {
   readonly overrides = signal<OverrideRequest[]>([]);
   /** Vetoes the agent has not acknowledged yet (and the user has not dismissed), newest first. */
   readonly vetoes = signal<Veto[]>([]);
+  /** Sessions that left shells running past the idle period (KON-DCEZV), oldest first. */
+  readonly shellReminders = signal<ShellReminder[]>([]);
   /** Timeline events (user actions and responses), newest first. */
   readonly events = signal<FleetEvent[]>([]);
   readonly eventsCursor = signal<number | undefined>(undefined);
@@ -74,6 +77,7 @@ export class ControlStore {
       this.loadOverrides(),
       this.loadVetoes(),
       this.loadEvents(),
+      this.loadShellReminders(),
     ]);
   }
 
@@ -116,6 +120,15 @@ export class ControlStore {
     try {
       const res = await this.api.listVetoes({ open: true });
       this.vetoes.set(sortNewest((res.vetoes ?? []).filter(vetoOpen)));
+    } catch {
+      // keep
+    }
+  }
+
+  async loadShellReminders(): Promise<void> {
+    try {
+      const res = await this.api.listShellReminders();
+      this.shellReminders.set(res.reminders ?? []);
     } catch {
       // keep
     }
@@ -187,6 +200,14 @@ export class ControlStore {
     });
   }
 
+  applyShellReminder(r: ShellReminder | undefined | null): void {
+    if (!r?.id) return;
+    this.shellReminders.update((list) => {
+      const rest = list.filter((x) => x.id !== r.id);
+      return r.resolved ? rest : [...rest, r].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    });
+  }
+
   applyEvent(ev: FleetEvent | undefined | null): void {
     if (!ev?.id || !isTimelineEvent(ev)) return;
     this.events.update((cur) => mergeFleetEvents(cur, [ev]));
@@ -255,6 +276,19 @@ export class ControlStore {
       this.api.resolveRequest(req.id, status, note),
     );
     if (res) this.applyRequest({ ...req, ...res, status: res.status || status });
+    return !!res;
+  }
+
+  /**
+   * Acts on a "shells left running" reminder: Kill all, Ask agent to clean up, or Keep
+   * running (snoozes it). The item goes once the hub confirms.
+   */
+  async remedyShells(r: ShellReminder, action: 'kill' | 'ask' | 'keep'): Promise<boolean> {
+    const kind = r.chat_id ? 'chat' : 'task';
+    const id = r.chat_id || r.task_id || '';
+    const fallback = { kill: 'Could not kill the shells', ask: 'Could not ask the agent', keep: 'Could not keep the shells running' }[action];
+    const res = await this.run(r.id, fallback, () => (action === 'keep' ? this.api.keepShells(kind, id) : this.api.shellAction(kind, id, action)));
+    if (res) this.applyShellReminder({ ...r, resolved: true });
     return !!res;
   }
 

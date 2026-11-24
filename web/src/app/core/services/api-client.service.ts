@@ -34,7 +34,7 @@ import {
   Workspace,
   Worktree,
 } from '../models/konsert.models';
-import { HeatHistory } from '../models/activity.models';
+import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, Review, ReviewDecision, ReviewResult } from '../models/review.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
@@ -305,6 +305,25 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify(shells.length ? { shells } : {}),
     });
+  }
+
+  /** Keep running: snoozes the "shells left running" reminder of a task or chat. */
+  keepShells(kind: 'task' | 'chat', id: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/${kind === 'task' ? 'tasks' : 'chats'}/${encodeURIComponent(id)}/shells/keep`, { method: 'POST', body: '{}' });
+  }
+
+  /** Open "shells left running" reminders (KON-DCEZV). */
+  listShellReminders(): Promise<{ reminders: ShellReminder[] }> {
+    return this.request('/api/shells/reminders');
+  }
+
+  /** What Konsert does about shells left running: global mode, idle period, per-project modes. */
+  getShellPolicy(): Promise<ShellPolicySettings> {
+    return this.request('/api/settings/shells');
+  }
+
+  setShellPolicy(p: ShellPolicySettings): Promise<ShellPolicySettings> {
+    return this.request('/api/settings/shells', { method: 'PUT', body: JSON.stringify(p) });
   }
 
   /** The task's acceptance criteria: its ka ticket's items, else its prompt's bullets. */

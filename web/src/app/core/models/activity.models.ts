@@ -76,6 +76,39 @@ export interface ShellInfo {
   dangling?: boolean;
 }
 
+/** What Konsert does about shells a finished session left running (KON-DCEZV). */
+export type ShellPolicyMode = 'remind' | 'ask' | 'stop';
+
+export interface ShellPolicySettings {
+  mode: ShellPolicyMode;
+  idle_minutes: number;
+  /** Project id → mode; missing or '' = the global mode. */
+  projects: Record<string, ShellPolicyMode | ''>;
+}
+
+/** The Needs-you item for a session that left shells running. */
+export interface ShellReminder {
+  /** "task:<id>" or "chat:<id>". */
+  id: string;
+  task_id?: string;
+  chat_id?: string;
+  worker_id?: string;
+  /** "2 shells left running by Fix login". */
+  title: string;
+  session_title: string;
+  shells: number;
+  shell_list?: ShellInfo[];
+  idle_since: string;
+  /** The agent can still be asked to clean up. */
+  can_ask: boolean;
+  mode: ShellPolicyMode;
+  /** Why Konsert reminds instead of acting. */
+  note?: string;
+  created_at: string;
+  /** In a fleet.update: the item is gone. */
+  resolved?: boolean;
+}
+
 /** The states a sub-agent reports. */
 export type SubagentState = 'thinking' | 'working' | 'speaking' | 'asking';
 

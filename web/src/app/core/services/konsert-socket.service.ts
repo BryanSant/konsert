@@ -21,7 +21,7 @@ import {
   Worktree,
 } from '../models/konsert.models';
 import { AgentAccount } from '../models/agent-chat.models';
-import { SessionActivity } from '../models/activity.models';
+import { SessionActivity, ShellReminder } from '../models/activity.models';
 import { Review } from '../models/review.models';
 import { Device } from '../models/device.models';
 import { DevicesStore } from '../state/devices.store';
@@ -270,6 +270,7 @@ export class KonsertSocketService {
           activity?: SessionActivity;
           review?: Review;
           device?: Device;
+          shell_reminder?: ShellReminder;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -305,6 +306,8 @@ export class KonsertSocketService {
           this.controlStore.applyRequest(p.request);
         } else if (p.kind === 'override' && p.override) {
           this.controlStore.applyOverride(p.override);
+        } else if (p.kind === 'shell_reminder' && p.shell_reminder) {
+          this.controlStore.applyShellReminder(p.shell_reminder);
         } else if (p.kind === 'veto' && p.veto) {
           this.controlStore.applyVeto(p.veto);
         } else if (p.kind === 'pause' && p.pause) {

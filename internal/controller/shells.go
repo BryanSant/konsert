@@ -84,6 +84,12 @@ func (h *Hub) shellSession(ctx context.Context, taskID, chatID string) (key, wor
 
 // KillShells asks the session's konsertd to terminate shells (all when idents is empty).
 func (h *Hub) KillShells(ctx context.Context, taskID, chatID string, idents []protocol.ShellIdent) (ShellActionResult, error) {
+	return h.killShells(ctx, taskID, chatID, idents, "")
+}
+
+// killShells is KillShells with why appended to the timeline and audit lines (an
+// automatic kill says which policy did it).
+func (h *Hub) killShells(ctx context.Context, taskID, chatID string, idents []protocol.ShellIdent, why string) (ShellActionResult, error) {
 	key, workerID, label, err := h.shellSession(ctx, taskID, chatID)
 	if err != nil {
 		return ShellActionResult{}, err
@@ -112,10 +118,15 @@ func (h *Hub) KillShells(ctx context.Context, taskID, chatID string, idents []pr
 	}
 	cause := causeFrom(ctx)
 	what := shellsPhrase(list, n)
+	suffix := ""
+	if why != "" {
+		suffix = " " + why
+	}
 	h.recordIntervention(ctx, cause, "shell_kill", workerID, a.TaskID, a.ChatID,
-		fmt.Sprintf("%s killed %s of %s on %s", capitalize(describeActor(cause)), what, label, h.workerLabel(ctx, workerID)))
+		fmt.Sprintf("%s killed %s of %s on %s%s", capitalize(describeActor(cause)), what, label, h.workerLabel(ctx, workerID), suffix))
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditShellKill, WorkerID: workerID, TaskID: a.TaskID,
-		Message: "Killed " + what + " of " + label, MetaJSON: auditMeta(map[string]any{"chat_id": a.ChatID, "pids": shellPIDs(list), "all": len(idents) == 0})})
+		Message: "Killed " + what + " of " + label + suffix, MetaJSON: auditMeta(map[string]any{"chat_id": a.ChatID, "pids": shellPIDs(list), "all": len(idents) == 0, "policy": why != ""})})
+	h.resolveShellReminder(key)
 	return ShellActionResult{OK: true, Shells: n}, nil
 }
 
@@ -182,6 +193,8 @@ func (h *Hub) AskStopShells(ctx context.Context, taskID, chatID string, idents [
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditShellAsk, WorkerID: workerID, TaskID: a.TaskID,
 		Message:  "Asked the agent of " + label + " to stop " + what,
 		MetaJSON: auditMeta(map[string]any{"chat_id": a.ChatID, "pids": shellPIDs(list), "delivery": res.Delivery})})
+	h.markShellsAsked(key, list)
+	h.resolveShellReminder(key)
 	return res, nil
 }
 

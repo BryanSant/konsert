@@ -11,12 +11,13 @@ import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
 import { QuestionInsightsComponent } from '../features/questions/question-insights.component';
 import { StorageSettingsComponent } from './storage-settings.component';
+import { ShellPolicySettingsComponent } from './shell-policy-settings.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
 
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, StorageSettingsComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, StorageSettingsComponent, ShellPolicySettingsComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -144,6 +145,9 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
             <span class="text-[#d4d4d8]">days</span>
           </div>
         </div>
+
+        <!-- Shells left running by finished sessions (KON-DCEZV) -->
+        <ks-shell-policy-settings />
 
         <!-- Storage: size, breakdown, retention, Compact now (KON-CSCWP) -->
         <ks-storage-settings />

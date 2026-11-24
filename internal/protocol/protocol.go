@@ -470,6 +470,9 @@ type FleetUpdatePayload struct {
 	// Device carries a signed-in device (Settings → Devices) when Kind is "device";
 	// "device_revoked" uses DeletedID.
 	Device any `json:"device,omitzero"`
+	// ShellReminder carries a "shells left running" Needs-you item when Kind is
+	// "shell_reminder" (resolved: true when it is gone).
+	ShellReminder any `json:"shell_reminder,omitzero"`
 }
 
 type GitChangedFile struct {

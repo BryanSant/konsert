@@ -159,6 +159,11 @@ type Hub struct {
 	RetentionBatch      int
 	RetentionPause      time.Duration
 	retentionNow        func() time.Time
+	// shellPolicy is the dangling-shell remedy state (shell_policy.go), applied every
+	// ShellPolicyEvery (0 disables the loop) on the shellNow clock.
+	shellPolicy      shellPolicyState
+	ShellPolicyEvery time.Duration
+	shellNow         func() time.Time
 	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
 	KaPath string
 	// kaShowFn and ghPRFn replace ka/gh in tests.
@@ -196,12 +201,16 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		RetentionBatch:      retentionBatch,
 		RetentionPause:      retentionPause,
 		retentionNow:        time.Now,
+		ShellPolicyEvery:    shellPolicyEvery,
+		shellNow:            time.Now,
 	}
 	h.questions.init()
 	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
 	h.goBackground(h.vitalsLoop)
 	// History retention: bounded compaction passes (retention.go).
 	h.goBackground(h.retentionLoop)
+	// Shells left running by finished sessions: remind, ask or stop (shell_policy.go).
+	h.goBackground(h.shellPolicyLoop)
 	return h
 }
 

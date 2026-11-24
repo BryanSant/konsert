@@ -241,6 +241,12 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Task, s.handleShellAction("task", "ask"))))
 	s.mux.Handle("POST /api/chats/{id}/shells/kill", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "kill"))))
 	s.mux.Handle("POST /api/chats/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "ask"))))
+	// Shells left running by finished sessions (KON-DCEZV): reminders, Keep running, policy.
+	s.mux.Handle("POST /api/tasks/{id}/shells/keep", s.requireBrowserAuth(s.byRef(ids.Task, s.handleKeepShells("task"))))
+	s.mux.Handle("POST /api/chats/{id}/shells/keep", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleKeepShells("chat"))))
+	s.mux.Handle("GET /api/shells/reminders", s.requireBrowserAuth(s.handleListShellReminders))
+	s.mux.Handle("GET /api/settings/shells", s.requireBrowserAuth(s.handleGetShellPolicy))
+	s.mux.Handle("PUT /api/settings/shells", s.requireBrowserAuth(s.handlePutShellPolicy))
 	s.mux.Handle("GET /api/reviews", s.requireBrowserAuth(s.handleListReviews))
 	s.mux.Handle("GET /api/audit", s.requireBrowserAuth(s.handleListAudit))
 

@@ -305,6 +305,51 @@ describe('needs-you queue', () => {
       expect(store.entries().map((e) => e.key)).toEqual(['v:late', 'q:a']);
     });
 
+    it('a shells reminder is one Needs-you item per session with Kill all, Ask agent and Keep running', async () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      TestBed.inject(FleetStore).upsertWorker(worker());
+      api['keepShells'] = vi.fn(async () => ({ ok: true }));
+      api['shellAction'] = vi.fn(async () => ({ ok: true, shells: 2 }));
+      const reminder = {
+        id: 'task:t1', task_id: 't1', worker_id: 'w1', title: '2 shells left running by Fix login', session_title: 'Fix login', shells: 2,
+        shell_list: [{ pid: 41, command: 'npm run dev', started_at: '', since: '' }, { pid: 42, command: 'tsc --watch', started_at: '', since: '' }],
+        idle_since: new Date(Date.now() - 31 * 60_000).toISOString(), can_ask: true, mode: 'remind' as const, created_at: new Date().toISOString(),
+      };
+      control.applyShellReminder(reminder);
+      control.applyShellReminder({ ...reminder }); // the same session again: still one item
+      expect(store.entries().map((e) => e.key)).toEqual(['sh:task:t1']);
+      const [e] = store.entries();
+      expect(e).toMatchObject({ kind: 'shells', tag: 'P3', title: '2 shells left running by Fix login', sessionId: 't1' });
+      expect(e.meta).toContain('desk');
+      expect(e.meta).toContain('idle 31m');
+
+      store.open('sh:task:t1');
+      const fixture = TestBed.createComponent(NeedsYouDialogComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const card = root.querySelector('[data-testid="needs-you-shells"]')!;
+      expect(card.querySelector('[data-testid="shells-list"]')?.textContent).toContain('npm run dev');
+      expect(card.querySelector('[data-testid="shells-ask"]')).not.toBeNull();
+      card.querySelector<HTMLButtonElement>('[data-testid="shells-keep"]')!.click();
+      await flushMicrotasks();
+      expect(api['keepShells']).toHaveBeenCalledWith('task', 't1');
+      expect(store.entries()).toEqual([]);
+
+      // An ended task can't be asked: no Ask button; Kill all kills every shell.
+      control.applyShellReminder({ ...reminder, can_ask: false });
+      store.open('sh:task:t1');
+      fixture.detectChanges();
+      const card2 = root.querySelector('[data-testid="needs-you-shells"]')!;
+      expect(card2.querySelector('[data-testid="shells-ask"]')).toBeNull();
+      card2.querySelector<HTMLButtonElement>('[data-testid="shells-kill"]')!.click();
+      await flushMicrotasks();
+      expect(api['shellAction']).toHaveBeenCalledWith('task', 't1', 'kill');
+      // The hub's resolved update is idempotent.
+      control.applyShellReminder({ ...reminder, resolved: true });
+      expect(control.shellReminders()).toEqual([]);
+    });
+
     it('the override card shows scope, duration, reason and consequences; Approve sends the note and moves on', async () => {
       const store = TestBed.inject(NeedsYouStore);
       const control = TestBed.inject(ControlStore);
