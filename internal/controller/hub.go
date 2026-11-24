@@ -148,6 +148,16 @@ type Hub struct {
 	activity activityState
 	heat     heatState
 	ports    portsCache
+	// retention is the history compaction state (retention.go). RetentionEvery is how
+	// often a bounded pass runs (0 disables the loop) after RetentionStartDelay;
+	// RetentionBatch and RetentionPause size the batches and the yield between them;
+	// retentionNow is the compaction clock. Tests change them before using the hub.
+	retention           retentionState
+	RetentionEvery      time.Duration
+	RetentionStartDelay time.Duration
+	RetentionBatch      int
+	RetentionPause      time.Duration
+	retentionNow        func() time.Time
 	// KaPath is the ka CLI used to resolve ticket references ("" = ka on PATH).
 	KaPath string
 	// kaShowFn and ghPRFn replace ka/gh in tests.
@@ -162,28 +172,35 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 	}
 	hctx, hcancel := context.WithCancel(context.Background())
 	h := &Hub{
-		ctx:                hctx,
-		cancel:             hcancel,
-		store:              st,
-		logger:             logger,
-		workers:            make(map[string]*workerConn),
-		workerMetrics:      make(map[string]*protocol.WorkerMetrics),
-		clients:            make(map[*browserClient]struct{}),
-		taskWorker:         make(map[string]string),
-		ptySubs:            make(map[string]map[*browserClient]bool),
-		waiters:            make(map[string][]chan store.Task),
-		rpcWaiters:         make(map[string]chan protocol.Envelope),
-		chatSessions:       make(map[string]*chatSession),
-		agentChats:         make(map[string]*agentChatRT),
-		hostname:           func() string { h, _ := os.Hostname(); return h },
-		StaleWorkerTimeout: 150 * time.Second, // > 2x the longest heartbeat gap (60 s) so idle daemons never false-reap
-		ReapInterval:       15 * time.Second,
-		LostTaskGrace:      45 * time.Second,
-		ChatTurnTimeout:    15 * time.Minute,
+		ctx:                 hctx,
+		cancel:              hcancel,
+		store:               st,
+		logger:              logger,
+		workers:             make(map[string]*workerConn),
+		workerMetrics:       make(map[string]*protocol.WorkerMetrics),
+		clients:             make(map[*browserClient]struct{}),
+		taskWorker:          make(map[string]string),
+		ptySubs:             make(map[string]map[*browserClient]bool),
+		waiters:             make(map[string][]chan store.Task),
+		rpcWaiters:          make(map[string]chan protocol.Envelope),
+		chatSessions:        make(map[string]*chatSession),
+		agentChats:          make(map[string]*agentChatRT),
+		hostname:            func() string { h, _ := os.Hostname(); return h },
+		StaleWorkerTimeout:  150 * time.Second, // > 2x the longest heartbeat gap (60 s) so idle daemons never false-reap
+		ReapInterval:        15 * time.Second,
+		LostTaskGrace:       45 * time.Second,
+		ChatTurnTimeout:     15 * time.Minute,
+		RetentionEvery:      retentionEvery,
+		RetentionStartDelay: retentionStartDelay,
+		RetentionBatch:      retentionBatch,
+		RetentionPause:      retentionPause,
+		retentionNow:        time.Now,
 	}
 	h.questions.init()
 	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
 	h.goBackground(h.vitalsLoop)
+	// History retention: bounded compaction passes (retention.go).
+	h.goBackground(h.retentionLoop)
 	return h
 }
 

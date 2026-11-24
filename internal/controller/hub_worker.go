@@ -608,6 +608,7 @@ func (h *Hub) onTaskEvent(ctx context.Context, wc *workerConn, env protocol.Enve
 			_ = h.store.RecordUsage(ctx, store.UsageEvent{
 				Provider:     prov,
 				Model:        model,
+				AccountID:    h.usageAccount(ctx, p.TaskID, p.Meta),
 				InputTokens:  inTok,
 				OutputTokens: outTok,
 			})
@@ -727,4 +728,24 @@ func (h *Hub) sendWorkerJSON(wc *workerConn, msgType string, payload any) bool {
 	default:
 		return false
 	}
+}
+
+// usageAccount is the agent account a usage report belongs to: the report's own
+// account_id, else the account the task was started with ("" = the default login).
+func (h *Hub) usageAccount(ctx context.Context, taskID string, meta map[string]any) string {
+	if a, _ := meta["account_id"].(string); a != "" {
+		return a
+	}
+	if taskID == "" {
+		return ""
+	}
+	spec, err := h.store.GetTaskStartSpec(ctx, taskID)
+	if err != nil || spec.PayloadJSON == "" {
+		return ""
+	}
+	var start protocol.TaskStartPayload
+	if json.Unmarshal([]byte(spec.PayloadJSON), &start) != nil {
+		return ""
+	}
+	return start.AccountID
 }

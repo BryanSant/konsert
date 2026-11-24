@@ -215,6 +215,10 @@ type Task struct {
 	NarrationAt *time.Time `json:"narration_at,omitzero"`
 	TicketID    string     `json:"ticket_id,omitempty"`
 	TicketTitle string     `json:"ticket_title,omitempty"`
+	// Keep: the user pinned the task, so retention never compacts it. CompactedAt is
+	// when retention dropped its verbose events (milestones are kept).
+	Keep        bool       `json:"keep"`
+	CompactedAt *time.Time `json:"compacted_at,omitzero"`
 	CreatedAt   time.Time  `json:"created_at"`
 	StartedAt   *time.Time `json:"started_at,omitzero"`
 	CompletedAt *time.Time `json:"completed_at,omitzero"`
@@ -375,6 +379,13 @@ type ChatSession struct {
 	// ForkOf is the chat whose agent session it forked ("" for the orchestrator fallback).
 	QuestionID string `json:"question_id,omitempty"`
 	ForkOf     string `json:"fork_of,omitempty"`
+	// Keep: the user pinned the chat, so retention never compacts it. CompactedAt is
+	// when retention last dropped detailed events (tool calls, reasoning) of turns that
+	// ended before CompactedBefore; the transcript itself is kept. Set by retention
+	// only (UpdateChatSession leaves them alone).
+	Keep            bool       `json:"keep"`
+	CompactedAt     *time.Time `json:"compacted_at,omitzero"`
+	CompactedBefore *time.Time `json:"compacted_before,omitzero"`
 }
 
 // ChatEvent is one stored agent chat event: JSON is the protocol.AgentChatEvent.
@@ -407,6 +418,7 @@ type ChatMessage struct {
 type UsageEvent struct {
 	Provider     string    `json:"provider"`
 	Model        string    `json:"model"`
+	AccountID    string    `json:"account_id,omitempty"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -441,6 +453,8 @@ type UsageSummary struct {
 }
 
 type Store interface {
+	RetentionStore
+
 	// NewSID mints a unique short ID (sid) of the given kind (see internal/ids). Create*
 	// methods mint one themselves when the record's SID is empty; callers that need the sid
 	// up front mint it here.

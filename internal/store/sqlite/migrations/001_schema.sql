@@ -145,6 +145,11 @@ CREATE TABLE tasks (
     -- prompt; the title is resolved with ka in the background).
     ticket_id          TEXT NOT NULL DEFAULT '',
     ticket_title       TEXT NOT NULL DEFAULT '',
+    -- keep: the user pinned the task ("Keep"); retention never compacts it.
+    -- compacted_at: when retention dropped its verbose events, keeping the milestones
+    -- (see store.TaskEventKeepKinds). Cleared when the task runs again.
+    keep               INTEGER NOT NULL DEFAULT 0,
+    compacted_at       TEXT,
     created_at         TEXT NOT NULL,
     started_at         TEXT,
     completed_at       TEXT
@@ -156,6 +161,8 @@ CREATE INDEX idx_tasks_worker_created ON tasks(worker_id, created_at DESC);
 CREATE INDEX idx_tasks_space ON tasks(space_id, created_at DESC);
 CREATE INDEX idx_tasks_taxonomy ON tasks(workspace_id, project_id, repo_id, worktree_id);
 CREATE UNIQUE INDEX idx_tasks_external ON tasks(worker_id, external_id) WHERE external_id != '';
+-- Retention candidates: finished tasks not compacted yet, oldest first.
+CREATE INDEX idx_tasks_compact ON tasks(completed_at) WHERE compacted_at IS NULL AND completed_at IS NOT NULL;
 
 CREATE TABLE task_events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,10 +202,22 @@ CREATE TABLE chat_sessions (
     -- orchestrator fallback). Hidden chats never appear in the chat list.
     question_id      TEXT NOT NULL DEFAULT '',
     fork_of          TEXT NOT NULL DEFAULT '',
+    -- Retention (KON-CSCWP). keep: pinned by the user, never compacted. Retention drops
+    -- the bulky events (tool calls, reasoning, plans, usage; see store.ChatEventKeepKinds)
+    -- of turns older than the detail period: compacted_seq is the last seq it covered,
+    -- compacted_before the age cutoff it used and compacted_at when it last dropped
+    -- something. compact_next_at is the created_at of the first event after
+    -- compacted_seq (NULL when there is none), so candidates are found by index.
+    keep             INTEGER NOT NULL DEFAULT 0,
+    compacted_seq    INTEGER NOT NULL DEFAULT 0,
+    compacted_before TEXT,
+    compacted_at     TEXT,
+    compact_next_at  TEXT,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
 );
 CREATE INDEX idx_chat_sessions_updated ON chat_sessions(updated_at DESC);
+CREATE INDEX idx_chat_sessions_compact ON chat_sessions(compact_next_at) WHERE compact_next_at IS NOT NULL;
 CREATE INDEX idx_chat_sessions_worker ON chat_sessions(worker_id, status);
 
 CREATE TABLE chat_messages (
@@ -290,15 +309,33 @@ CREATE TABLE machine_vitals_rollup (
 ) WITHOUT ROWID;
 CREATE INDEX idx_machine_vitals_rollup_t ON machine_vitals_rollup(period, t);
 
+-- Per-call token usage, kept 30 days (retention_usage_days); older calls are folded into
+-- usage_daily.
 CREATE TABLE usage_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     provider      TEXT NOT NULL,
     model         TEXT NOT NULL,
+    account_id    TEXT NOT NULL DEFAULT '',
     input_tokens  INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL
 );
-CREATE INDEX idx_usage_events_provider ON usage_events(provider, model);
+CREATE INDEX idx_usage_events_time ON usage_events(created_at);
+
+-- Daily usage totals per provider/model/account (day: UTC YYYY-MM-DD), rolled up from
+-- usage_events by retention and kept a year (retention_usage_daily_days). Each roll-up
+-- batch adds its calls here and deletes them from usage_events in one transaction, so a
+-- restart never counts a call twice.
+CREATE TABLE usage_daily (
+    day           TEXT NOT NULL,
+    provider      TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    account_id    TEXT NOT NULL DEFAULT '',
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    requests      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, provider, model, account_id)
+) WITHOUT ROWID;
 
 CREATE TABLE subscription_quotas (
     id           TEXT PRIMARY KEY, -- UUIDv7; rows are upserted on (provider, window_label)
@@ -355,6 +392,8 @@ CREATE INDEX idx_audit_log_action ON audit_log(action, id);
 
 -- Fleet timeline: every task/chat status transition and every intervention, hold and
 -- request, with its cause (PRD §5.8a). Feeds "Your actions", recent_events and agent notes.
+-- Retention: everything for 90 days, then only human actions and failures for a year
+-- (store.FleetEventKeepSQL); events of pinned or unfinished work are kept.
 CREATE TABLE fleet_events (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at   TEXT NOT NULL,
