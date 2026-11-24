@@ -126,7 +126,7 @@ describe('ApiClientService', () => {
         host_keys: [{ type: 'ssh-ed25519', fingerprint: 'SHA256:abc' }],
       }),
     );
-    const res = await api.bootstrapSSH({ target: 'box', controller_url: 'ws://h/ws/worker' });
+    const res = await api.bootstrapSSH({ target: 'box' });
     expect(res.host_key_confirmation_required).toBe(true);
     expect(res.host_keys?.[0].fingerprint).toBe('SHA256:abc');
   });

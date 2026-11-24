@@ -234,14 +234,13 @@ func (s *SQLiteStore) EnsureWorker(ctx context.Context, w store.Worker) (store.W
 	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO workers (id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at,
-			launch, ssh_target, controller_url)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '{}', ?, 'offline', ?, ?, ?, ?)
+			launch, ssh_target)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '{}', ?, 'offline', ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			launch = excluded.launch,
-			ssh_target = excluded.ssh_target,
-			controller_url = excluded.controller_url
+			ssh_target = excluded.ssh_target
 	`, w.ID, sid, w.Name, w.HostGroup, w.OS, w.Arch, w.Isolation, string(w.PermissionMode), w.MaxConcurrent,
-		formatTime(w.LastSeenAt), w.Launch, w.SSHTarget, w.ControllerURL); err != nil {
+		formatTime(w.LastSeenAt), w.Launch, w.SSHTarget); err != nil {
 		return store.Worker{}, err
 	}
 	return s.GetWorker(ctx, w.ID)
@@ -282,7 +281,7 @@ func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON strin
 
 // workerColumns is the column list scanWorker reads, in order.
 const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
-		launch, ssh_target, controller_url, launch_state, launch_error, launch_at, drained, drained_at`
+		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
@@ -300,7 +299,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
-		&w.Launch, &w.SSHTarget, &w.ControllerURL, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt,
+		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound

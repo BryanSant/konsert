@@ -21,6 +21,7 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/linkwatch"
+	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/activity"
 	"github.com/BryanSant/konsert/internal/worker/chat"
@@ -58,8 +59,6 @@ type Daemon struct {
 	// helloAt is when worker.hello was last written on a connection (zero if the last
 	// attempt never got that far). Only touched by the Run goroutine.
 	helloAt time.Time
-	// helloWall is helloAt's wall clock (unix ns) for other goroutines (linkedSinceWake).
-	helloWall atomic.Int64
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
@@ -120,6 +119,9 @@ type Daemon struct {
 	attachMu     sync.Mutex
 	attachCancel context.CancelFunc
 	attachDone   chan struct{}
+
+	// mcp relays agents' per-chat MCP requests to the hub over the link (daemon_mcp.go).
+	mcp *mcprelay.Local
 }
 
 // activityKeep is how long a finished session's last activity is kept for re-sending
@@ -160,6 +162,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
 		metrics:           newMetricsSampler(),
+		mcp:               mcprelay.NewLocal(),
 	}
 	transport := "outbound"
 	if strings.TrimSpace(cfg.ControllerURL) == "" {
@@ -231,6 +234,7 @@ func (d *Daemon) WakeLock() *WakeLockManager {
 // shutdown stops every task and chat engine and drops the host wake lock; Run calls it on
 // every exit path.
 func (d *Daemon) shutdown() {
+	_ = d.mcp.Close()
 	d.shutdownChat()
 	d.runner.ShutdownAll()
 	d.wake.Shutdown()
@@ -327,22 +331,6 @@ func (d *Daemon) linkConfig() linkwatch.Config {
 	return linkwatch.Config{QuietAfter: d.LinkQuiet, DeadAfter: d.LinkDead}
 }
 
-// linkedSinceWake reports whether the current link was made after the latest wake: the
-// watcher reports a wake on its first tick after it (up to WatchEvery + slack later), and
-// by then the read loop may already have noticed the dead link and redialed. The wall
-// clock counts the time asleep, so a link made before the sleep never looks this fresh.
-func (d *Daemon) linkedSinceWake() bool {
-	at := d.helloWall.Load()
-	if at == 0 {
-		return false
-	}
-	every := d.WatchEvery
-	if every <= 0 {
-		every = linkwatch.DefaultWatchEvery
-	}
-	return time.Since(time.Unix(0, at)) < every+linkwatch.DefaultWakeSlack
-}
-
 // errLinkDead reports a link on which nothing arrived for the liveness timeout.
 var errLinkDead = errors.New("no traffic from the hub")
 
@@ -355,11 +343,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	// A wake from sleep or a network change drops the link (or the wait for the next
 	// attempt) and redials at once with the backoff reset.
-	kick := make(chan string, 1)
+	kick := make(chan linkwatch.Change, 1)
 	w := &linkwatch.Watcher{Every: d.WatchEvery, Addrs: d.WatchAddrs}
-	go w.Watch(ctx, func(reason string) {
+	go w.Watch(ctx, func(c linkwatch.Change) {
 		select {
-		case kick <- reason:
+		case kick <- c:
 		default:
 		}
 	})
@@ -372,16 +360,18 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 
 		d.helloAt = time.Time{}
+		attemptAt := time.Now()
 		attemptCtx, cancelAttempt := context.WithCancel(ctx)
 		var redial atomic.Pointer[string]
 		attemptDone := make(chan struct{})
 		go func() {
 			for {
 				select {
-				case r := <-kick:
-					if r == linkwatch.ReasonWake && d.linkedSinceWake() {
-						continue // this link was made after the wake (it noticed first)
+				case c := <-kick:
+					if !c.Predates(attemptAt) {
+						continue // this attempt started after the change (the link noticed first)
 					}
+					r := c.Reason
 					redial.Store(&r)
 					cancelAttempt()
 					return
@@ -464,7 +454,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			backoff = min(backoff*2, maxBackoff)
 		case r := <-kick:
 			timer.Stop()
-			d.logger.Info(r + ": redialing now")
+			d.logger.Info(r.Reason + ": redialing now")
 			backoff = minBackoff
 		}
 	}
@@ -563,7 +553,6 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	}
 	lv.Sent()
 	d.helloAt = time.Now()
-	d.helloWall.Store(d.helloAt.UnixNano())
 	// Report the host wake lock state right after hello so the hub knows it after every
 	// reconnect (the writer below sends queued control messages after hello).
 	d.wake.Connected()
@@ -573,6 +562,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	for _, a := range d.activity.Snapshot() {
 		d.sendJSON(protocol.MsgSessionActivity, a)
 	}
+	d.linkMCPRelay(connCtx, queues)
 	d.link.up(peer.transport, peer.addr)
 	d.logger.Debug("worker.hello sent",
 		"worker_id", d.cfg.WorkerID,
@@ -777,6 +767,9 @@ func (d *Daemon) sendPorts(ctx context.Context, reqID string) {
 }
 
 func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.Envelope) {
+	if d.mcp.Deliver(env) {
+		return
+	}
 	if d.handleChatMessage(env) {
 		return
 	}

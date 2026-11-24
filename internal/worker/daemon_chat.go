@@ -238,6 +238,7 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 	switch env.Type {
 	case protocol.MsgAgentChatOpen:
 		if p, err := protocol.DecodePayload[protocol.AgentChatOpen](env); err == nil {
+			p.MCPServers = d.relayMCPServers(p.ChatID, p.MCPServers)
 			d.chat.Open(p)
 		} else {
 			d.logger.Warn("decode agent.chat.open failed", "err", err)

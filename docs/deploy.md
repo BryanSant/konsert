@@ -117,9 +117,9 @@ tailscale serve status
 ```
 
 The controller is now at `https://<host>.<tailnet>.ts.net`. Set `public_url` to exactly that
-URL: it is the allowed browser origin, the URL `konsertd join` commands point at, and the
-URL agents on other machines use for the hub's per-chat MCP tools. Machines added over SSH
-never need to reach it: the hub connects to them.
+URL: it is the allowed browser origin and the URL `konsertd join` commands point at. Machines
+added over SSH never need to reach it (the hub connects to them), and agents on every
+machine reach their chat's Konsert tools through their own konsertd (section 5).
 
 ### Identity headers (`trust_tailscale_headers`)
 
@@ -223,8 +223,8 @@ A worker reaches the hub one of three ways (Fleet shows it as the machine's tran
   credential, and the hub's port never has to be reachable from the machine (keep it on
   127.0.0.1 behind Tailscale Serve). The hub keeps one `ssh` per machine (keepalives,
   pinned host keys from `known_hosts`, `BatchMode`), re-dials with backoff when the link
-  drops (at once after the hub's machine wakes or its network changes; a link silent for
-  45 s counts as dropped), and the daemon re-sends its live sessions, so agents survive
+  drops (at once after the hub's machine wakes or its network changes, unless the link
+  already re-dialed after the change; a link silent for 45 s counts as dropped), and the daemon re-sends its live sessions, so agents survive
   dropped links and hub restarts. Removing the machine drops its id from that line (the line goes with the
   last id); konsertd stops.
 - **local**: **Add machine → This machine** runs `konsertd install` on the hub's machine;
@@ -236,6 +236,16 @@ A worker reaches the hub one of three ways (Fleet shows it as the machine's tran
   machine's credential, saves it in `~/.konsert/credentials/` (readable only by you) and
   runs `konsertd install` with the same flags (`--foreground` runs it in the terminal
   instead). The tab shows the machine appear once it connects.
+
+**Agents' Konsert tools.** Whatever the transport, agent chats reach their per-chat tools
+(`ask_user`, and the fleet tools for the orchestrator) through their own konsertd: it
+serves them on `http://127.0.0.1:<port>/mcp/chat/<chat id>` (an ephemeral loopback port)
+and relays each request to the hub over the link above. No machine needs a route to the
+hub's port for its agents, and the hub can stay on 127.0.0.1. Each chat's token reaches
+only its own chat, and only through the link of the machine the chat runs on. If the link
+drops mid-call the agent gets an error and its retry goes through once the link is back
+(a call made while it is down waits up to 20 s for it). Details:
+[docs/design/agent-chat.md](design/agent-chat.md#per-chat-mcp-relay-kon-dtn92).
 
 A credential authenticates only its own machine. **Fleet → Details → Revoke credential**
 disconnects a machine at once; it can join again with a new code. `konsert token rotate

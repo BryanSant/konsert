@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -195,7 +194,7 @@ func (a *attacher) ensure(w store.Worker) {
 			}
 			a.mu.Unlock()
 		}()
-		a.run(ctx, w.ID, loop.redial)
+		a.run(ctx, w.ID, loop)
 	}) {
 		delete(a.loops, w.ID)
 		cancel()
@@ -206,22 +205,41 @@ type attachLoop struct {
 	cancel context.CancelFunc
 	// redial asks the loop to drop its link (or its wait) and dial again at once.
 	redial chan struct{}
+	// attemptAt is when the current dial attempt started (unix ns, wall clock); 0
+	// while the loop waits between attempts.
+	attemptAt atomic.Int64
 }
 
-// redialAll asks every attach loop to redial now: the hub's machine woke from sleep or
-// its network changed, so SSH links are probably dead (local socket links are not
-// affected, and a redial costs them nothing but a fresh worker.hello).
-func (a *attacher) redialAll(reason string) {
+// attemptStart is when the loop's current attempt started (zero: none under way).
+func (l *attachLoop) attemptStart() time.Time {
+	if ns := l.attemptAt.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
+// redialAll asks every attach loop whose link predates c to redial now: the hub's
+// machine woke from sleep or its network changed, so SSH links are probably dead (local
+// socket links are not affected, and a redial costs them nothing but a fresh
+// worker.hello). A loop that already dialed again after the change (its link noticed
+// the drop before the watcher's tick) is left alone, so it does not reconnect twice.
+func (a *attacher) redialAll(c linkwatch.Change) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.loops) > 0 {
-		a.s.logger.Info(reason + ": re-dialing machine links")
-	}
-	for _, l := range a.loops {
+	n := 0
+	for id, l := range a.loops {
+		if !c.Predates(l.attemptStart()) {
+			a.s.logger.Debug(c.Reason+": link already re-dialed since the change", "worker_id", id)
+			continue
+		}
+		n++
 		select {
 		case l.redial <- struct{}{}:
 		default:
 		}
+	}
+	if n > 0 {
+		a.s.logger.Info(c.Reason + ": re-dialing machine links")
 	}
 }
 
@@ -252,7 +270,8 @@ func (a *attacher) running(workerID string) bool {
 
 // run attaches to workerID until ctx ends or the machine is removed or no longer uses
 // a hub-dialed transport, re-dialing with backoff (reset after a link that lasted).
-func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struct{}) {
+func (a *attacher) run(ctx context.Context, workerID string, loop *attachLoop) {
+	redial := loop.redial
 	backoff := a.minBackoff
 	failures := 0
 	for ctx.Err() == nil {
@@ -272,6 +291,7 @@ func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struc
 				return
 			}
 			start := time.Now()
+			loop.attemptAt.Store(start.UnixNano())
 			attemptCtx, cancelAttempt := context.WithCancel(ctx)
 			var redialed atomic.Bool
 			attemptDone := make(chan struct{})
@@ -284,6 +304,7 @@ func (a *attacher) run(ctx context.Context, workerID string, redial <-chan struc
 				}
 			}()
 			up, err := a.attachOnce(attemptCtx, w)
+			loop.attemptAt.Store(0)
 			close(attemptDone)
 			cancelAttempt()
 			if ctx.Err() != nil {
@@ -377,7 +398,6 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 	// The link is bound to this machine: a hello claiming another identity is refused.
 	sctx := withBoundMachine(ctx, boundMachine{workerID: w.ID, via: t})
 	sctx = withWorkerTransport(sctx, t)
-	sctx = withWorkerBaseURL(sctx, a.s.workerHubURL(w))
 	a.s.hub.ServeWorkerConn(sctx, ws)
 	return true, linkError(conn, errors.New("link closed"))
 }
@@ -392,28 +412,6 @@ func linkError(conn net.Conn, err error) error {
 		}
 	}
 	return err
-}
-
-// workerHubURL is the hub URL (scheme://host) agents on w reach the hub's per-chat MCP
-// endpoint at when no public URL is configured: the hub's loopback listener for its own
-// machine, else the URL recorded when the machine was added ("" if none; the
-// transport itself never needs it).
-func (s *Server) workerHubURL(w store.Worker) string {
-	raw := w.ControllerURL
-	if w.Launch == store.LaunchLocal {
-		if u, err := s.localControllerURL(); err == nil {
-			raw = u
-		}
-	}
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	scheme := "http"
-	if strings.EqualFold(u.Scheme, "wss") || strings.EqualFold(u.Scheme, "https") {
-		scheme = "https"
-	}
-	return scheme + "://" + u.Host
 }
 
 // startAttachers starts the attach loop of every ssh and local machine.

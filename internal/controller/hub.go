@@ -3,11 +3,13 @@ package controller
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
@@ -25,9 +27,8 @@ type workerConn struct {
 	sendCh chan wsFrame
 	cancel context.CancelFunc
 
-	// baseURL is the controller URL (scheme://host) this worker connected to; the
-	// per-chat MCP URL handed to its agents is built from it when no public URL is set.
-	baseURL string
+	// mcp serves the per-chat MCP requests konsertd relays over this link (KON-DTN92).
+	mcp *mcprelay.Remote
 
 	// loopback is set when the daemon connected from a loopback address; with name,
 	// hostGroup and hostname from its hello, it identifies a daemon on the hub's host.
@@ -127,9 +128,6 @@ type Hub struct {
 	// waits behind an earlier turn of the same session (default 15m).
 	ChatTurnTimeout time.Duration
 
-	// PublicURL is the configured externally reachable controller URL; when set it
-	// is the base of the per-chat MCP URL handed to agents.
-	PublicURL string
 	// AskUserTimeout bounds how long the ask_user MCP tool waits (default 30m).
 	AskUserTimeout time.Duration
 	// hostname returns this machine's hostname (the default orchestrator prefers
@@ -138,6 +136,9 @@ type Hub struct {
 	// chatFleetBackend, when set, serves the fleet tools on per-chat MCP endpoints
 	// of chats with fleet_tools.
 	chatFleetBackend FleetBackend
+	// chatMCP serves a chat's MCP endpoint for a request konsertd relayed over
+	// workerID's link (the Server's serveRelayedChatMCP); nil answers 503.
+	chatMCP func(w http.ResponseWriter, r *http.Request, workerID string)
 	// version is reported by per-chat MCP servers.
 	version string
 

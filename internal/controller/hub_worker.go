@@ -5,12 +5,14 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/linkwatch"
+	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
@@ -90,11 +92,16 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		sendCh:      make(chan wsFrame, 512),
 		cancel:      cancel,
 		activeTasks: make(map[string]bool),
-		baseURL:     workerBaseURLFrom(ctx),
 		loopback:    isLoopbackAddr(workerRemoteAddrFrom(ctx)) || workerTransportFrom(ctx) == TransportLocal,
 		name:        hello.Worker.Name,
 		hostGroup:   hello.Worker.HostGroup,
 		hostname:    hello.Worker.Hostname,
+	}
+	wc.mcp = &mcprelay.Remote{
+		Ctx:        connCtx,
+		Handler:    h.relayedChatMCPHandler(wc.id),
+		Send:       func(ctx context.Context, t string, p any) error { return h.sendWorkerJSONCtx(ctx, wc, t, p) },
+		RemoteAddr: "konsertd:" + wc.id,
 	}
 
 	// Register worker in SQLite and Hub.
@@ -378,6 +385,9 @@ func (h *Hub) supersedeExistingConn(ctx context.Context, workerID string) bool {
 
 func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env protocol.Envelope) {
 	if h.deliverRPCResponse(env) {
+		return
+	}
+	if wc.mcp != nil && wc.mcp.Handle(env) {
 		return
 	}
 	switch env.Type {
@@ -715,6 +725,33 @@ func (h *Hub) RequestWorker(ctx context.Context, workerID, msgType string, paylo
 	case <-ctx.Done():
 		return protocol.Envelope{}, ctx.Err()
 	}
+}
+
+// sendWorkerJSONCtx queues a JSON frame for wc, waiting while its send queue is full
+// until ctx ends (relayed MCP responses must not be dropped).
+func (h *Hub) sendWorkerJSONCtx(ctx context.Context, wc *workerConn, msgType string, payload any) error {
+	raw, err := protocol.NewEnvelope(msgType, "", payload)
+	if err != nil {
+		return err
+	}
+	select {
+	case wc.sendCh <- wsFrame{msgType: websocket.MessageText, data: raw}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// relayedChatMCPHandler serves the per-chat MCP requests konsertd relays over
+// workerID's link.
+func (h *Hub) relayedChatMCPHandler(workerID string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.chatMCP == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "per-chat MCP is not available"})
+			return
+		}
+		h.chatMCP(w, r, workerID)
+	})
 }
 
 func (h *Hub) sendWorkerJSON(wc *workerConn, msgType string, payload any) bool {

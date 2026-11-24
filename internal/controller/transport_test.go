@@ -18,6 +18,7 @@ import (
 
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/hubkey"
+	"github.com/BryanSant/konsert/internal/linkwatch"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
@@ -421,7 +422,7 @@ func TestAttachRedialsOnWakeOrNetworkChange(t *testing.T) {
 	lt.srv.attach.ensure(w)
 	waitFor(t, 5*time.Second, "ssh machine online", func() bool { return lt.srv.hub.IsWorkerConnected(remoteID) })
 	first := lt.daemons.lastLink()
-	lt.srv.attach.redialAll("network change")
+	lt.srv.attach.redialAll(linkwatch.Change{Reason: linkwatch.ReasonNetwork, Since: time.Now()})
 	select {
 	case <-first.closed:
 	case <-time.After(5 * time.Second):
@@ -432,4 +433,46 @@ func TestAttachRedialsOnWakeOrNetworkChange(t *testing.T) {
 	if l := lt.daemons.lastLink(); l == first {
 		t.Fatal("no new link")
 	}
+}
+
+// A wake or network change reported after the attach loop already re-dialed (its link
+// noticed the drop before the watcher's tick) does not drop that fresh link: the hub
+// reconnects once, not twice. One whose link predates the change still redials.
+func TestAttachIgnoresChangeOlderThanItsLink(t *testing.T) {
+	lt := newLaunchTest(t)
+	lt.srv.attach.minBackoff, lt.srv.attach.maxBackoff = time.Minute, time.Minute
+	w := lt.addSSHWorker(t, remoteID, "box", "me@box")
+	lt.daemons.up(testWorkerInfo(remoteID, "box"))
+	before := time.Now().Add(-time.Second) // the change happened before the link was dialed
+	lt.srv.attach.ensure(w)
+	waitFor(t, 5*time.Second, "ssh machine online", func() bool { return lt.srv.hub.IsWorkerConnected(remoteID) })
+	first := lt.daemons.lastLink()
+
+	lt.srv.attach.mu.Lock()
+	loop := lt.srv.attach.loops[remoteID]
+	lt.srv.attach.mu.Unlock()
+	for _, reason := range []string{linkwatch.ReasonWake, linkwatch.ReasonNetwork} {
+		lt.srv.attach.redialAll(linkwatch.Change{Reason: reason, Since: before})
+		if n := len(loop.redial); n != 0 {
+			t.Fatalf("%s older than the link queued a redial", reason)
+		}
+	}
+	select {
+	case <-first.closed:
+		t.Fatal("the fresh link was dropped")
+	default:
+	}
+	if n := lt.daemons.dialCount(remoteID); n != 1 {
+		t.Fatalf("dials = %d, want 1", n)
+	}
+
+	// A change after the attempt started: this link predates it and is redialed once.
+	lt.srv.attach.redialAll(linkwatch.Change{Reason: linkwatch.ReasonWake, Since: time.Now()})
+	select {
+	case <-first.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stale link was not dropped")
+	}
+	waitFor(t, 5*time.Second, "second link", func() bool { return lt.daemons.dialCount(remoteID) == 2 })
+	waitFor(t, 5*time.Second, "online again", func() bool { return lt.srv.hub.IsWorkerConnected(remoteID) })
 }

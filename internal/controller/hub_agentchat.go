@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -771,31 +770,6 @@ func (h *Hub) verifyChatToken(ctx context.Context, chatID, tok string) (store.Ch
 	return cs, true
 }
 
-// requestBaseURL is the controller base URL as the peer reached it (scheme + Host).
-func requestBaseURL(r *http.Request) string {
-	if r == nil || r.Host == "" {
-		return ""
-	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
-}
-
-type workerBaseURLKey struct{}
-
-// withWorkerBaseURL records the URL a worker used to reach the hub (its upgrade
-// request) so per-chat MCP URLs handed to its agents are reachable from it.
-func withWorkerBaseURL(ctx context.Context, base string) context.Context {
-	return context.WithValue(ctx, workerBaseURLKey{}, base)
-}
-
-func workerBaseURLFrom(ctx context.Context) string {
-	s, _ := ctx.Value(workerBaseURLKey{}).(string)
-	return s
-}
-
 type workerRemoteAddrKey struct{}
 
 // withWorkerRemoteAddr records the worker connection's peer address (host:port).
@@ -808,26 +782,8 @@ func workerRemoteAddrFrom(ctx context.Context) string {
 	return s
 }
 
-// chatMCPURL is the worker-reachable per-chat MCP endpoint: the configured public
-// URL, else the scheme and host the worker itself connected to.
-func (h *Hub) chatMCPURL(wc *workerConn, chatID string) string {
-	base := strings.TrimRight(strings.TrimSpace(h.PublicURL), "/")
-	if base != "" {
-		if u, err := url.Parse(base); err != nil || u.Host == "" {
-			base = ""
-		}
-	}
-	if base == "" && wc != nil {
-		base = strings.TrimRight(wc.baseURL, "/")
-	}
-	if base == "" {
-		return ""
-	}
-	return base + "/mcp/chat/" + url.PathEscape(chatID)
-}
-
 // buildChatOpen builds the idempotent agent.chat.open for a session.
-func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession, wc *workerConn) (protocol.AgentChatOpen, error) {
+func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol.AgentChatOpen, error) {
 	open := protocol.AgentChatOpen{
 		ChatID:         cs.ID,
 		Agent:          cs.Agent,
@@ -853,18 +809,20 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession, wc *worke
 		}
 		return open, nil
 	}
-	if u := h.chatMCPURL(wc, cs.ID); u != "" {
-		tok, err := h.ensureChatToken(ctx, cs.ID)
-		if err != nil {
-			return open, err
-		}
-		open.MCPServers = []protocol.AgentMCPServer{{
-			Name:               "konsert",
-			URL:                u,
-			Headers:            map[string]string{"Authorization": "Bearer " + tok},
-			ToolTimeoutSeconds: h.mcpToolTimeoutSeconds(),
-		}}
+	// The chat's MCP tools are relayed by konsertd over its link (KON-DTN92): the agent
+	// never needs a network path to the hub. The bearer token only reaches this chat's
+	// tools, and only through the link of the machine the chat runs on.
+	tok, err := h.ensureChatToken(ctx, cs.ID)
+	if err != nil {
+		return open, err
 	}
+	open.MCPServers = []protocol.AgentMCPServer{{
+		Name:               "konsert",
+		URL:                protocol.MCPChatPathPrefix + cs.ID,
+		Relay:              true,
+		Headers:            map[string]string{"Authorization": "Bearer " + tok},
+		ToolTimeoutSeconds: h.mcpToolTimeoutSeconds(),
+	}}
 	return open, nil
 }
 
@@ -948,7 +906,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 			exhausted = &protocol.AgentChatEvent{Kind: protocol.EventRateLimit, RateLimit: &u, Text: exhaustedWarning(a, u)}
 		}
 	}
-	open, err := h.buildChatOpen(ctx, cs, wc)
+	open, err := h.buildChatOpen(ctx, cs)
 	if err != nil {
 		return err
 	}

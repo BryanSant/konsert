@@ -21,13 +21,13 @@ func TestEnsureWorkerPreCreatesAndHelloKeepsLaunch(t *testing.T) {
 	const id = "01890a5d-ac96-774b-bcce-b302099a8057"
 	w, err := st.EnsureWorker(ctx, store.Worker{
 		ID: id, Name: "box", OS: "linux", Arch: "amd64",
-		Launch: store.LaunchSSH, SSHTarget: "me@box", ControllerURL: "ws://hub:8420/ws/worker",
+		Launch: store.LaunchSSH, SSHTarget: "me@box",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if w.Status != "offline" || !strings.HasPrefix(w.SID, "m-") || w.HostGroup != "box" ||
-		w.Launch != store.LaunchSSH || w.SSHTarget != "me@box" || w.ControllerURL != "ws://hub:8420/ws/worker" {
+		w.Launch != store.LaunchSSH || w.SSHTarget != "me@box" {
 		t.Fatalf("pre-created worker = %+v", w)
 	}
 

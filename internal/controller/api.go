@@ -5,11 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,9 +129,9 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		machines:         newMachineAuth(),
 	}
 	s.attach = newAttacher(s)
-	hub.PublicURL = strings.TrimSpace(cfg.PublicURL)
 	hub.version = version
 	hub.chatFleetBackend = serverControlPlane{FleetService: svc, srv: s, admin: false}
+	hub.chatMCP = s.serveRelayedChatMCP
 	s.registerRoutes()
 	s.handler = s.guard(s.mux)
 	return s
@@ -298,10 +296,6 @@ func (s *Server) registerRoutes() {
 	// WebSocket endpoints
 	s.mux.HandleFunc("GET /ws/worker", s.handleWorkerWS)
 	s.mux.HandleFunc("GET /ws/client", s.handleClientWS)
-
-	// Per-chat MCP endpoint (ask_user, plus fleet tools for the orchestrator chat),
-	// authenticated by the chat's own bearer token. Always on: agent chats need it.
-	s.mux.HandleFunc("/mcp/chat/{id}", s.byRef(ids.Chat, s.handleChatMCP))
 
 	// Streamable HTTP / SSE MCP endpoint
 	if s.cfg.EnableMCPHTTP {
@@ -617,10 +611,9 @@ func workerMatchesSSHHost(wk store.Worker, h sshutil.SSHHost) bool {
 
 func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Target        string `json:"target"`
-		ControllerURL string `json:"controller_url"`
-		Sandbox       bool   `json:"sandbox"`
-		EnableMock    bool   `json:"enable_mock"`
+		Target     string `json:"target"`
+		Sandbox    bool   `json:"sandbox"`
+		EnableMock bool   `json:"enable_mock"`
 		// AcceptHostKey is the SHA256 host key fingerprint the operator confirmed after
 		// a previous attempt returned host_key_confirmation_required.
 		AcceptHostKey string `json:"accept_host_key"`
@@ -632,11 +625,6 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.cfgMu.RLock()
-	publicURL := s.cfg.PublicURL
-	s.cfgMu.RUnlock()
-	// Only agents' per-chat MCP calls use the hub URL; the SSH transport never does.
-	hubURL, _ := workerControllerURL(publicURL, body.ControllerURL)
 	// The hub attaches over SSH with its own key, which bootstrap allows (restricted to
 	// `konsertd attach`): no machine credential.
 	grant, err := s.hubKeyGrant(r.Context())
@@ -666,7 +654,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 			res := s.launch.bootstrap(r.Context(), opts)
-			s.afterSSHBootstrap(r.Context(), res, hubURL)
+			s.afterSSHBootstrap(r.Context(), res)
 			b, _ := json.Marshal(map[string]any{"type": "done", "result": res}, protocol.JSONOptions)
 			_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 			flusher.Flush()
@@ -675,7 +663,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := s.launch.bootstrap(r.Context(), opts)
-	s.afterSSHBootstrap(r.Context(), res, hubURL)
+	s.afterSSHBootstrap(r.Context(), res)
 	switch {
 	case res.OK:
 		writeJSON(w, http.StatusOK, res)
@@ -684,33 +672,6 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusBadGateway, res)
 	}
-}
-
-// workerControllerURL picks the hub URL recorded for an SSH machine, which its agents
-// use for per-chat MCP tools when no public URL is set. The configured public URL wins;
-// otherwise the authenticated caller may supply a ws(s):// URL. The request Host header
-// is never used.
-func workerControllerURL(publicURL, requested string) (string, error) {
-	if pu := strings.TrimSpace(publicURL); pu != "" {
-		u, err := url.Parse(pu)
-		if err != nil || u.Host == "" {
-			return "", fmt.Errorf("configured public_url %q is invalid", pu)
-		}
-		scheme := "ws"
-		if strings.EqualFold(u.Scheme, "https") {
-			scheme = "wss"
-		}
-		return scheme + "://" + u.Host + strings.TrimRight(u.Path, "/") + "/ws/worker", nil
-	}
-	req := strings.TrimSpace(requested)
-	if req == "" {
-		return "", errors.New("controller URL unknown: start konsert with --public-url or pass controller_url")
-	}
-	u, err := url.Parse(req)
-	if err != nil || u.Host == "" || (!strings.EqualFold(u.Scheme, "ws") && !strings.EqualFold(u.Scheme, "wss")) {
-		return "", fmt.Errorf("controller_url %q must be a ws:// or wss:// URL", req)
-	}
-	return req, nil
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {
@@ -1257,7 +1218,7 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("accept worker ws failed", "err", err)
 		return
 	}
-	ctx := withWorkerRemoteAddr(withWorkerBaseURL(r.Context(), requestBaseURL(r)), r.RemoteAddr)
+	ctx := withWorkerRemoteAddr(r.Context(), r.RemoteAddr)
 	if bound.workerID != "" {
 		ctx = withBoundMachine(ctx, bound)
 	}
