@@ -225,6 +225,13 @@ export class WorkStore {
     return !!this.reviewOf(id)?.expedite;
   }
 
+  /** Whether the task or chat is pinned ("Keep"): history retention never compacts it. */
+  isKept(id: string): boolean {
+    const t = this.fleet.tasksById()[id];
+    if (t) return !!t.keep;
+    return !!this.orch.sessions().find((s) => s.id === id)?.keep;
+  }
+
   /**
    * Approves or requests changes on finished work: the hub records it for every client,
    * reviews the task's pull request with gh and hands requested changes to the agent.

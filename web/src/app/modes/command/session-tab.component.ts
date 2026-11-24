@@ -4,6 +4,8 @@ import { WorkItem } from '../../core/state/work-logic';
 import { WallStore } from '../wall/wall.store';
 import { SessionChatComponent } from '../../features/chat/session-chat.component';
 import { SessionControlsComponent } from '../../features/control/session-controls.component';
+import { KeepToggleComponent } from '../../features/control/keep-toggle.component';
+import { WorkStore } from '../../core/state/work.store';
 import { XtermPaneComponent } from '../../features/terminal/xterm-pane.component';
 import { IconComponent } from '../../shared/icon.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
@@ -20,7 +22,7 @@ import { TakeControlService } from '../take-control.service';
   selector: 'ks-session-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     @let it = item();
@@ -66,6 +68,7 @@ import { TakeControlService } from '../take-control.service';
         >
           <app-icon name="split" [size]="13" />
         </button>
+        <ks-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" [compact]="true" />
       </div>
     </div>
     <div class="flex-1 min-h-0">
@@ -86,6 +89,7 @@ export class SessionTabComponent {
   readonly agentChat = inject(AgentChatStore);
   readonly takeControl = inject(TakeControlService);
   readonly wall = inject(WallStore);
+  readonly work = inject(WorkStore);
   readonly hasControl = computed(() => this.takeControl.has(this.item().id));
   readonly pinned = computed(() => this.wall.isPinned(this.item().id));
 }

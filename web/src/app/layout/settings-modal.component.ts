@@ -2,7 +2,6 @@ import { Component, OnInit, computed, inject, output, signal } from '@angular/co
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
-import { MACHINE_HISTORY_RETENTION } from '../core/models/activity.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
@@ -11,12 +10,13 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
 import { QuestionInsightsComponent } from '../features/questions/question-insights.component';
+import { StorageSettingsComponent } from './storage-settings.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
 
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, StorageSettingsComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -145,12 +145,8 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
-        <!-- Data kept (no knobs: fixed tiers on the hub) -->
-        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-1.5" data-testid="settings-history-retention">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Machine history</div>
-          <p class="m-0 text-[12px] text-[#d4d4d8]">{{ historyRetention }}</p>
-          <p class="m-0 text-[11px] text-[#8e9098]">Older history is deleted, and removing a machine deletes its history.</p>
-        </div>
+        <!-- Storage: size, breakdown, retention, Compact now (KON-CSCWP) -->
+        <ks-storage-settings />
 
         <!-- Orchestrator LLM Section -->
         <details class="rounded-[var(--ks-radius-lg)] bg-black/20 group" [open]="apiKeySet()">
@@ -267,7 +263,6 @@ export class SettingsModalComponent implements OnInit {
   /** Opens Settings → Devices on a view. */
   readonly openDevices = output<DevicesView>();
   /** How long machine vitals and heat are kept (fixed tiers on the hub). */
-  readonly historyRetention = MACHINE_HISTORY_RETENTION;
 
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);

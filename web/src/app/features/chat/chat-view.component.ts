@@ -13,6 +13,7 @@ import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { causeLine } from '../../core/models/control.models';
 import { SessionControlsComponent } from '../control/session-controls.component';
+import { KeepToggleComponent } from '../control/keep-toggle.component';
 import { ChatComposerComponent, ComposerSubmit } from './composer/chat-composer.component';
 import { ComposerSelection, emptySelection, normalizeSelection, pickDefaultAccount } from './composer/composer-logic';
 import { legacyItems } from './legacy-adapter';
@@ -60,6 +61,7 @@ export function chatTitleFrom(text: string): string {
     ChatTranscriptComponent,
     ChatComposerComponent,
     SessionControlsComponent,
+    KeepToggleComponent,
   ],
   template: `
     <div class="flex flex-col h-full w-full bg-[var(--ks-surface-0)]">
@@ -144,6 +146,11 @@ export function chatTitleFrom(text: string): string {
 
         <span class="flex-1"></span>
 
+        @if (active(); as s) {
+          @if (!renaming()) {
+            <ks-keep-toggle kind="chat" [id]="s.id" [keep]="!!s.keep" [compact]="true" />
+          }
+        }
         @if (active() && !renaming()) {
           <button type="button" class="ks-icon-btn hidden sm:inline-flex" aria-label="Rename chat" ksTooltip="Rename chat" (click)="startRename()">
             <app-icon name="edit" [size]="14" />
@@ -181,6 +188,8 @@ export function chatTitleFrom(text: string): string {
           [accountId]="s.account_id || ''"
           [relogin]="activeAccount()?.auth?.relogin"
           [alternatives]="alternatives()"
+          [compactedAt]="s.compacted_at"
+          [compactedBefore]="s.compacted_before"
           (answer)="respond($event)"
           (retry)="retry()"
           (switchAccount)="switchTo($event)"

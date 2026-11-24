@@ -40,7 +40,8 @@ func (s *SQLiteStore) AppendChatEvent(ctx context.Context, e store.ChatEvent) (b
 	if n == 0 {
 		return false, nil
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ? WHERE id = ?`, ts, e.ChatID); err != nil {
+	// compact_next_at marks the oldest event retention has not looked at yet.
+	if _, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET updated_at = ?1, compact_next_at = COALESCE(compact_next_at, ?1) WHERE id = ?2`, ts, e.ChatID); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()

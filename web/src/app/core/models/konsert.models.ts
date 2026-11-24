@@ -453,6 +453,10 @@ export interface Task {
   /** The ka ticket it works on; the title is resolved by the hub. */
   ticket_id?: string;
   ticket_title?: string;
+  /** Pinned by the user ("Keep"): retention never compacts it. */
+  keep?: boolean;
+  /** When retention dropped its verbose events (milestones are kept). */
+  compacted_at?: string | null;
 }
 
 export interface TaskEvent {
@@ -553,6 +557,12 @@ export interface ChatSession {
   cause?: Cause;
   /** Who suspended it ("user" or "pause"); empty unless suspended. */
   suspended_by?: string;
+  /** Pinned by the user ("Keep"): retention never compacts it. */
+  keep?: boolean;
+  /** When retention last dropped detailed events (tool calls, reasoning) of turns that
+   *  ended before compacted_before; the transcript is kept. */
+  compacted_at?: string | null;
+  compacted_before?: string | null;
 }
 
 export interface ChatMessage {
@@ -669,3 +679,68 @@ export const FRAME_HEADER_SIZE = 1 + FRAME_TASK_ID_SIZE;
 
 /** ID of the built-in Default project (Go: ids.DefaultProjectID; its sid is p-00000). */
 export const DEFAULT_PROJECT_ID = '00000000-0000-7000-8000-000000000001';
+
+/** Settings → Storage (GET /api/storage). */
+export interface StorageKind {
+  kind: string;
+  label: string;
+  bytes: number;
+  rows: number;
+}
+
+export interface StorageStats {
+  path: string;
+  file_bytes: number;
+  wal_bytes: number;
+  free_bytes: number;
+  page_size: number;
+  method: 'dbstat' | 'estimate' | string;
+  breakdown: StorageKind[];
+  auto_vacuum: string;
+  measured_at: string;
+}
+
+export interface RetentionDays {
+  detail_days: number;
+  fleet_days: number;
+  fleet_summary_days: number;
+  usage_days: number;
+  usage_daily_days: number;
+}
+
+export interface RetentionBound {
+  Min: number;
+  Max: number;
+}
+
+export interface CompactionStep {
+  step: string;
+  rows: number;
+  items: number;
+  done: boolean;
+}
+
+export interface CompactionRun {
+  trigger?: string;
+  running: boolean;
+  step?: string;
+  steps?: CompactionStep[] | null;
+  batches?: number;
+  rows?: number;
+  freed_bytes?: number;
+  longest_batch_ms?: number;
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
+  complete?: boolean;
+  error?: string;
+}
+
+export interface StorageResponse {
+  stats: StorageStats;
+  retention: RetentionDays;
+  defaults: RetentionDays;
+  bounds: Record<keyof RetentionDays, RetentionBound>;
+  retention_text: string[];
+  compaction: CompactionRun;
+}

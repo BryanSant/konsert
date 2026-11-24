@@ -32,6 +32,8 @@ import { ChatTranscriptComponent } from './transcript/chat-transcript.component'
         [accountId]="s.account_id || ''"
         [relogin]="account()?.auth?.relogin"
         [alternatives]="alternatives()"
+        [compactedAt]="s.compacted_at"
+        [compactedBefore]="s.compacted_before"
         (answer)="respond($event)"
         (retry)="agentChat.retry(s)"
         (keepWaiting)="agentChat.dismissError(s.id, $event)"

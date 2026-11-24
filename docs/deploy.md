@@ -408,7 +408,24 @@ Open the controller's HTTPS URL on a phone or desktop browser and use **Install 
 `/mcp` always go to the network, so a stale cache never serves fleet data. After a controller
 upgrade the PWA shows a "new version available" prompt.
 
-## 8. Troubleshooting
+## 8. Data retention
+
+The hub bounds its own database; there is nothing to schedule. Running work and work
+finished in the last 30 days keeps every detail. After that, finished sessions keep their
+record, summary, outcome and transcript, and drop tool calls, reasoning and other
+streamed events (tasks keep their milestones, errors and your interventions). The fleet
+timeline keeps 90 days in full, then your actions and failures for a year. Token usage is
+kept per call for 30 days, then as daily totals for a year. Machine vitals keep 12 hours
+of samples, 30 days hourly and a year daily; the audit log keeps 90 days. Sessions marked
+**Keep** are never compacted, and deleting a chat, task, project or machine deletes its
+history.
+
+Compaction runs in small batches a few minutes after start and hourly, then returns the
+space to the file system (incremental vacuum). **Settings → Storage** shows the database
+size and what uses it, lets you change the periods, and has **Compact now**. Per-table
+details: [docs/design/retention.md](design/retention.md).
+
+## 9. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|

@@ -31,6 +31,7 @@ type SQLiteStore struct {
 // and foreign_keys are connection-scoped, so setting them with a single Exec left
 // any replacement connection (e.g. after a bad-conn error) without them.
 var connPragmas = []string{
+	"auto_vacuum(2)", // incremental: retention reclaims space in small steps (only applies to a new file)
 	"busy_timeout(5000)",
 	"foreign_keys(1)",
 	"journal_mode(WAL)",
@@ -95,6 +96,15 @@ func formatTime(t time.Time) string {
 }
 
 // parseTime accepts both the fixed-width layout and legacy RFC3339(Nano) values.
+// parseTimePtr parses a nullable timestamp column (nil when NULL or empty).
+func parseTimePtr(v sql.NullString) *time.Time {
+	if !v.Valid || v.String == "" {
+		return nil
+	}
+	t := parseTime(v.String)
+	return &t
+}
+
 func parseTime(v string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, v)
 	if err != nil {
@@ -652,7 +662,8 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 			status = excluded.status,
 			summary = CASE WHEN excluded.summary != '' THEN excluded.summary ELSE tasks.summary END,
 			git_summary_json = CASE WHEN excluded.git_summary_json != '' THEN excluded.git_summary_json ELSE tasks.git_summary_json END,
-			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END
+			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END,
+			compacted_at = CASE WHEN excluded.completed_at IS NULL THEN NULL ELSE tasks.compacted_at END
 	`, t.ID, t.SID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode, causeJSON(t.Cause),
@@ -715,10 +726,11 @@ func (s *SQLiteStore) UpdateTaskStatus(ctx context.Context, id, status, summary,
 		    cause_json = CASE WHEN ? != '' THEN ? ELSE cause_json END,
 		    suspended_by = CASE WHEN ? = 'suspended' THEN suspended_by ELSE '' END,
 		    started_at = COALESCE(started_at, ?),
-		    completed_at = COALESCE(?, completed_at)
+		    completed_at = COALESCE(?, completed_at),
+		    compacted_at = CASE WHEN ? IS NULL THEN NULL ELSE compacted_at END
 		WHERE id = ?
 	`, status, summary, summary, gitSummaryJSON, gitSummaryJSON, exitCode,
-		cj, cj, status, startedExpr, completedExpr, id); err != nil {
+		cj, cj, status, startedExpr, completedExpr, completedExpr, id); err != nil {
 		return "", err
 	}
 	return prev, tx.Commit()
@@ -771,6 +783,8 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		startedAt   sql.NullString
 		completedAt sql.NullString
 		narrationAt sql.NullString
+		keep        int
+		compactedAt sql.NullString
 	)
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
@@ -778,7 +792,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
-		&createdAt, &startedAt, &completedAt,
+		&keep, &compactedAt, &createdAt, &startedAt, &completedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Task{}, store.ErrNotFound
@@ -805,6 +819,8 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		nt := parseTime(narrationAt.String)
 		t.NarrationAt = &nt
 	}
+	t.Keep = keep != 0
+	t.CompactedAt = parseTimePtr(compactedAt)
 	return t, nil
 }
 
@@ -815,7 +831,7 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
-		       created_at, started_at, completed_at
+		       keep, compacted_at, created_at, started_at, completed_at
 		FROM tasks WHERE id = ?
 	`, id)
 	return scanTask(row)
@@ -842,7 +858,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
-		       created_at, started_at, completed_at
+		       keep, compacted_at, created_at, started_at, completed_at
 		FROM tasks`
 	if len(conds) > 0 {
 		query += " WHERE " + strings.Join(conds, " AND ")
@@ -916,17 +932,27 @@ const chatSessionCols = `id, sid, title, provider, model, created_at, updated_at
 	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash,
 	cause_json, suspended_by, suspended_prev, notes_cursor, question_id, fork_of`
 
+// chatSessionSelectCols adds the retention columns (written by retention and
+// SetChatKeep only) to chatSessionCols.
+const chatSessionSelectCols = chatSessionCols + `, keep, compacted_at, compacted_before`
+
 func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession, error) {
 	var cs store.ChatSession
 	var cAt, uAt string
 	var fleet int
 	var cause string
+	var keep int
+	var compactedAt, compactedBefore sql.NullString
 	if err := scanner.Scan(&cs.ID, &cs.SID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
 		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
 		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash,
-		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor, &cs.QuestionID, &cs.ForkOf); err != nil {
+		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor, &cs.QuestionID, &cs.ForkOf,
+		&keep, &compactedAt, &compactedBefore); err != nil {
 		return store.ChatSession{}, err
 	}
+	cs.Keep = keep != 0
+	cs.CompactedAt = parseTimePtr(compactedAt)
+	cs.CompactedBefore = parseTimePtr(compactedBefore)
 	cs.Cause = parseCause(cause)
 	cs.FleetTools = fleet != 0
 	cs.CreatedAt = parseTime(cAt)
@@ -966,7 +992,7 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 }
 
 func (s *SQLiteStore) GetChatSession(ctx context.Context, id string) (store.ChatSession, error) {
-	cs, err := scanChatSession(s.db.QueryRowContext(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions WHERE id = ?`, id))
+	cs, err := scanChatSession(s.db.QueryRowContext(ctx, `SELECT `+chatSessionSelectCols+` FROM chat_sessions WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.ChatSession{}, store.ErrNotFound
 	}
@@ -978,12 +1004,12 @@ func (s *SQLiteStore) ListChatSessions(ctx context.Context, limit int) ([]store.
 		limit = 50
 	}
 	// Hidden side-conversation chats (question_id set) are not listed.
-	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions WHERE question_id = '' ORDER BY updated_at DESC LIMIT ?`, limit)
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionSelectCols+` FROM chat_sessions WHERE question_id = '' ORDER BY updated_at DESC LIMIT ?`, limit)
 }
 
 // ListChatSessionsByWorker returns the agent chat sessions hosted on workerID.
 func (s *SQLiteStore) ListChatSessionsByWorker(ctx context.Context, workerID string) ([]store.ChatSession, error) {
-	return s.queryChatSessions(ctx, `SELECT `+chatSessionCols+` FROM chat_sessions
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionSelectCols+` FROM chat_sessions
 		WHERE worker_id = ? AND backend = 'agent' ORDER BY updated_at DESC`, workerID)
 }
 
@@ -1126,16 +1152,20 @@ func (s *SQLiteStore) RecordUsage(ctx context.Context, u store.UsageEvent) error
 		u.CreatedAt = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO usage_events (provider, model, input_tokens, output_tokens, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, u.Provider, u.Model, u.InputTokens, u.OutputTokens, formatTime(u.CreatedAt))
+		INSERT INTO usage_events (provider, model, account_id, input_tokens, output_tokens, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, u.Provider, u.Model, u.AccountID, u.InputTokens, u.OutputTokens, formatTime(u.CreatedAt))
 	return err
 }
 
 func (s *SQLiteStore) GetUsageSummary(ctx context.Context) (store.UsageSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT provider, model, COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(1)
-		FROM usage_events
+		SELECT provider, model, COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(SUM(requests), 0)
+		FROM (
+			SELECT provider, model, input_tokens, output_tokens, 1 AS requests FROM usage_events
+			UNION ALL
+			SELECT provider, model, input_tokens, output_tokens, requests FROM usage_daily
+		)
 		GROUP BY provider, model
 		ORDER BY provider ASC, model ASC
 	`)

@@ -61,6 +61,16 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
       (scroll)="onScroll()"
     >
       <div class="max-w-3xl mx-auto space-y-4">
+        @if (compactedAt()) {
+          <p
+            class="flex items-start gap-2 rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-1)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ks-text-muted)]"
+            data-testid="transcript-compacted"
+            role="note"
+          >
+            <app-icon name="info" [size]="13" />
+            <span>{{ compactedText() }}</span>
+          </p>
+        }
         @for (it of flowItems(); track it.key) {
           @switch (it.type) {
             @case ('user') {
@@ -249,6 +259,12 @@ export class ChatTranscriptComponent {
   readonly accountId = input('');
   readonly relogin = input<AgentRelogin | undefined>(undefined);
   readonly alternatives = input<AgentAccount[]>([]);
+  /** Retention markers of the chat (KON-CSCWP): when detailed events were compacted and
+   *  the age cutoff used. The transcript itself is kept. */
+  readonly compactedAt = input<string | null | undefined>(null);
+  readonly compactedBefore = input<string | null | undefined>(null);
+
+  readonly compactedText = computed(() => compactedNote(this.compactedAt(), this.compactedBefore()));
 
   readonly answer = output<ElicitationAnswer>();
   readonly retry = output<void>();
@@ -327,4 +343,12 @@ export class ChatTranscriptComponent {
   isError(i: TranscriptItem): i is ErrorItem {
     return i.type === 'error';
   }
+}
+
+/** The note shown above a transcript whose detailed events were compacted. */
+export function compactedNote(at: string | null | undefined, before: string | null | undefined): string {
+  if (!at) return '';
+  const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const scope = before ? `from before ${day(before)} ` : '';
+  return `Detailed events (tool calls, reasoning, plans) ${scope}were compacted on ${day(at)} to save space. The conversation itself is kept.`;
 }
