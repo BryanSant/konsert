@@ -23,9 +23,11 @@ Allow about 30 minutes. Keep prompts tiny: every one of them uses real subscript
 
       ```sh
       bin/konsert serve --listen 127.0.0.1:8420 --db /var/tmp/konsert-walkthrough/konsert.db \
-        --admin-token "$ADMIN" --fleet-token "$FLEET"
-      bin/konsertd run --controller ws://127.0.0.1:8420/ws/worker --token "$FLEET"
+        --admin-token "$ADMIN"
       ```
+
+      Sign in, open **Add machine → Manual** and run the command it shows with
+      `--foreground` (for example `bin/konsertd join http://desk:8420 ABCD-EFGH --foreground`).
 
       (Or use the hub and `konsertd install` service you already run, upgraded to the
       candidate.)

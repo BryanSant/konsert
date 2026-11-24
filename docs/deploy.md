@@ -17,17 +17,19 @@ Templates referenced below live in [`deploy/`](../deploy).
 
 ## 1. Tokens
 
-The controller uses three bearer tokens:
+The controller uses two bearer tokens:
 
 | Token | Used by | Flag / env / YAML |
 |---|---|---|
 | Admin | PWA login, REST API, `konsert` CLI, `konsertd mcp` | `--admin-token` / `KONSERT_ADMIN_TOKEN` / `admin_token` |
-| Fleet | `konsertd` workers on `/ws/worker` | `--fleet-token` / `KONSERT_FLEET_TOKEN` / `fleet_token` |
 | MCP | Streamable HTTP clients on `/mcp` (defaults to the admin token) | `--mcp-token` / `KONSERT_MCP_TOKEN` / `mcp_token` |
 
-If no tokens are configured, `konsert serve` generates the admin and fleet tokens on first
-start, prints them once, and saves them (mode 0600) to `konsert-tokens.yaml` next to the
-database (`--tokens-file` to change). To choose your own:
+Machines do not share a token: each konsertd has its own credential (section 5), which the
+hub issues when it installs konsertd itself or when the machine joins with a one-time code.
+
+If no admin token is configured, `konsert serve` generates one on first start, prints it
+once, and saves it (mode 0600) to `konsert-tokens.yaml` next to the database
+(`--tokens-file` to change). To choose your own:
 
 ```bash
 konsert token generate   # prints a random token; run once per token
@@ -65,7 +67,6 @@ orchestrator:
 
 ```bash
 KONSERT_ADMIN_TOKEN=...
-KONSERT_FLEET_TOKEN=...
 ANTHROPIC_API_KEY=...
 ```
 
@@ -115,11 +116,11 @@ Never enable `trust_tailscale_headers` behind a proxy other than Tailscale Serve
 ### Workers over WSS
 
 ```bash
-konsertd run --controller wss://<host>.<tailnet>.ts.net/ws/worker --token "$KONSERT_FLEET_TOKEN"
+konsertd join https://<host>.<tailnet>.ts.net ABCD-EFGH   # code from Add machine → Manual
 ```
 
-Workers authenticate with the fleet token (the identity header is not used for
-`/ws/worker`) and reconnect with backoff if the controller restarts.
+Workers authenticate with their own machine credential (the identity header is not used
+for `/ws/worker`) and reconnect with backoff if the controller restarts.
 
 ### Verification checklist
 
@@ -177,9 +178,26 @@ server {
 
 ## 5. Workers
 
-Each worker needs the controller URL and the fleet token, either as flags, environment
-variables (`KONSERT_CONTROLLER_URL`, `KONSERT_FLEET_TOKEN`, `KONSERT_WORKER_NAME`, ...), or a
-YAML file:
+Each worker needs the controller URL, as a flag, an environment variable
+(`KONSERT_CONTROLLER_URL`, `KONSERT_WORKER_NAME`, ...) or a YAML file, and its own machine
+credential:
+
+- **Add machine** in the PWA adds the hub's own machine and SSH hosts with one click: the
+  hub installs konsertd and hands it a credential over stdin.
+- Any other machine joins with a one-time code. **Add machine → Manual** shows one command,
+  e.g. `konsertd join https://konsert-hub.example-tailnet.ts.net ABCD-EFGH`. The code is
+  single use, expires after 15 minutes and is rate-limited. `join` trades it for the
+  machine's credential, saves it in `~/.konsert/credentials/` (readable only by you) and
+  runs `konsertd install` with the same flags (`--foreground` runs it in the terminal
+  instead). The tab shows the machine appear once it connects.
+
+A credential authenticates only its own machine. **Fleet → Details → Revoke credential**
+disconnects a machine at once; it can join again with a new code. `konsert token rotate
+machines` (or **Settings → Security**) revokes the credentials of every machine that joined
+by hand (`--machine <sid>` for one) and lists them as needing a new code. konsertd without
+a credential exits with a pointer to `konsertd join`, unless the hub runs `--no-auth`.
+
+```yaml
 
 ```yaml
 # /etc/konsert/konsertd.yaml
@@ -190,11 +208,11 @@ max_concurrent: 2
 # allowed_roots: [/home/me/src]
 ```
 
-Put the token in `/etc/konsert/konsertd.env` as `KONSERT_FLEET_TOKEN=...`. Check a host with
-`konsertd doctor`.
+Check a host with `konsertd doctor`.
 
-konsertd keeps its stable worker ID, machine ID and status outbox in `~/.konsert` (override
-with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate machine.
+konsertd keeps its stable worker ID, machine ID, credential and status outbox in
+`~/.konsert` (override with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate
+machine.
 
 Agents run as the user konsertd runs as, with that user's CLI logins (`claude`, `grok`,
 ...), so run workers as your normal user rather than a system account.
@@ -205,19 +223,19 @@ Agents run as the user konsertd runs as, with that user's CLI logins (`claude`, 
 starts it now. It takes the same flags as `konsertd run`:
 
 ```bash
-konsertd install --controller wss://konsert-hub.example-tailnet.ts.net/ws/worker --token-stdin < fleet-token.txt
+konsertd join https://konsert-hub.example-tailnet.ts.net ABCD-EFGH   # join + install
+konsertd install --controller wss://konsert-hub.example-tailnet.ts.net/ws/worker   # reinstall
 konsertd status        # installed? running? where are the config and logs?
 konsertd uninstall     # stop it and remove the unit/agent/task and its config
 ```
 
-The flags (`--controller`, `--name`, `--sandbox`, `--tag`, `--allowed-roots`, ...) and the
-fleet token are written to a per-user config file that only you can read (mode 0600; on
-Windows an ACL granting only you and SYSTEM), and the daemon is started with
-`--config <that file>`. The token never appears in the unit, plist or task definition. Give
-it with `--token-stdin`, `KONSERT_FLEET_TOKEN=... konsertd install ...` or `--token`; a
-reinstall without one keeps the installed token. `--config file.yaml` merges an existing
-config into the installed one. `--dry-run` prints what would be installed, with the token
-redacted. Re-running `install` updates the instance in place.
+The flags (`--controller`, `--name`, `--sandbox`, `--tag`, `--allowed-roots`, ...) are
+written to a per-user config file that only you can read (mode 0600; on Windows an ACL
+granting only you and SYSTEM), and the daemon is started with `--config <that file>`. The
+machine credential stays in `~/.konsert`, never in the config, unit, plist or task
+definition. `--config file.yaml` merges an existing config into the installed one.
+`--dry-run` prints what would be installed. Re-running `install` updates the instance in
+place.
 
 A `--name` other than the hostname installs a separate instance (`konsertd-<name>`), so
 several daemons (say, a normal and a `--sandbox` one) can run side by side; pass the same
@@ -247,9 +265,9 @@ service from an elevated ("Run as administrator") terminal:
 
 ```powershell
 konsertd.exe install --service --user .\builder --controller wss://hub/ws/worker
-# prompts for builder's password (or pipe it with --password-stdin; pass the fleet token
-# with $env:KONSERT_FLEET_TOKEN), grants builder "Log on as a service", sets
-# restart-on-failure and starts the service
+# prompts for builder's password (or pipe it with --password-stdin), grants builder
+# "Log on as a service", sets restart-on-failure and starts the service. Join as builder
+# first (konsertd join ... --foreground, then Ctrl-C) so its ~/.konsert has a credential.
 konsertd.exe status --service
 konsertd.exe uninstall --service   # also revokes "Log on as a service" if install granted it
 ```
@@ -279,8 +297,8 @@ loginctl enable-linger "$USER"     # keep it running while logged out
 #### macOS: launchd
 
 Copy [`deploy/launchd/dev.konsert.konsertd.plist`](../deploy/launchd/dev.konsert.konsertd.plist)
-to `~/Library/LaunchAgents/`, adjust the paths and add `KONSERT_FLEET_TOKEN` under
-`EnvironmentVariables` (or point `--config` at a file in your home directory), then:
+to `~/Library/LaunchAgents/`, adjust the paths (point `--config` at a file in your home
+directory; join first so `~/.konsert` holds the machine credential), then:
 
 ```bash
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.konsert.konsertd.plist
@@ -289,8 +307,8 @@ launchctl kickstart -k gui/$(id -u)/dev.konsert.konsertd
 
 #### Windows
 
-Run `konsertd.exe run --controller wss://... --token ...` from a terminal (add
-`--log-file` to log to a file). ConPTY and Job Objects are used automatically.
+Run `konsertd.exe join https://... <code> --foreground` from a terminal (later
+`konsertd.exe run --controller wss://...`; add `--log-file` to log to a file). ConPTY and Job Objects are used automatically.
 
 ### Containers: Podman Quadlet
 
@@ -346,7 +364,8 @@ upgrade the PWA shows a "new version available" prompt.
 | Symptom | Cause / fix |
 |---|---|
 | Browser gets `403` or the live socket won't connect | The page's origin isn't the controller's `Host` or `public_url`. Set `public_url` to the URL you browse to, or add `--allowed-origin`. |
-| Worker logs `401` and exits | Missing or wrong fleet token. |
+| Worker exits with "no machine credential" | It never joined: run `konsertd join <hub-url> <code>` with a code from Add machine → Manual. |
+| Worker logs "credential rejected" or "revoked" | Its credential was revoked or rotated; join again with a new code (the running daemon picks it up). |
 | Worker logs "retry later" (`1013`) | Another konsertd with the same identity is connected; it takes over when that one stops. |
 | Worker stops with "removed from fleet" | The machine was removed in the UI; re-run konsertd to add it back. |
 | `trust_tailscale_headers` has no effect | The controller isn't on a loopback listener, or the request didn't come through Tailscale Serve. |

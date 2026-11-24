@@ -122,6 +122,59 @@ export interface SetupStatus {
   local: LocalHostInfo;
 }
 
+/** POST /api/machines/join-codes: a short-lived code for `konsertd join` (KON-RK9YD). */
+export interface JoinCode {
+  id: string;
+  code: string;
+  expires_at: string;
+  hub_url: string;
+  command: string;
+}
+
+/** GET /api/machines/join-codes/{id}. */
+export interface JoinCodeStatus {
+  id: string;
+  status: 'pending' | 'used' | 'expired';
+  expires_at: string;
+  used_at?: string;
+  worker_id?: string;
+  worker_sid?: string;
+  worker_name?: string;
+}
+
+export interface MachineCredential {
+  id: string;
+  sid: string;
+  worker_id: string;
+  source: 'join' | 'local' | 'ssh' | string;
+  created_at: string;
+  last_used_at?: string;
+}
+
+/** GET /api/workers/{id}/credential. */
+export interface MachineCredentialInfo {
+  worker_id: string;
+  launch?: string;
+  active: MachineCredential[];
+  revoked: number;
+}
+
+export interface CredentialRotation {
+  worker_id: string;
+  worker_sid?: string;
+  name: string;
+  action: 'revoked' | 'failed';
+  needs_join?: boolean;
+  error?: string;
+}
+
+/** POST /api/machines/credentials/rotate. */
+export interface RotationResponse {
+  results: CredentialRotation[];
+  needs_join: number;
+  failed: number;
+}
+
 export interface AddLocalWorkerResult {
   worker_id: string;
   worker_sid?: string;
@@ -503,7 +556,6 @@ export interface ChatToolCard {
 export interface AuthMe {
   authenticated: boolean;
   auth_required: boolean;
-  fleet_token_required?: boolean;
   user: string;
   provider: string;
   model: string;

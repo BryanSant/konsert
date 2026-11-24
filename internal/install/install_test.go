@@ -250,7 +250,7 @@ func TestMarshalWorkerConfigIsSparse(t *testing.T) {
 		}
 	}
 	// Unset fields must be absent so run's defaults (hostname as name, 2 slots) apply.
-	for _, absent := range []string{"kmc_never_persisted", "credential", "name:","max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
+	for _, absent := range []string{"kmc_never_persisted", "credential", "name:", "max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
 		if strings.Contains(s, absent) {
 			t.Errorf("config should omit %q:\n%s", absent, s)
 		}

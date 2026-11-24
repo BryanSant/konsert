@@ -1,10 +1,16 @@
 import { ChildProcess, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-export const E2E_STATE_FILE = path.join(os.tmpdir(), 'konsert-playwright-e2e.json');
+// One state file per checkout, so suites running in two worktrees at once never read each
+// other's hub.
+export const E2E_STATE_FILE = path.join(
+  os.tmpdir(),
+  `konsert-playwright-e2e-${createHash('sha256').update(__dirname).digest('hex').slice(0, 12)}.json`,
+);
 
 export function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -51,6 +57,33 @@ export function subscriptionOnlyEnv(extra: Record<string, string> = {}): Record<
   return { ...env, ...extra };
 }
 
+/** Creates a join code with an authenticated session cookie. */
+export async function createJoinCode(baseURL: string, cookie: string): Promise<string> {
+  const res = await fetch(`${baseURL}/api/machines/join-codes`, {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`create join code: ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { code: string }).code;
+}
+
+/**
+ * Runs `konsertd join <hub> <code> --foreground` with its own state dir. Its identity and
+ * credential stay out of the developer's ~/.konsert, and it never runs (or reads the
+ * logins of) the host's real agent CLIs: only mock accounts.
+ */
+export function spawnJoin(konsertdBin: string, cwd: string, baseURL: string, code: string, stateDir: string, extra: string[]): ChildProcess {
+  return spawn(konsertdBin, ['join', baseURL, code, '--foreground', ...extra], {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: subscriptionOnlyEnv({
+      KONSERT_STATE_DIR: stateDir,
+      KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+    }),
+  });
+}
+
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const konsertBin = path.join(repoRoot, 'bin', 'konsert');
@@ -68,7 +101,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const port = await getFreePort();
   const baseURL = `http://127.0.0.1:${port}`;
   const adminToken = 'e2e-admin-secret-token';
-  const fleetToken = 'e2e-fleet-secret-token';
   const workerName = 'e2e-box';
 
   const procs: ChildProcess[] = [];
@@ -83,8 +115,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       dbPath,
       '--admin-token',
       adminToken,
-      '--fleet-token',
-      fleetToken,
     ],
     {
       cwd: repoRoot,
@@ -109,34 +139,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     'konsert /api/health'
   );
 
-  const worker = spawn(
-    konsertdBin,
-    [
-      'run',
-      '--controller',
-      `ws://127.0.0.1:${port}/ws/worker`,
-      '--token',
-      fleetToken,
-      '--name',
-      workerName,
-      '--host-group',
-      'e2e-lab',
-      '--enable-mock-driver',
-    ],
-    {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // Keep the worker identity and the status outbox out of the developer's ~/.konsert, and
-      // never run (or read the logins of) the host's real agent CLIs: only mock accounts.
-      env: subscriptionOnlyEnv({
-        KONSERT_STATE_DIR: path.join(tmpDir, 'state'),
-        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
-      }),
-    }
-  );
-  procs.push(worker);
-
-  // Wait until worker registers and is online
   const loginRes = await fetch(`${baseURL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -144,6 +146,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
   const setCookie = loginRes.headers.get('set-cookie') || '';
   const cookieHeader = setCookie.split(';')[0] || '';
+
+  // The worker joins like a manual machine: a one-time code buys its own credential
+  // (KON-RK9YD); --foreground runs it here instead of installing a service.
+  const code = await createJoinCode(baseURL, cookieHeader);
+  const worker = spawnJoin(konsertdBin, repoRoot, baseURL, code, path.join(tmpDir, 'state'), [
+    '--name',
+    workerName,
+    '--host-group',
+    'e2e-lab',
+    '--enable-mock-driver',
+  ]);
+  procs.push(worker);
 
   // konsertd registers with its own persisted UUIDv7 identity; the hub mints its m- sid.
   let workerId = '';
@@ -170,7 +184,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   fs.writeFileSync(
     E2E_STATE_FILE,
-    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir })
+    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir, konsertdBin, repoRoot, tmpDir })
   );
 
   return async () => {
