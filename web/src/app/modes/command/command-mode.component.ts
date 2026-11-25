@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { WorkItem } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
+import { CommanderStore } from '../../core/state/commander.store';
 import { ChatViewComponent } from '../../features/chat/chat-view.component';
 import { HotkeyService } from '../../layout/hotkey.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -112,8 +113,12 @@ export const COMMANDER = 'commander';
             <div role="tabpanel" [id]="'sy-cpanel-' + it.id" [attr.aria-labelledby]="'sy-ctab-' + it.id" class="absolute inset-0">
               <sy-session-tab [item]="it" />
             </div>
+          } @else if (loadingSid()) {
+            <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[13px] text-[var(--sy-text-secondary)]" role="status" data-testid="command-loading-sid">
+              <span>Loading session {{ loadingSid() }}…</span>
+            </div>
           } @else if (missingSid()) {
-            <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-[var(--sy-text-secondary)]" role="status">
+            <div class="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-[var(--sy-text-secondary)]" role="status" data-testid="command-not-found">
               <span>No session {{ missingSid() }} here (it may have been removed).</span>
               <button type="button" class="sy-btn sy-btn-soft" (click)="select(commander)">Back to the commander</button>
             </div>
@@ -162,6 +167,7 @@ export class CommandModeComponent {
   readonly commander = COMMANDER;
   readonly ui = inject(ModeUiStore);
   private readonly work = inject(WorkStore);
+  private readonly orch = inject(CommanderStore);
   private readonly tabStore = inject(CommandTabsStore);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
@@ -177,8 +183,19 @@ export class CommandModeComponent {
     const sid = this.sid();
     return sid ? (this.work.bySid(sid) ?? null) : null;
   });
-  readonly activeId = computed(() => this.activeItem()?.id ?? (this.sid() ? '' : COMMANDER));
-  readonly missingSid = computed(() => (this.sid() && !this.activeItem() && this.ui.fleetLoaded() ? this.sid() : ''));
+  /** A commander chat sid (not in WorkStore, which only lists agent sessions). */
+  readonly commanderChat = computed(() => {
+    const sid = this.sid();
+    if (!sid || this.activeItem()) return null;
+    return this.orch.sessions().find((s) => s.sid === sid || s.id === sid) ?? null;
+  });
+  readonly activeId = computed(() => {
+    if (this.activeItem()) return this.activeItem()!.id;
+    if (this.commanderChat()) return COMMANDER;
+    return this.sid() ? '' : COMMANDER;
+  });
+  readonly loadingSid = computed(() => (this.sid() && !this.activeItem() && !this.commanderChat() && !this.ui.workLoaded() ? this.sid() : ''));
+  readonly missingSid = computed(() => (this.sid() && !this.activeItem() && !this.commanderChat() && this.ui.workLoaded() ? this.sid() : ''));
 
   readonly tabs = computed(() => {
     const byId = this.work.byId();
@@ -200,17 +217,23 @@ export class CommandModeComponent {
   });
 
   constructor() {
-    // Opening /command/<sid> opens that session as a tab.
+    // Opening /command/<sid> opens that session as a tab (or selects it in the commander).
     effect(() => {
       const it = this.activeItem();
       if (it) untracked(() => this.tabStore.add(it.id));
+    });
+    effect(() => {
+      const c = this.commanderChat();
+      if (c && this.orch.activeSessionId() !== c.id) {
+        untracked(() => void this.orch.selectSession(c.id));
+      }
     });
     effect(() => {
       if (this.ui.firstRun()) untracked(() => this.sawFirstRun.set(true));
     });
     // Forget tabs whose session is gone once everything has loaded.
     effect(() => {
-      if (!this.ui.fleetLoaded()) return;
+      if (!this.ui.workLoaded()) return;
       const byId = this.work.byId();
       if (Object.keys(byId).length === 0) return;
       untracked(() => this.tabStore.prune((id) => !!byId[id]));

@@ -105,6 +105,12 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
       @if (wakeError()) {
         <p role="alert" class="m-0 rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] px-3 py-2 text-[12px] text-[#f3a5a5]">{{ wakeError() }}</p>
       }
+      @if (missingSid()) {
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] border border-[var(--sy-hairline)] px-3 py-2 text-[12.5px] text-[var(--sy-text-secondary)]" role="status" data-testid="fleet-not-found">
+          <span>No machine {{ missingSid() }} here (it may have been removed).</span>
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="clearSelection()">Show all machines</button>
+        </div>
+      }
       @if (rows().length === 0) {
         <p class="text-[12.5px] text-[var(--sy-text-muted)]" data-testid="fleet-machines">No machines yet. Add this machine or one over SSH to start.</p>
       } @else {
@@ -113,7 +119,7 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
             <section
               role="listitem"
               class="sy-machine"
-              [class.sy-machine-selected]="selectedSid() === r.w.sid"
+              [class.sy-machine-selected]="selectedWorker()?.id === r.w.id"
               [class.sy-machine-off]="r.w.status !== 'online'"
               [attr.aria-labelledby]="'sy-m-' + r.w.id"
               [attr.data-machine]="r.w.sid"
@@ -124,7 +130,7 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
                   <!-- The name gets the room: badges wrap under it rather than cut it off. -->
                   <div class="sy-mtitle">
                     <h3 class="sy-mname m-0 min-w-0 max-w-full text-[14px] font-semibold" [id]="'sy-m-' + r.w.id">
-                      <button type="button" class="sy-focusable rounded-sm text-left" [attr.aria-current]="selectedSid() === r.w.sid ? 'true' : null" (click)="select(r.w)">{{ r.w.name }}</button>
+                      <button type="button" class="sy-focusable rounded-sm text-left" [attr.aria-current]="selectedWorker()?.id === r.w.id ? 'true' : null" (click)="select(r.w)">{{ r.w.name }}</button>
                     </h3>
                     <span class="sy-mbadges">
                       <span class="sy-badge" [attr.data-badge]="r.badge">{{ r.badge }}</span>
@@ -631,6 +637,11 @@ export class FleetModeComponent {
   readonly words = SPINNER_WORDS;
 
   readonly selectedSid = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('sid') ?? '')), { initialValue: '' });
+  readonly selectedWorker = computed(() => {
+    const sid = this.selectedSid();
+    return sid ? (this.fleet.workers().find((w) => w.sid === sid || w.id === sid) ?? null) : null;
+  });
+  readonly missingSid = computed(() => (this.selectedSid() && this.ui.fleetLoaded() && !this.selectedWorker() ? this.selectedSid() : ''));
   readonly range = signal<HeatRange>('12h');
   private readonly rangeTitle = computed(() => HEAT_RANGES.find((r) => r.id === this.range())!.title);
   private readonly now = signal(Date.now());
@@ -690,11 +701,12 @@ export class FleetModeComponent {
       clearInterval(t);
       clearInterval(c);
     });
-    // /fleet/<sid> scrolls that machine into view.
+    // /fleet/<sid> scrolls that machine into view once the fleet rows have rendered.
     afterRenderEffect(() => {
-      const sid = this.selectedSid();
-      if (!sid) return;
-      this.host.nativeElement.querySelector(`[data-machine="${CSS.escape(sid)}"]`)?.scrollIntoView({ block: 'nearest' });
+      const w = this.selectedWorker();
+      this.rows();
+      if (!w) return;
+      this.host.nativeElement.querySelector(`[data-machine="${CSS.escape(w.sid)}"]`)?.scrollIntoView({ block: 'nearest' });
     });
   }
 
@@ -767,7 +779,11 @@ export class FleetModeComponent {
   }
 
   select(w: Worker): void {
-    void this.router.navigate(this.selectedSid() === w.sid ? ['/fleet'] : ['/fleet', w.sid]);
+    void this.router.navigate(this.selectedWorker()?.id === w.id ? ['/fleet'] : ['/fleet', w.sid]);
+  }
+
+  clearSelection(): void {
+    void this.router.navigate(['/fleet']);
   }
 
   open(s: MachineSession): void {

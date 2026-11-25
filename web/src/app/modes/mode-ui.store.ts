@@ -16,6 +16,9 @@ export class ModeUiStore {
   private readonly fleet = inject(FleetStore);
 
   readonly fleetLoaded = signal(false);
+  readonly chatsLoaded = signal(false);
+  /** Both fleet (workers/tasks) and chat session lists have finished their initial load. */
+  readonly workLoaded = computed(() => this.fleetLoaded() && this.chatsLoaded());
   readonly paletteOpen = signal(false);
   readonly settingsOpen = signal(false);
   readonly settingsSection = signal<'forges' | null>(null);

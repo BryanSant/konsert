@@ -15,6 +15,7 @@ import { ModalDialogComponent } from '../../shared/modal-dialog.component';
 import { ControlLabelComponent } from '../control-label.component';
 import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.component';
 import { NeedsYouStore } from '../../core/state/needs-you.store';
+import { ModeUiStore } from '../mode-ui.store';
 
 /**
  * A session on a phone: what it is doing and why, its question with the options to tap,
@@ -114,14 +115,17 @@ import { NeedsYouStore } from '../../core/state/needs-you.store';
           </div>
         </app-modal-dialog>
       }
+    } @else if (!ui.workLoaded()) {
+      <p class="px-4 pt-4 text-[13px] text-[var(--sy-text-secondary)]" role="status" data-testid="mobile-session-loading">Loading session {{ sid() }}…</p>
     } @else {
-      <p class="px-4 pt-4 text-[13px] text-[var(--sy-text-secondary)]">No session {{ sid() }} here (it may have been removed).</p>
+      <p class="px-4 pt-4 text-[13px] text-[var(--sy-text-secondary)]" role="status" data-testid="mobile-session-not-found">No session {{ sid() }} here (it may have been removed).</p>
     }
   `,
 })
 export class MobileSessionComponent {
   readonly work = inject(WorkStore);
   readonly control = inject(ControlStore);
+  readonly ui = inject(ModeUiStore);
   private readonly agentChat = inject(AgentChatStore);
   readonly reasons = VETO_REASONS;
 

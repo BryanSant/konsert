@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { sidUrl } from '../../core/routing/sid-links';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { WorkItem } from '../../core/state/work-logic';
 import { WallStore } from '../wall/wall.store';
@@ -57,6 +58,18 @@ import { TakeControlService } from '../take-control.service';
             {{ hasControl() ? 'Hand back' : 'Take control' }}
           </button>
         }
+        @if (it.sid) {
+          <button
+            type="button"
+            class="sy-icon-btn sy-icon-btn-sm"
+            [attr.aria-label]="copiedLink() ? 'Link copied' : 'Copy link'"
+            [syTooltip]="copiedLink() ? 'Copied link' : 'Copy link to this session'"
+            data-testid="copy-session-link"
+            (click)="copyLink(it.sid)"
+          >
+            <app-icon [name]="copiedLink() ? 'check' : 'link'" [size]="13" />
+          </button>
+        }
         <button
           type="button"
           class="sy-icon-btn sy-icon-btn-sm"
@@ -92,4 +105,15 @@ export class SessionTabComponent {
   readonly work = inject(WorkStore);
   readonly hasControl = computed(() => this.takeControl.has(this.item().id));
   readonly pinned = computed(() => this.wall.isPinned(this.item().id));
+  readonly copiedLink = signal(false);
+
+  async copyLink(sid: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(sidUrl(sid));
+      this.copiedLink.set(true);
+      setTimeout(() => this.copiedLink.set(false), 1600);
+    } catch {
+      // ignore
+    }
+  }
 }

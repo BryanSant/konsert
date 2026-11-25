@@ -1,6 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { ListeningPort, Worker } from '../core/models/syre.models';
 import { isVersionMismatch } from '../core/models/version';
+import { sidUrl } from '../core/routing/sid-links';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { IconComponent } from '../shared/icon.component';
@@ -96,14 +97,27 @@ import { MachineCredentialComponent } from './machine-credential.component';
           <span class="text-[#86888f] mr-2">Worker ID</span>
           <span class="font-mono-ide text-[#c8cad0] break-all" [syTooltip]="worker().id">{{ worker().sid || worker().id }}</span>
         </div>
-        <button
-          type="button"
-          (click)="copyWorkerId()"
-          class="inline-flex items-center gap-1 rounded bg-[#22242b] hover:bg-[#2b2e37] px-2 py-0.5 text-[10.5px] text-[#c8cad0] transition cursor-pointer shrink-0"
-        >
-          <app-icon name="copy" [size]="10" />
-          <span>{{ copiedId() ? 'Copied' : 'Copy' }}</span>
-        </button>
+        <div class="flex items-center gap-1.5 shrink-0">
+          @if (worker().sid) {
+            <button
+              type="button"
+              (click)="copyMachineLink()"
+              data-testid="copy-machine-link"
+              class="inline-flex items-center gap-1 rounded bg-[#22242b] hover:bg-[#2b2e37] px-2 py-0.5 text-[10.5px] text-[#c8cad0] transition cursor-pointer"
+            >
+              <app-icon [name]="copiedLink() ? 'check' : 'link'" [size]="10" />
+              <span>{{ copiedLink() ? 'Copied' : 'Copy link' }}</span>
+            </button>
+          }
+          <button
+            type="button"
+            (click)="copyWorkerId()"
+            class="inline-flex items-center gap-1 rounded bg-[#22242b] hover:bg-[#2b2e37] px-2 py-0.5 text-[10.5px] text-[#c8cad0] transition cursor-pointer"
+          >
+            <app-icon name="copy" [size]="10" />
+            <span>{{ copiedId() ? 'Copied' : 'Copy' }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Machine control: drain, suspend all, stop all; holds and requests here (PRD §5.8a) -->
@@ -477,6 +491,7 @@ export class MachineDetailModalComponent {
   readonly removing = signal(false);
   readonly removeError = signal('');
   readonly copiedId = signal(false);
+  readonly copiedLink = signal(false);
   readonly savingShell = signal(false);
   readonly savingGitBash = signal(false);
   readonly shellError = signal('');
@@ -597,6 +612,18 @@ export class MachineDetailModalComponent {
       await navigator.clipboard.writeText(this.worker().sid || this.worker().id);
       this.copiedId.set(true);
       setTimeout(() => this.copiedId.set(false), 1600);
+    } catch {
+      // ignore
+    }
+  }
+
+  async copyMachineLink(): Promise<void> {
+    const sid = this.worker().sid;
+    if (!sid) return;
+    try {
+      await navigator.clipboard.writeText(sidUrl(sid));
+      this.copiedLink.set(true);
+      setTimeout(() => this.copiedLink.set(false), 1600);
     } catch {
       // ignore
     }

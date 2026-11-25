@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { TaskEvent } from '../../core/models/syre.models';
 import { Acceptance, AcceptanceItem, DeliveryPlan, approveActionLabel, deliveryOutcomeLine, prStatusLine } from '../../core/models/review.models';
 import { ApiClientService } from '../../core/services/api-client.service';
+import { sidUrl } from '../../core/routing/sid-links';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { WorkItem } from '../../core/state/work-logic';
@@ -32,6 +33,17 @@ import { receiptsFor } from './review-logic';
           <span class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">{{ it.sid }}</span>
           <sy-control-label [label]="it.control" />
           <span class="flex-1"></span>
+          @if (it.sid) {
+            <button
+              type="button"
+              class="sy-icon-btn sy-icon-btn-sm"
+              [attr.aria-label]="copiedLink() ? 'Link copied' : 'Copy link'"
+              data-testid="copy-review-link"
+              (click)="copyLink(it.sid)"
+            >
+              <app-icon [name]="copiedLink() ? 'check' : 'link'" [size]="12" />
+            </button>
+          }
           @if (!embedded()) {
             <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Close panel" (click)="closed()">
               <app-icon name="close" [size]="12" />
@@ -165,6 +177,7 @@ export class ReviewPanelComponent {
   readonly sending = signal(false);
   readonly message = signal('');
   readonly error = signal('');
+  readonly copiedLink = signal(false);
 
   /** Retention note of a compacted task (its verbose events were dropped). */
   readonly compactedNote = computed(() => {
@@ -327,6 +340,16 @@ export class ReviewPanelComponent {
 
   openInCommand(it: WorkItem): void {
     void this.router.navigate(['/command', it.sid]);
+  }
+
+  async copyLink(sid: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(sidUrl(sid));
+      this.copiedLink.set(true);
+      setTimeout(() => this.copiedLink.set(false), 1600);
+    } catch {
+      // ignore
+    }
   }
 
   async sendChanges(it: WorkItem): Promise<void> {

@@ -152,7 +152,10 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
     void this.fleet.loadSettings();
     void this.control.load();
     void this.questions.load();
-    void this.orch.loadSessions();
+    void this.orch
+      .loadSessions()
+      .catch(() => undefined)
+      .finally(() => this.ui.chatsLoaded.set(true));
     void this.setup.load();
     this.socket.connect();
   }
