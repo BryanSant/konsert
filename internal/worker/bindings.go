@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -178,9 +177,4 @@ func provisionBindings(
 	}
 
 	return res, nil
-}
-
-// ticketDirNameFor returns the ticket directory segment for binding provisioning.
-func ticketDirNameFor(ticketSID, fallback string) string {
-	return cmp.Or(strings.TrimSpace(ticketSID), strings.TrimSpace(fallback))
 }
