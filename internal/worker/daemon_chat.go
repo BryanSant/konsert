@@ -20,9 +20,16 @@ import (
 // DefaultCapabilitiesInterval is how often agent capabilities are re-sent.
 const DefaultCapabilitiesInterval = 10 * time.Minute
 
-// DisableAgentDiscoveryEnv=1 limits agent accounts to configured and mock ones and skips
-// CLI status commands (for tests that run a real daemon).
+// DisableAgentDiscoveryEnv=1 (or "true") limits agent accounts to configured and mock ones,
+// skips CLI status commands, disables passive process/session discovery, and ignores
+// hook-reported external sessions (for mock/e2e environments and tests).
 const DisableAgentDiscoveryEnv = "SYRE_DISABLE_AGENT_DISCOVERY"
+
+// agentDiscoveryDisabled reports whether DisableAgentDiscoveryEnv is set to "1" or "true".
+func agentDiscoveryDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(DisableAgentDiscoveryEnv)))
+	return v == "1" || v == "true"
+}
 
 // newAccountRegistry and chatStatusChecker are replaced by tests so they never run the
 // developer's real agent CLIs or read their home directory.
@@ -55,7 +62,7 @@ func (d *Daemon) initChat() {
 		Logger:     d.logger,
 	}
 	status := chatStatusChecker
-	if v := strings.ToLower(strings.TrimSpace(os.Getenv(DisableAgentDiscoveryEnv))); v == "1" || v == "true" {
+	if agentDiscoveryDisabled() {
 		// Only configured and mock accounts; no PATH discovery, wrapper import or CLI
 		// status commands (other packages' tests run daemons with this set).
 		opts.LookPath = func(string) (string, bool) { return "", false }

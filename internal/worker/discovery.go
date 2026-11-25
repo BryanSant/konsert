@@ -60,8 +60,10 @@ func NewSessionDiscovery(homeDir string, isManaged func(pid int) bool, emit func
 		cwdTimeout:     defaultCwdTimeout,
 	}
 	// Start tailing from current EOF so historical hook lines from previous days aren't replayed as active.
-	if info, err := os.Stat(HookEventsPath(homeDir)); err == nil {
-		sd.hookOffset = info.Size()
+	if !agentDiscoveryDisabled() {
+		if info, err := os.Stat(HookEventsPath(homeDir)); err == nil {
+			sd.hookOffset = info.Size()
+		}
 	}
 	return sd
 }
@@ -71,6 +73,9 @@ func NewSessionDiscovery(homeDir string, isManaged func(pid int) bool, emit func
 // connection; the hook-file offset is kept, so events written while disconnected are
 // delivered on the next connection, and Resync re-announces known sessions.
 func (s *SessionDiscovery) Run(ctx context.Context) {
+	if agentDiscoveryDisabled() {
+		return
+	}
 	s.Resync()
 	// Pick up hook events written while disconnected, then scan processes right away so
 	// already-open local sessions appear as idle/working.
@@ -97,6 +102,9 @@ func (s *SessionDiscovery) Run(ctx context.Context) {
 // Resync re-emits every session that is not done, so a new hub connection (possibly to a
 // restarted hub) learns the current external roster.
 func (s *SessionDiscovery) Resync() {
+	if agentDiscoveryDisabled() {
+		return
+	}
 	s.mu.Lock()
 	var live []protocol.ExternalSessionPayload
 	for _, p := range s.activeExternal {
@@ -118,6 +126,9 @@ const maxHookRead = 512 * 1024
 
 // PollHookEvents reads any newly appended lines in ~/.syre/hook-events.jsonl and emits external session updates.
 func (s *SessionDiscovery) PollHookEvents(ctx context.Context) {
+	if agentDiscoveryDisabled() {
+		return
+	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	path := HookEventsPath(s.homeDir)
@@ -304,7 +315,7 @@ func (s *SessionDiscovery) managedOrDescendant(pid int, parent map[int]int) bool
 
 // ScanPassiveProcesses gently inspects running user agent processes not managed by syred.
 func (s *SessionDiscovery) ScanPassiveProcesses(ctx context.Context) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || agentDiscoveryDisabled() {
 		return
 	}
 	s.opMu.Lock()
@@ -320,6 +331,9 @@ func (s *SessionDiscovery) ScanPassiveProcesses(ctx context.Context) {
 }
 
 func (s *SessionDiscovery) scanProcessList(ctx context.Context, procs []psEntry) {
+	if agentDiscoveryDisabled() {
+		return
+	}
 	// Snapshot active hook-tracked (agent, cwd) pairs so passive discovery never duplicates them.
 	s.mu.Lock()
 	hookCovered := make(map[string]bool)
