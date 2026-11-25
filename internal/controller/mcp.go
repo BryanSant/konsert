@@ -39,6 +39,13 @@ type ControlPlaneBackend interface {
 	RecallMemory(ctx context.Context, scope string, limit int) ([]store.MemoryEntry, error)
 }
 
+// PulseBackend exposes the latest board pulse as an MCP resource ("pulse") and registers
+// external MCP servers for push notifications (notifications/message and resources/updated).
+type PulseBackend interface {
+	LatestPulse(ctx context.Context) (string, error)
+	RegisterPulseMCPServer(srv *mcp.Server)
+}
+
 func (s *FleetService) ListTaskEvents(ctx context.Context, taskID string, afterID int64) ([]store.TaskEvent, error) {
 	return s.store.ListEvents(ctx, resolveRef(ctx, s.store, ids.Task, taskID), afterID, 50)
 }
@@ -169,6 +176,9 @@ func NewMCPServer(backend FleetBackend, version string, orch ...*commander.Servi
 	if hc, ok := backend.(HumanControlBackend); ok {
 		addHumanControlTools(srv, hc, nil, nil)
 	}
+	if pb, ok := backend.(PulseBackend); ok {
+		pb.RegisterPulseMCPServer(srv)
+	}
 	return srv
 }
 
@@ -179,10 +189,39 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 		version = "1.0.0"
 	}
 
+	var opts *mcp.ServerOptions
+	if _, ok := backend.(PulseBackend); ok {
+		opts = &mcp.ServerOptions{
+			SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },
+			UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error { return nil },
+		}
+	}
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "syre",
 		Version: version,
-	}, nil)
+	}, opts)
+
+	if pb, ok := backend.(PulseBackend); ok {
+		srv.AddResource(&mcp.Resource{
+			URI:         PulseResourceURI,
+			Name:        "pulse",
+			Title:       "Board pulse",
+			Description: "Latest compact Syre board pulse (fleet status, board counts, and actionable triggers).",
+			MIMEType:    "text/plain",
+		}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			text, err := pb.LatestPulse(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &mcp.ReadResourceResult{
+				Contents: []*mcp.ResourceContents{{
+					URI:      req.Params.URI,
+					MIMEType: "text/plain",
+					Text:     text,
+				}},
+			}, nil
+		})
+	}
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "fleet_status",

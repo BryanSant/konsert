@@ -416,6 +416,7 @@ func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("ticket", tk)
+	s.hub.pulseTicketDecompositionCheck(r.Context(), tk)
 	writeJSON(w, http.StatusCreated, tk)
 }
 
@@ -519,6 +520,15 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 	} else if (updated.Status == store.TicketStatusFailed || updated.Status == store.TicketStatusCanceled) && updated.Status != prevStatus {
 		s.hub.closeTicketChats(r.Context(), updated.ID)
 	}
+	if updated.Status != prevStatus {
+		switch updated.Status {
+		case store.TicketStatusReview, store.TicketStatusFailed, store.TicketStatusNeedsYou:
+			s.hub.pulseTicketTransition(r.Context(), updated, nil, nil, "")
+		case store.TicketStatusDone, store.TicketStatusCanceled:
+			s.hub.checkProjectBoardIdle(r.Context(), updated.ProjectID)
+		}
+	}
+	s.hub.pulseTicketDecompositionCheck(r.Context(), updated)
 	if updated.Status == store.TicketStatusReady || updated.Status == store.TicketStatusDone || updated.Status == store.TicketStatusReview {
 		s.hub.kickScheduler()
 	}
@@ -692,6 +702,9 @@ func (s *Server) handlePutTicketRepoBinding(w http.ResponseWriter, r *http.Reque
 	if err := s.store.PutTicketRepoBinding(r.Context(), b); err != nil {
 		writeWorkError(w, err)
 		return
+	}
+	if tk, gErr := s.store.GetTicket(r.Context(), id); gErr == nil {
+		s.hub.pulseTicketDecompositionCheck(r.Context(), tk)
 	}
 	writeJSON(w, http.StatusOK, b)
 }
