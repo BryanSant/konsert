@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -98,6 +99,7 @@ func (s *Server) Forges() forge.Resolver { return s.forges.resolver }
 
 func (s *Server) registerForgeRoutes() {
 	s.mux.Handle("GET /api/forges", s.requireBrowserAuth(s.handleListForges))
+	s.mux.Handle("POST /api/forges/detect", s.requireBrowserAuth(s.handleDetectForge))
 	s.mux.Handle("PUT /api/forges/{host}/token", s.requireBrowserAuth(s.handlePutForgeToken))
 	s.mux.Handle("DELETE /api/forges/{host}/token", s.requireBrowserAuth(s.handleDeleteForgeToken))
 	s.mux.Handle("POST /api/forges/{host}/device", s.requireBrowserAuth(s.handleStartForgeDevice))
@@ -124,6 +126,75 @@ func (s *Server) handleListForges(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"forges": resp})
+}
+
+// handleDetectForge serves POST /api/forges/detect {"remote_url": "..."} or {"host": "..."}.
+// Uses the resolver's Detect to identify and record the host without touching credentials.
+func (s *Server) handleDetectForge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RemoteURL string `json:"remote_url"`
+		Host      string `json:"host"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	raw := strings.TrimSpace(body.RemoteURL)
+	if raw == "" {
+		raw = strings.TrimSpace(body.Host)
+	}
+	if raw == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "remote_url or host is required"})
+		return
+	}
+
+	target, ok := normalizeDetectTarget(raw)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid remote URL or hostname"})
+		return
+	}
+
+	repo, err := s.forges.resolver.Detect(r.Context(), target)
+	if err != nil {
+		if errors.Is(err, forge.ErrUnknownForge) {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "could not detect a supported forge (GitHub, GitLab, or Forgejo)"})
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"host":     repo.Host,
+		"kind":     repo.Kind,
+		"api_base": repo.APIBase,
+	})
+}
+
+// normalizeDetectTarget accepts a full git remote URL, an http(s) origin URL, or a bare
+// hostname (with optional port) and returns a remote URL string suitable for forge.Detect.
+func normalizeDetectTarget(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if _, _, _, err := forge.ParseRemoteURL(raw); err == nil {
+		return raw, true
+	}
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return "", false
+		}
+		scheme := strings.ToLower(u.Scheme)
+		if scheme != "http" && scheme != "https" {
+			return "", false
+		}
+		return scheme + "://" + u.Host + "/_/repo", true
+	}
+	if host, ok := validForgeHost(raw); ok {
+		return "https://" + host + "/_/repo", true
+	}
+	return "", false
 }
 
 // handlePutForgeToken serves PUT /api/forges/{host}/token {"token": "...", "kind": "..."}.

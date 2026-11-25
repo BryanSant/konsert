@@ -157,6 +157,10 @@ func (res *DefaultResolver) RecordHost(host string, kind Kind) {
 		return
 	}
 	res.mu.Lock()
+	if cur, ok := res.hosts[host]; ok && cur.kind == kind && cur.apiBase != "" {
+		res.mu.Unlock()
+		return
+	}
 	res.hosts[host] = cachedHost{
 		kind:    kind,
 		apiBase: APIBaseFor(res.detector.scheme(), kind, host),

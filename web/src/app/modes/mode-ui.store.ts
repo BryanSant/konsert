@@ -18,6 +18,7 @@ export class ModeUiStore {
   readonly fleetLoaded = signal(false);
   readonly paletteOpen = signal(false);
   readonly settingsOpen = signal(false);
+  readonly settingsSection = signal<'forges' | null>(null);
   readonly addMachineOpen = signal(false);
   readonly sessionRequest = signal<SessionDispatchRequest | null>(null);
   readonly inspectedWorkerId = signal<string | null>(null);
@@ -40,9 +41,20 @@ export class ModeUiStore {
     void this.router.navigate(['/command', sid]);
   }
 
+  openSettings(section: 'forges' | null = null): void {
+    this.settingsSection.set(section);
+    this.settingsOpen.set(true);
+  }
+
+  closeSettings(): void {
+    this.settingsOpen.set(false);
+    this.settingsSection.set(null);
+  }
+
   closeAll(): void {
     this.paletteOpen.set(false);
     this.settingsOpen.set(false);
+    this.settingsSection.set(null);
     this.addMachineOpen.set(false);
     this.sessionRequest.set(null);
     this.inspectedWorkerId.set(null);

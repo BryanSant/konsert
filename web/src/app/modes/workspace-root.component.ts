@@ -64,7 +64,11 @@ import { ModeUiStore } from './mode-ui.store';
       />
     }
     @if (ui.settingsOpen()) {
-      <app-settings-modal (close)="ui.settingsOpen.set(false)" (openDevices)="ui.settingsOpen.set(false); ui.devicesOpen.set($event)" />
+      <app-settings-modal
+        [focusSection]="ui.settingsSection()"
+        (close)="ui.closeSettings()"
+        (openDevices)="ui.closeSettings(); ui.devicesOpen.set($event)"
+      />
     }
     @if (ui.sessionRequest(); as req) {
       <app-session-dispatch-modal [request]="req" (close)="ui.sessionRequest.set(null)" (started)="onStarted($event)" />
