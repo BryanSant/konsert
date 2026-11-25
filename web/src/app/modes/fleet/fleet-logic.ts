@@ -32,6 +32,37 @@ export function machineBadge(w: Worker, running: number): MachineBadge {
   return 'OK';
 }
 
+/** "45s", "5m", "2h": a short wait. */
+export function shortWait(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${Math.round(s / 3600)}h`;
+}
+
+/**
+ * What an offline machine row says about its konsertd: starting, failed, or (KON-JAX1E)
+ * "konsertd down — restarting (attempt 3, next in 5m): <last error>" while the hub
+ * restarts a daemon that died, and "unreachable over SSH" while it re-dials a host.
+ */
+export function offlineText(w: Worker, now: number): string {
+  const r = w.restart;
+  const err = (w.launch_state === 'failed' && w.launch_error) || r?.error || '';
+  const tail = err ? `: ${err}` : '';
+  if (w.launch_state === 'starting') {
+    return r?.attempt ? `konsertd down — restarting (attempt ${r.attempt})…` : 'starting konsertd…';
+  }
+  if (r?.state === 'down') {
+    if (!r.attempt) return `konsertd down${tail}`;
+    const next = r.next_at ? Date.parse(r.next_at) - now : 0;
+    const when = next > 0 ? `next in ${shortWait(next)}` : 'next soon';
+    return `konsertd down — restarting (attempt ${r.attempt}, ${when})${tail}`;
+  }
+  if (r?.state === 'unreachable') return `unreachable over SSH — re-dialing${r.error ? `: ${r.error}` : ''}`;
+  if (w.launch_state === 'failed') return `could not start: ${w.launch_error || 'see Details'}`;
+  return 'offline: not reporting';
+}
+
 /** "macOS · arm64 · 10c / 16G" */
 /** The transport a machine row shows: how its konsertd reaches the hub. */
 export function transportLabel(w: Worker): string {

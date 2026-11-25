@@ -82,7 +82,8 @@ func (f *fakeDaemons) dial(id string) (net.Conn, error) {
 	f.dials[id]++
 	f.mu.Unlock()
 	if !ok {
-		return nil, errors.New("dial unix: connect: no such file or directory")
+		// What `konsertd attach` says when the daemon is not running.
+		return nil, errors.New("Error: " + sshutil.DaemonDownMarker + " (no socket at fake.sock): dial unix fake.sock: connect: no such file or directory")
 	}
 	hubSide, daemonSide := net.Pipe()
 	go f.serve(id, info, daemonSide)

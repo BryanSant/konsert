@@ -126,6 +126,8 @@ func newLaunchTest(t *testing.T) *launchTest {
 	srv.attach.dialSSH = func(_ context.Context, _, _, workerID string) (net.Conn, error) { return lt.daemons.dial(workerID) }
 	srv.attach.dialLocal = func(_ context.Context, workerID string) (net.Conn, error) { return lt.daemons.dial(workerID) }
 	srv.attach.minBackoff, srv.attach.maxBackoff = 20*time.Millisecond, 100*time.Millisecond
+	// Automatic restarts (restart.go) stay off unless a test turns them on.
+	srv.hub.restarts.holdUntil(time.Now().Add(time.Hour))
 	lt.ts = httptest.NewServer(srv)
 	srv.SetListenAddr("127.0.0.1:8420")
 	t.Cleanup(func() {
@@ -348,7 +350,7 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	}
 }
 
-func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
+func TestReconcilerClearsStaleLaunchStatesAndStartRetries(t *testing.T) {
 	lt := newLaunchTest(t)
 	ctx := context.Background()
 	mk := func(id, name, launch, target string) {
@@ -363,28 +365,19 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 	mk(connectedSSH, "up", store.LaunchSSH, "me@up")
 	mk(manual, "hand", store.LaunchManual, "")
 	lt.connect(t, testWorkerInfo(connectedSSH, "up"))
-	lt.srv.launch.connectTimeout = 200 * time.Millisecond
+	// Left over from an earlier hub run: a start that never finished, and a failure.
+	_ = lt.st.SetWorkerLaunchState(ctx, localID, store.LaunchStateStarting, "", time.Now())
+	_ = lt.st.SetWorkerLaunchState(ctx, remoteID, store.LaunchStateFailed, "unreachable", time.Now())
 
 	lt.srv.reconcileLaunches(ctx)
-	lt.srv.reconcileLaunches(ctx) // one attempt per host per hub run
-	waitFor(t, 3*time.Second, "both starts to finish", func() bool {
-		return lt.worker(t, localID).LaunchState == store.LaunchStateFailed && lt.worker(t, remoteID).LaunchState == store.LaunchStateFailed
-	})
-	if calls, _ := lt.runner.installCalls(); len(calls) != 1 {
-		t.Fatalf("local installs = %q", calls)
+	if w := lt.worker(t, localID); w.LaunchState != store.LaunchStateNone {
+		t.Fatalf("stale starting state kept: %+v", w)
 	}
-	boots := lt.bootstraps()
-	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].HubKey == nil || !strings.HasPrefix(boots[0].HubKey.PublicKey, "ssh-ed25519 ") {
-		t.Fatalf("bootstraps = %+v", boots)
+	if w := lt.worker(t, remoteID); w.LaunchState != store.LaunchStateFailed {
+		t.Fatalf("a real failure must stay visible: %+v", w)
 	}
-	if w := lt.worker(t, remoteID); !strings.Contains(w.LaunchError, "unreachable") {
-		t.Fatalf("ssh error not recorded: %+v", w)
-	}
-	if w := lt.worker(t, connectedSSH); w.LaunchState != store.LaunchStateNone {
-		t.Fatalf("connected worker touched: %+v", w)
-	}
-	if w := lt.worker(t, manual); w.LaunchState != store.LaunchStateNone || w.LaunchAt != nil {
-		t.Fatalf("manual worker touched: %+v", w)
+	if calls, _ := lt.runner.installCalls(); len(calls) != 0 || len(lt.bootstraps()) != 0 {
+		t.Fatalf("the reconciler itself starts nothing (restarts are the attach loops'): %q %+v", calls, lt.bootstraps())
 	}
 
 	// The API retries on demand; it refuses machines the hub does not start.
@@ -402,14 +395,21 @@ func TestReconcilerStartsDisconnectedLaunchHostsOnce(t *testing.T) {
 		w := lt.worker(t, remoteID)
 		return lt.srv.hub.IsWorkerConnected(remoteID) && w.LaunchState == store.LaunchStateNone
 	})
+	boots := lt.bootstraps()
+	if len(boots) != 1 || boots[0].Target != "me@box" || boots[0].HubKey == nil || !strings.HasPrefix(boots[0].HubKey.PublicKey, "ssh-ed25519 ") {
+		t.Fatalf("bootstraps = %+v", boots)
+	}
 	if code, _ := lt.do(t, http.MethodPost, "/api/workers/"+manual+"/start"); code != http.StatusConflict {
 		t.Fatalf("manual start: %d", code)
 	}
 	if code, body := lt.do(t, http.MethodPost, "/api/workers/"+connectedSSH+"/start"); code != 200 || body["state"] != "connected" {
 		t.Fatalf("connected start: %d %v", code, body)
 	}
-	if len(lt.bootstraps()) != 2 {
+	if len(lt.bootstraps()) != 1 {
 		t.Fatalf("bootstraps = %+v", lt.bootstraps())
+	}
+	if w := lt.worker(t, manual); w.LaunchState != store.LaunchStateNone || w.LaunchAt != nil {
+		t.Fatalf("manual worker touched: %+v", w)
 	}
 }
 

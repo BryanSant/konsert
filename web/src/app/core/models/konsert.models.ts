@@ -103,6 +103,8 @@ export interface Worker {
   launch_state?: WorkerLaunchState;
   launch_error?: string;
   launch_at?: string;
+  /** Outage of a hub-started daemon the hub cannot attach to; absent while connected. */
+  restart?: WorkerRestart;
   /** Drained: the machine accepts no new work and finishes what it runs. */
   drained?: boolean;
   drained_at?: string;
@@ -113,6 +115,22 @@ export interface Worker {
 export type WorkerLaunch = 'local' | 'ssh';
 export type WorkerTransport = 'ssh' | 'local' | 'outbound';
 export type WorkerLaunchState = 'starting' | 'failed';
+
+/**
+ * The hub cannot attach to a daemon it starts: 'unreachable' (ssh cannot reach the host;
+ * the hub keeps re-dialing) or 'down' (the host answers, konsertd is not running; the hub
+ * restarts it with backoff).
+ */
+export interface WorkerRestart {
+  state: 'unreachable' | 'down';
+  /** Restarts so far in this outage. */
+  attempt?: number;
+  /** Earliest next restart. */
+  next_at?: string;
+  /** Last attach error. */
+  error?: string;
+  since: string;
+}
 
 /** The hub's own machine, as GET /api/setup reports it. */
 export interface LocalHostInfo {

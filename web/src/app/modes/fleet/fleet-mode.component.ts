@@ -27,6 +27,7 @@ import {
   describeStrip,
   heatStrip,
   machineRows,
+  offlineText,
   queueReasons,
   shellChip,
   shellRows,
@@ -747,9 +748,7 @@ export class FleetModeComponent {
   readonly transportIcon = transportIcon;
 
   offlineText(w: Worker): string {
-    if (w.launch_state === 'starting') return 'starting konsertd…';
-    if (w.launch_state === 'failed') return `could not start: ${w.launch_error || 'see Details'}`;
-    return 'offline: not reporting';
+    return offlineText(w, this.clock());
   }
 
   select(w: Worker): void {

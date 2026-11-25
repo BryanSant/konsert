@@ -25,6 +25,7 @@ import {
   heatText,
   machineBadge,
   machineRows,
+  offlineText,
   queueReasons,
   shellChip,
   shellRows,
@@ -333,5 +334,25 @@ describe('machine transport', () => {
     expect(transportIcon(worker('c', 'far'))).toBe('globe');
     expect(transportHint(worker('a', 'box', { transport: 'ssh', ssh_target: 'me@box' }))).toContain('over SSH (me@box)');
     expect(transportHint(worker('c', 'far', { transport: 'outbound' }))).toContain('machine credential');
+  });
+});
+
+describe('machine restart state', () => {
+  it('says when the hub restarts a daemon that died, and when a host is unreachable', () => {
+    const next = iso(NOW + 5 * 60_000);
+    const down = worker('a', 'box', { status: 'offline', transport: 'ssh', restart: { state: 'down', attempt: 3, next_at: next, error: 'konsertd is not running here', since: iso(NOW - 600_000) } });
+    expect(offlineText(down, NOW)).toBe('konsertd down — restarting (attempt 3, next in 5m): konsertd is not running here');
+    // The last start's error wins over the attach error.
+    expect(offlineText({ ...down, launch_state: 'failed', launch_error: '[configuring_service] konsertd install failed' }, NOW)).toBe(
+      'konsertd down — restarting (attempt 3, next in 5m): [configuring_service] konsertd install failed',
+    );
+    expect(offlineText({ ...down, launch_state: 'starting' }, NOW)).toBe('konsertd down — restarting (attempt 3)…');
+    expect(offlineText(down, NOW + 6 * 60_000)).toBe('konsertd down — restarting (attempt 3, next soon): konsertd is not running here');
+    expect(offlineText(worker('b', 'box', { status: 'offline', restart: { state: 'down', error: 'gone', since: iso(NOW) } }), NOW)).toBe('konsertd down: gone');
+    expect(offlineText(worker('c', 'far', { status: 'offline', restart: { state: 'unreachable', error: 'ssh: connect to host far port 22: Connection refused', since: iso(NOW) } }), NOW)).toBe(
+      'unreachable over SSH — re-dialing: ssh: connect to host far port 22: Connection refused',
+    );
+    expect(offlineText(worker('d', 'x', { status: 'offline', launch_state: 'starting' }), NOW)).toBe('starting konsertd…');
+    expect(offlineText(worker('e', 'x', { status: 'offline' }), NOW)).toBe('offline: not reporting');
   });
 });

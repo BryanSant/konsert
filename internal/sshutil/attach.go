@@ -174,3 +174,68 @@ func (b *tailBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+// AttachFailure is what a failed attach says about the machine (KON-JAX1E).
+type AttachFailure int
+
+const (
+	// AttachFailureOther: the link failed for another reason (a handshake that timed
+	// out, an identity the hub refused); nothing says the daemon is down.
+	AttachFailureOther AttachFailure = iota
+	// AttachUnreachable: ssh could not reach or log in to the host (no route, refused,
+	// timed out, DNS, host key, the hub key refused). Restarting konsertd cannot help.
+	AttachUnreachable
+	// AttachDaemonDown: the host answered, but its konsertd is not running (the forced
+	// command found no socket) or its binary is gone.
+	AttachDaemonDown
+)
+
+func (f AttachFailure) String() string {
+	switch f {
+	case AttachUnreachable:
+		return "unreachable"
+	case AttachDaemonDown:
+		return "daemon_down"
+	}
+	return "other"
+}
+
+// DaemonDownMarker starts `konsertd attach`'s error when the daemon's socket is not
+// there (worker.Attach).
+const DaemonDownMarker = "konsertd is not running here"
+
+// sshFailures are ssh's own messages for a host it could not reach or log in to.
+var sshFailures = []string{
+	"ssh: connect to host", "Could not resolve hostname", "Connection refused",
+	"Connection timed out", "Operation timed out", "No route to host", "Network is unreachable",
+	"Host is down", "Connection closed by", "Connection reset by", "kex_exchange_identification",
+	"Permission denied", "Host key verification failed", "REMOTE HOST IDENTIFICATION HAS CHANGED",
+	"host key is known for", "Too many authentication failures", "banner exchange",
+	"Bad owner or permissions",
+}
+
+// forcedCommandMissing are the shells' messages when the forced command's binary is
+// gone (the host answered and ran the command).
+var forcedCommandMissing = []string{
+	"No such file or directory", "command not found", ": not found", "cannot execute",
+	"is not recognized as an internal or external command",
+}
+
+// ClassifyAttachFailure reads the error of a failed SSH attach (ssh's stderr or
+// `konsertd attach`'s) and says whether the host was unreachable or its daemon down.
+func ClassifyAttachFailure(msg string) AttachFailure {
+	if strings.Contains(msg, DaemonDownMarker) {
+		return AttachDaemonDown
+	}
+	for _, s := range sshFailures {
+		if strings.Contains(msg, s) {
+			return AttachUnreachable
+		}
+	}
+	for _, s := range forcedCommandMissing {
+		if strings.Contains(msg, s) {
+			return AttachDaemonDown
+		}
+	}
+	return AttachFailureOther
+}
