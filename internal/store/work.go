@@ -275,3 +275,23 @@ type TicketRollup struct {
 	Running  int    `json:"running"`
 	Blocked  int    `json:"blocked"`
 }
+
+// MaxTicketCommentChars is the maximum length (in runes) of a ticket comment body.
+const MaxTicketCommentChars = 500
+
+// TicketComment is a short progress note or comment posted on a ticket.
+type TicketComment struct {
+	ID        string    `json:"id"`
+	TicketID  string    `json:"ticket_id"`
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TaskFollowup is a proposed follow-up ticket recorded by an agent session via ticket_followup.
+type TaskFollowup struct {
+	Title     string    `json:"title"`
+	Why       string    `json:"why,omitempty"`
+	Scope     string    `json:"scope,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+}

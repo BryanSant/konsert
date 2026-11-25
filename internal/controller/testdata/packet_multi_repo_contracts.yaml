@@ -1,0 +1,13 @@
+ticket: tk-20002
+project: billing
+repos:
+  - {name: api, path: /work/tk-20002/api, branch: feat/jwt-rotation}
+  - {name: web, path: /work/tk-20002/web, branch: feat/jwt-rotation}
+objective: Rotate refresh tokens every 15m and retry once on 401 in the web client.
+acceptance:
+  - Rotate on /auth/refresh; invalidate the token family on reuse.
+  - Web fetch wrapper retries once on 401.
+contracts:
+  - "tk-20001 (done): POST /v2/auth/refresh returns {access_token, refresh_token, expires_in}"
+verify: go test ./pkg/auth/... && npm --prefix web test
+tools: ticket_get, ticket_check, ticket_comment, ticket_followup, ask_user

@@ -37,28 +37,6 @@ func (h *Hub) ticketLeaseTTL(ctx context.Context) time.Duration {
 	return store.DefaultTicketLeaseTTL
 }
 
-// buildTicketPlaceholderPrompt builds a placeholder task prompt from a ticket's title,
-// body, and acceptance criteria. Replaced by the compiled dispatch packet in A3a.
-func buildTicketPlaceholderPrompt(tk store.Ticket) string {
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(tk.Title))
-	if body := strings.TrimSpace(tk.Body); body != "" {
-		b.WriteString("\n\n")
-		b.WriteString(body)
-	}
-	if len(tk.Acceptance) > 0 {
-		b.WriteString("\n\nAcceptance criteria:\n")
-		for _, item := range tk.Acceptance {
-			mark := "[ ]"
-			if item.Done {
-				mark = "[x]"
-			}
-			fmt.Fprintf(&b, "- %s %s\n", mark, strings.TrimSpace(item.Text))
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
 // ticketWorkerSelector maps a ticket's placement hints onto a WorkerSelector.
 func (h *Hub) ticketWorkerSelector(ctx context.Context, tk store.Ticket) WorkerSelector {
 	sel := WorkerSelector{
@@ -158,7 +136,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			continue
 		}
 		firstBinding := bindings[0]
-		prompt := buildTicketPlaceholderPrompt(tk)
+		holdText := strings.TrimSpace(tk.Title + "\n" + tk.Body)
 		sel := h.ticketWorkerSelector(ctx, tk)
 
 		agent := strings.TrimSpace(tk.Hints.Agent)
@@ -170,11 +148,11 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			model = defaultModel
 		}
 
-		// Filter workers through holds (machine holds and resource holds matching prompt).
+		// Filter workers through holds (machine holds and resource holds matching ticket text).
 		eligible := make([]store.Worker, 0, len(workers))
 		lifted := map[string]*store.Override{}
 		for _, w := range workers {
-			if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, text: prompt}); !held {
+			if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, text: holdText}); !held {
 				eligible = append(eligible, w)
 				lifted[w.ID] = ov
 			}
@@ -219,6 +197,14 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		if err != nil || !claimed {
 			continue
 		}
+
+		pkt, err := h.CompileDispatchPacket(ctx, claimedTk.ID, PacketOptions{WorkerID: w.ID})
+		if err != nil {
+			h.logger.Warn("compile dispatch packet failed; releasing lease", "ticket_id", tk.ID, "err", err)
+			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
+			continue
+		}
+		prompt := FormatDispatchPrompt(pkt)
 
 		workdir := ""
 		branch := firstBinding.TargetBranch

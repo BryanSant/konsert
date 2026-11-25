@@ -175,6 +175,7 @@ type Task struct {
 	Summary            string         `json:"summary"`
 	GitSummaryJSON     string         `json:"git_summary_json,omitempty"`
 	DigestJSON         string         `json:"digest_json,omitempty"`
+	Followups          []TaskFollowup `json:"followups,omitempty"`
 	Worktrees          []TaskWorktree `json:"worktrees,omitempty"`
 	WorktreesCleanedAt *time.Time     `json:"worktrees_cleaned_at,omitzero"`
 	ExitCode           *int           `json:"exit_code,omitzero"`
@@ -358,6 +359,9 @@ type ChatSession struct {
 	// ForkOf is the chat whose agent session it forked ("" for the commander fallback).
 	QuestionID string `json:"question_id,omitempty"`
 	ForkOf     string `json:"fork_of,omitempty"`
+	// TaskID / TicketID link an agent chat session to the task and/or ticket it works on.
+	TaskID   string `json:"task_id,omitempty"`
+	TicketID string `json:"ticket_id,omitempty"`
 	// Keep: the user pinned the chat, so retention never compacts it. CompactedAt is
 	// when retention last dropped detailed events (tool calls, reasoning) of turns that
 	// ended before CompactedBefore; the transcript itself is kept. Set by retention
@@ -533,6 +537,10 @@ type Store interface {
 	RemoveExternalRef(ctx context.Context, ticketID, tracker, externalID string) error
 	ListExternalRefs(ctx context.Context, ticketID string) ([]ExternalRef, error)
 
+	// Short comments posted on tickets (agent sessions and operators).
+	CreateTicketComment(ctx context.Context, c TicketComment) (TicketComment, error)
+	ListTicketComments(ctx context.Context, ticketID string) ([]TicketComment, error)
+
 	// Computed rollups (done/total, blocked, running) for initiative/epic containers; never stored.
 	GetTicketRollup(ctx context.Context, id string) (TicketRollup, error)
 
@@ -561,6 +569,8 @@ type Store interface {
 	UpdateTaskWorktrees(ctx context.Context, id string, worktrees []TaskWorktree) error
 	// UpdateTaskDigest persists the JSON-encoded post-run RunDigest reported by the daemon.
 	UpdateTaskDigest(ctx context.Context, id, digestJSON string) error
+	// AppendTaskFollowup appends a proposed follow-up to the task's followups_json array.
+	AppendTaskFollowup(ctx context.Context, id string, f TaskFollowup) ([]TaskFollowup, error)
 	// MarkTaskWorktreesCleaned records that the task's provisioned worktrees have been removed.
 	MarkTaskWorktreesCleaned(ctx context.Context, id string, at time.Time) error
 	// ListTasksByTicket returns tasks linked to ticketID, newest first.

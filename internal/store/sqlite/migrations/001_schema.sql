@@ -147,6 +147,16 @@ CREATE TABLE external_refs (
 ) WITHOUT ROWID;
 CREATE INDEX idx_external_refs_lookup ON external_refs(tracker, external_id);
 
+-- Short comments on tickets posted by agent sessions or operators.
+CREATE TABLE ticket_comments (
+    id         TEXT PRIMARY KEY,
+    ticket_id  TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    author     TEXT NOT NULL DEFAULT '',
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ticket_comments_ticket ON ticket_comments(ticket_id, created_at ASC);
+
 CREATE TABLE tasks (
     id                 TEXT PRIMARY KEY,
     sid                TEXT NOT NULL UNIQUE,
@@ -173,6 +183,7 @@ CREATE TABLE tasks (
     summary            TEXT NOT NULL DEFAULT '',
     git_summary_json   TEXT NOT NULL DEFAULT '',
     digest_json        TEXT NOT NULL DEFAULT '',
+    followups_json     TEXT NOT NULL DEFAULT '',
     worktrees_json     TEXT NOT NULL DEFAULT '',
     worktrees_cleaned_at TEXT,
     exit_code          INTEGER,
@@ -247,6 +258,9 @@ CREATE TABLE chat_sessions (
     -- commander fallback). Hidden chats never appear in the chat list.
     question_id      TEXT NOT NULL DEFAULT '',
     fork_of          TEXT NOT NULL DEFAULT '',
+    -- Optional linkage when this chat session works on a task / ticket.
+    task_id          TEXT NOT NULL DEFAULT '',
+    ticket_id        TEXT NOT NULL DEFAULT '',
     -- Retention (SYR-CSCWP). keep: pinned by the user, never compacted. Retention drops
     -- the bulky events (tool calls, reasoning, plans, usage; see store.ChatEventKeepKinds)
     -- of turns older than the detail period: compacted_seq is the last seq it covered,

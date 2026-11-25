@@ -1,0 +1,9 @@
+ticket: tk-10001
+project: billing
+repos:
+  - {name: api, path: /work/tk-10001/api, branch: feat/jwt-rotation}
+objective: Rotate refresh tokens every 15m and revoke reused families.
+acceptance:
+  - Rotate on /auth/refresh; invalidate the token family on reuse.
+verify: go test ./pkg/auth/...
+tools: ticket_get, ticket_check, ticket_comment, ticket_followup, ask_user

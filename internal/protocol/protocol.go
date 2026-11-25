@@ -243,6 +243,9 @@ type MachineFacts struct {
 	Shells []TerminalShell `json:"shells,omitempty"`
 	// Checkouts lists local git checkouts discovered under the daemon's configured roots.
 	Checkouts []ReportedCheckout `json:"checkouts,omitempty"`
+	// WorkdirRoot is the resolved base directory under which per-ticket worktrees
+	// (<workdir_root>/<ticket sid>/<repo name>) are provisioned on this worker.
+	WorkdirRoot string `json:"workdir_root,omitempty"`
 	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
 	// only runs while the user is signed in); "" elsewhere or when unknown.
