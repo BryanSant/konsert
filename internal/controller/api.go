@@ -739,6 +739,8 @@ type settingsResponse struct {
 	TicketLeaseTTLSeconds int `json:"ticket_lease_ttl_seconds"`
 	// VerifyTimeoutSeconds is the timeout for ticket verification commands in seconds (default 1200 = 20m).
 	VerifyTimeoutSeconds int `json:"verify_timeout_seconds"`
+	// PulseDebounceSeconds is the board pulse batching window in seconds (default 20s).
+	PulseDebounceSeconds int `json:"pulse_debounce_seconds"`
 	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -784,6 +786,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		DefaultMergeStyle:     firstNonEmpty(saved[mergeStyleSetting], store.MergeStyleSquash),
 		TicketLeaseTTLSeconds: int(s.hub.ticketLeaseTTL(ctx).Seconds()),
 		VerifyTimeoutSeconds:  int(s.hub.verifyTimeout(ctx).Seconds()),
+		PulseDebounceSeconds:  int(s.hub.pulseDebounce(ctx).Seconds()),
 		CommanderBackend:      store.ChatBackendAgent,
 		CommanderChatID:       saved[commanderChatSetting],
 	}

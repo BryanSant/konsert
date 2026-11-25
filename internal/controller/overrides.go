@@ -402,6 +402,7 @@ func (h *Hub) expireOverrides(ctx context.Context, now time.Time) {
 			Summary:  fmt.Sprintf("Override %s (%s) expired; %s. The limit or hold applies again: ask the user (request_override) if you still need it.", cur.SID, h.overrideScopeLabel(ctx, cur), usage),
 			MetaJSON: auditMeta(map[string]any{"override_sid": cur.SID, "use_count": cur.UseCount}),
 		})
+		h.NotifyDirectiveExpiring(ctx, "", cur.ChatID, fmt.Sprintf("override %s expired", cur.SID))
 	}
 }
 

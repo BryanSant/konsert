@@ -50,6 +50,8 @@ type SettingsUpdate struct {
 	TicketLeaseTTLSeconds *int `json:"ticket_lease_ttl_seconds"`
 	// VerifyTimeoutSeconds is the verification command timeout in seconds (default 1200 = 20m).
 	VerifyTimeoutSeconds *int `json:"verify_timeout_seconds"`
+	// PulseDebounceSeconds is the board pulse batching window in seconds (default 20s).
+	PulseDebounceSeconds *int `json:"pulse_debounce_seconds"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -162,6 +164,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		updates[verifyTimeoutSetting] = strconv.Itoa(*u.VerifyTimeoutSeconds)
 	}
+	if u.PulseDebounceSeconds != nil {
+		if *u.PulseDebounceSeconds < minPulseDebounceSeconds || *u.PulseDebounceSeconds > maxPulseDebounceSeconds {
+			return errInvalidSettings{fmt.Errorf("%s must be between %d and %d", pulseDebounceSetting, minPulseDebounceSeconds, maxPulseDebounceSeconds)}
+		}
+		updates[pulseDebounceSetting] = strconv.Itoa(*u.PulseDebounceSeconds)
+	}
 
 	if len(updates) > 0 {
 		if err := s.store.SetSettings(ctx, updates); err != nil {
@@ -271,6 +279,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.VerifyTimeoutSeconds = &n
+		case pulseDebounceSetting:
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.PulseDebounceSeconds = &n
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -311,6 +325,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"default_merge_style":      r.DefaultMergeStyle,
 		"ticket_lease_ttl_seconds": r.TicketLeaseTTLSeconds,
 		"verify_timeout_seconds":   r.VerifyTimeoutSeconds,
+		"pulse_debounce_seconds":   r.PulseDebounceSeconds,
 		"commander_backend":        r.CommanderBackend,
 		"api_key_required":         r.APIKeyRequired,
 	}

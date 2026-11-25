@@ -215,6 +215,9 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		return
 	}
 
+	// Batch any ready tickets missing repo bindings or marked needs_decomposition into a pulse.
+	h.scanTicketsAwaitingDecomposition(ctx, autopilotProjects)
+
 	tickets, err := h.store.ListDispatchableTickets(ctx, "", 200)
 	if err != nil || len(tickets) == 0 {
 		return
@@ -425,6 +428,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			h.broadcastFleetUpdate("task", updatedTask)
 		}
 		h.broadcastFleetUpdate("ticket", claimedTk)
+		h.markProjectActive(claimedTk.ProjectID)
 	}
 }
 
@@ -686,15 +690,20 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			}
 		}
 	}
-	if dig != nil && task != nil {
+	// Keep merged digest around for pulse triggers below.
+	var mergedDig *protocol.RunDigest
+	if dig != nil {
 		d := *dig
 		if attempt := max(tk.Attempt, 1); d.Attempt < attempt {
 			d.Attempt = attempt
 		}
-		mergeTaskFollowupsIntoDigest(&d, task.Followups)
-		if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
-			_ = h.store.UpdateTaskDigest(ctx, task.ID, string(b))
+		if task != nil {
+			mergeTaskFollowupsIntoDigest(&d, task.Followups)
+			if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
+				_ = h.store.UpdateTaskDigest(ctx, task.ID, string(b))
+			}
 		}
+		mergedDig = &d
 	}
 
 	// Only drive ticket transitions if this chat belongs to the ticket's current run.
@@ -708,6 +717,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			tk.Status = store.TicketStatusNeedsYou
 			if updated, err := h.store.UpdateTicket(ctx, tk); err == nil {
 				h.broadcastFleetUpdate("ticket", updated)
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, "question")
 			}
 		}
 		if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
@@ -737,6 +747,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		case "cancelled":
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusCanceled); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
+				h.checkProjectBoardIdle(ctx, updated.ProjectID)
 			}
 			if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
 				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusCanceled, summary, "", nil, causeScheduler)
@@ -745,6 +756,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		case "error":
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
 			}
 			if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
 				code := 1
@@ -779,11 +791,13 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				if escalateOnBlocker {
 					if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusNeedsYou); err == nil && changed {
 						h.broadcastFleetUpdate("ticket", updated)
+						h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindVerify)
 						h.kickScheduler()
 					} else if tk.Lease == nil {
 						tk.Status = store.TicketStatusNeedsYou
 						if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 							h.broadcastFleetUpdate("ticket", updated)
+							h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindVerify)
 							h.kickScheduler()
 						}
 					}
@@ -794,11 +808,13 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				}
 				if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
 					h.broadcastFleetUpdate("ticket", updated)
+					h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindVerify)
 					h.kickScheduler()
 				} else if tk.Lease == nil {
 					tk.Status = store.TicketStatusFailed
 					if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 						h.broadcastFleetUpdate("ticket", updated)
+						h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindVerify)
 						h.kickScheduler()
 					}
 				}
@@ -810,12 +826,14 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			}
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
 				h.kickScheduler()
 			} else if tk.Lease == nil {
 				// Follow-up turn from review (no active lease): transition back to review.
 				tk.Status = store.TicketStatusReview
 				if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 					h.broadcastFleetUpdate("ticket", updated)
+					h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
 					h.kickScheduler()
 				}
 			}
@@ -835,10 +853,12 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		}
 		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
 			h.broadcastFleetUpdate("ticket", updated)
+			h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
 		} else if tk.Lease == nil {
 			tk.Status = store.TicketStatusFailed
 			if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 				h.broadcastFleetUpdate("ticket", updated)
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
 			}
 		}
 		if task != nil {
@@ -892,6 +912,8 @@ func (h *Hub) expireTicketLeases(ctx context.Context, now time.Time) {
 		h.broadcastFleetUpdate("ticket", ex.Ticket)
 		if ex.Ticket.Status == store.TicketStatusReady {
 			requeued = true
+		} else if ex.Ticket.Status == store.TicketStatusFailed {
+			h.pulseTicketTransition(ctx, ex.Ticket, nil, nil, protocol.ErrKindTimeout)
 		}
 	}
 	if requeued {

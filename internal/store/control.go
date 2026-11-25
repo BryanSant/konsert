@@ -59,6 +59,7 @@ const (
 	EventKindVeto     = "veto"     // Action: the veto reason
 	EventKindNotice   = "notice"   // Syre told an agent about something (Action: delivered)
 	EventKindQuestion = "question" // Action: answered | delegated | decided | overridden
+	EventKindPulse    = "pulse"    // Actionable autopilot/board pulse trigger (docs/design/autopilot.md)
 )
 
 // FleetEvent is one attributed event in the fleet timeline: every status transition and

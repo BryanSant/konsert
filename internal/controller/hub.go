@@ -94,6 +94,10 @@ type Hub struct {
 	pendingCauses map[string]pendingCause
 	// delivery batches fleet events for the commander chat (see delivery.go).
 	delivery deliveryState
+	// pulse batches actionable autopilot/board triggers for commanders (see pulse.go).
+	pulse         pulseState
+	PulseDebounce time.Duration
+	pulseNow      func() time.Time
 	// operatorCommands de-duplicates worker.operator_command reports by command id.
 	operatorCommands seenCommands
 
@@ -249,6 +253,7 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		shellNow:            time.Now,
 		DeliveryPollEvery:   deliveryPollEvery,
 		deliveryNow:         time.Now,
+		pulseNow:            time.Now,
 	}
 	h.questions.init()
 	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).

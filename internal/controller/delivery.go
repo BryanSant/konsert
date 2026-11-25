@@ -38,6 +38,10 @@ type deliveryState struct {
 // deliverFleetEvent schedules delivery of a newly recorded event. It never blocks: the
 // commander check runs on a background goroutine after a short debounce.
 func (h *Hub) deliverFleetEvent(e store.FleetEvent) {
+	if e.Kind == store.EventKindPulse {
+		h.schedulePulseDelivery()
+		return
+	}
 	if !eventRelevant(e) {
 		return
 	}
@@ -77,7 +81,7 @@ func (h *Hub) scheduleDelivery() {
 // that change nothing are not.
 func eventRelevant(e store.FleetEvent) bool {
 	switch e.Kind {
-	case store.EventKindHold, store.EventKindRequest, store.EventKindVeto:
+	case store.EventKindHold, store.EventKindRequest, store.EventKindVeto, store.EventKindPulse:
 		return true
 	case EventKindOverride:
 		// The commander hears the user's decision on its override request and when an
@@ -99,8 +103,8 @@ func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
 	if !eventRelevant(e) || e.Cause.ActorID == cs.ID {
 		return false
 	}
-	if e.Kind == EventKindOverride {
-		// Overrides are the commander's business only.
+	if e.Kind == EventKindOverride || e.Kind == store.EventKindPulse {
+		// Overrides and board pulses are the commander's business only.
 		return cs.FleetTools
 	}
 	if cs.FleetTools {
@@ -115,14 +119,21 @@ func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
 }
 
 // commanderWork is what a commander chat is responsible for: the tasks it
-// dispatched that are still live, and the machines they run on.
+// dispatched that are still live, their projects/tickets, and the machines they run on.
 type commanderWork struct {
 	tasks    map[string]bool
 	machines map[string]bool
+	projects map[string]bool
+	tickets  map[string]bool
 }
 
 func (h *Hub) commanderWorkOf(ctx context.Context, chatID string) commanderWork {
-	w := commanderWork{tasks: map[string]bool{}, machines: map[string]bool{}}
+	w := commanderWork{
+		tasks:    map[string]bool{},
+		machines: map[string]bool{},
+		projects: map[string]bool{},
+		tickets:  map[string]bool{},
+	}
 	tasks, err := h.store.ListTasks(ctx, "", "", 500)
 	if err != nil {
 		return w
@@ -132,11 +143,49 @@ func (h *Hub) commanderWorkOf(ctx context.Context, chatID string) commanderWork 
 			continue
 		}
 		w.tasks[t.ID] = true
+		if t.ProjectID != "" {
+			w.projects[t.ProjectID] = true
+		}
+		if t.TicketID != "" {
+			w.tickets[t.TicketID] = true
+		}
 		if !protocol.IsTerminalTaskStatus(t.Status) && t.WorkerID != "" {
 			w.machines[t.WorkerID] = true
 		}
 	}
 	return w
+}
+
+// affectsPulse reports whether a board pulse trigger event affects this commander chat.
+// Only commanders whose dispatched work or projects are affected (or all commanders for
+// project-level triggers, or unscoped commanders for autopilot projects) receive it.
+func (w commanderWork) affectsPulse(chatID string, e store.FleetEvent) bool {
+	if e.Kind != store.EventKindPulse {
+		return false
+	}
+	m, ok := parsePulseMeta(e)
+	if !ok {
+		return false
+	}
+	if e.ChatID != "" {
+		return e.ChatID == chatID
+	}
+	if m.ProjectLevel {
+		return true
+	}
+	if e.TaskID != "" && w.tasks[e.TaskID] {
+		return true
+	}
+	if m.TicketID != "" && w.tickets[m.TicketID] {
+		return true
+	}
+	if m.ProjectID != "" && w.projects[m.ProjectID] {
+		return true
+	}
+	if m.Autopilot && len(w.projects) == 0 && len(w.tasks) == 0 {
+		return true
+	}
+	return false
 }
 
 // affectsWork reports whether an event touches a commander's work (which starts a
@@ -202,6 +251,9 @@ func (h *Hub) notifyCommanders(ctx context.Context) {
 		work := h.commanderWorkOf(ctx, cs.ID)
 		affected := false
 		for _, e := range events {
+			if e.Kind == store.EventKindPulse {
+				continue // board pulses use pulse_debounce_seconds (deliverPulses)
+			}
 			if work.affects(cs.ID, e) {
 				affected = true
 				break
@@ -275,8 +327,34 @@ func (h *Hub) takeNote(ctx context.Context, chatID, turnID string) string {
 	if len(events) == 0 {
 		return ""
 	}
-	h.markVetoesDelivered(ctx, events[max(0, len(events)-maxNoteLines):], chatID, turnID)
-	return h.formatNote(ctx, events)
+	var otherEvents, pulseEvents []store.FleetEvent
+	var work commanderWork
+	workLoaded := false
+	for _, e := range events {
+		if e.Kind == store.EventKindPulse {
+			if !cs.FleetTools {
+				continue
+			}
+			if !workLoaded {
+				work = h.commanderWorkOf(ctx, cs.ID)
+				workLoaded = true
+			}
+			if work.affectsPulse(cs.ID, e) {
+				pulseEvents = append(pulseEvents, e)
+			}
+			continue
+		}
+		otherEvents = append(otherEvents, e)
+	}
+	var parts []string
+	if len(otherEvents) > 0 {
+		h.markVetoesDelivered(ctx, otherEvents[max(0, len(otherEvents)-maxNoteLines):], chatID, turnID)
+		parts = append(parts, h.formatNote(ctx, otherEvents))
+	}
+	if len(pulseEvents) > 0 {
+		parts = append(parts, h.buildBoardPulse(ctx, pulseEvents).Text())
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // formatNote renders events as a concise note for an agent.
