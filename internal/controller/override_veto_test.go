@@ -316,7 +316,14 @@ func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
 		t.Fatalf("tracked veto: %+v", v)
 	}
 
+	// The veto's cancel and hold are recorded first and may start a turn of their own before
+	// the veto event exists; the veto then rides in the next turn. Finish earlier turns until
+	// the prompt carrying the veto arrives.
 	p := o.nextOrchestratorPrompt(t)
+	for i := 0; i < 3 && !strings.Contains(p.Text, "vetoed"); i++ {
+		o.finish(o.orch.ID, p.TurnID)
+		p = o.nextOrchestratorPrompt(t)
+	}
 	if !strings.Contains(p.Text, "vetoed") || !strings.Contains(p.Text, "use the build box") {
 		t.Fatalf("veto note: %q", p.Text)
 	}

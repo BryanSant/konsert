@@ -166,7 +166,9 @@ func TestClaudeSettingsFileBackupsAndIdempotence(t *testing.T) {
 	if b, _ := os.ReadFile(baks[0]); !bytes.Equal(b, orig) {
 		t.Fatal("the backup is not the original")
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
+	// Windows has no Unix permission bits (os.Stat reports 0666 or 0444), so only check where
+	// the mode is real.
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o640 {
 		t.Fatalf("mode %v, want 0640", fi.Mode().Perm())
 	}
 	installed, _ := os.ReadFile(path)
