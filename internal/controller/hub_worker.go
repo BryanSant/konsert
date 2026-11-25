@@ -109,6 +109,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	factsJSON := ""
 	var factsUpdatedAt *time.Time
 	if hello.Worker.Facts != nil {
+		h.setWorkerCheckouts(hello.Worker.ID, hello.Worker.Facts.Checkouts)
 		if b, mErr := json.Marshal(hello.Worker.Facts, protocol.JSONOptions); mErr == nil {
 			factsJSON = string(b)
 			tNow := now
@@ -526,6 +527,7 @@ func (h *Hub) onWorkerFacts(ctx context.Context, wc *workerConn, env protocol.En
 	if err != nil {
 		return
 	}
+	h.setWorkerCheckouts(wc.id, p.Facts.Checkouts)
 	b, err := json.Marshal(p.Facts, protocol.JSONOptions)
 	if err != nil {
 		return
@@ -588,6 +590,18 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 	}
 	if p.EffectiveDir != "" {
 		_ = h.store.UpdateTaskAssignment(ctx, p.TaskID, wc.id, p.EffectiveDir)
+	}
+	if len(p.Worktrees) > 0 {
+		wts := make([]store.TaskWorktree, len(p.Worktrees))
+		for i, wt := range p.Worktrees {
+			wts[i] = store.TaskWorktree{
+				RepoName:     wt.RepoName,
+				CheckoutPath: wt.CheckoutPath,
+				WorktreePath: wt.WorktreePath,
+				Branch:       wt.Branch,
+			}
+		}
+		_ = h.store.UpdateTaskWorktrees(ctx, p.TaskID, wts)
 	}
 	gitJSON := ""
 	if p.GitSummary != nil {

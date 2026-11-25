@@ -37,6 +37,7 @@ type runningTask struct {
 	id           string
 	agent        string
 	effectiveDir string
+	worktrees    []protocol.TaskWorktree
 	baseSHA      string
 	startedAt    time.Time
 	pty          PtyProcess
@@ -314,40 +315,139 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		return fmt.Errorf("unknown agent driver %q", req.Agent)
 	}
 
-	effectiveDir, err := gitutil.ValidateWorkdir(req.Workdir, r.allowedRoots)
-	if err != nil {
-		r.failTask(req.TaskID, "", fmt.Sprintf("workdir validation failed: %v", err))
-		return err
-	}
-
 	var (
-		baseSHA string
-		wt      gitutil.WorktreeInfo
+		effectiveDir  string
+		baseSHA       string
+		createdWTs    []gitutil.WorktreeInfo
+		taskWorktrees []protocol.TaskWorktree
+		ticketWorkdir string
+		err           error
 	)
-	if repoRoot, isGit := gitutil.IsGitRepo(setupCtx, effectiveDir); isGit {
-		if req.Branch != "" && req.UseWorktree {
-			// The directory is user-visible, so it is named after the short sid when known.
-			info, wtErr := createWorktreeFn(setupCtx, repoRoot, cmp.Or(req.SID, req.TaskID), req.Branch)
-			if wtErr != nil {
-				r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("git worktree setup failed: %v", wtErr))
-				return wtErr
-			}
-			wt = info
-			effectiveDir = info.Path
-			baseSHA = info.BaseSHA
-		} else {
-			baseSHA, _ = gitutil.CurrentSHA(setupCtx, effectiveDir)
-		}
-	}
-	// undoWorktree removes a worktree created above when the task never gets to run.
+
+	// undoWorktrees removes any worktrees created during setup if the task never gets to run.
 	undoWorktree := func() {
-		if wt.Path == "" || registered {
+		if registered || (len(createdWTs) == 0 && ticketWorkdir == "") {
 			return
 		}
 		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer ccancel()
-		if err := gitutil.RemoveTaskWorktree(cctx, wt); err != nil {
-			r.logger.Warn("failed to remove worktree after launch failure", "task_id", req.TaskID, "path", wt.Path, "err", err)
+		for _, info := range createdWTs {
+			if rmErr := gitutil.RemoveTaskWorktree(cctx, info); rmErr != nil {
+				r.logger.Warn("failed to remove worktree after launch failure", "task_id", req.TaskID, "path", info.Path, "err", rmErr)
+			}
+		}
+		if ticketWorkdir != "" {
+			_ = os.Remove(ticketWorkdir)
+		}
+	}
+
+	if len(req.Bindings) > 0 {
+		workdirRoot, rootErr := r.resolveWorkdirRoot(req.Workdir)
+		if rootErr != nil {
+			r.failTask(req.TaskID, "", fmt.Sprintf("workdir root resolution failed: %v", rootErr))
+			return rootErr
+		}
+		ticketDirName := cmp.Or(strings.TrimSpace(req.TicketSID), strings.TrimSpace(req.SID), req.TaskID)
+		if vErr := gitutil.ValidatePathSegment(ticketDirName); vErr != nil {
+			r.failTask(req.TaskID, "", fmt.Sprintf("invalid ticket directory name %q: %v", ticketDirName, vErr))
+			return vErr
+		}
+		ticketWorkdir = filepath.Join(workdirRoot, ticketDirName)
+		if mkErr := os.MkdirAll(ticketWorkdir, 0o755); mkErr != nil {
+			r.failTask(req.TaskID, "", fmt.Sprintf("create ticket workdir failed: %v", mkErr))
+			return mkErr
+		}
+
+		for _, b := range req.Bindings {
+			repoName := strings.TrimSpace(b.RepoName)
+			if vErr := gitutil.ValidatePathSegment(repoName); vErr != nil {
+				undoWorktree()
+				r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("invalid binding repo name %q: %v", b.RepoName, vErr))
+				return vErr
+			}
+			checkoutPath := strings.TrimSpace(b.CheckoutPath)
+			var repoRoot string
+			if checkoutPath != "" {
+				validCheckout, vErr := gitutil.ValidateWorkdir(checkoutPath, r.allowedRoots)
+				if vErr != nil {
+					undoWorktree()
+					r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("checkout validation failed for %s: %v", repoName, vErr))
+					return vErr
+				}
+				top, isGit := gitutil.IsGitRepo(setupCtx, validCheckout)
+				if !isGit {
+					undoWorktree()
+					notGitErr := fmt.Errorf("checkout %s for repo %s is not a git repository", validCheckout, repoName)
+					r.failTask(req.TaskID, ticketWorkdir, notGitErr.Error())
+					return notGitErr
+				}
+				repoRoot = top
+			} else {
+				if strings.TrimSpace(b.RemoteURL) == "" {
+					undoWorktree()
+					noRemoteErr := fmt.Errorf("binding %s has neither checkout_path nor remote_url", repoName)
+					r.failTask(req.TaskID, ticketWorkdir, noRemoteErr.Error())
+					return noRemoteErr
+				}
+				cloneDir := filepath.Join(workdirRoot, ".syre-clones", repoName)
+				if cloneErr := gitutil.CloneRepo(setupCtx, b.RemoteURL, cloneDir); cloneErr != nil {
+					undoWorktree()
+					r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("git clone failed for %s: %v", repoName, cloneErr))
+					return cloneErr
+				}
+				top, isGit := gitutil.IsGitRepo(setupCtx, cloneDir)
+				if !isGit {
+					undoWorktree()
+					notGitErr := fmt.Errorf("cloned directory %s for repo %s is not a git repository", cloneDir, repoName)
+					r.failTask(req.TaskID, ticketWorkdir, notGitErr.Error())
+					return notGitErr
+				}
+				repoRoot = top
+			}
+
+			targetBranch := strings.TrimSpace(b.TargetBranch)
+			if targetBranch == "" {
+				targetBranch = "syre/" + ticketDirName
+			}
+			wtPath := filepath.Join(ticketWorkdir, repoName)
+			info, wtErr := gitutil.CreateWorktreeAt(setupCtx, repoRoot, wtPath, b.BaseBranch, targetBranch)
+			if wtErr != nil {
+				undoWorktree()
+				r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("git worktree setup failed for %s: %v", repoName, wtErr))
+				return wtErr
+			}
+			createdWTs = append(createdWTs, info)
+			taskWorktrees = append(taskWorktrees, protocol.TaskWorktree{
+				RepoName:     repoName,
+				CheckoutPath: repoRoot,
+				WorktreePath: info.Path,
+				Branch:       targetBranch,
+			})
+			if baseSHA == "" {
+				baseSHA = info.BaseSHA
+			}
+		}
+		effectiveDir = ticketWorkdir
+	} else {
+		effectiveDir, err = gitutil.ValidateWorkdir(req.Workdir, r.allowedRoots)
+		if err != nil {
+			r.failTask(req.TaskID, "", fmt.Sprintf("workdir validation failed: %v", err))
+			return err
+		}
+		if repoRoot, isGit := gitutil.IsGitRepo(setupCtx, effectiveDir); isGit {
+			if req.Branch != "" && req.UseWorktree {
+				// The directory is user-visible, so it is named after the short sid when known.
+				info, wtErr := createWorktreeFn(setupCtx, repoRoot, cmp.Or(req.SID, req.TaskID), req.Branch)
+				if wtErr != nil {
+					r.failTask(req.TaskID, effectiveDir, fmt.Sprintf("git worktree setup failed: %v", wtErr))
+					return wtErr
+				}
+				createdWTs = append(createdWTs, info)
+				effectiveDir = info.Path
+				baseSHA = info.BaseSHA
+			} else {
+				baseSHA, _ = gitutil.CurrentSHA(setupCtx, effectiveDir)
+			}
 		}
 	}
 
@@ -452,6 +552,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		id:           req.TaskID,
 		agent:        req.Agent,
 		effectiveDir: effectiveDir,
+		worktrees:    taskWorktrees,
 		baseSHA:      baseSHA,
 		startedAt:    time.Now().UTC(),
 		pty:          proc,
@@ -481,6 +582,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		TaskID:       req.TaskID,
 		Status:       protocol.TaskStatusRunning,
 		EffectiveDir: effectiveDir,
+		Worktrees:    taskWorktrees,
 	})
 	if wantSubscribe {
 		r.SubscribePty(req.TaskID)
@@ -631,7 +733,11 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		summary = "task timed out; " + summary
 	}
 
-	gitSummary, _ := gitutil.CaptureSummary(context.Background(), rt.effectiveDir, rt.baseSHA)
+	summaryDir := rt.effectiveDir
+	if len(rt.worktrees) > 0 {
+		summaryDir = rt.worktrees[0].WorktreePath
+	}
+	gitSummary, _ := gitutil.CaptureSummary(context.Background(), summaryDir, rt.baseSHA)
 
 	if rt.shellTracker != nil {
 		rt.shellTracker.Close(exitCode)
@@ -651,6 +757,7 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		TaskID:       rt.id,
 		Status:       finalStatus,
 		EffectiveDir: rt.effectiveDir,
+		Worktrees:    rt.worktrees,
 		ExitCode:     &ec,
 		Summary:      summary,
 		GitSummary:   gitSummary,
@@ -987,6 +1094,30 @@ func (r *Runner) ShutdownAll() {
 		ps.cancel()
 	}
 	r.mu.Unlock()
+}
+
+// resolveWorkdirRoot picks the base directory under which per-ticket workdirs
+// (<root>/<ticket sid>/<repo name>) and clones (<root>/.syre-clones/<repo name>) live.
+func (r *Runner) resolveWorkdirRoot(requested string) (string, error) {
+	if strings.TrimSpace(requested) != "" {
+		return gitutil.ValidateWorkdir(requested, r.allowedRoots)
+	}
+	if len(r.allowedRoots) > 0 {
+		root := gitutil.ExpandHome(r.allowedRoots[0])
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return "", err
+		}
+		return gitutil.ValidateWorkdir(root, r.allowedRoots)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return os.TempDir(), nil
+	}
+	root := filepath.Join(home, "src")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	return gitutil.ValidateWorkdir(root, r.allowedRoots)
 }
 
 func (r *Runner) failTask(taskID, effectiveDir, reason string) {

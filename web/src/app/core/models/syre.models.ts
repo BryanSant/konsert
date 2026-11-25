@@ -50,6 +50,14 @@ export interface TerminalShell {
   path?: string;
 }
 
+export interface ReportedCheckout {
+  path: string;
+  remote_url: string;
+  branch?: string;
+  head?: string;
+  last_fetch?: string;
+}
+
 export interface MachineFacts {
   os_name?: string;
   os_version?: string;
@@ -72,6 +80,8 @@ export interface MachineFacts {
   auth_ready?: Record<string, boolean>;
   /** Supported terminal shells detected on this machine. */
   shells?: TerminalShell[];
+  /** Local git checkouts discovered on this machine. */
+  checkouts?: ReportedCheckout[];
   /**
    * Windows: how syred was started. 'background_task' (an S4U task: starts at boot,
    * runs whether or not anyone is signed in), 'service', or 'user_session' (a logon task:

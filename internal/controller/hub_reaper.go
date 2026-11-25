@@ -47,6 +47,7 @@ func (h *Hub) RunReaper(ctx context.Context) {
 			}
 			h.sweepControl(ctx, now.UTC())
 			h.expireTicketLeases(ctx, now.UTC())
+			h.sweepTicketWorktrees(ctx, now.UTC())
 		}
 	}
 }

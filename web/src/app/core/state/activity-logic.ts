@@ -12,7 +12,7 @@ import {
   WorkCounts,
   WorkItem,
 } from '../models/activity.models';
-import { ChatSession, Project, Repo, Task } from '../models/syre.models';
+import { ChatSession, Project, Repo, Task, Worker } from '../models/syre.models';
 
 /** Pure live-work logic (activity fallbacks, buckets, narration, grouping); see work.store.ts. */
 
@@ -198,14 +198,128 @@ function liveLine(a: SessionActivity): string {
   }
 }
 
-/** Resolves a working directory to a project (returns null until daemon checkout facts land in A1c). */
-export function projectForPath(_repos: Repo[], _workerId: string | undefined, _path: string | undefined): string | null {
-  return null;
+function isWindowsDrivePath(s: string): boolean {
+  return s.length >= 3 && /^[a-zA-Z]:[\\/]/.test(s);
+}
+
+function normalizeRemotePath(p: string): string {
+  let out = p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
+  if (out.toLowerCase().endsWith('.git') && out.length > 4) {
+    out = out.slice(0, -4).replace(/\/+$/, '');
+  }
+  return out;
+}
+
+function normalizeLocalPath(p: string): string {
+  let out = p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/, '');
+  if (out.toLowerCase().endsWith('.git') && out.length > 4) {
+    out = out.slice(0, -4).replace(/\/+$/, '');
+  }
+  return out || '/';
+}
+
+/** Canonicalizes a git remote URL (ssh/https/.git/trailing slash/host case). */
+export function normalizeRemoteUrl(raw: string | undefined): string {
+  const s = (raw ?? '').trim();
+  if (!s) return '';
+  if (!s.includes('://') && (s.startsWith('/') || isWindowsDrivePath(s))) {
+    return normalizeLocalPath(s);
+  }
+  if (s.includes('://')) {
+    try {
+      const u = new URL(s);
+      const scheme = u.protocol.replace(/:$/, '').toLowerCase();
+      if (scheme === 'file') {
+        const p = u.host ? `/${u.host}${u.pathname}` : u.pathname;
+        return normalizeLocalPath(p);
+      }
+      let host = u.hostname.toLowerCase();
+      if (!host) return normalizeLocalPath(u.pathname);
+      const defaultPorts: Record<string, string> = { https: '443', http: '80', ssh: '22', git: '9418' };
+      if (u.port && defaultPorts[scheme] !== u.port) {
+        host = `${host}:${u.port}`;
+      }
+      const path = normalizeRemotePath(u.pathname);
+      return path ? `${host}/${path}` : host;
+    } catch {
+      return s;
+    }
+  }
+  const colon = s.indexOf(':');
+  const slash = s.indexOf('/');
+  if (colon > 0 && (slash < 0 || colon < slash)) {
+    let hostPart = s.slice(0, colon);
+    const pathPart = s.slice(colon + 1);
+    const at = hostPart.lastIndexOf('@');
+    if (at >= 0) hostPart = hostPart.slice(at + 1);
+    const host = hostPart.trim().toLowerCase();
+    const path = normalizeRemotePath(pathPart);
+    if (!host) return path;
+    return path ? `${host}/${path}` : host;
+  }
+  return normalizeRemotePath(s);
+}
+
+function normalizeMatchPath(p: string | undefined): string {
+  const s = (p ?? '').trim();
+  if (!s) return '';
+  let out = s.replace(/\\/g, '/').replace(/\/+/g, '/');
+  if (out.length > 1) out = out.replace(/\/+$/, '');
+  return out;
+}
+
+function pathContains(root: string, target: string): boolean {
+  let r = normalizeMatchPath(root);
+  let t = normalizeMatchPath(target);
+  if (!r || !t) return false;
+  if (isWindowsDrivePath(r) && isWindowsDrivePath(t)) {
+    r = r.toLowerCase();
+    t = t.toLowerCase();
+  }
+  if (t === r) return true;
+  if (r === '/') return t.startsWith('/');
+  return t.startsWith(r + '/');
+}
+
+/**
+ * Resolves a working directory on workerId to the project owning the registered repo
+ * whose reported checkout on that machine contains path (longest path prefix match).
+ */
+export function projectForPath(
+  repos: Repo[],
+  workerId: string | undefined,
+  path: string | undefined,
+  workers?: Worker[] | Record<string, Worker>,
+): string | null {
+  if (!workerId || !path?.trim() || !workers || repos.length === 0) return null;
+  const worker = Array.isArray(workers) ? workers.find((w) => w.id === workerId) : workers[workerId];
+  const checkouts = worker?.facts?.checkouts;
+  if (!checkouts || checkouts.length === 0) return null;
+
+  const byRemote = new Map<string, Repo>();
+  for (const r of repos) {
+    const norm = normalizeRemoteUrl(r.remote_url);
+    if (norm && !byRemote.has(norm)) byRemote.set(norm, r);
+  }
+
+  let bestProject: string | null = null;
+  let bestLen = -1;
+  for (const co of checkouts) {
+    if (!pathContains(co.path, path)) continue;
+    const r = byRemote.get(normalizeRemoteUrl(co.remote_url));
+    if (!r) continue;
+    if (co.path.length > bestLen) {
+      bestLen = co.path.length;
+      bestProject = r.project_id;
+    }
+  }
+  return bestProject;
 }
 
 export interface GroupInputs {
   projects: Project[];
   repos: Repo[];
+  workers?: Worker[] | Record<string, Worker>;
   tasks: Task[];
   chats: ChatSession[];
   activityOf: (key: string) => SessionActivity | undefined;
@@ -234,7 +348,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
     let pid: string | null | undefined = t.project_id;
     if (!pid || !real.has(pid)) {
       // Observed sessions (and tasks dispatched to a path) map by their directory.
-      pid = projectForPath(inp.repos, t.worker_id, t.effective_dir || t.workdir) ?? pid;
+      pid = projectForPath(inp.repos, t.worker_id, t.effective_dir || t.workdir, inp.workers) ?? pid;
     }
     const a = inp.activityOf(`task:${t.id}`) ?? activityFromTaskStatus(t);
     const title = taskTitle(t);
@@ -261,7 +375,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
     if (c.fleet_tools || (c.backend && c.backend !== 'agent')) continue;
     const a = inp.activityOf(`chat:${c.id}`) ?? activityFromChatStatus(c);
     const now = chatNow(c, a);
-    add(place(projectForPath(inp.repos, c.worker_id, c.cwd)), {
+    add(place(projectForPath(inp.repos, c.worker_id, c.cwd, inp.workers)), {
       kind: 'chat',
       id: c.id,
       sid: c.sid,

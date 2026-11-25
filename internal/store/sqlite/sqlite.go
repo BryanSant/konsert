@@ -690,24 +690,114 @@ func (s *SQLiteStore) execOne(ctx context.Context, q string, args ...any) error 
 	return nil
 }
 
+func (s *SQLiteStore) UpdateTaskWorktrees(ctx context.Context, id string, worktrees []store.TaskWorktree) error {
+	raw := ""
+	if len(worktrees) > 0 {
+		b, err := json.Marshal(worktrees, protocol.JSONOptions)
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE tasks SET worktrees_json = ?, worktrees_cleaned_at = NULL WHERE id = ?`, raw, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) MarkTaskWorktreesCleaned(ctx context.Context, id string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE tasks SET worktrees_cleaned_at = ? WHERE id = ?`, formatTime(at.UTC()), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListTasksByTicket(ctx context.Context, ticketID string) ([]store.Task, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+taskSelectColumns+`
+		FROM tasks WHERE ticket_id = ? ORDER BY created_at DESC
+	`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) ListTasksPendingWorktreeCleanup(ctx context.Context, limit int) ([]store.Task, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+taskSelectColumns+`
+		FROM tasks
+		WHERE ticket_id != '' AND worktrees_json != '' AND worktrees_cleaned_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+const taskSelectColumns = `id, sid, external_id, worker_id, project_id, repo_id,
+		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
+		       orphan_policy, prompt, status, summary, git_summary_json, worktrees_json, worktrees_cleaned_at, exit_code,
+		       cause_json, suspended_by, parent_chat_id,
+		       title, narration, narration_at, ticket_id, ticket_title,
+		       keep, compacted_at, created_at, started_at, completed_at`
+
 func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	var (
-		t           store.Task
-		workerID    sql.NullString
-		perm        string
-		exitCode    sql.NullInt64
-		cause       string
-		createdAt   string
-		startedAt   sql.NullString
-		completedAt sql.NullString
-		narrationAt sql.NullString
-		keep        int
-		compactedAt sql.NullString
+		t                store.Task
+		workerID         sql.NullString
+		perm             string
+		worktreesJSON    string
+		worktreesCleaned sql.NullString
+		exitCode         sql.NullInt64
+		cause            string
+		createdAt        string
+		startedAt        sql.NullString
+		completedAt      sql.NullString
+		narrationAt      sql.NullString
+		keep             int
+		compactedAt      sql.NullString
 	)
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.ProjectID, &t.RepoID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
-		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
+		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
 		&keep, &compactedAt, &createdAt, &startedAt, &completedAt,
@@ -719,6 +809,10 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	}
 	t.WorkerID = workerID.String
 	t.PermissionMode = store.PermissionMode(perm)
+	if strings.TrimSpace(worktreesJSON) != "" {
+		_ = json.Unmarshal([]byte(worktreesJSON), &t.Worktrees, protocol.JSONOptions)
+	}
+	t.WorktreesCleanedAt = parseTimePtr(worktreesCleaned)
 	t.Cause = parseCause(cause)
 	if exitCode.Valid {
 		ec := int(exitCode.Int64)
@@ -743,15 +837,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 }
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, external_id, worker_id, project_id, repo_id,
-		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
-		       cause_json, suspended_by, parent_chat_id,
-		       title, narration, narration_at, ticket_id, ticket_title,
-		       keep, compacted_at, created_at, started_at, completed_at
-		FROM tasks WHERE id = ?
-	`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+taskSelectColumns+` FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
@@ -770,14 +856,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 		args = append(args, workerID)
 	}
 
-	query := `
-		SELECT id, sid, external_id, worker_id, project_id, repo_id,
-		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
-		       cause_json, suspended_by, parent_chat_id,
-		       title, narration, narration_at, ticket_id, ticket_title,
-		       keep, compacted_at, created_at, started_at, completed_at
-		FROM tasks`
+	query := `SELECT ` + taskSelectColumns + ` FROM tasks`
 	if len(conds) > 0 {
 		query += " WHERE " + strings.Join(conds, " AND ")
 	}

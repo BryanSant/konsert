@@ -53,6 +53,7 @@ export class WorkStore {
     const tax = { projects: this.fleet.projects(), repos: this.fleet.repos() };
     return groupWork({
       ...tax,
+      workers: this.fleet.workersById(),
       tasks: this.fleet.tasks(),
       chats: this.orch.sessions(),
       activityOf: (key) => byKey[key],

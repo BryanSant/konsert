@@ -127,6 +127,9 @@ type Hub struct {
 	ReapInterval       time.Duration
 	// TicketLeaseTTL overrides the ticket lease TTL (0 uses controller setting / 10m default).
 	TicketLeaseTTL time.Duration
+	// WorktreeRetention overrides the failed/canceled ticket worktree retention period
+	// (0 uses worktree_retention_days setting / 7 days default).
+	WorktreeRetention time.Duration
 
 	// LinkQuiet and LinkDead override the worker link liveness intervals (linkwatch:
 	// ping after 15 s quiet, dead after 45 s silent). Tests shorten them.
@@ -174,9 +177,10 @@ type Hub struct {
 	questions questionState
 	// activity is the latest activity of every session (activity.go); heat is every
 	// worker's smoothed load score (heat.go).
-	activity activityState
-	heat     heatState
-	ports    portsCache
+	activity  activityState
+	heat      heatState
+	ports     portsCache
+	checkouts checkoutState
 	// retention is the history compaction state (retention.go). RetentionEvery is how
 	// often a bounded pass runs (0 disables the loop) after RetentionStartDelay;
 	// RetentionBatch and RetentionPause size the batches and the yield between them;

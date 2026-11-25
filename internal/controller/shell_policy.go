@@ -260,8 +260,12 @@ func (h *Hub) shellSessionInfoFor(ctx context.Context, a protocol.SessionActivit
 	return in, true
 }
 
-// projectForPath resolves a working directory to a project ("" until checkout facts land in A1c).
-func (h *Hub) projectForPath(_ context.Context, _, _ string) string {
+// projectForPath resolves a working directory on workerID to the project owning the
+// registered repo whose reported checkout contains dir ("" when none matches).
+func (h *Hub) projectForPath(ctx context.Context, workerID, dir string) string {
+	if repo, ok := h.repoForPath(ctx, workerID, dir); ok {
+		return repo.ProjectID
+	}
 	return ""
 }
 
