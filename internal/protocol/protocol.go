@@ -591,6 +591,9 @@ type GitMergeRequest struct {
 	Remote string `json:"remote,omitempty"`
 	// CommitMessage is used for squash/merge commits (and auto-committing dirty worktree changes).
 	CommitMessage string `json:"commit_message,omitempty"`
+	// TaskSID is the short task ID used to name konsert/merged/<sid> if the local target
+	// branch is checked out with uncommitted changes.
+	TaskSID string `json:"task_sid,omitempty"`
 }
 
 type GitMergeResult struct {
@@ -601,7 +604,15 @@ type GitMergeResult struct {
 	ConflictFiles []string `json:"conflict_files,omitempty"`
 	TargetBranch  string   `json:"target_branch,omitempty"`
 	MergeSHA      string   `json:"merge_sha,omitempty"`
-	Error         string   `json:"error,omitempty"`
+	// MergedBranch is set when the local target branch was checked out dirty and the
+	// merge result was left on konsert/merged/<sid> instead of touching the checkout.
+	MergedBranch string `json:"merged_branch,omitempty"`
+	// LocalBehind is true when the merge was pushed to the remote while the local target
+	// branch was left untouched because it is checked out in a worktree.
+	LocalBehind bool `json:"local_behind,omitzero"`
+	// Message carries a human-readable outcome notice (e.g. local behind or merged branch).
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type GitWorktreeCleanupRequest struct {

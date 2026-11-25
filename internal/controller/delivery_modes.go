@@ -445,6 +445,7 @@ func (h *Hub) deliverDirect(ctx context.Context, svc *FleetService, t store.Task
 		Push:          cfg.hasRemote,
 		Remote:        cfg.remoteName,
 		CommitMessage: title,
+		TaskSID:       firstNonEmpty(t.SID, t.ID),
 	})
 	if err != nil {
 		msg := "Asking " + h.workerLabel(ctx, t.WorkerID) + " to merge failed: " + err.Error()
@@ -507,6 +508,9 @@ func (h *Hub) deliverDirect(ctx context.Context, svc *FleetService, t store.Task
 	if mRes.Pushed {
 		msg = fmt.Sprintf("%s into %s and pushed.", verb, target)
 	}
+	if mRes.Message != "" {
+		msg = mRes.Message
+	}
 	rv, sErr := h.saveReview(ctx, t.ID, "", func(r *store.Review) {
 		r.DeliveryMode = store.DeliveryModeDirect
 		r.DeliveryStatus = store.DeliveryStatusDelivered
@@ -514,12 +518,19 @@ func (h *Hub) deliverDirect(ctx context.Context, svc *FleetService, t store.Task
 		r.MergeMethod = cfg.mergeStyle
 		r.MergeSHA = mRes.MergeSHA
 	})
-	h.recordDeliveryOutcome(ctx, t, store.DeliveryModeDirect, store.DeliveryStatusDelivered, msg, map[string]any{
+	meta := map[string]any{
 		"target_branch": target,
 		"merge_method":  cfg.mergeStyle,
 		"merge_sha":     mRes.MergeSHA,
 		"pushed":        mRes.Pushed,
-	})
+	}
+	if mRes.MergedBranch != "" {
+		meta["merged_branch"] = mRes.MergedBranch
+	}
+	if mRes.LocalBehind {
+		meta["local_behind"] = true
+	}
+	h.recordDeliveryOutcome(ctx, t, store.DeliveryModeDirect, store.DeliveryStatusDelivered, msg, meta)
 	res.Review = rv
 	return res, sErr
 }

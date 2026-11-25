@@ -447,3 +447,44 @@ func TestDeliveryModePROpenForkPathAndTrackingAndCommentDedupe(t *testing.T) {
 		t.Fatalf("merged PR tracking = %+v", rv3)
 	}
 }
+
+func TestDeliveryModeDirectPassesTaskSIDAndSurfacesMergeMessage(t *testing.T) {
+	e := newAuditEnv(t)
+	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
+	ctx := context.Background()
+	_ = e.th.st.CreateTask(ctx, store.Task{
+		ID: "t-dirmsg", SID: "S42", WorkerID: "w1", Agent: "mock",
+		Workdir: "/r/.konsert-worktrees/S42", Branch: "konsert/S42",
+		Title: "Local merge", Prompt: "local merge", Status: protocol.TaskStatusCompleted,
+	})
+
+	var gotReq protocol.GitMergeRequest
+	stop := answerGitRPCs(w,
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/S42", DefaultBranch: "main", HasRemote: false},
+		func(req protocol.GitMergeRequest) protocol.GitMergeResult {
+			gotReq = req
+			return protocol.GitMergeResult{
+				OK:           true,
+				Merged:       true,
+				TargetBranch: "main",
+				MergeSHA:     "abcdef123",
+				MergedBranch: "konsert/merged/S42",
+				Message:      "main is checked out with uncommitted changes; the merge is ready on branch konsert/merged/S42 — fast-forward main when you're ready",
+			}
+		},
+		nil,
+	)
+	defer stop()
+
+	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t-dirmsg/review", `{"decision":"approved"}`)
+	if code != http.StatusOK {
+		t.Fatalf("review: %d %s", code, raw)
+	}
+	if gotReq.TaskSID != "S42" {
+		t.Fatalf("GitMergeRequest.TaskSID = %q, want S42", gotReq.TaskSID)
+	}
+	rv := decodeReviewResult(t, raw).Review
+	if rv.DeliveryStatus != store.DeliveryStatusDelivered || !strings.Contains(rv.DeliveryMessage, "konsert/merged/S42") {
+		t.Fatalf("direct merge review = %+v", rv)
+	}
+}

@@ -10,7 +10,7 @@ The Work board is private between the user and their agents:
 
 | Mode | Value | Behavior |
 |---|---|---|
-| **Direct** | `direct` | Approve merges the task branch into the default branch on the owning daemon (using the configured merge style) and pushes if a remote exists (local-only merge when there is no remote). Merge conflicts abort cleanly and send the task back to the agent with a Request-changes note listing the conflicting files. |
+| **Direct** | `direct` | Approve merges the task branch into the default branch on the owning daemon (using the configured merge style) inside an ephemeral detached worktree and pushes if a remote exists (local-only merge when there is no remote). Merge conflicts abort cleanly in the temp worktree, remove it, and send the task back to the agent with a Request-changes note listing the conflicting files. |
 | **PR/MR + merge on approve** | `pr_merge` | When the task enters Review, the hub pushes the branch and opens a PR/MR (title from the task, body with the agent's summary and acceptance list) so CI/bots can run before sign-off. Approve merges the PR/MR through the forge with `WhenChecksPass=true` (falling back to an allowed merge method if the chosen one is disallowed by the repository). |
 | **Approve opens PR/MR** | `pr_open` | Nothing is pushed before Approve. Approve pushes the branch (to the user's fork when upstream `CanPush` is false) and opens the PR/MR; the task shows **Delivered: PR open** and the hub tracks PR state periodically (`GetPR`) until merged or closed. |
 | **Keep branch only** | `keep_branch` | Approve marks the work accepted and keeps the task branch as-is. |
@@ -18,6 +18,16 @@ The Work board is private between the user and their agents:
 For modes with an open PR/MR (`pr_merge`, `pr_open`):
 - Without a forge adapter or credential for the host, the hub pushes the branch and shows a Compare URL so the user can open the PR/MR by hand.
 - The hub polls `ReviewComments` on open PRs/MRs and delivers new change-request comments to the agent as a Request-changes note, deduplicated persistently by comment ID (`review_seen_comments`).
+
+## Checkout Safety & Git Identity Guarantees
+
+Direct delivery and plain-git helpers never disturb the user's own checkout:
+
+- **Isolated temp worktree**: Every direct merge (`squash`, `merge`, or `rebase`) runs inside an ephemeral detached worktree (`git worktree add --detach`) under `/var/tmp` (or `os.TempDir()` on Windows) and always removes it (`git worktree remove --force`) on exit, including on conflict or error.
+- **Direct merge with a remote**: Fetches `<remote>/<target>`, merges/rebases in the temp worktree, and pushes `HEAD:refs/heads/<target>` without `--force` (on a non-fast-forward rejection, re-fetches and retries once before reporting an error). Afterward, local `refs/heads/<target>` is updated with `git update-ref` (guarded by the old SHA) only if `<target>` is not checked out in any worktree; if it is checked out (for example, in the user's primary checkout), Konsert leaves it untouched and reports `"pushed to <remote>/<target>; your local <target> is behind — pull when ready"`.
+- **Direct merge without a remote (local-only)**: Merges in the temp worktree based on local `<target>`. If `<target>` is not checked out anywhere, advances `refs/heads/<target>` with `git update-ref <new> <old>`. If `<target>` is checked out in a clean worktree, fast-forwards it in place with `git merge --ff-only`. If that worktree has uncommitted changes, Konsert does not touch it: it leaves the merged commit on `konsert/merged/<task-sid>` and reports `"<target> is checked out with uncommitted changes; the merge is ready on branch konsert/merged/<sid> — fast-forward <target> when you're ready"`.
+- **No auto-commit outside Konsert task worktrees**: Auto-committing dirty changes is permitted only inside a verified Konsert-managed linked worktree (`<repoRoot>/.konsert-worktrees/<taskID>`). If a task ran directly in the user's own checkout, Approve never commits or pushes automatically and reports that the changes must be committed manually.
+- **No invented commit identity**: Commits use the repository/user git configuration (`user.name` and `user.email`). If either is unset on the owning machine, Konsert refuses to commit and instructs the user to configure `user.name` and `user.email` on that machine.
 
 ## Defaults & Overrides
 
