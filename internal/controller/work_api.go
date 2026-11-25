@@ -542,6 +542,36 @@ func (s *Server) handleGetTicketRollup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rollup)
 }
 
+func (s *Server) handleGetTicketPacket(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	workerID := resolveRef(r.Context(), s.store, ids.Machine, strings.TrimSpace(r.URL.Query().Get("worker_id")))
+	pkt, err := s.hub.CompileDispatchPacket(r.Context(), id, PacketOptions{WorkerID: workerID})
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	text := pkt.Text()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"packet": pkt,
+		"text":   text,
+		"tokens": protocol.EstimateTokens(text),
+	})
+}
+
+func (s *Server) handleListTicketComments(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.store.GetTicket(r.Context(), id); err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	comments, err := s.store.ListTicketComments(r.Context(), id)
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"comments": comments})
+}
+
 func (s *Server) handleRequeueTicket(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {

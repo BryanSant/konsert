@@ -26,6 +26,8 @@ type createChatRequest struct {
 	ApprovalMode string `json:"approval_mode"`
 	Cwd          string `json:"cwd"`
 	FleetTools   bool   `json:"fleet_tools"`
+	TaskID       string `json:"task_id,omitempty"`
+	TicketID     string `json:"ticket_id,omitempty"`
 	Provider     string `json:"provider"` // api backend only
 }
 
@@ -69,6 +71,8 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 		cs.ApprovalMode = strings.TrimSpace(body.ApprovalMode)
 		cs.Cwd = strings.TrimSpace(body.Cwd)
 		cs.FleetTools = body.FleetTools
+		cs.TaskID = resolveRef(ctx, s.store, ids.Task, strings.TrimSpace(body.TaskID))
+		cs.TicketID = resolveRef(ctx, s.store, ids.Ticket, strings.TrimSpace(body.TicketID))
 		cs.Status = "idle"
 		if cs.WorkerID != "" {
 			if _, err := s.store.GetWorker(ctx, cs.WorkerID); err != nil {
@@ -285,13 +289,14 @@ func (s *Server) serveRelayedChatMCP(w http.ResponseWriter, r *http.Request, wor
 	s.hub.chatMCPHandler(cs).ServeHTTP(w, r)
 }
 
-// chatMCPHandler returns the chat's cached MCP handler: ask_user always, the
-// fleet tools only when fleet_tools is set.
+// chatMCPHandler returns the chat's cached MCP handler: ask_user always, ticket tools
+// when the session is working on a ticket, and fleet tools only when fleet_tools is set.
 func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
+	ticketID := h.chatTicketID(context.Background(), cs)
 	rt := h.chatRT(cs.ID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if rt.mcp != nil && rt.mcpFleet == cs.FleetTools {
+	if rt.mcp != nil && rt.mcpFleet == cs.FleetTools && rt.mcpTicketID == ticketID {
 		return rt.mcp
 	}
 	var srv *mcp.Server
@@ -318,6 +323,9 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: ans}}}, nil, nil
 	})
+	if ticketID != "" {
+		h.addChatTicketTools(srv, cs)
+	}
 	if cs.FleetTools {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "answer_question",
@@ -334,5 +342,6 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 	h.addChatControlTools(srv, cs, control)
 	rt.mcp = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	rt.mcpFleet = cs.FleetTools
+	rt.mcpTicketID = ticketID
 	return rt.mcp
 }

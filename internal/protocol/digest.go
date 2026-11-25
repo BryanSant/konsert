@@ -160,8 +160,12 @@ func (d RunDigest) Text() string {
 }
 
 func trimToFit(val string, render func(string) string) string {
+	return trimToFitLimit(val, DigestMaxTokens, render)
+}
+
+func trimToFitLimit(val string, maxTokens int, render func(string) string) string {
 	// If even clearing the field doesn't fit, return empty.
-	if EstimateTokens(render("")) > DigestMaxTokens {
+	if EstimateTokens(render("")) > maxTokens {
 		return ""
 	}
 	runes := []rune(val)
@@ -173,7 +177,7 @@ func trimToFit(val string, render func(string) string) string {
 		if mid < len(runes) && mid > 3 {
 			cand = strings.TrimSpace(string(runes[:mid-3])) + "..."
 		}
-		if EstimateTokens(render(cand)) <= DigestMaxTokens {
+		if EstimateTokens(render(cand)) <= maxTokens {
 			best = cand
 			lo = mid + 1
 		} else {

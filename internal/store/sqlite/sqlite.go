@@ -694,6 +694,47 @@ func (s *SQLiteStore) UpdateTaskDigest(ctx context.Context, id, digestJSON strin
 	return s.execOne(ctx, `UPDATE tasks SET digest_json = ? WHERE id = ?`, digestJSON, id)
 }
 
+func (s *SQLiteStore) AppendTaskFollowup(ctx context.Context, id string, f store.TaskFollowup) ([]store.TaskFollowup, error) {
+	f.Title = strings.TrimSpace(f.Title)
+	f.Why = strings.TrimSpace(f.Why)
+	f.Scope = strings.TrimSpace(f.Scope)
+	if f.Title == "" {
+		return nil, fmt.Errorf("%w: followup title is required", store.ErrInvalidWork)
+	}
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var raw string
+	if err := tx.QueryRowContext(ctx, `SELECT followups_json FROM tasks WHERE id = ?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, err
+	}
+	var list []store.TaskFollowup
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &list, protocol.JSONOptions)
+	}
+	list = append(list, f)
+	b, err := json.Marshal(list, protocol.JSONOptions)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET followups_json = ? WHERE id = ?`, string(b), id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 func (s *SQLiteStore) UpdateTaskWorktrees(ctx context.Context, id string, worktrees []store.TaskWorktree) error {
 	raw := ""
 	if len(worktrees) > 0 {
@@ -777,7 +818,7 @@ func (s *SQLiteStore) ListTasksPendingWorktreeCleanup(ctx context.Context, limit
 
 const taskSelectColumns = `id, sid, external_id, worker_id, project_id, repo_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-		       orphan_policy, prompt, status, summary, git_summary_json, digest_json, worktrees_json, worktrees_cleaned_at, exit_code,
+		       orphan_policy, prompt, status, summary, git_summary_json, digest_json, followups_json, worktrees_json, worktrees_cleaned_at, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
 		       keep, compacted_at, created_at, started_at, completed_at`
@@ -787,6 +828,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		t                store.Task
 		workerID         sql.NullString
 		perm             string
+		followupsJSON    string
 		worktreesJSON    string
 		worktreesCleaned sql.NullString
 		exitCode         sql.NullInt64
@@ -801,7 +843,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.ProjectID, &t.RepoID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
-		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &t.DigestJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
+		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &t.DigestJSON, &followupsJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
 		&keep, &compactedAt, &createdAt, &startedAt, &completedAt,
@@ -813,6 +855,9 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	}
 	t.WorkerID = workerID.String
 	t.PermissionMode = store.PermissionMode(perm)
+	if strings.TrimSpace(followupsJSON) != "" {
+		_ = json.Unmarshal([]byte(followupsJSON), &t.Followups, protocol.JSONOptions)
+	}
 	if strings.TrimSpace(worktreesJSON) != "" {
 		_ = json.Unmarshal([]byte(worktreesJSON), &t.Worktrees, protocol.JSONOptions)
 	}
@@ -931,7 +976,7 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, taskID string, afterID int
 const chatSessionCols = `id, sid, title, provider, model, created_at, updated_at,
 	backend, worker_id, agent, account_id, effort, approval_mode, cwd,
 	agent_session_id, status, fleet_tools, last_error_json, mcp_token_hash,
-	cause_json, suspended_by, suspended_prev, notes_cursor, question_id, fork_of`
+	cause_json, suspended_by, suspended_prev, notes_cursor, question_id, fork_of, task_id, ticket_id`
 
 // chatSessionSelectCols adds the retention columns (written by retention and
 // SetChatKeep only) to chatSessionCols.
@@ -947,7 +992,7 @@ func scanChatSession(scanner interface{ Scan(...any) error }) (store.ChatSession
 	if err := scanner.Scan(&cs.ID, &cs.SID, &cs.Title, &cs.Provider, &cs.Model, &cAt, &uAt,
 		&cs.Backend, &cs.WorkerID, &cs.Agent, &cs.AccountID, &cs.Effort, &cs.ApprovalMode, &cs.Cwd,
 		&cs.AgentSessionID, &cs.Status, &fleet, &cs.LastErrorJSON, &cs.MCPTokenHash,
-		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor, &cs.QuestionID, &cs.ForkOf,
+		&cause, &cs.SuspendedBy, &cs.SuspendedPrev, &cs.NotesCursor, &cs.QuestionID, &cs.ForkOf, &cs.TaskID, &cs.TicketID,
 		&keep, &compactedAt, &compactedBefore); err != nil {
 		return store.ChatSession{}, err
 	}
@@ -984,11 +1029,11 @@ func (s *SQLiteStore) CreateChatSession(ctx context.Context, cs store.ChatSessio
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO chat_sessions (`+chatSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, cs.ID, cs.SID, cs.Title, cs.Provider, cs.Model, formatTime(cs.CreatedAt), formatTime(cs.UpdatedAt),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode, cs.Cwd,
 		cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON, cs.MCPTokenHash,
-		causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor, cs.QuestionID, cs.ForkOf)
+		causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor, cs.QuestionID, cs.ForkOf, cs.TaskID, cs.TicketID)
 	return err
 }
 
@@ -1040,12 +1085,14 @@ func (s *SQLiteStore) UpdateChatSession(ctx context.Context, cs store.ChatSessio
 		UPDATE chat_sessions SET title = ?, provider = ?, model = ?, updated_at = ?,
 			backend = ?, worker_id = ?, agent = ?, account_id = ?, effort = ?, approval_mode = ?,
 			cwd = ?, agent_session_id = ?, status = ?, fleet_tools = ?, last_error_json = ?,
-			mcp_token_hash = ?, cause_json = ?, suspended_by = ?, suspended_prev = ?, notes_cursor = ?
+			mcp_token_hash = ?, cause_json = ?, suspended_by = ?, suspended_prev = ?, notes_cursor = ?,
+			task_id = ?, ticket_id = ?
 		WHERE id = ?
 	`, cs.Title, cs.Provider, cs.Model, formatTime(time.Now().UTC()),
 		cs.Backend, cs.WorkerID, cs.Agent, cs.AccountID, cs.Effort, cs.ApprovalMode,
 		cs.Cwd, cs.AgentSessionID, cs.Status, boolInt(cs.FleetTools), cs.LastErrorJSON,
-		cs.MCPTokenHash, causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor, cs.ID)
+		cs.MCPTokenHash, causeJSON(cs.Cause), cs.SuspendedBy, cs.SuspendedPrev, cs.NotesCursor,
+		cs.TaskID, cs.TicketID, cs.ID)
 	if err != nil {
 		return err
 	}

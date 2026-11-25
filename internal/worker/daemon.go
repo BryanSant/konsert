@@ -1421,6 +1421,11 @@ func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
 	if len(f.Checkouts) == 0 {
 		f.Checkouts = d.collectCheckouts(ctx, false)
 	}
+	if f.WorkdirRoot == "" && d.runner != nil {
+		if root, err := d.runner.resolveWorkdirRoot(""); err == nil {
+			f.WorkdirRoot = root
+		}
+	}
 	d.factsMu.Lock()
 	d.lastFacts = &f
 	d.factsMu.Unlock()

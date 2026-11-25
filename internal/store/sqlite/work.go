@@ -943,3 +943,64 @@ func (s *SQLiteStore) GetTicketRollup(ctx context.Context, id string) (store.Tic
 	`, id).Scan(&r.Total, &r.Done, &r.Running, &r.Blocked)
 	return r, err
 }
+
+// --- Ticket Comments ---
+
+func (s *SQLiteStore) CreateTicketComment(ctx context.Context, c store.TicketComment) (store.TicketComment, error) {
+	c.TicketID = strings.TrimSpace(c.TicketID)
+	c.Author = strings.TrimSpace(c.Author)
+	c.Body = strings.TrimSpace(c.Body)
+	if c.TicketID == "" {
+		return store.TicketComment{}, fmt.Errorf("%w: ticket_id is required", store.ErrInvalidWork)
+	}
+	if c.Body == "" {
+		return store.TicketComment{}, fmt.Errorf("%w: comment body is required", store.ErrInvalidWork)
+	}
+	if len([]rune(c.Body)) > store.MaxTicketCommentChars {
+		return store.TicketComment{}, fmt.Errorf("%w: comment body exceeds %d characters", store.ErrInvalidWork, store.MaxTicketCommentChars)
+	}
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM tickets WHERE id = ?`, c.TicketID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return store.TicketComment{}, store.ErrNotFound
+		}
+		return store.TicketComment{}, err
+	}
+	if c.ID == "" {
+		c.ID = ids.UUID()
+	}
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now().UTC()
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO ticket_comments (id, ticket_id, author, body, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, c.ID, c.TicketID, c.Author, c.Body, formatTime(c.CreatedAt)); err != nil {
+		return store.TicketComment{}, err
+	}
+	return c, nil
+}
+
+func (s *SQLiteStore) ListTicketComments(ctx context.Context, ticketID string) ([]store.TicketComment, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, ticket_id, author, body, created_at
+		FROM ticket_comments
+		WHERE ticket_id = ?
+		ORDER BY created_at ASC, id ASC
+	`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []store.TicketComment{}
+	for rows.Next() {
+		var c store.TicketComment
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.TicketID, &c.Author, &c.Body, &createdAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt = parseTime(createdAt)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

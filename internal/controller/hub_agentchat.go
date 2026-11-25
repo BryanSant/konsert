@@ -118,6 +118,7 @@ type agentChatRT struct {
 	token         string // plaintext MCP bearer token (memory only)
 	mcp           http.Handler
 	mcpFleet      bool
+	mcpTicketID   string
 	asks          map[string]*pendingAsk
 	// followUps are messages for the agent queued while it was mid-turn (Fleet's "Ask
 	// agent to stop it"); sent as the next prompt when the turn ends.

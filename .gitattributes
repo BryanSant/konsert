@@ -1,1 +1,2 @@
 internal/worker/digest/testdata/** -text
+internal/controller/testdata/** -text

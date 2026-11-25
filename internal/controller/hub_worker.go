@@ -610,8 +610,18 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 		}
 	}
 	if p.Digest != nil {
-		if b, err := json.Marshal(p.Digest, protocol.JSONOptions); err == nil {
+		d := *p.Digest
+		mergeTaskFollowupsIntoDigest(&d, cur.Followups)
+		if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
 			_ = h.store.UpdateTaskDigest(ctx, p.TaskID, string(b))
+		}
+	} else if protocol.IsTerminalTaskStatus(p.Status) && len(cur.Followups) > 0 && strings.TrimSpace(cur.DigestJSON) != "" {
+		var d protocol.RunDigest
+		if err := json.Unmarshal([]byte(cur.DigestJSON), &d, protocol.JSONOptions); err == nil {
+			mergeTaskFollowupsIntoDigest(&d, cur.Followups)
+			if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
+				_ = h.store.UpdateTaskDigest(ctx, p.TaskID, string(b))
+			}
 		}
 	}
 	cause := h.taskCauseForWorkerStatus(cur, p.Status, p.ExitCode)
