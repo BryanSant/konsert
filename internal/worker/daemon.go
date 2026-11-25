@@ -220,6 +220,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		},
 	}, logger)
 
+	d.runner.SetMachineName(cfg.Name)
 	d.runner.SetScrollbackDir(scrollbackDir(d.stateDir(), cfg.WorkerID))
 
 	// Anything descending from syred itself (PTY tasks, chat engines and their helpers)

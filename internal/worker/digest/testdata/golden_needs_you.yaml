@@ -1,0 +1,11 @@
+ticket: SYR-7QK3M
+status: needs_you
+machine: bocabox (claude, opus)
+duration_s: 60
+summary: waiting for input
+question:
+  text: "Should /v1/token also rotate refresh tokens?"
+  context:
+    - Inspecting api/pkg/auth/handler.go
+    - Found legacy /v1/token endpoint alongside /v2/auth/refresh
+    - Acceptance criteria only mention /auth/refresh

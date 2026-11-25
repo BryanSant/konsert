@@ -1,0 +1,20 @@
+FAIL src/auth.test.ts
+  auth fetch wrapper
+    ✓ passes through 200 responses (3 ms)
+    ✕ retries once on 401 (12 ms)
+    ✕ clears session on second 401 (4 ms)
+
+  ● auth fetch wrapper › retries once on 401
+
+    expect(received).toBe(expected) // Object.is equality
+    Expected: 2
+    Received: 1
+
+  ● auth fetch wrapper › clears session on second 401
+
+    expect(received).toBeNull()
+
+Test Suites: 1 failed, 2 passed, 3 total
+Tests:       2 failed, 15 passed, 17 total
+Snapshots:   0 total
+Time:        1.842 s

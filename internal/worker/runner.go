@@ -18,6 +18,7 @@ import (
 	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/worker/digest"
 	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/BryanSant/syre/internal/worker/proctree"
 	"github.com/BryanSant/syre/internal/worker/shellint"
@@ -34,14 +35,17 @@ type RunnerCallbacks struct {
 }
 
 type runningTask struct {
-	id           string
-	agent        string
-	effectiveDir string
-	worktrees    []protocol.TaskWorktree
-	baseSHA      string
-	startedAt    time.Time
-	pty          PtyProcess
-	ring         *RingBuffer
+	id               string
+	ticketSID        string
+	agent            string
+	model            string
+	effectiveDir     string
+	worktrees        []protocol.TaskWorktree
+	worktreeBaseSHAs map[string]string
+	baseSHA          string
+	startedAt        time.Time
+	pty              PtyProcess
+	ring             *RingBuffer
 	// scroll keeps the terminal output on disk for a redraw after the task ended or
 	// syred restarted (nil without a scrollback directory).
 	scroll       *scrollback
@@ -84,6 +88,21 @@ type Runner struct {
 
 	// scrollDir holds each PTY task's on-disk scrollback ("": none; scrollback.go).
 	scrollDir string
+	// machineName is the human-readable name of this worker machine (used in RunDigest).
+	machineName string
+}
+
+// SetMachineName sets the worker machine name included in post-run digests.
+func (r *Runner) SetMachineName(name string) {
+	r.mu.Lock()
+	r.machineName = strings.TrimSpace(name)
+	r.mu.Unlock()
+}
+
+func (r *Runner) getMachineName() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.machineName
 }
 
 // SetScrollbackDir keeps PTY tasks' terminal output in dir (call before tasks start).
@@ -316,12 +335,13 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	}
 
 	var (
-		effectiveDir  string
-		baseSHA       string
-		createdWTs    []gitutil.WorktreeInfo
-		taskWorktrees []protocol.TaskWorktree
-		ticketWorkdir string
-		err           error
+		effectiveDir     string
+		baseSHA          string
+		createdWTs       []gitutil.WorktreeInfo
+		taskWorktrees    []protocol.TaskWorktree
+		worktreeBaseSHAs map[string]string
+		ticketWorkdir    string
+		err              error
 	)
 
 	// undoWorktrees removes any worktrees created during setup if the task never gets to run.
@@ -423,6 +443,10 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 				WorktreePath: info.Path,
 				Branch:       targetBranch,
 			})
+			if worktreeBaseSHAs == nil {
+				worktreeBaseSHAs = make(map[string]string, len(req.Bindings))
+			}
+			worktreeBaseSHAs[repoName] = info.BaseSHA
 			if baseSHA == "" {
 				baseSHA = info.BaseSHA
 			}
@@ -549,18 +573,21 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	}
 
 	rt := &runningTask{
-		id:           req.TaskID,
-		agent:        req.Agent,
-		effectiveDir: effectiveDir,
-		worktrees:    taskWorktrees,
-		baseSHA:      baseSHA,
-		startedAt:    time.Now().UTC(),
-		pty:          proc,
-		ring:         NewRingBuffer(DefaultRingBufferSize),
-		scroll:       openScrollback(r.scrollbackDir(), req.TaskID),
-		cancelFunc:   cancel,
-		deadline:     deadline,
-		status:       protocol.TaskStatusRunning,
+		id:               req.TaskID,
+		ticketSID:        req.TicketSID,
+		agent:            req.Agent,
+		model:            req.Model,
+		effectiveDir:     effectiveDir,
+		worktrees:        taskWorktrees,
+		worktreeBaseSHAs: worktreeBaseSHAs,
+		baseSHA:          baseSHA,
+		startedAt:        time.Now().UTC(),
+		pty:              proc,
+		ring:             NewRingBuffer(DefaultRingBufferSize),
+		scroll:           openScrollback(r.scrollbackDir(), req.TaskID),
+		cancelFunc:       cancel,
+		deadline:         deadline,
+		status:           protocol.TaskStatusRunning,
 	}
 	if spec.ShellIntegration && integ != nil {
 		rt.shellParser = &shellint.Parser{}
@@ -641,10 +668,21 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 			rt.mu.Unlock()
 
 			if ev.Kind == "waiting_input" {
+				needDigest := digest.Build(digest.Input{
+					TicketSID:  rt.ticketSID,
+					TaskStatus: protocol.TaskStatusWaitingInput,
+					Machine:    r.getMachineName(),
+					Agent:      rt.agent,
+					Model:      rt.model,
+					Duration:   time.Since(rt.startedAt),
+					Question:   ev.Message,
+					Output:     rt.ring.Snapshot(),
+				})
 				r.emitStatus(protocol.TaskStatusPayload{
 					TaskID:       rt.id,
 					Status:       protocol.TaskStatusWaitingInput,
 					EffectiveDir: rt.effectiveDir,
+					Digest:       &needDigest,
 				})
 			}
 
@@ -733,11 +771,52 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		summary = "task timed out; " + summary
 	}
 
-	summaryDir := rt.effectiveDir
+	var (
+		gitSummary *protocol.GitSummary
+		gitByRepo  map[string]*protocol.GitSummary
+	)
 	if len(rt.worktrees) > 0 {
-		summaryDir = rt.worktrees[0].WorktreePath
+		gitByRepo = make(map[string]*protocol.GitSummary, len(rt.worktrees))
+		for i, wt := range rt.worktrees {
+			bSHA := rt.worktreeBaseSHAs[wt.RepoName]
+			if bSHA == "" && i == 0 {
+				bSHA = rt.baseSHA
+			}
+			gs, _ := gitutil.CaptureSummary(context.Background(), wt.WorktreePath, bSHA)
+			if i == 0 {
+				gitSummary = gs
+			}
+			if gs != nil {
+				gitByRepo[wt.RepoName] = gs
+			}
+		}
+	} else {
+		gitSummary, _ = gitutil.CaptureSummary(context.Background(), rt.effectiveDir, rt.baseSHA)
+		if gitSummary != nil {
+			repoKey := filepath.Base(rt.effectiveDir)
+			if repoKey == "" || repoKey == "." || repoKey == string(filepath.Separator) {
+				repoKey = "repo"
+			}
+			gitByRepo = map[string]*protocol.GitSummary{repoKey: gitSummary}
+		}
 	}
-	gitSummary, _ := gitutil.CaptureSummary(context.Background(), summaryDir, rt.baseSHA)
+
+	runDigest := digest.Build(digest.Input{
+		TicketSID:  rt.ticketSID,
+		Attempt:    0,
+		TaskStatus: finalStatus,
+		Machine:    r.getMachineName(),
+		Agent:      rt.agent,
+		Model:      rt.model,
+		Duration:   time.Since(rt.startedAt),
+		ExitCode:   exitCode,
+		TimedOut:   timedOut,
+		Canceled:   wasCanceled,
+		WaitErr:    waitErr,
+		Summary:    summary,
+		Output:     rt.ring.Snapshot(),
+		Git:        gitByRepo,
+	})
 
 	if rt.shellTracker != nil {
 		rt.shellTracker.Close(exitCode)
@@ -761,6 +840,7 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		ExitCode:     &ec,
 		Summary:      summary,
 		GitSummary:   gitSummary,
+		Digest:       &runDigest,
 	})
 }
 

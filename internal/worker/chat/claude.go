@@ -28,6 +28,7 @@ import (
 
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/digest"
 	"github.com/BryanSant/syre/internal/worker/proctree"
 )
 
@@ -1744,28 +1745,23 @@ func (s *claudeSession) handleExit(gen, code int, stderr string) {
 
 // claudeClassify maps error text (and an HTTP status when known) to an error kind.
 func claudeClassify(text string, status int) (kind string, retryable bool) {
-	t := strings.ToLower(text)
-	has := func(subs ...string) bool {
-		for _, s := range subs {
-			if strings.Contains(t, s) {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case status == 401 || status == 403 || has("please run /login", "not logged in", "oauth token has expired",
-		"invalid api key", "authentication_error", "401 unauthorized", "token has been revoked",
-		"invalid bearer token", "oauth token is invalid", "run claude auth login", "invalid authentication", "status 401"):
+	if status == 401 || status == 403 {
 		return protocol.ErrKindAuth, false
-	case has("usage limit", "usage_limit", "limit reached", "hit your limit", "quota exceeded", "out of extra usage",
-		"weekly limit", "5-hour limit", "session limit"):
-		return protocol.ErrKindUsageLimit, false
-	case status == 429 || status == 529 || status == 503 || has("rate limit", "rate_limit_error", "overloaded",
-		"too many requests", "429", "529"):
+	}
+	if k := digest.ClassifyText(text); k != "" {
+		return k, k == protocol.ErrKindRateLimit
+	}
+	switch status {
+	case 429, 529, 503:
 		return protocol.ErrKindRateLimit, true
-	case status == 404 || has("model not found", "unknown model", "invalid model", "model_not_found",
-		"issue with the selected model", "not available for your account", "model: ") && has("model"):
+	case 404:
+		return protocol.ErrKindModel, false
+	}
+	t := strings.ToLower(text)
+	if strings.Contains(t, "please run /login") || strings.Contains(t, "run claude auth login") {
+		return protocol.ErrKindAuth, false
+	}
+	if strings.Contains(t, "model: ") && strings.Contains(t, "model") {
 		return protocol.ErrKindModel, false
 	}
 	return protocol.ErrKindOther, false

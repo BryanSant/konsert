@@ -113,6 +113,12 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 	if last.Status != protocol.TaskStatusCompleted {
 		t.Fatalf("expected completed status, got %+v", last)
 	}
+	if last.Digest == nil {
+		t.Fatalf("expected non-nil Digest on final TaskStatusPayload")
+	}
+	if last.Digest.TicketSID != "SYR-MULTI" || last.Digest.Status != protocol.DigestStatusReview {
+		t.Fatalf("unexpected digest header: %+v", last.Digest)
+	}
 	if last.EffectiveDir != wantTicketDir {
 		t.Fatalf("EffectiveDir = %q, want %q", last.EffectiveDir, wantTicketDir)
 	}

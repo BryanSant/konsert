@@ -1,0 +1,10 @@
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+  Failed MyApp.Tests.AuthTests.TestRotate [12 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+  Failed MyApp.Tests.AuthTests.TestReuse [5 ms]
+  Error Message:
+   Expected token family to be revoked
+
+Failed!  - Failed:     2, Passed:    10, Skipped:     0, Total:    12, Duration: 145 ms - MyApp.Tests.dll (net8.0)

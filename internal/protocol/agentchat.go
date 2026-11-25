@@ -262,17 +262,23 @@ type AgentRateLimit struct {
 	State string `json:"state,omitempty"`
 }
 
-// Error kinds (AgentChatError.Kind).
+// Error kinds (AgentChatError.Kind and RunDigest.Failure.Category).
 const (
-	ErrKindAuth       = "auth"        // not logged in / token expired: re-login needed
-	ErrKindUsageLimit = "usage_limit" // subscription window exhausted: wait until ResetsAt
-	ErrKindRateLimit  = "rate_limit"  // transient throttling: retry shortly
-	ErrKindExit       = "exit"        // engine process exited unexpectedly (ExitCode, Stderr)
-	ErrKindNotFound   = "not_installed"
-	ErrKindModel      = "model"   // unknown/unavailable model
-	ErrKindTimeout    = "timeout" // no progress within the watchdog
-	ErrKindProtocol   = "protocol"
-	ErrKindOther      = "other"
+	ErrKindAuth        = "auth"        // not logged in / token expired: re-login needed
+	ErrKindUsageLimit  = "usage_limit" // subscription window exhausted: wait until ResetsAt
+	ErrKindRateLimit   = "rate_limit"  // transient throttling: retry shortly
+	ErrKindExit        = "exit"        // engine process exited unexpectedly (ExitCode, Stderr)
+	ErrKindNotFound    = "not_installed"
+	ErrKindModel       = "model"   // unknown/unavailable model
+	ErrKindTimeout     = "timeout" // no progress within the watchdog
+	ErrKindProtocol    = "protocol"
+	ErrKindOther       = "other"
+	ErrKindOOM         = "oom"          // out of memory (SIGKILL/137, Windows job memory)
+	ErrKindDiskFull    = "disk_full"    // ENOSPC / out of disk space
+	ErrKindMissingTool = "missing_tool" // command not found / exit 127
+	ErrKindVerify      = "verify"       // verification command failed (reserved)
+	ErrKindAgentError  = "agent_error"  // generic agent/task failure
+	ErrKindCanceled    = "canceled"     // task was canceled
 )
 
 // AgentChatError explains why a turn or session failed, with what the user can do.

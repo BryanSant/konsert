@@ -1,0 +1,17 @@
+ticket: SYR-7QK3M
+status: failed
+machine: bocabox (claude, opus)
+duration_s: 95
+git: {api: "1 file, +12 -3"}
+summary: go test failed with 2 failing tests
+failure:
+  category: agent_error
+  tests: [TestRevokeFamily, TestRefreshHandler/expired, TestRefreshHandler]
+  tail:
+    - token_test.go:42: expected family revoked, got active
+    - --- FAIL: TestRevokeFamily (0.02s)
+    - handler_test.go:88: status = 200, want 401
+    - --- FAIL: TestRefreshHandler/expired (0.00s)
+    - --- FAIL: TestRefreshHandler (0.01s)
+    - FAIL
+    - FAIL	github.com/acme/api/pkg/auth	0.045s

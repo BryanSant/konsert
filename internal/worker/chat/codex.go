@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/digest"
 	"github.com/BryanSant/syre/internal/worker/proctree"
 )
 
@@ -1288,23 +1289,10 @@ func (s *codexSession) turnError(te codexTurnError) *protocol.AgentChatError {
 }
 
 func codexClassifyText(text string) (string, bool) {
-	t := strings.ToLower(text)
-	has := func(subs ...string) bool {
-		for _, s := range subs {
-			if strings.Contains(t, s) {
-				return true
-			}
-		}
-		return false
+	if k := digest.ClassifyText(text); k != "" {
+		return k, k == protocol.ErrKindRateLimit
 	}
-	switch {
-	case has("401 unauthorized", "unauthorized", "not logged in", "authentication required", "missing bearer", "token expired", "refresh token", "please log in", "login again"):
-		return protocol.ErrKindAuth, false
-	case has("usage limit", "limit reached", "quota exceeded", "usage_limit", "out of credits"):
-		return protocol.ErrKindUsageLimit, false
-	case has("429", "rate limit", "too many requests", "overloaded", "503"):
-		return protocol.ErrKindRateLimit, true
-	case has("model not found", "unknown model", "model_not_found", "does not exist"):
+	if strings.Contains(strings.ToLower(text), "does not exist") {
 		return protocol.ErrKindModel, false
 	}
 	return protocol.ErrKindOther, false
