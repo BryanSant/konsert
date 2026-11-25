@@ -71,6 +71,41 @@ func parseResource(s string) *store.Resource {
 	return &store.Resource{Name: strings.TrimSuffix(s, ".service")}
 }
 
+// UserRequestView is a user request with the context and blocking impact the UI shows
+// alongside questions in the queue.
+type UserRequestView struct {
+	store.UserRequest
+	ChatSID     string `json:"chat_sid,omitempty"`
+	ChatTitle   string `json:"chat_title,omitempty"`
+	MachineName string `json:"machine_name,omitempty"`
+	Commander   bool   `json:"commander,omitzero"`
+	Impact      int    `json:"impact"`
+}
+
+// userRequestView enriches a request with its machine/chat metadata and blocking impact
+// using the same scale as QuestionView (1 for blocking the asking session, +2 when it
+// blocks the commander).
+func (h *Hub) userRequestView(ctx context.Context, v *viewContext, r store.UserRequest) UserRequestView {
+	v.load(ctx)
+	out := UserRequestView{
+		UserRequest: r,
+		MachineName: v.workers[r.WorkerID],
+	}
+	impact := 1
+	if r.ChatID != "" {
+		if cs := v.chat(ctx, r.ChatID); cs != nil {
+			out.ChatSID = cs.SID
+			out.ChatTitle = cs.Title
+			out.Commander = cs.FleetTools
+			if cs.FleetTools {
+				impact += 2
+			}
+		}
+	}
+	out.Impact = impact
+	return out
+}
+
 // requestUserAction creates an open request for chat chatID and waits (like ask_user)
 // until it is resolved, declined, or the wait times out. It returns text for the agent.
 func (h *Hub) requestUserAction(ctx context.Context, chatID string, in requestUserActionInput) (string, error) {
@@ -98,7 +133,7 @@ func (h *Hub) requestUserAction(ctx context.Context, chatID string, in requestUs
 	cause := causeFrom(ctx)
 	cause.RequestID = req.ID
 	where := h.workerLabel(ctx, workerID)
-	h.broadcastFleetUpdate("request", req)
+	h.broadcastFleetUpdate("request", h.userRequestView(ctx, h.newViewContext(), req))
 	h.recordFleetEvent(ctx, store.FleetEvent{
 		Kind: store.EventKindRequest, Action: "created", Cause: cause, WorkerID: workerID, ChatID: chatID,
 		Summary:  fmt.Sprintf("Chat %s (%s) asked the user to act on %s: %s (request %s)", cs.SID, cs.Title, where, desc, req.SID),
@@ -226,7 +261,7 @@ func (h *Hub) resolveRequest(ctx context.Context, id, status, resolution, comman
 	if !ok {
 		return req, nil
 	}
-	h.broadcastFleetUpdate("request", req)
+	h.broadcastFleetUpdate("request", h.userRequestView(ctx, h.newViewContext(), req))
 	verb := map[string]string{store.RequestDone: "done", store.RequestDeclined: "declined", store.RequestCanceled: "canceled"}[status]
 	msg := fmt.Sprintf("Request %s (%s) marked %s by %s", req.SID, req.Description, verb, describeActor(cause))
 	if resolution != "" {
@@ -323,10 +358,12 @@ func (s *Server) handleListRequests(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	if reqs == nil {
-		reqs = []store.UserRequest{}
+	v := s.hub.newViewContext()
+	views := make([]UserRequestView, 0, len(reqs))
+	for _, req := range reqs {
+		views = append(views, s.hub.userRequestView(r.Context(), v, req))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"requests": reqs})
+	writeJSON(w, http.StatusOK, map[string]any{"requests": views})
 }
 
 func (s *Server) handleResolveRequest(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +391,7 @@ func (s *Server) handleResolveRequest(w http.ResponseWriter, r *http.Request) {
 	s.hub.recordAudit(r.Context(), store.AuditEvent{Action: AuditRequestResolve, WorkerID: req.WorkerID,
 		Message:  fmt.Sprintf("Marked request %s %s", req.SID, status),
 		MetaJSON: auditMeta(map[string]any{"request_id": req.ID, "status": status})})
-	writeJSON(w, http.StatusOK, req)
+	writeJSON(w, http.StatusOK, s.hub.userRequestView(r.Context(), s.hub.newViewContext(), req))
 }
 
 // handleListFleetEvents serves GET /api/events (newest first).

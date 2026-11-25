@@ -21,6 +21,7 @@ import { IconComponent } from '../../shared/icon.component';
       [class.sy-ny-dim]="!e.pending"
       [attr.data-needs-you]="e.key"
       [attr.data-kind]="e.kind"
+      [attr.data-impact]="e.impact ?? null"
       [attr.data-question]="e.kind === 'question' ? e.sid : null"
       [attr.data-request]="e.kind === 'request' ? e.sid : null"
       [attr.data-override]="e.kind === 'override' ? e.sid : null"

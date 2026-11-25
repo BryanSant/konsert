@@ -1,13 +1,13 @@
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
-import { Veto, formatDuration } from '../../core/models/control.models';
+import { UserRequest, Veto, formatDuration, resourceLabel } from '../../core/models/control.models';
 import { isPending } from '../../core/models/question.models';
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { NeedsYouEntry, NeedsYouStore, overrideScope, vetoDetails, vetoEscalated } from '../../core/state/needs-you.store';
 import { QuestionsStore } from '../../core/state/questions.store';
-import { fromTextField, queueKey } from '../../core/state/questions-logic';
+import { formatSince, fromTextField, queueKey } from '../../core/state/questions-logic';
 import { WorkStore } from '../../core/state/work.store';
 import { ReviewPanelComponent } from '../../modes/work/review-panel.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -97,21 +97,54 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                       }
                     }
                     @case ('request') {
-                      <article class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-2)] p-4 space-y-3" data-testid="needs-you-request">
-                        <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">An agent asks you to do something</div>
-                        <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--sy-text)]">{{ e.request!.description }}</h3>
-                        <p class="m-0 text-[12.5px] text-[var(--sy-text-secondary)]">{{ e.meta }}</p>
+                      @let r = e.request!;
+                      <article
+                        class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-2)] p-4 space-y-3"
+                        [class.ring-1]="e.pending"
+                        [class.ring-[var(--sy-amber-soft)]]="e.pending"
+                        data-testid="needs-you-request"
+                        [attr.data-request]="e.sid"
+                        [attr.data-impact]="e.impact ?? null"
+                      >
+                        <header class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--sy-text-muted)]">
+                          <span class="inline-flex items-center gap-1.5 text-[var(--sy-text-secondary)]">
+                            <app-icon [name]="r.commander ? 'commander' : 'hand'" [size]="13" />
+                            <span class="font-medium">{{ r.commander ? 'Commander' : 'Agent' }}</span>
+                          </span>
+                          @if (r.chat_title) {
+                            <span>·</span><span class="truncate max-w-[220px]" [syTooltip]="r.chat_sid || ''">{{ r.chat_title }}</span>
+                          }
+                          @if (requestMachine(r); as machine) {
+                            <span>·</span><span>{{ machine }}</span>
+                          }
+                          <span class="flex-1"></span>
+                          @if (e.pending) {
+                            <span class="inline-flex items-center gap-1 text-[var(--sy-amber)]" data-testid="request-blocked">
+                              <app-icon name="clock" [size]="11" />
+                              blocked {{ since(r.created_at) }}
+                            </span>
+                          }
+                        </header>
+                        <div class="space-y-1">
+                          <div class="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">
+                            <app-icon name="hand" [size]="12" />
+                            Action requested
+                            <span class="font-mono-ide normal-case tracking-normal text-[var(--sy-text-muted)]">{{ e.sid }}</span>
+                          </div>
+                          <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--sy-text)]">{{ r.description }}</h3>
+                          <p class="m-0 text-[12px] text-[var(--sy-text-secondary)]" data-testid="request-impact">{{ requestImpactLine(r) }}</p>
+                        </div>
                         <p class="m-0 text-[12.5px] text-[var(--sy-text-muted)]">Mark it done once you've done it and the agent carries on; decline and it is told you won't.</p>
                         @if (e.pending) {
                           <div class="flex flex-wrap gap-2">
-                            <button type="button" class="sy-btn sy-btn-primary h-10" [attr.data-testid]="'request-done-' + e.sid" [disabled]="control.isBusy(e.request!.id)" (click)="resolve(e, 'done')">
+                            <button type="button" class="sy-btn sy-btn-primary h-10" [attr.data-testid]="'request-done-' + e.sid" [disabled]="control.isBusy(r.id)" (click)="resolve(e, 'done')">
                               <app-icon name="check" [size]="12" />
                               Mark done
                             </button>
-                            <button type="button" class="sy-btn sy-btn-soft h-10" [attr.data-testid]="'request-decline-' + e.sid" [disabled]="control.isBusy(e.request!.id)" (click)="resolve(e, 'declined')">Decline</button>
+                            <button type="button" class="sy-btn sy-btn-soft h-10" [attr.data-testid]="'request-decline-' + e.sid" [disabled]="control.isBusy(r.id)" (click)="resolve(e, 'declined')">Decline</button>
                           </div>
                         } @else {
-                          <p class="m-0 text-[12.5px] text-[#8fcb9b]" role="status">Done: the agent was told.</p>
+                          <p class="m-0 text-[12.5px] text-[#8fcb9b]" role="status" data-testid="request-resolved">{{ resolved()[e.key] === 'declined' ? 'Declined' : 'Done' }}: the agent was told.</p>
                         }
                       </article>
                     }
@@ -418,9 +451,30 @@ export class NeedsYouDialogComponent {
 
   /** Notes typed for override decisions, by entry key. */
   private readonly notes = signal<Record<string, string>>({});
-  /** Decisions and dismissals made here, for the receipts. */
+  /** Decisions, resolutions and dismissals made here, for the receipts. */
   readonly decided = signal<Record<string, 'approve' | 'deny'>>({});
+  readonly resolved = signal<Record<string, 'done' | 'declined'>>({});
   readonly dismissedHere = signal<Record<string, boolean>>({});
+
+  since(iso: string | undefined): string {
+    return formatSince(iso, this.store.now());
+  }
+
+  requestMachine(r: UserRequest): string {
+    return r.machine_name || this.fleet.workersById()[r.worker_id]?.name || '';
+  }
+
+  requestImpactLine(r: UserRequest): string {
+    const machine = this.requestMachine(r);
+    const target = r.commander
+      ? 'Blocking the commander'
+      : r.chat_title
+        ? `Blocking ${r.chat_title}`
+        : machine
+          ? `Blocking an agent on ${machine}`
+          : 'Blocking an agent';
+    return [target, resourceLabel(r.resource)].filter(Boolean).join(' · ');
+  }
 
   veto(e: NeedsYouEntry): { reason: string; note: string } {
     return e.veto ? vetoDetails(e.veto) : { reason: '', note: '' };
@@ -476,7 +530,10 @@ export class NeedsYouDialogComponent {
   }
 
   async resolve(e: NeedsYouEntry, status: 'done' | 'declined'): Promise<void> {
-    if (e.request && (await this.control.resolveRequest(e.request, status))) this.forward(() => this.store.advance(e.key));
+    if (e.request && (await this.control.resolveRequest(e.request, status))) {
+      this.resolved.update((r) => ({ ...r, [e.key]: status }));
+      this.forward(() => this.store.advance(e.key));
+    }
   }
 
   async remedy(e: NeedsYouEntry, action: 'kill' | 'ask' | 'keep'): Promise<void> {

@@ -1,11 +1,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ShellReminder } from '../models/activity.models';
-import { Hold, OverrideRequest, UserRequest, VETO_REASONS, Veto, formatDuration, resourceLabel } from '../models/control.models';
+import { Hold, OverrideRequest, UserRequest, VETO_REASONS, Veto, formatDuration, requestImpact, resourceLabel } from '../models/control.models';
 import { QuestionView, isPending } from '../models/question.models';
 import { ControlStore } from './control.store';
 import { FleetStore } from './fleet.store';
 import { QuestionsStore } from './questions.store';
-import { formatSince } from './questions-logic';
+import { formatSince, isSnoozed } from './questions-logic';
 import { WorkItem } from './work-logic';
 import { WorkStore } from './work.store';
 
@@ -32,6 +32,8 @@ export interface NeedsYouEntry {
   pending: boolean;
   /** The task or chat it is about. */
   sessionId?: string;
+  /** Blocking impact (questions and open requests: same scale as sortQuestions). */
+  impact?: number;
   question?: QuestionView;
   request?: UserRequest;
   veto?: Veto;
@@ -91,6 +93,26 @@ export function overrideScope(o: OverrideRequest, machine?: string, hold?: Hold,
       return `Every machine and resource hold on ${where}`;
   }
   return o.scope_kind;
+}
+
+/**
+ * Orders blocking queue items (questions and open requests) with the question queue's
+ * conventions: active before snoozed, higher blocking impact first, then oldest first
+ * (longest blocked), with key as a stable tie-breaker.
+ */
+export function sortBlockingEntries(list: readonly NeedsYouEntry[], now = Date.now()): NeedsYouEntry[] {
+  const rank = (e: NeedsYouEntry) => (e.question && isSnoozed(e.question, now) ? 1 : 0);
+  return [...list].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    const ia = a.impact ?? 1;
+    const ib = b.impact ?? 1;
+    if (ia !== ib) return ib - ia;
+    const d = Date.parse(a.at) - Date.parse(b.at);
+    if (!Number.isNaN(d) && d !== 0) return d;
+    return a.key.localeCompare(b.key);
+  });
 }
 
 /**
@@ -164,21 +186,10 @@ export class NeedsYouStore {
       });
     }
     const out: NeedsYouEntry[] = [...escalated];
-    for (const q of this.questionsStore.pending()) out.push(this.questionEntry(q));
-    for (const r of this.requests()) {
-      out.push({
-        key: `r:${r.id}`,
-        kind: 'request',
-        tag: 'P2',
-        title: r.description,
-        meta: ['request', names[r.worker_id]?.name, resourceLabel(r.resource), ago(r.created_at)].filter(Boolean).join(' · '),
-        at: r.created_at,
-        sid: r.sid,
-        pending: true,
-        sessionId: r.task_id || r.chat_id || undefined,
-        request: r,
-      });
-    }
+    const blocking: NeedsYouEntry[] = [];
+    for (const q of this.questionsStore.pending()) blocking.push(this.questionEntry(q));
+    for (const r of this.requests()) blocking.push(this.requestEntry(r, now, names));
+    out.push(...sortBlockingEntries(blocking, now));
     for (const o of this.overrides()) {
       const machine = o.worker_id ? names[o.worker_id]?.name : undefined;
       out.push({
@@ -243,7 +254,30 @@ export class NeedsYouStore {
       sid: q.sid,
       pending: isPending(q),
       sessionId: q.task_id || q.chat_id || undefined,
+      impact: q.impact,
       question: q,
+    };
+  }
+
+  private requestEntry(
+    r: UserRequest,
+    now: number,
+    names: Record<string, { name?: string } | undefined>,
+  ): NeedsYouEntry {
+    const machine = r.machine_name || names[r.worker_id]?.name;
+    const who = r.commander ? 'commander' : undefined;
+    return {
+      key: `r:${r.id}`,
+      kind: 'request',
+      tag: 'P2',
+      title: r.description,
+      meta: ['request', who, r.chat_sid, machine, resourceLabel(r.resource), `blocked ${formatSince(r.created_at, now)}`].filter(Boolean).join(' · '),
+      at: r.created_at,
+      sid: r.sid,
+      pending: r.status === 'open',
+      sessionId: r.task_id || r.chat_id || undefined,
+      impact: requestImpact(r),
+      request: r,
     };
   }
 

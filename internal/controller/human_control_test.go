@@ -732,6 +732,65 @@ func TestRequestUserActionResolvedByTerminalCommand(t *testing.T) {
 	}
 }
 
+func TestUserRequestViewIncludesBlockingImpactAndContext(t *testing.T) {
+	cs := newChatServer(t)
+	w := cs.connectAgentWorker(t, "w1", "box", claudeAccount("claude", true))
+	b := cs.dialBrowser(t)
+	agentChat, _, _ := openChat(t, cs, w, b, nil)
+
+	_, rawOrch := cs.api(t, http.MethodPost, "/api/chats/commander", nil)
+	var orch store.ChatSession
+	if err := json.Unmarshal(rawOrch, &orch); err != nil {
+		t.Fatalf("unmarshal commander: %v", err)
+	}
+
+	rAgent, err := cs.st.CreateUserRequest(context.Background(), store.UserRequest{
+		ChatID: agentChat.ID, WorkerID: "w1", Description: "Restart nginx",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rCmd, err := cs.st.CreateUserRequest(context.Background(), store.UserRequest{
+		ChatID: orch.ID, WorkerID: "w1", Description: "Approve firewall rule",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, raw := cs.api(t, http.MethodGet, "/api/requests?status=open", nil)
+	if code != 200 {
+		t.Fatalf("list requests: %d %s", code, raw)
+	}
+	var resp struct {
+		Requests []UserRequestView `json:"requests"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	byID := map[string]UserRequestView{}
+	for _, r := range resp.Requests {
+		byID[r.ID] = r
+	}
+	if got := byID[rAgent.ID]; got.Impact != 1 || got.Commander || got.MachineName != "box" || got.ChatSID != agentChat.SID {
+		t.Fatalf("agent request view: %+v", got)
+	}
+	if got := byID[rCmd.ID]; got.Impact != 3 || !got.Commander || got.MachineName != "box" || got.ChatSID != orch.SID {
+		t.Fatalf("commander request view: %+v", got)
+	}
+
+	code, raw = cs.api(t, http.MethodPost, "/api/requests/"+rCmd.SID+"/resolve", map[string]string{"status": "done"})
+	if code != 200 {
+		t.Fatalf("resolve request: %d %s", code, raw)
+	}
+	var resolved UserRequestView
+	if err := json.Unmarshal(raw, &resolved); err != nil {
+		t.Fatalf("unmarshal resolved: %v", err)
+	}
+	if resolved.Status != store.RequestDone || resolved.Impact != 3 || !resolved.Commander || resolved.MachineName != "box" {
+		t.Fatalf("resolved request view: %+v", resolved)
+	}
+}
+
 // User actions reach the commander (a turn starts when its work is affected and it
 // is idle) and, as a note before their next prompt, other agent chats on the machine.
 func TestEventDeliveryToCommanderAndNextTurnNote(t *testing.T) {

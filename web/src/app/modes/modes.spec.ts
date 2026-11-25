@@ -13,6 +13,7 @@ import { CommanderStore } from '../core/state/commander.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { WorkInputs, buildWorkItems, groupByProject, machineLoadLabel, occupiesSlot } from '../core/state/work-logic';
 import { WorkStore } from '../core/state/work.store';
+import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
 import { NeedsYouItemComponent } from '../features/needs-you/needs-you-item.component';
 import { modeForKey } from './mode-shell.component';
@@ -278,6 +279,92 @@ describe('needs-you queue', () => {
       expect(store.caughtUp()).toBe(true);
       vi.advanceTimersByTime(2000);
       expect(store.isOpen()).toBe(false);
+    });
+
+    it('orders open requests alongside questions by blocking impact, snooze state and age', () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const questions = TestBed.inject(QuestionsStore);
+      const control = TestBed.inject(ControlStore);
+      const now = Date.now();
+      store.now.set(now);
+      questions.now.set(now);
+
+      // High-impact question (5) -> commander request (3) -> older request (1, 20m) -> regular question (1, 5m) -> newer request (1, 1m) -> snoozed high-impact question (9).
+      questions.apply(question('q-hi', { impact: 5, blocked_since: new Date(now - 2 * 60_000).toISOString() }));
+      questions.apply(question('q-reg', { impact: 1, blocked_since: new Date(now - 5 * 60_000).toISOString() }));
+      questions.apply(question('q-snoozed', { impact: 9, snoozed_until: new Date(now + 60 * 60_000).toISOString(), blocked_since: new Date(now - 30 * 60_000).toISOString() }));
+      control.applyRequest({ id: 'r-new', sid: 'rq-new', worker_id: 'w1', description: 'Newer request', status: 'open', impact: 1, created_at: new Date(now - 60_000).toISOString() });
+      control.applyRequest({ id: 'r-old', sid: 'rq-old', worker_id: 'w1', description: 'Older request', status: 'open', impact: 1, created_at: new Date(now - 20 * 60_000).toISOString() });
+      control.applyRequest({ id: 'r-cmd', sid: 'rq-cmd', worker_id: 'w1', description: 'Commander request', status: 'open', commander: true, impact: 3, created_at: new Date(now - 3 * 60_000).toISOString() });
+
+      expect(store.entries().map((e) => e.key)).toEqual([
+        'q:q-hi',
+        'r:r-cmd',
+        'r:r-old',
+        'q:q-reg',
+        'r:r-new',
+        'q:q-snoozed',
+      ]);
+      const cmdEntry = store.entries().find((e) => e.key === 'r:r-cmd')!;
+      expect(cmdEntry.impact).toBe(3);
+      expect(cmdEntry.meta).toContain('commander');
+      expect(cmdEntry.meta).toContain('blocked 3m');
+    });
+
+    it('resolving a request in the queue shows its blocking impact and resolves it in the holds-and-requests panel too', async () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      TestBed.inject(FleetStore).upsertWorker(worker());
+      const req = {
+        id: 'r1',
+        sid: 'rq-1',
+        worker_id: 'w1',
+        machine_name: 'desk',
+        chat_sid: 'c-1',
+        chat_title: 'Deploy nginx',
+        commander: true,
+        impact: 3,
+        resource: { kind: 'service', name: 'nginx' },
+        description: 'Restart nginx with sudo',
+        status: 'open',
+        created_at: new Date(Date.now() - 8 * 60_000).toISOString(),
+      };
+      control.applyRequest(req);
+
+      const panelFixture = TestBed.createComponent(HoldsRequestsComponent);
+      panelFixture.detectChanges();
+      expect((panelFixture.nativeElement as HTMLElement).querySelectorAll('[data-request="rq-1"]')).toHaveLength(1);
+
+      store.open('r:r1');
+      const dialogFixture = TestBed.createComponent(NeedsYouDialogComponent);
+      dialogFixture.detectChanges();
+      const dialogRoot = dialogFixture.nativeElement as HTMLElement;
+      const card = dialogRoot.querySelector('[data-testid="needs-you-request"]')!;
+      expect(card.getAttribute('data-impact')).toBe('3');
+      expect(card.querySelector('[data-testid="request-impact"]')?.textContent).toContain('Blocking the commander');
+      expect(card.querySelector('[data-testid="request-impact"]')?.textContent).toContain('service nginx');
+      expect(card.querySelector('[data-testid="request-blocked"]')?.textContent).toContain('blocked 8m');
+
+      card.querySelector<HTMLButtonElement>('[data-testid="request-decline-rq-1"]')!.click();
+      await flushMicrotasks();
+      expect(api['resolveRequest']).toHaveBeenCalledWith('r1', 'declined', undefined);
+
+      // Shared ControlStore state removes it from both the queue and the holds-and-requests panel.
+      expect(control.requests()).toEqual([]);
+      expect(store.entries()).toEqual([]);
+      panelFixture.detectChanges();
+      expect((panelFixture.nativeElement as HTMLElement).querySelectorAll('[data-request="rq-1"]')).toHaveLength(0);
+      dialogFixture.detectChanges();
+      expect(dialogRoot.querySelector('[data-testid="request-resolved"]')?.textContent).toContain('Declined: the agent was told.');
+
+      // Live websocket update resolving another request removes it from the queue too.
+      control.applyRequest({ ...req, id: 'r2', sid: 'rq-2' });
+      expect(store.entries().map((e) => e.key)).toEqual(['r:r2']);
+      control.applyRequest({ ...req, id: 'r2', sid: 'rq-2', status: 'done' });
+      expect(store.entries()).toEqual([]);
+
+      dialogFixture.destroy();
+      panelFixture.destroy();
     });
 
     it('orders vetoes and override requests; a veto resolves itself once acknowledged', () => {
