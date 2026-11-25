@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionActivity } from '../models/activity.models';
 import { ChatSession, Project, Repo, Task, Worker } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
-import { activityFromTaskStatus, bucketOf, groupWork, heatLevelOf, nowTitle, taskNow, taskTitle } from './activity-logic';
+import { activityFromTaskStatus, bucketOf, groupWork, heatLevelOf, normalizeRemoteUrl, nowTitle, projectForPath, taskNow, taskTitle } from './activity-logic';
 import { ActivityStore } from './activity.store';
 import { FleetStore } from './fleet.store';
 import { CommanderStore } from './commander.store';
@@ -92,6 +92,53 @@ describe('activity logic', () => {
     expect(heatLevelOf(0.4)).toBe('warm');
     expect(heatLevelOf(0.75)).toBe('warm');
     expect(heatLevelOf(0.76)).toBe('hot');
+  });
+
+  it('normalizes git remote URLs and resolves projectForPath via reported checkouts', () => {
+    expect(normalizeRemoteUrl('git@GitHub.COM:Org/Syre.git')).toBe('github.com/Org/Syre');
+    expect(normalizeRemoteUrl('https://github.com/Org/Syre.git/')).toBe('github.com/Org/Syre');
+    expect(normalizeRemoteUrl('ssh://git@github.com:22/Org/Syre')).toBe('github.com/Org/Syre');
+
+    const repos = [repo('p1', 'syre'), repo('p2', 'site')];
+    const workers: Record<string, Worker> = {
+      w1: {
+        id: 'w1',
+        sid: 'm-1',
+        name: 'mac',
+        host_group: 'dev',
+        os: 'darwin',
+        arch: 'arm64',
+        isolation: 'host',
+        permission_mode: 'full_access',
+        agents: ['claude'],
+        tags: {},
+        max_concurrent: 4,
+        status: 'online',
+        last_seen_at: '',
+        facts: {
+          cpu_cores: 8,
+          ram_total_mb: 16384,
+          swap_total_mb: 0,
+          swap_used_mb: 0,
+          disk_total_gb: 500,
+          disk_free_gb: 200,
+          tmp_is_tmpfs: false,
+          is_wsl: false,
+          is_container: false,
+          is_mac_container: false,
+          is_vm: false,
+          checkouts: [
+            { path: '/Users/dev/src/syre', remote_url: 'git@GITHUB.COM:org/syre.git', branch: 'main' },
+            { path: '/Users/dev/src/site', remote_url: 'https://github.com/org/site', branch: 'main' },
+          ],
+        },
+      },
+    };
+    expect(projectForPath(repos, 'w1', '/Users/dev/src/syre', workers)).toBe('p1');
+    expect(projectForPath(repos, 'w1', '/Users/dev/src/syre/internal/controller', workers)).toBe('p1');
+    expect(projectForPath(repos, 'w1', '/Users/dev/src/syre2', workers)).toBeNull();
+    expect(projectForPath(repos, 'w1', '/Users/dev/src/site/web', workers)).toBe('p2');
+    expect(projectForPath(repos, 'w2', '/Users/dev/src/syre', workers)).toBeNull();
   });
 
   it('groups by project and puts unassigned work under Other work', () => {

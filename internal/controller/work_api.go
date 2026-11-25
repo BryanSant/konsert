@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -449,6 +450,7 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 		writeWorkError(w, err)
 		return
 	}
+	prevStatus := tk.Status
 	var body struct {
 		ParentID     *string                 `json:"parent_id"`
 		Kind         *string                 `json:"kind"`
@@ -508,6 +510,12 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("ticket", updated)
+	if updated.Status == store.TicketStatusDone && prevStatus != store.TicketStatusDone {
+		ticketID := updated.ID
+		s.hub.goBackground(func(ctx context.Context) {
+			_ = s.hub.CleanupTicketWorktrees(ctx, ticketID)
+		})
+	}
 	if updated.Status == store.TicketStatusReady || updated.Status == store.TicketStatusDone || updated.Status == store.TicketStatusReview {
 		s.hub.kickScheduler()
 	}

@@ -250,6 +250,14 @@ type TicketRepoBinding struct {
 	TargetBranch string `json:"target_branch,omitempty"`
 }
 
+// TaskWorktree records one provisioned git worktree reported back on a task.
+type TaskWorktree struct {
+	RepoName     string `json:"repo_name"`
+	CheckoutPath string `json:"checkout_path"`
+	WorktreePath string `json:"worktree_path"`
+	Branch       string `json:"branch,omitempty"`
+}
+
 // ExternalRef links a Syre ticket to an external tracker item (ka, GitHub, Jira, etc.).
 type ExternalRef struct {
 	TicketID   string `json:"ticket_id"`

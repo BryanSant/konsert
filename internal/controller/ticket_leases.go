@@ -140,6 +140,23 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		if err != nil || len(bindings) == 0 {
 			continue
 		}
+		type resolvedBinding struct {
+			binding store.TicketRepoBinding
+			repo    store.Repo
+		}
+		resolved := make([]resolvedBinding, 0, len(bindings))
+		reposOK := true
+		for _, b := range bindings {
+			repo, rErr := h.store.GetRepo(ctx, b.RepoID)
+			if rErr != nil {
+				reposOK = false
+				break
+			}
+			resolved = append(resolved, resolvedBinding{binding: b, repo: repo})
+		}
+		if !reposOK {
+			continue
+		}
 		firstBinding := bindings[0]
 		prompt := buildTicketPlaceholderPrompt(tk)
 		sel := h.ticketWorkerSelector(ctx, tk)
@@ -162,7 +179,22 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 				lifted[w.ID] = ov
 			}
 		}
-		w, ok := SelectWorker(eligible, counts, sel, agent, permMode)
+
+		// Locality preference: prefer machines with checkouts of all bound repos; machines
+		// without a checkout are still eligible only if the missing repo has remote_url set.
+		localityFn := func(w store.Worker) (int, bool, bool) {
+			matched := 0
+			for _, rb := range resolved {
+				if _, ok := h.WorkerCheckoutPath(ctx, w.ID, rb.repo.RemoteURL); ok {
+					matched++
+				} else if strings.TrimSpace(rb.repo.RemoteURL) == "" {
+					return 0, false, false
+				}
+			}
+			return matched, matched == len(resolved), true
+		}
+
+		w, ok := SelectWorkerWithLocality(eligible, counts, sel, agent, permMode, localityFn)
 		if !ok {
 			continue
 		}
@@ -188,12 +220,29 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			continue
 		}
 
-		// The daemon's default workdir until A1c provisions per-ticket worktrees from
-		// reported checkouts (SYR-YDTCV); a repo name is not a path.
 		workdir := ""
 		branch := firstBinding.TargetBranch
 		if branch == "" {
 			branch = firstBinding.BaseBranch
+		}
+		taskBindings := make([]protocol.TaskRepoBinding, 0, len(resolved))
+		for _, rb := range resolved {
+			checkoutPath, _ := h.WorkerCheckoutPath(ctx, w.ID, rb.repo.RemoteURL)
+			baseBranch := strings.TrimSpace(rb.binding.BaseBranch)
+			if baseBranch == "" {
+				baseBranch = strings.TrimSpace(rb.repo.DefaultBranch)
+			}
+			targetBranch := strings.TrimSpace(rb.binding.TargetBranch)
+			if targetBranch == "" {
+				targetBranch = "syre/" + claimedTk.SID
+			}
+			taskBindings = append(taskBindings, protocol.TaskRepoBinding{
+				RepoName:     rb.repo.Name,
+				RemoteURL:    rb.repo.RemoteURL,
+				CheckoutPath: checkoutPath,
+				BaseBranch:   baseBranch,
+				TargetBranch: targetBranch,
+			})
 		}
 		orphanPolicy := protocol.OrphanPolicyRequeue
 		if tk.OrphanPolicy == store.TicketOrphanPolicyFail {
@@ -203,12 +252,14 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		payload := protocol.TaskStartPayload{
 			TaskID:         taskID,
 			SID:            taskSID,
+			TicketSID:      claimedTk.SID,
+			Bindings:       taskBindings,
 			Agent:          agent,
 			Model:          model,
 			SessionKind:    "chat",
 			Workdir:        workdir,
 			Branch:         branch,
-			UseWorktree:    branch != "",
+			UseWorktree:    false,
 			Prompt:         prompt,
 			Mode:           protocol.TaskModeOneshot,
 			PermissionMode: string(permMode),

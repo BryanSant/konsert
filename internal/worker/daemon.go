@@ -52,8 +52,12 @@ type Daemon struct {
 	// lastFacts caches the most recent machine facts so a reconnect can send
 	// worker.hello immediately instead of re-running every probe first (slow on
 	// Windows, where timed-out probe processes are not killed promptly).
-	factsMu   sync.Mutex
-	lastFacts *protocol.MachineFacts
+	factsMu            sync.Mutex
+	lastFacts          *protocol.MachineFacts
+	cachedCheckouts    []protocol.ReportedCheckout
+	checkoutsUpdatedAt time.Time
+	// CheckoutCacheTTL bounds how long discovered checkouts are reused between scans (default 2m).
+	CheckoutCacheTTL time.Duration
 
 	// version is syred's build version, reported as WorkerInfo.Version.
 	version string
@@ -839,6 +843,13 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 	case protocol.MsgWorkerPortsRequest:
 		go d.sendPorts(daemonCtx, env.ID)
 
+	case protocol.MsgWorkerCheckoutsRefresh:
+		go func() {
+			ctx, cancel := context.WithTimeout(daemonCtx, 15*time.Second)
+			defer cancel()
+			d.RefreshCheckouts(ctx)
+		}()
+
 	case protocol.MsgTaskCancel:
 		p, err := protocol.DecodePayload[protocol.TaskCancelPayload](env)
 		if err != nil {
@@ -993,12 +1004,27 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		go func(reqID string, req protocol.GitWorktreeCleanupRequest) {
 			ctx, cancel := context.WithTimeout(daemonCtx, 15*time.Second)
 			defer cancel()
+			var repoRoot string
+			if strings.TrimSpace(req.RepoRoot) != "" {
+				validRepo, rErr := gitutil.ValidateWorkdir(req.RepoRoot, d.cfg.AllowedRoots)
+				if rErr != nil {
+					d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: rErr.Error()})
+					return
+				}
+				repoRoot = validRepo
+			}
 			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
 			if vErr != nil {
-				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: vErr.Error()})
-				return
+				// For ticket worktrees whose directory was already removed on disk, allow
+				// pruning via the validated repoRoot so cleanup stays idempotent.
+				if repoRoot != "" && errors.Is(vErr, gitutil.ErrWorkdirInvalid) {
+					dir = gitutil.ExpandHome(req.Workdir)
+				} else {
+					d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: vErr.Error()})
+					return
+				}
 			}
-			if err := gitutil.CleanupSyreWorktree(ctx, dir); err != nil {
+			if err := gitutil.CleanupWorktree(ctx, repoRoot, dir, req.PruneEmptyParent); err != nil {
 				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: err.Error()})
 				return
 			}
@@ -1333,9 +1359,67 @@ func (d *Daemon) cachedFacts() (protocol.MachineFacts, bool) {
 // under $HOME) that tests running with a temporary HOME must not trigger.
 var collectFacts = CollectMachineFacts
 
+// discoverCheckouts scans local roots for git checkouts. Tests replace it so unit
+// tests do not walk the developer's real ~/src directory.
+var discoverCheckouts = gitutil.DiscoverCheckouts
+
+const defaultCheckoutCacheTTL = 2 * time.Minute
+
+func (d *Daemon) checkoutRoots() []string {
+	return gitutil.DefaultCheckoutRoots(d.cfg.AllowedRoots, d.cfg.CheckoutRoots)
+}
+
+// collectCheckouts returns cached checkouts if fresh, or rescans configured roots.
+func (d *Daemon) collectCheckouts(ctx context.Context, force bool) []protocol.ReportedCheckout {
+	ttl := d.CheckoutCacheTTL
+	if ttl <= 0 {
+		ttl = defaultCheckoutCacheTTL
+	}
+	d.factsMu.Lock()
+	if !force && !d.checkoutsUpdatedAt.IsZero() && time.Since(d.checkoutsUpdatedAt) < ttl {
+		cached := append([]protocol.ReportedCheckout(nil), d.cachedCheckouts...)
+		d.factsMu.Unlock()
+		return cached
+	}
+	d.factsMu.Unlock()
+
+	roots := d.checkoutRoots()
+	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	found := discoverCheckouts(scanCtx, roots, gitutil.DefaultCheckoutMaxDepth)
+
+	d.factsMu.Lock()
+	d.cachedCheckouts = found
+	d.checkoutsUpdatedAt = time.Now().UTC()
+	d.factsMu.Unlock()
+	return append([]protocol.ReportedCheckout(nil), found...)
+}
+
+// RefreshCheckouts forces an on-demand checkout scan, updates cached facts, and
+// publishes worker.facts to the hub if connected.
+func (d *Daemon) RefreshCheckouts(ctx context.Context) []protocol.ReportedCheckout {
+	found := d.collectCheckouts(ctx, true)
+	d.factsMu.Lock()
+	var facts protocol.MachineFacts
+	if d.lastFacts != nil {
+		facts = *d.lastFacts
+	} else {
+		facts = protocol.MachineFacts{OSName: runtime.GOOS, CPUCores: runtime.NumCPU()}
+	}
+	facts.Checkouts = found
+	facts.CollectedAt = time.Now().UTC()
+	d.lastFacts = &facts
+	d.factsMu.Unlock()
+	d.sendJSON(protocol.MsgWorkerFacts, protocol.WorkerFactsPayload{Facts: facts})
+	return found
+}
+
 // refreshFacts collects machine facts and caches them for the next reconnect.
 func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
 	f := collectFacts(ctx)
+	if len(f.Checkouts) == 0 {
+		f.Checkouts = d.collectCheckouts(ctx, false)
+	}
 	d.factsMu.Lock()
 	d.lastFacts = &f
 	d.factsMu.Unlock()

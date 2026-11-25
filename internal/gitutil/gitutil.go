@@ -122,11 +122,20 @@ func CurrentSHA(ctx context.Context, dir string) (string, error) {
 // ErrInvalidWorktreeName is returned when a task ID cannot be used as a worktree directory.
 var ErrInvalidWorktreeName = errors.New("invalid worktree name")
 
+// ValidatePathSegment verifies that name is a single plain directory name (no slashes,
+// colons, or "." / "..") safe to join under a parent directory.
+func ValidatePathSegment(name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\:`) || filepath.Base(name) != name {
+		return fmt.Errorf("%w: %q", ErrInvalidWorktreeName, name)
+	}
+	return nil
+}
+
 // WorktreePath returns <repoRoot>/.syre-worktrees/<taskID>, refusing any taskID that is
 // not a single plain path component or whose result would escape .syre-worktrees.
 func WorktreePath(repoRoot, taskID string) (string, error) {
-	if taskID == "" || taskID == "." || taskID == ".." || strings.ContainsAny(taskID, `/\:`) || filepath.Base(taskID) != taskID {
-		return "", fmt.Errorf("%w: %q", ErrInvalidWorktreeName, taskID)
+	if err := ValidatePathSegment(taskID); err != nil {
+		return "", err
 	}
 	wtParent := filepath.Join(repoRoot, ".syre-worktrees")
 	p := filepath.Join(wtParent, taskID)
@@ -207,10 +216,118 @@ func RemoveTaskWorktree(ctx context.Context, info WorktreeInfo) error {
 	return err
 }
 
-// RemoveWorktree removes a previously created git worktree.
+// CloneRepo clones remoteURL into destDir (creating parent directories as needed).
+// If destDir is already a git repository, it performs a best-effort fetch instead.
+func CloneRepo(ctx context.Context, remoteURL, destDir string) error {
+	if strings.TrimSpace(remoteURL) == "" {
+		return fmt.Errorf("remote_url is required to clone")
+	}
+	if _, ok := IsGitRepo(ctx, destDir); ok {
+		_, _ = runGit(ctx, destDir, "fetch", "--all", "--prune")
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(destDir), 0o755); err != nil {
+		return fmt.Errorf("create clone parent: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", remoteURL, destDir)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("git clone %s: %s", remoteURL, msg)
+	}
+	return nil
+}
+
+// CreateWorktreeAt creates a git worktree for repoRoot at worktreePath checked out to
+// targetBranch, creating targetBranch from baseBranch (or HEAD if baseBranch is empty)
+// when targetBranch does not yet exist locally.
+func CreateWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBranch, targetBranch string) (WorktreeInfo, error) {
+	if _, statErr := os.Lstat(worktreePath); statErr == nil {
+		return WorktreeInfo{}, fmt.Errorf("worktree path already exists: %s", worktreePath)
+	}
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
+		return WorktreeInfo{}, fmt.Errorf("create worktree parent: %w", err)
+	}
+
+	startPoint := resolveBaseRef(ctx, repoRoot, baseBranch)
+	baseSHA, _ := runGit(ctx, repoRoot, "rev-parse", startPoint)
+	if baseSHA == "" {
+		baseSHA, _ = CurrentSHA(ctx, repoRoot)
+	}
+	info := WorktreeInfo{Path: worktreePath, BaseSHA: baseSHA, RepoRoot: repoRoot, Branch: targetBranch}
+
+	if targetBranch == "" {
+		if _, err := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, startPoint); err != nil {
+			return WorktreeInfo{}, fmt.Errorf("create detached worktree at %s: %w", worktreePath, err)
+		}
+		return info, nil
+	}
+
+	_, branchExistsErr := runGit(ctx, repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+targetBranch)
+	if branchExistsErr == nil {
+		if _, err := runGit(ctx, repoRoot, "worktree", "add", worktreePath, targetBranch); err != nil {
+			if _, err2 := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, targetBranch); err2 != nil {
+				return WorktreeInfo{}, fmt.Errorf("create worktree for existing branch %s: %w", targetBranch, err)
+			}
+		}
+	} else {
+		if _, err := runGit(ctx, repoRoot, "worktree", "add", "-b", targetBranch, worktreePath, startPoint); err != nil {
+			return WorktreeInfo{}, fmt.Errorf("create worktree with new branch %s from %s: %w", targetBranch, startPoint, err)
+		}
+		info.CreatedBranch = true
+	}
+	return info, nil
+}
+
+// resolveBaseRef resolves baseBranch to an existing local/remote ref in repoRoot, falling back to HEAD.
+func resolveBaseRef(ctx context.Context, repoRoot, baseBranch string) string {
+	baseBranch = strings.TrimSpace(baseBranch)
+	if baseBranch == "" {
+		return "HEAD"
+	}
+	for _, ref := range []string{"refs/heads/" + baseBranch, "refs/remotes/origin/" + baseBranch, baseBranch} {
+		if _, err := runGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
+			return ref
+		}
+	}
+	return "HEAD"
+}
+
+// RemoveWorktree removes a previously created git worktree and prunes stale worktree metadata.
+// The branch itself is kept.
 func RemoveWorktree(ctx context.Context, repoRoot, worktreePath string) error {
 	_, err := runGit(ctx, repoRoot, "worktree", "remove", "--force", worktreePath)
-	return err
+	if err != nil {
+		// If the directory is already gone on disk, prune makes cleanup idempotent.
+		if _, statErr := os.Lstat(worktreePath); os.IsNotExist(statErr) {
+			err = nil
+		}
+	}
+	_, pruneErr := runGit(ctx, repoRoot, "worktree", "prune")
+	if err != nil {
+		return err
+	}
+	return pruneErr
+}
+
+// CleanupWorktree removes a worktree and prunes git worktree metadata while keeping the branch.
+// When repoRoot is empty, it falls back to CleanupSyreWorktree (requiring /.syre-worktrees/).
+// When pruneEmptyParent is true, the parent directory is removed if empty (best-effort).
+func CleanupWorktree(ctx context.Context, repoRoot, workdir string, pruneEmptyParent bool) error {
+	if strings.TrimSpace(repoRoot) == "" {
+		return CleanupSyreWorktree(ctx, workdir)
+	}
+	if err := RemoveWorktree(ctx, repoRoot, workdir); err != nil {
+		return err
+	}
+	if pruneEmptyParent {
+		_ = os.Remove(filepath.Dir(workdir))
+	}
+	return nil
 }
 
 // CaptureSummary inspects git status, diff --stat, and commits since baseSHA.

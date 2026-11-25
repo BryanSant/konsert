@@ -31,10 +31,17 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 			gitJSON = string(b)
 		}
 	}
+	projectID := store.DefaultProjectID
+	repoID := ""
+	if repo, ok := h.repoForPath(ctx, workerID, p.Cwd); ok {
+		projectID = repo.ProjectID
+		repoID = repo.ID
+	}
 	t := store.Task{
 		ExternalID:     p.ExternalID,
 		WorkerID:       workerID,
-		ProjectID:      store.DefaultProjectID,
+		ProjectID:      projectID,
+		RepoID:         repoID,
 		Agent:          p.Agent,
 		Model:          p.Model,
 		SessionKind:    "chat",

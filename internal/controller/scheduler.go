@@ -46,12 +46,31 @@ func SelectWorker(
 	agent string,
 	permMode store.PermissionMode,
 ) (store.Worker, bool) {
+	return SelectWorkerWithLocality(workers, activeCounts, selector, agent, permMode, nil)
+}
+
+// LocalityScoreFn scores a worker's repo checkout locality for a ticket.
+// It returns (matchedRepos, hasAll, eligible): workers with eligible=false are skipped;
+// otherwise higher hasAll and matchedRepos rank ahead of utilization and disk space.
+type LocalityScoreFn func(w store.Worker) (matched int, hasAll bool, eligible bool)
+
+// SelectWorkerWithLocality is SelectWorker with optional checkout-locality preference.
+func SelectWorkerWithLocality(
+	workers []store.Worker,
+	activeCounts map[string]int,
+	selector WorkerSelector,
+	agent string,
+	permMode store.PermissionMode,
+	locality LocalityScoreFn,
+) (store.Worker, bool) {
 	if permMode == "" {
 		permMode = store.PermissionFullAccess
 	}
 
 	type candidate struct {
 		worker     store.Worker
+		hasAll     bool
+		matched    int
 		util       float64
 		diskFreeGB uint64
 	}
@@ -60,6 +79,17 @@ func SelectWorker(
 	for _, w := range workers {
 		if !workerMatchesSelector(w, activeCounts, selector, agent, permMode) {
 			continue
+		}
+		var (
+			matched int
+			hasAll  bool
+		)
+		if locality != nil {
+			var ok bool
+			matched, hasAll, ok = locality(w)
+			if !ok {
+				continue
+			}
 		}
 		maxC := w.MaxConcurrent
 		if maxC <= 0 {
@@ -72,6 +102,8 @@ func SelectWorker(
 		}
 		candidates = append(candidates, candidate{
 			worker:     w,
+			hasAll:     hasAll,
+			matched:    matched,
 			util:       float64(active) / float64(maxC),
 			diskFreeGB: diskFree,
 		})
@@ -82,6 +114,12 @@ func SelectWorker(
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].hasAll != candidates[j].hasAll {
+			return candidates[i].hasAll
+		}
+		if candidates[i].matched != candidates[j].matched {
+			return candidates[i].matched > candidates[j].matched
+		}
 		if candidates[i].util != candidates[j].util {
 			return candidates[i].util < candidates[j].util
 		}

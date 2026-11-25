@@ -90,6 +90,7 @@ type WorkerConfig struct {
 	Isolation        string            `yaml:"isolation"` // "host", "container", "vm"
 	Sandbox          bool              `yaml:"sandbox"`   // Opt-in sandboxed mode (default false = full_access)
 	AllowedRoots     []string          `yaml:"allowed_roots"`
+	CheckoutRoots    []string          `yaml:"checkout_roots"`
 	Tags             map[string]string `yaml:"tags"`
 	MaxConcurrent    int               `yaml:"max_concurrent"`
 	EnableMockDriver bool              `yaml:"enable_mock_driver"`

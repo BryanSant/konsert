@@ -154,27 +154,29 @@ type Repo struct {
 }
 
 type Task struct {
-	ID             string         `json:"id"`
-	SID            string         `json:"sid"`
-	ExternalID     string         `json:"external_id,omitempty"` // worker's key for a discovered session
-	WorkerID       string         `json:"worker_id"`
-	ProjectID      string         `json:"project_id,omitempty"`
-	RepoID         string         `json:"repo_id,omitempty"`
-	Agent          string         `json:"agent"`
-	Model          string         `json:"model,omitempty"`
-	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
-	Workdir        string         `json:"workdir"`
-	EffectiveDir   string         `json:"effective_dir"`
-	Branch         string         `json:"branch"`
-	Mode           string         `json:"mode"`            // "oneshot" | "interactive"
-	Origin         string         `json:"origin"`          // "commander" | "direct" | "scratch"
-	PermissionMode PermissionMode `json:"permission_mode"` // "full_access" | "sandboxed"
-	OrphanPolicy   string         `json:"orphan_policy"`   // "fail" | "requeue"
-	Prompt         string         `json:"prompt"`
-	Status         string         `json:"status"` // "queued","assigned","running","waiting_input","suspended","completed","failed","canceled"
-	Summary        string         `json:"summary"`
-	GitSummaryJSON string         `json:"git_summary_json,omitempty"`
-	ExitCode       *int           `json:"exit_code,omitzero"`
+	ID                 string         `json:"id"`
+	SID                string         `json:"sid"`
+	ExternalID         string         `json:"external_id,omitempty"` // worker's key for a discovered session
+	WorkerID           string         `json:"worker_id"`
+	ProjectID          string         `json:"project_id,omitempty"`
+	RepoID             string         `json:"repo_id,omitempty"`
+	Agent              string         `json:"agent"`
+	Model              string         `json:"model,omitempty"`
+	SessionKind        string         `json:"session_kind,omitempty"` // "chat" | "terminal"
+	Workdir            string         `json:"workdir"`
+	EffectiveDir       string         `json:"effective_dir"`
+	Branch             string         `json:"branch"`
+	Mode               string         `json:"mode"`            // "oneshot" | "interactive"
+	Origin             string         `json:"origin"`          // "commander" | "direct" | "scratch"
+	PermissionMode     PermissionMode `json:"permission_mode"` // "full_access" | "sandboxed"
+	OrphanPolicy       string         `json:"orphan_policy"`   // "fail" | "requeue"
+	Prompt             string         `json:"prompt"`
+	Status             string         `json:"status"` // "queued","assigned","running","waiting_input","suspended","completed","failed","canceled"
+	Summary            string         `json:"summary"`
+	GitSummaryJSON     string         `json:"git_summary_json,omitempty"`
+	Worktrees          []TaskWorktree `json:"worktrees,omitempty"`
+	WorktreesCleanedAt *time.Time     `json:"worktrees_cleaned_at,omitzero"`
+	ExitCode           *int           `json:"exit_code,omitzero"`
 	// Cause attributes the last status transition.
 	Cause *Cause `json:"cause,omitzero"`
 	// SuspendedBy is "user" or "pause" while the task is suspended ("" otherwise).
@@ -554,6 +556,15 @@ type Store interface {
 	// t.SID are ignored) and its previous status ("" when new). t.Cause is stored.
 	UpsertExternalTask(ctx context.Context, t Task) (string, string, error)
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
+	// UpdateTaskWorktrees persists the worktree paths reported back by the daemon for a task.
+	UpdateTaskWorktrees(ctx context.Context, id string, worktrees []TaskWorktree) error
+	// MarkTaskWorktreesCleaned records that the task's provisioned worktrees have been removed.
+	MarkTaskWorktreesCleaned(ctx context.Context, id string, at time.Time) error
+	// ListTasksByTicket returns tasks linked to ticketID, newest first.
+	ListTasksByTicket(ctx context.Context, ticketID string) ([]Task, error)
+	// ListTasksPendingWorktreeCleanup returns ticket-backed tasks with provisioned worktrees
+	// that have not yet been cleaned up.
+	ListTasksPendingWorktreeCleanup(ctx context.Context, limit int) ([]Task, error)
 	// UpdateTaskStatus sets the status (and summary, git summary, exit code when given)
 	// with the cause of the transition, and returns the previous status.
 	UpdateTaskStatus(ctx context.Context, id, status, summary, gitSummaryJSON string, exitCode *int, cause Cause) (string, error)

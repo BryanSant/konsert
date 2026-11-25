@@ -18,6 +18,9 @@ const (
 	// minutes and as the reply (same envelope id) to MsgWorkerPortsRequest.
 	MsgWorkerPorts        = "worker.ports"
 	MsgWorkerPortsRequest = "worker.ports.request"
+	// MsgWorkerCheckoutsRefresh asks syred to re-scan local git checkouts and report
+	// updated machine facts immediately (on-demand refresh).
+	MsgWorkerCheckoutsRefresh = "worker.checkouts.refresh"
 
 	MsgTaskStart  = "task.start"
 	MsgTaskCancel = "task.cancel"
@@ -206,6 +209,15 @@ func ValidTerminalShellID(id string) bool {
 	return false
 }
 
+// ReportedCheckout describes a local git checkout discovered on a worker machine.
+type ReportedCheckout struct {
+	Path      string     `json:"path"`
+	RemoteURL string     `json:"remote_url"` // normalized remote URL (e.g. github.com/org/repo)
+	Branch    string     `json:"branch,omitempty"`
+	Head      string     `json:"head,omitempty"`
+	LastFetch *time.Time `json:"last_fetch,omitzero"`
+}
+
 // MachineFacts captures cached OS, hardware, virtualization, filesystem, and safe tool/auth readiness facts.
 type MachineFacts struct {
 	OSName         string            `json:"os_name,omitempty"`
@@ -229,6 +241,8 @@ type MachineFacts struct {
 	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
 	// Shells lists the supported terminal shells detected on this machine.
 	Shells []TerminalShell `json:"shells,omitempty"`
+	// Checkouts lists local git checkouts discovered under the daemon's configured roots.
+	Checkouts []ReportedCheckout `json:"checkouts,omitempty"`
 	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
 	// only runs while the user is signed in); "" elsewhere or when unknown.
@@ -373,23 +387,44 @@ type UsageSummary struct {
 	Quotas            []SubscriptionQuota `json:"quotas,omitempty"`
 }
 
+// TaskRepoBinding describes one repository bound to a ticket-backed task.
+type TaskRepoBinding struct {
+	RepoName     string `json:"repo_name"`
+	RemoteURL    string `json:"remote_url,omitempty"`
+	CheckoutPath string `json:"checkout_path,omitempty"`
+	BaseBranch   string `json:"base_branch,omitempty"`
+	TargetBranch string `json:"target_branch,omitempty"`
+}
+
+// TaskWorktree records a provisioned git worktree for one repo binding of a task.
+type TaskWorktree struct {
+	RepoName     string `json:"repo_name"`
+	CheckoutPath string `json:"checkout_path"`
+	WorktreePath string `json:"worktree_path"`
+	Branch       string `json:"branch,omitempty"`
+}
+
 type TaskStartPayload struct {
 	TaskID string `json:"task_id"`
 	// SID is the task's short user-facing ID (t-…); the worker names the task's git
 	// worktree directory after it (.syre-worktrees/<sid>). The protocol keys on TaskID.
-	SID            string `json:"sid,omitempty"`
-	Agent          string `json:"agent"`
-	Model          string `json:"model,omitempty"`
-	SessionKind    string `json:"session_kind,omitempty"`
-	Workdir        string `json:"workdir"`
-	Branch         string `json:"branch,omitempty"`
-	UseWorktree    bool   `json:"use_worktree"`
-	Prompt         string `json:"prompt"`
-	Mode           string `json:"mode"`
-	PermissionMode string `json:"permission_mode"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	Cols           uint16 `json:"cols,omitzero"`
-	Rows           uint16 `json:"rows,omitzero"`
+	SID string `json:"sid,omitempty"`
+	// TicketSID is the owning ticket's short ID (SYR-… / k-…) when this task works a
+	// ticket with repo bindings; worktrees are provisioned at <workdir root>/<ticket_sid>/<repo_name>.
+	TicketSID      string            `json:"ticket_sid,omitempty"`
+	Bindings       []TaskRepoBinding `json:"bindings,omitempty"`
+	Agent          string            `json:"agent"`
+	Model          string            `json:"model,omitempty"`
+	SessionKind    string            `json:"session_kind,omitempty"`
+	Workdir        string            `json:"workdir"`
+	Branch         string            `json:"branch,omitempty"`
+	UseWorktree    bool              `json:"use_worktree"`
+	Prompt         string            `json:"prompt"`
+	Mode           string            `json:"mode"`
+	PermissionMode string            `json:"permission_mode"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	Cols           uint16            `json:"cols,omitzero"`
+	Rows           uint16            `json:"rows,omitzero"`
 	// AccountID selects a worker-local agent account (AgentAccount.ID); "" = the
 	// daemon's own environment (the agent's default login).
 	AccountID string `json:"account_id,omitempty"`
@@ -425,12 +460,13 @@ type GitSummary struct {
 }
 
 type TaskStatusPayload struct {
-	TaskID       string      `json:"task_id"`
-	Status       string      `json:"status"`
-	EffectiveDir string      `json:"effective_dir,omitempty"`
-	ExitCode     *int        `json:"exit_code,omitzero"`
-	Summary      string      `json:"summary,omitempty"`
-	GitSummary   *GitSummary `json:"git_summary,omitzero"`
+	TaskID       string         `json:"task_id"`
+	Status       string         `json:"status"`
+	EffectiveDir string         `json:"effective_dir,omitempty"`
+	Worktrees    []TaskWorktree `json:"worktrees,omitempty"`
+	ExitCode     *int           `json:"exit_code,omitzero"`
+	Summary      string         `json:"summary,omitempty"`
+	GitSummary   *GitSummary    `json:"git_summary,omitzero"`
 }
 
 type TaskEventPayload struct {
@@ -649,6 +685,11 @@ type GitMergeResult struct {
 
 type GitWorktreeCleanupRequest struct {
 	Workdir string `json:"workdir"`
+	// RepoRoot, when set, identifies the primary git repository that owns Workdir
+	// (used for per-ticket worktrees at <workdir root>/<ticket sid>/<repo name>).
+	RepoRoot string `json:"repo_root,omitempty"`
+	// PruneEmptyParent removes Workdir's parent directory if empty after removal.
+	PruneEmptyParent bool `json:"prune_empty_parent,omitzero"`
 }
 
 type GitWorktreeCleanupResult struct {

@@ -205,8 +205,12 @@ func (fw *fakeWorker) resumeReading() {
 }
 
 func (fw *fakeWorker) send(msgType string, payload any) {
+	fw.sendWithID(msgType, "", payload)
+}
+
+func (fw *fakeWorker) sendWithID(msgType, id string, payload any) {
 	fw.t.Helper()
-	raw, err := protocol.NewEnvelope(msgType, "", payload)
+	raw, err := protocol.NewEnvelope(msgType, id, payload)
 	if err != nil {
 		fw.t.Fatal(err)
 	}
