@@ -46,6 +46,8 @@ type SettingsUpdate struct {
 	// Global delivery defaults (SYR-H50YW).
 	DefaultDeliveryMode *string `json:"default_delivery_mode"`
 	DefaultMergeStyle   *string `json:"default_merge_style"`
+	// TicketLeaseTTLSeconds is the duration of a ticket lease in seconds (default 600 = 10m).
+	TicketLeaseTTLSeconds *int `json:"ticket_lease_ttl_seconds"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -146,6 +148,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		updates[mergeStyleSetting] = v
 	}
+	if u.TicketLeaseTTLSeconds != nil {
+		if *u.TicketLeaseTTLSeconds < minTicketLeaseTTLSeconds || *u.TicketLeaseTTLSeconds > maxTicketLeaseTTLSeconds {
+			return errInvalidSettings{fmt.Errorf("%s must be between %d and %d", ticketLeaseTTLSetting, minTicketLeaseTTLSeconds, maxTicketLeaseTTLSeconds)}
+		}
+		updates[ticketLeaseTTLSetting] = strconv.Itoa(*u.TicketLeaseTTLSeconds)
+	}
 
 	if len(updates) > 0 {
 		if err := s.store.SetSettings(ctx, updates); err != nil {
@@ -243,6 +251,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 			u.DefaultDeliveryMode = str(v)
 		case mergeStyleSetting:
 			u.DefaultMergeStyle = str(v)
+		case ticketLeaseTTLSetting:
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.TicketLeaseTTLSeconds = &n
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -267,22 +281,23 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 // settingsToMap renders the live settings for MCP. The API key is never included.
 func settingsToMap(r settingsResponse) map[string]any {
 	return map[string]any{
-		"llm_provider":            r.LLMProvider,
-		"llm_model":               r.LLMModel,
-		"llm_base_url":            r.LLMBaseURL,
-		"llm_api_key_set":         r.LLMAPIKeySet,
-		"default_agent":           r.DefaultAgent,
-		"default_model":           r.DefaultModel,
-		"default_permission_mode": r.DefaultPermissionMode,
-		"terminal_font_size":      r.TerminalFontSize,
-		"notify_sound":            r.NotifySound,
-		"notify_desktop":          r.NotifyDesktop,
-		"veto_ack_minutes":        r.VetoAckMinutes,
-		"device_idle_days":        r.DeviceIdleDays,
-		"default_delivery_mode":   r.DefaultDeliveryMode,
-		"default_merge_style":     r.DefaultMergeStyle,
-		"commander_backend":       r.CommanderBackend,
-		"api_key_required":        r.APIKeyRequired,
+		"llm_provider":             r.LLMProvider,
+		"llm_model":                r.LLMModel,
+		"llm_base_url":             r.LLMBaseURL,
+		"llm_api_key_set":          r.LLMAPIKeySet,
+		"default_agent":            r.DefaultAgent,
+		"default_model":            r.DefaultModel,
+		"default_permission_mode":  r.DefaultPermissionMode,
+		"terminal_font_size":       r.TerminalFontSize,
+		"notify_sound":             r.NotifySound,
+		"notify_desktop":           r.NotifyDesktop,
+		"veto_ack_minutes":         r.VetoAckMinutes,
+		"device_idle_days":         r.DeviceIdleDays,
+		"default_delivery_mode":    r.DefaultDeliveryMode,
+		"default_merge_style":      r.DefaultMergeStyle,
+		"ticket_lease_ttl_seconds": r.TicketLeaseTTLSeconds,
+		"commander_backend":        r.CommanderBackend,
+		"api_key_required":         r.APIKeyRequired,
 	}
 }
 

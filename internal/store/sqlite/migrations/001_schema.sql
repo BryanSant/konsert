@@ -59,6 +59,8 @@ CREATE TABLE projects (
     -- Verification and autonomy defaults (docs/design/work.md).
     verify_cmd    TEXT NOT NULL DEFAULT '',
     autonomy_json TEXT NOT NULL DEFAULT '{}',
+    -- Autopilot Play toggle: only projects with autopilot=1 auto-dispatch ready tickets.
+    autopilot     INTEGER NOT NULL DEFAULT 0,
     -- Delivery overrides (SYR-H50YW): '' inherits global default.
     delivery_mode TEXT NOT NULL DEFAULT '',
     merge_style   TEXT NOT NULL DEFAULT '',
@@ -84,29 +86,35 @@ CREATE TABLE repos (
 CREATE INDEX idx_repos_project ON repos(project_id);
 
 -- Work items (docs/design/work.md): ka fields plus Syre runtime fields.
--- Lease columns are added in A1b; attempts and post-run digests (docs/design/autopilot.md)
--- are added in the Autopilot execution tickets.
+-- Attempts and post-run digests (docs/design/autopilot.md) are added in later tickets.
 CREATE TABLE tickets (
-    id              TEXT PRIMARY KEY,
-    sid             TEXT NOT NULL UNIQUE,
-    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    parent_id       TEXT REFERENCES tickets(id) ON DELETE SET NULL,
-    kind            TEXT NOT NULL, -- initiative | epic | feature | bug | chore | spike
-    title           TEXT NOT NULL,
-    body            TEXT NOT NULL DEFAULT '',
-    acceptance_json TEXT NOT NULL DEFAULT '[]',
-    labels_json     TEXT NOT NULL DEFAULT '[]',
-    priority        TEXT NOT NULL DEFAULT 'P2', -- P0 | P1 | P2 | P3
-    status          TEXT NOT NULL DEFAULT 'backlog', -- backlog | ready | running | needs_you | review | done | failed | canceled
-    hints_json      TEXT NOT NULL DEFAULT '{}',
-    verify_cmd      TEXT NOT NULL DEFAULT '',
-    autonomy_json   TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
+    id                 TEXT PRIMARY KEY,
+    sid                TEXT NOT NULL UNIQUE,
+    project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    parent_id          TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+    kind               TEXT NOT NULL, -- initiative | epic | feature | bug | chore | spike
+    title              TEXT NOT NULL,
+    body               TEXT NOT NULL DEFAULT '',
+    acceptance_json    TEXT NOT NULL DEFAULT '[]',
+    labels_json        TEXT NOT NULL DEFAULT '[]',
+    priority           TEXT NOT NULL DEFAULT 'P2', -- P0 | P1 | P2 | P3
+    status             TEXT NOT NULL DEFAULT 'backlog', -- backlog | ready | running | needs_you | review | done | failed | canceled
+    orphan_policy      TEXT NOT NULL DEFAULT 'requeue', -- requeue | fail
+    hints_json         TEXT NOT NULL DEFAULT '{}',
+    verify_cmd         TEXT NOT NULL DEFAULT '',
+    autonomy_json      TEXT NOT NULL DEFAULT '{}',
+    lease_worker_id    TEXT NOT NULL DEFAULT '',
+    lease_task_id      TEXT NOT NULL DEFAULT '',
+    lease_expires_at   TEXT,
+    lease_heartbeat_at TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
 );
 CREATE INDEX idx_tickets_project ON tickets(project_id, status, priority, created_at);
 CREATE INDEX idx_tickets_parent ON tickets(parent_id) WHERE parent_id IS NOT NULL;
 CREATE INDEX idx_tickets_status ON tickets(status, priority, created_at);
+CREATE INDEX idx_tickets_lease_expires ON tickets(lease_expires_at) WHERE lease_expires_at IS NOT NULL;
+CREATE INDEX idx_tickets_lease_worker ON tickets(lease_worker_id) WHERE lease_worker_id != '';
 
 -- DAG dependency edges: ticket_id is blocked by blocked_by_id. Cycles are rejected in the store.
 CREATE TABLE ticket_edges (

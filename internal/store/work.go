@@ -102,13 +102,45 @@ func ValidateTicketHierarchy(childKind, parentKind string) error {
 	return nil
 }
 
+// Ticket orphan policies: what happens when a ticket's lease expires (machine lost).
+const (
+	TicketOrphanPolicyRequeue = "requeue"
+	TicketOrphanPolicyFail    = "fail"
+)
+
+// DefaultTicketLeaseTTL is the default duration of a ticket lease (docs/design/work.md).
+const DefaultTicketLeaseTTL = 10 * time.Minute
+
+// ValidTicketOrphanPolicy reports whether p is a valid ticket orphan policy.
+func ValidTicketOrphanPolicy(p string) bool {
+	return p == TicketOrphanPolicyRequeue || p == TicketOrphanPolicyFail
+}
+
 // AutonomyPolicy holds project defaults and per-ticket overrides for Autopilot.
 // Pointer fields allow per-ticket overrides to distinguish unset from explicit false/0.
 type AutonomyPolicy struct {
-	RetryLimit        *int  `json:"retry_limit,omitzero"`
-	CrossReview       *bool `json:"cross_review,omitzero"`
-	EscalateOnBlocker *bool `json:"escalate_on_blocker,omitzero"`
-	ExpandScope       *bool `json:"expand_scope,omitzero"`
+	RetryLimit         *int  `json:"retry_limit,omitzero"`
+	CrossReview        *bool `json:"cross_review,omitzero"`
+	EscalateOnBlocker  *bool `json:"escalate_on_blocker,omitzero"`
+	ExpandScope        *bool `json:"expand_scope,omitzero"`
+	OptimisticChaining *bool `json:"optimistic_chaining,omitzero"`
+}
+
+// TicketLease records the active worker lease on a running or needs_you ticket.
+type TicketLease struct {
+	WorkerID    string     `json:"worker_id"`
+	TaskID      string     `json:"task_id,omitempty"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	HeartbeatAt *time.Time `json:"heartbeat_at,omitzero"`
+}
+
+// ExpiredTicketLease describes a ticket whose lease expired and was transitioned
+// according to its orphan policy.
+type ExpiredTicketLease struct {
+	Ticket      Ticket `json:"ticket"`
+	PriorStatus string `json:"prior_status"`
+	WorkerID    string `json:"worker_id"`
+	TaskID      string `json:"task_id,omitempty"`
 }
 
 // TicketHints are optional placement hints for Autopilot scheduling.
@@ -125,24 +157,26 @@ type TicketHints struct {
 }
 
 // Ticket is a work item in Syre's work model (docs/design/work.md):
-// ka fields plus Syre runtime fields. Lease, attempts and digest columns are added in later tickets.
+// ka fields plus Syre runtime fields. Attempts and digest columns are added in later tickets.
 type Ticket struct {
-	ID         string           `json:"id"`
-	SID        string           `json:"sid"`
-	ProjectID  string           `json:"project_id"`
-	ParentID   string           `json:"parent_id,omitempty"`
-	Kind       string           `json:"kind"`
-	Title      string           `json:"title"`
-	Body       string           `json:"body,omitempty"`
-	Acceptance []AcceptanceItem `json:"acceptance"`
-	Labels     []string         `json:"labels"`
-	Priority   string           `json:"priority"`
-	Status     string           `json:"status"`
-	Hints      TicketHints      `json:"hints,omitzero"`
-	VerifyCmd  string           `json:"verify_cmd,omitempty"`
-	Autonomy   AutonomyPolicy   `json:"autonomy,omitzero"`
-	CreatedAt  time.Time        `json:"created_at"`
-	UpdatedAt  time.Time        `json:"updated_at"`
+	ID           string           `json:"id"`
+	SID          string           `json:"sid"`
+	ProjectID    string           `json:"project_id"`
+	ParentID     string           `json:"parent_id,omitempty"`
+	Kind         string           `json:"kind"`
+	Title        string           `json:"title"`
+	Body         string           `json:"body,omitempty"`
+	Acceptance   []AcceptanceItem `json:"acceptance"`
+	Labels       []string         `json:"labels"`
+	Priority     string           `json:"priority"`
+	Status       string           `json:"status"`
+	OrphanPolicy string           `json:"orphan_policy"`
+	Hints        TicketHints      `json:"hints,omitzero"`
+	VerifyCmd    string           `json:"verify_cmd,omitempty"`
+	Autonomy     AutonomyPolicy   `json:"autonomy,omitzero"`
+	Lease        *TicketLease     `json:"lease,omitzero"`
+	CreatedAt    time.Time        `json:"created_at"`
+	UpdatedAt    time.Time        `json:"updated_at"`
 }
 
 // NormalizeAndValidateTicket fills default values for omitted fields and validates invariants.
@@ -171,6 +205,15 @@ func NormalizeAndValidateTicket(t *Ticket) error {
 	}
 	if !ValidTicketStatus(t.Status) {
 		return fmt.Errorf("%w: unknown status %q", ErrInvalidWork, t.Status)
+	}
+	t.OrphanPolicy = strings.ToLower(strings.TrimSpace(t.OrphanPolicy))
+	if t.OrphanPolicy == "" {
+		t.OrphanPolicy = TicketOrphanPolicyRequeue
+	} else if t.OrphanPolicy == "failed" {
+		t.OrphanPolicy = TicketOrphanPolicyFail
+	}
+	if !ValidTicketOrphanPolicy(t.OrphanPolicy) {
+		return fmt.Errorf("%w: unknown orphan_policy %q", ErrInvalidWork, t.OrphanPolicy)
 	}
 	if t.Acceptance == nil {
 		t.Acceptance = []AcceptanceItem{}

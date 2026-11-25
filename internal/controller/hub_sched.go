@@ -119,7 +119,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		return
 	}
 	tasks, err := h.store.ListTasks(ctx, protocol.TaskStatusQueued, "", 200)
-	if err != nil || len(tasks) == 0 {
+	if err != nil {
 		return
 	}
 	all, err := h.store.ListWorkers(ctx)
@@ -194,6 +194,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			h.broadcastFleetUpdate("task", updated)
 		}
 	}
+
+	// Ready queue: after queued tasks, claim and dispatch ready tickets for projects with autopilot enabled.
+	h.scheduleDispatchableTickets(ctx, workers, counts, slots)
 }
 
 // dispatchOrder is the order queued tasks are placed in: expedited tasks first, then the
