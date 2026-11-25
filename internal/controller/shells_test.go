@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 var shellStart = time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
@@ -42,7 +42,7 @@ func TestActivityShellsAndSubagents(t *testing.T) {
 	if got, _ := h.sessionActivity("task:t1"); got.Shells != 1 || len(got.ShellList) != 1 {
 		t.Fatalf("count change dropped: %+v", got)
 	}
-	// The task ends (hub-derived done): the shells konsertd reported stay; sub-agents go.
+	// The task ends (hub-derived done): the shells syred reported stay; sub-agents go.
 	h.taskStatusActivity(store.Task{ID: "t1", Status: protocol.TaskStatusCompleted})
 	got, _ = h.sessionActivity("task:t1")
 	if got.State != protocol.ActivityDone || got.Shells != 1 || len(got.ShellList) != 1 || len(got.Subagents) != 0 {

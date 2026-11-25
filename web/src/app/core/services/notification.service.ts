@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Task, TaskStatus } from '../models/konsert.models';
+import { Task, TaskStatus } from '../models/syre.models';
 import { FleetStore, basenamePath } from '../state/fleet.store';
 import { SessionNavService } from './session-nav.service';
 
@@ -115,8 +115,8 @@ export class NotificationService {
     try {
       const n = new Notification(title, {
         body,
-        tag: `konsert-task-${task.id}`,
-        icon: 'icon.svg',
+        tag: `syre-task-${task.id}`,
+        icon: 'logo.svg',
       });
       n.onclick = () => {
         try {

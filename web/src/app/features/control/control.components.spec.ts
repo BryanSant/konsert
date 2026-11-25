@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Worker } from '../../core/models/konsert.models';
+import { Worker } from '../../core/models/syre.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
@@ -222,13 +222,13 @@ describe('control components', () => {
       action: 'command',
       cause: { actor: 'user', source: 'terminal', confidence: 'high' },
       worker_id: 'w1',
-      summary: 'You stopped nginx on host-1 via a Konsert terminal',
+      summary: 'You stopped nginx on host-1 via a Syre terminal',
     });
     const fixture = TestBed.createComponent(YourActionsComponent);
     await settle(fixture);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('You stopped nginx');
-    expect(text).toContain('You via a Konsert terminal');
+    expect(text).toContain('You via a Syre terminal');
     expect(text).toContain('high');
     expect(text).toContain('host-1');
   });

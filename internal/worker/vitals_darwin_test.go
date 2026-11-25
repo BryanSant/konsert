@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// TestVitalsDarwinMatchesVMStat compares the sysctl memory reading with what konsertd
+// TestVitalsDarwinMatchesVMStat compares the sysctl memory reading with what syred
 // computed from vm_stat before (active + wired + compressor pages): they should agree
 // within a few percent of RAM.
 func TestVitalsDarwinMatchesVMStat(t *testing.T) {

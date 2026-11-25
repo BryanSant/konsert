@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// History retention (KON-CSCWP): bounded compaction batches, incremental vacuum and the
+// History retention (SYR-CSCWP): bounded compaction batches, incremental vacuum and the
 // storage breakdown. Every batch is one short transaction touching at most limit rows,
 // so the single connection is never held for long and a pass can stop anywhere.
 

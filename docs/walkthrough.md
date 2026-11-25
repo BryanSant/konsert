@@ -1,6 +1,6 @@
 # Pre-release walkthrough (real agent CLIs, no API key)
 
-Konsert's promise is that you chat with the agent CLIs you are already signed in to, with
+Syre's promise is that you chat with the agent CLIs you are already signed in to, with
 no API key. The automated suites (Go tests and `web/e2e/subscription-chat.spec.ts`) cover
 this against the deterministic mock engine. They cannot tell whether the real CLIs still
 behave as our engines expect, so a person runs this checklist by hand on a real machine
@@ -12,25 +12,25 @@ Allow about 30 minutes. Keep prompts tiny: every one of them uses real subscript
 
 - [ ] Use a real machine where the agent CLIs are installed and signed in the normal way
       (`claude`, `codex`, `grok`, `agy`, `cursor-agent`, `copilot`, plus any extra accounts
-      such as `claude2` configured under `accounts:` in `konsertd.yaml`). Note which ones
+      such as `claude2` configured under `accounts:` in `syred.yaml`). Note which ones
       are installed; every installed one is tested below.
-- [ ] No API key anywhere. In the shells that start `konsert` and `konsertd`:
-      `env | grep -iE 'api_key|KONSERT_LLM_|ANTHROPIC_|OPENAI_|GEMINI_'` prints nothing, and
-      Settings in the UI shows no orchestrator API key (`GET /api/settings` reports
+- [ ] No API key anywhere. In the shells that start `syre` and `syred`:
+      `env | grep -iE 'api_key|SYRE_LLM_|ANTHROPIC_|OPENAI_|GEMINI_'` prints nothing, and
+      Settings in the UI shows no commander API key (`GET /api/settings` reports
       `"llm_api_key_set": false`).
 - [ ] Build the release candidate: `make web && make build`, from the commit you will tag.
 - [ ] Start the hub and a worker on the same machine, **without** `--enable-mock-driver`:
 
       ```sh
-      bin/konsert serve --listen 127.0.0.1:8420 --db /var/tmp/konsert-walkthrough/konsert.db
+      bin/syre serve --listen 127.0.0.1:8420 --db /var/tmp/syre-walkthrough/syre.db
       ```
 
       Sign in, open **Add machine → Manual** and run the command it shows with
-      `--foreground` (for example `bin/konsertd join http://desk:8420 ABCD-EFGH --foreground`).
+      `--foreground` (for example `bin/syred join http://desk:8420 ABCD-EFGH --foreground`).
 
-      (Or use the hub and `konsertd install` service you already run, upgraded to the
+      (Or use the hub and `syred install` service you already run, upgraded to the
       candidate.)
-- [ ] `bin/konsertd doctor` lists the installed CLIs, and nothing about it mentions a key.
+- [ ] `bin/syred doctor` lists the installed CLIs, and nothing about it mentions a key.
 - [ ] Sign in to the PWA with the `Sign in:` link the hub printed (no token typed), and
       sign in a phone with **Settings → Devices → Add a device** (scan the QR code). Both are
       listed in Settings → Devices; revoking the phone signs it out at once.
@@ -80,7 +80,7 @@ For each installed, signed-in account (claude, claude2, codex, grok, agy, cursor
 ## 4. Permission round-trip
 
 - [ ] With claude in the default ("Ask") approval mode, send
-      `Create a file named konsert-walkthrough.txt containing hi.`
+      `Create a file named syre-walkthrough.txt containing hi.`
 - [ ] A **Permission needed** card appears with the tool call, the status pill shows
       **Needs you**.
 - [ ] Click **Allow once**: the tool runs, the file exists, the turn ends **Done**.
@@ -128,10 +128,10 @@ out on purpose (for example a spare `claude2` profile).
 - [ ] **Refresh login and usage** (account menu or footer) turns the account healthy, and a
       chat on it works.
 
-## 9. Orchestrator fleet tools
+## 9. Commander fleet tools
 
 - [ ] Start a **New chat** with **Fleet tools** on (claude is fine). Send
-      `Use the Konsert fleet tools to dispatch a shell task on <this machine> that runs
+      `Use the Syre fleet tools to dispatch a shell task on <this machine> that runs
       "uname -a && date", wait for it, and tell me its output.`
 - [ ] The transcript shows the fleet tool calls (`fleet_status`, `dispatch_task`,
       `get_task_result`, ...), the task appears in the sidebar and finishes, and the

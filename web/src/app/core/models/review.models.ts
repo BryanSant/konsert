@@ -1,5 +1,5 @@
 /**
- * Review decisions, delivery outcomes, PR/MR tracking and Expedite (KON-H50YW): kept on
+ * Review decisions, delivery outcomes, PR/MR tracking and Expedite (SYR-H50YW): kept on
  * the hub, one per task or chat, and pushed to every client as fleet.update kind "review".
  * Mirrors internal/store/reviews.go and internal/controller/delivery_modes.go.
  */
@@ -98,7 +98,7 @@ export interface Acceptance {
 }
 
 export const DELIVERY_MODE_OPTIONS: ReadonlyArray<{ value: DeliveryMode; label: string }> = [
-  { value: '', label: 'Auto (PR/MR + merge with remote, direct without)' },
+  { value: '', label: 'Auto (PR/MR if remote, else direct)' },
   { value: 'pr_merge', label: 'PR/MR + merge on approve' },
   { value: 'pr_open', label: 'Approve opens PR/MR' },
   { value: 'direct', label: 'Direct merge' },

@@ -9,12 +9,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Project narration (KON-H5BXK): the orchestrator states each project's current goal (its
+// Project narration (SYR-H5BXK): the commander states each project's current goal (its
 // headline) and, when useful, a one-line "now" for a task, with the set_narration tool.
 // Gaps are filled from facts in the UI (task title, the live tool label, the ticket
 // title), so nothing is ever blank. See docs/design/activity.md.
@@ -30,7 +30,7 @@ type SetNarrationInput struct {
 	Project  string `json:"project,omitempty" jsonschema:"Project id, sid (p-…) or name. Defaults to the task's project when task is given."`
 	Headline string `json:"headline,omitempty" jsonschema:"The project's current goal in one line (max 140 chars), e.g. 'Ship the questions queue to mobile'. Set it when a plan starts or changes, not for every step."`
 	Task     string `json:"task,omitempty" jsonschema:"Task id or sid (t-…) for the 'now' line."`
-	Now      string `json:"now,omitempty" jsonschema:"One line (max 120 chars) on what the task is doing toward the goal, e.g. 'Porting the queue card to the phone layout'. Konsert shows live tool activity by itself."`
+	Now      string `json:"now,omitempty" jsonschema:"One line (max 120 chars) on what the task is doing toward the goal, e.g. 'Porting the queue card to the phone layout'. Syre shows live tool activity by itself."`
 }
 
 // SetNarrationResult is the set_narration MCP tool output.
@@ -48,8 +48,8 @@ type NarrationBackend interface {
 	SetNarration(ctx context.Context, in SetNarrationInput) (SetNarrationResult, error)
 }
 
-const setNarrationDescription = "Set the headline of a project (its current goal) and/or a one-line 'now' for a task, shown in Konsert's live work views. " +
-	"Update the headline when a plan starts or changes — not on every step; Konsert already shows each session's live activity (thinking, running a tool, asking). " +
+const setNarrationDescription = "Set the headline of a project (its current goal) and/or a one-line 'now' for a task, shown in Syre's live work views. " +
+	"Update the headline when a plan starts or changes — not on every step; Syre already shows each session's live activity (thinking, running a tool, asking). " +
 	"Give a task a 'now' line when its purpose isn't obvious from its title. Plain, concrete words; one line each."
 
 // narrationLine normalizes a narration to one line and checks its length.
@@ -161,7 +161,7 @@ func addNarrationTool(srv *mcp.Server, backend any) {
 	})
 }
 
-// setNarrationToolDef is set_narration for the API-key orchestrator backend.
+// setNarrationToolDef is set_narration for the API-key commander backend.
 var setNarrationToolDef = map[string]any{
 	"type": "object",
 	"properties": map[string]any{

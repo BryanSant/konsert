@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Vitals and heat history (KON-WY5F2). Every heartbeat's vitals and smoothed heat are
+// Vitals and heat history (SYR-WY5F2). Every heartbeat's vitals and smoothed heat are
 // folded into the machine's current 15-second bucket in memory; finished buckets are
 // written to the raw tier once a minute (and at shutdown). Once an hour the store rolls
 // complete hours up into hourly rows and complete days into daily rows and prunes each

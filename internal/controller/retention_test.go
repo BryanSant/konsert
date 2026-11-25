@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestRetentionSettingsBoundsAndText(t *testing.T) {
@@ -72,7 +72,7 @@ func TestCompactionPassAndStorageAPI(t *testing.T) {
 	}
 	plain, pinned := mkChat(), mkChat()
 
-	jsonHdr := map[string]string{"Content-Type": "application/json", "X-Konsert-Request": "1"}
+	jsonHdr := map[string]string{"Content-Type": "application/json", "X-Syre-Request": "1"}
 	resp := doReq(t, http.MethodPut, ts.URL+"/api/chats/"+pinned+"/keep", strings.NewReader(`{"keep":true}`), jsonHdr)
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

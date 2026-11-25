@@ -1,6 +1,6 @@
 {
-  "name": "Konsert — Distributed Agent Control Plane",
-  "short_name": "Konsert",
+  "name": "Syre — Distributed Agent Control Plane",
+  "short_name": "Syre",
   "theme_color": "#0d1117",
   "background_color": "#0d1117",
   "display": "standalone",
@@ -8,7 +8,7 @@
   "start_url": "/",
   "icons": [
     {
-      "src": "icon.svg",
+      "src": "logo.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

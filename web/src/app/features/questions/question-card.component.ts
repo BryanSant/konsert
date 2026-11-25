@@ -10,12 +10,12 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
 /**
  * One question (PRD §5.8b): who asks and what is waiting, the question, its CONTEXT · WHY
  * NOW, reference cards, the options with what each one does (the recommendation marked),
- * Other… free text, Ask about this, Let the orchestrator decide and Snooze. Answering
+ * Other… free text, Ask about this, Let the commander decide and Snooze. Answering
  * shows the receipt; nothing is dismissed until it is answered. Used in the Questions
  * panel and inline in the asking chat (`compact`).
  */
 @Component({
-  selector: 'ks-question-card',
+  selector: 'sy-question-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, MarkdownViewComponent, TooltipDirective, PopoverComponent, PopoverTriggerDirective],
@@ -23,22 +23,22 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
   template: `
     @let q = question();
     <article
-      class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-2)] p-4 space-y-3.5"
+      class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-2)] p-4 space-y-3.5"
       [class.ring-1]="pending()"
-      [class.ring-[var(--ks-amber-soft)]]="pending()"
+      [class.ring-[var(--sy-amber-soft)]]="pending()"
       data-testid="question-card"
       [attr.data-question]="q.sid"
       [attr.data-status]="q.status"
       [attr.aria-labelledby]="titleId"
     >
       @if (!compact()) {
-        <header class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--ks-text-muted)]">
-          <span class="inline-flex items-center gap-1.5 text-[var(--ks-text-secondary)]">
-            <app-icon [name]="q.orchestrator ? 'orchestrator' : q.agent || 'question'" [size]="13" />
-            <span class="font-medium">{{ q.orchestrator ? 'Orchestrator' : agentName() }}</span>
+        <header class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[var(--sy-text-muted)]">
+          <span class="inline-flex items-center gap-1.5 text-[var(--sy-text-secondary)]">
+            <app-icon [name]="q.commander ? 'commander' : q.agent || 'question'" [size]="13" />
+            <span class="font-medium">{{ q.commander ? 'Commander' : agentName() }}</span>
           </span>
           @if (q.chat_title) {
-            <span>·</span><span class="truncate max-w-[220px]" [ksTooltip]="q.chat_sid || ''">{{ q.chat_title }}</span>
+            <span>·</span><span class="truncate max-w-[220px]" [syTooltip]="q.chat_sid || ''">{{ q.chat_title }}</span>
           }
           @if (q.machine_name) {
             <span>·</span><span>{{ q.machine_name }}</span>
@@ -48,7 +48,7 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
           }
           <span class="flex-1"></span>
           @if (pending()) {
-            <span class="inline-flex items-center gap-1 text-[var(--ks-amber)]" data-testid="question-blocked">
+            <span class="inline-flex items-center gap-1 text-[var(--sy-amber)]" data-testid="question-blocked">
               <app-icon name="clock" [size]="11" />
               blocked {{ blockedFor() }}
             </span>
@@ -60,28 +60,28 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
         <div class="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">
           <app-icon [name]="q.kind === 'permission' ? 'hand' : 'question'" [size]="12" />
           {{ q.kind === 'permission' ? 'Permission needed' : 'Question' }}
-          <span class="font-mono-ide normal-case tracking-normal text-[var(--ks-text-muted)]">{{ q.sid }}</span>
+          <span class="font-mono-ide normal-case tracking-normal text-[var(--sy-text-muted)]">{{ q.sid }}</span>
           @if (q.ask_count > 1) {
-            <span class="normal-case tracking-normal font-normal text-[var(--ks-text-muted)]" ksTooltip="The agent asked this again; it's the same question">asked {{ q.ask_count }}×</span>
+            <span class="normal-case tracking-normal font-normal text-[var(--sy-text-muted)]" syTooltip="The agent asked this again; it's the same question">asked {{ q.ask_count }}×</span>
           }
           @if (snoozed()) {
-            <span class="normal-case tracking-normal font-normal text-[var(--ks-text-muted)]">· snoozed</span>
+            <span class="normal-case tracking-normal font-normal text-[var(--sy-text-muted)]">· snoozed</span>
           }
         </div>
-        <h2 [id]="titleId" class="text-[15px] font-semibold leading-snug text-[var(--ks-text)]" data-testid="question-title">{{ q.prompt }}</h2>
+        <h2 [id]="titleId" class="text-[15px] font-semibold leading-snug text-[var(--sy-text)]" data-testid="question-title">{{ q.prompt }}</h2>
         @if (waiting().length) {
-          <p class="text-[11.5px] text-[var(--ks-text-muted)]" data-testid="question-waiting">Waiting: {{ waiting().join(' · ') }}</p>
+          <p class="text-[11.5px] text-[var(--sy-text-muted)]" data-testid="question-waiting">Waiting: {{ waiting().join(' · ') }}</p>
         }
       </div>
 
       @if (q.context || q.why_now) {
-        <section class="rounded-[var(--ks-radius-md)] bg-black/20 px-3 py-2.5 space-y-2 text-[12.5px] text-[var(--ks-text-secondary)]" data-testid="question-context">
-          <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]">Context · Why now</div>
+        <section class="rounded-[var(--sy-radius-md)] bg-black/20 px-3 py-2.5 space-y-2 text-[12.5px] text-[var(--sy-text-secondary)]" data-testid="question-context">
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]">Context · Why now</div>
           @if (q.context) {
             <app-markdown-view [content]="q.context" />
           }
           @if (q.why_now) {
-            <div class="flex gap-1.5"><span class="shrink-0 font-medium text-[var(--ks-text)]">Why now:</span><app-markdown-view [content]="q.why_now" /></div>
+            <div class="flex gap-1.5"><span class="shrink-0 font-medium text-[var(--sy-text)]">Why now:</span><app-markdown-view [content]="q.why_now" /></div>
           }
         </section>
       }
@@ -92,8 +92,8 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
             <li>
               <button
                 type="button"
-                class="ks-btn ks-btn-sm max-w-full !h-auto min-h-[26px] py-1 text-left"
-                [class.ks-btn-soft]="r.resolved"
+                class="sy-btn sy-btn-sm max-w-full !h-auto min-h-[26px] py-1 text-left"
+                [class.sy-btn-soft]="r.resolved"
                 [attr.aria-expanded]="openRef() === r.ref"
                 [attr.data-ref]="r.ref"
                 (click)="openRef.set(openRef() === r.ref ? '' : r.ref)"
@@ -104,14 +104,14 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                   <span class="truncate max-w-[240px]">{{ r.title }}</span>
                 }
                 @if (r.status) {
-                  <span class="text-[10px] text-[var(--ks-text-muted)]">{{ r.status }}</span>
+                  <span class="text-[10px] text-[var(--sy-text-muted)]">{{ r.status }}</span>
                 }
               </button>
               @if (openRef() === r.ref && (r.excerpt || r.url)) {
-                <div class="mt-1 max-w-[440px] rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-3)] px-2.5 py-2 text-[11.5px] text-[var(--ks-text-secondary)]" data-testid="question-ref-detail">
+                <div class="mt-1 max-w-[440px] rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-3)] px-2.5 py-2 text-[11.5px] text-[var(--sy-text-secondary)]" data-testid="question-ref-detail">
                   {{ r.excerpt }}
                   @if (r.url) {
-                    <a class="block mt-1 text-[var(--ks-blue)] underline" [href]="r.url" target="_blank" rel="noopener">Open</a>
+                    <a class="block mt-1 text-[var(--sy-blue)] underline" [href]="r.url" target="_blank" rel="noopener">Open</a>
                   }
                 </div>
               }
@@ -121,8 +121,8 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
       }
 
       @if (delegationText(); as d) {
-        <p class="flex items-start gap-1.5 rounded-[var(--ks-radius-md)] bg-[var(--ks-violet-soft)] px-3 py-2 text-[12px] text-[var(--ks-text)]" data-testid="question-delegation" role="status">
-          <app-icon name="orchestrator" [size]="13" />
+        <p class="flex items-start gap-1.5 rounded-[var(--sy-radius-md)] bg-[var(--sy-violet-soft)] px-3 py-2 text-[12px] text-[var(--sy-text)]" data-testid="question-delegation" role="status">
+          <app-icon name="commander" [size]="13" />
           <span>{{ d }}</span>
         </p>
       }
@@ -132,11 +132,11 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
           @for (o of q.options; track o.id; let i = $index) {
             <button
               type="button"
-              class="ks-focusable w-full text-left rounded-[var(--ks-radius-md)] px-3 py-2 transition-colors duration-100 hover:bg-[var(--ks-raised-strong)] disabled:opacity-50 disabled:hover:bg-transparent"
-              [class.bg-[var(--ks-green-soft)]]="o.recommended"
-              [class.bg-[var(--ks-raised)]]="!o.recommended"
+              class="sy-focusable w-full text-left rounded-[var(--sy-radius-md)] px-3 py-2 transition-colors duration-100 hover:bg-[var(--sy-raised-strong)] disabled:opacity-50 disabled:hover:bg-transparent"
+              [class.bg-[var(--sy-green-soft)]]="o.recommended"
+              [class.bg-[var(--sy-raised)]]="!o.recommended"
               [class.ring-2]="chosen(o)"
-              [class.ring-[var(--ks-blue)]]="chosen(o)"
+              [class.ring-[var(--sy-blue)]]="chosen(o)"
               [disabled]="!canAnswer() || store.isBusy(q.id)"
               [attr.data-option]="o.id"
               [attr.data-testid]="'question-option-' + o.id"
@@ -144,18 +144,18 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
             >
               <span class="flex items-center gap-2">
                 @if (i < 9 && !compact()) {
-                  <span class="ks-kbd">{{ i + 1 }}</span>
+                  <span class="sy-kbd">{{ i + 1 }}</span>
                 }
-                <span class="text-[13px] font-medium text-[var(--ks-text)]">{{ o.label }}</span>
+                <span class="text-[13px] font-medium text-[var(--sy-text)]">{{ o.label }}</span>
                 @if (o.recommended) {
-                  <span class="rounded-full bg-[var(--ks-green-soft)] px-1.5 py-px text-[10px] font-semibold text-[var(--ks-green)]">Recommended</span>
+                  <span class="rounded-full bg-[var(--sy-green-soft)] px-1.5 py-px text-[10px] font-semibold text-[var(--sy-green)]">Recommended</span>
                 }
               </span>
               @if (o.consequence) {
-                <span class="mt-0.5 block text-[11.5px] text-[var(--ks-text-secondary)]">{{ o.consequence }}</span>
+                <span class="mt-0.5 block text-[11.5px] text-[var(--sy-text-secondary)]">{{ o.consequence }}</span>
               }
               @if (o.recommended && q.rationale) {
-                <span class="mt-0.5 block text-[11.5px] text-[var(--ks-green)]/90">Why: {{ q.rationale }}</span>
+                <span class="mt-0.5 block text-[11.5px] text-[var(--sy-green)]/90">Why: {{ q.rationale }}</span>
               }
             </button>
           }
@@ -165,18 +165,18 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
       @if (q.allow_text || !q.options?.length) {
         @if (otherOpen() || !q.options?.length) {
           <form class="flex items-center gap-1.5" (submit)="$event.preventDefault(); sendText()">
-            <label class="ks-sr-only" [attr.for]="textId">Your answer</label>
+            <label class="sy-sr-only" [attr.for]="textId">Your answer</label>
             <input
               [id]="textId"
               type="text"
               data-testid="question-other-input"
-              class="ks-field flex-1 min-w-0 h-8 text-[12.5px]"
+              class="sy-field flex-1 min-w-0 h-8 text-[12.5px]"
               placeholder="Type your own answer…"
               [value]="text()"
               (input)="text.set($any($event.target).value)"
               [disabled]="!canAnswer() || store.isBusy(q.id)"
             />
-            <button type="submit" class="ks-btn ks-btn-sm ks-btn-soft" data-testid="question-other-send" [disabled]="!text().trim() || !canAnswer() || store.isBusy(q.id)">Send</button>
+            <button type="submit" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="question-other-send" [disabled]="!text().trim() || !canAnswer() || store.isBusy(q.id)">Send</button>
           </form>
         }
       }
@@ -184,43 +184,43 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
       @if (pending() || canAnswer()) {
         <div class="flex flex-wrap items-center gap-1" data-testid="question-actions">
           @if (q.allow_text && q.options?.length && !otherOpen()) {
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="question-other" (click)="otherOpen.set(true)">Other…</button>
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="question-other" (click)="otherOpen.set(true)">Other…</button>
           }
-          <button type="button" class="ks-btn ks-btn-sm" data-testid="question-ask" (click)="askAbout()" ksTooltip="Ask the agent (a read-only copy of it) about this first (?)">
+          <button type="button" class="sy-btn sy-btn-sm" data-testid="question-ask" (click)="askAbout()" syTooltip="Ask the agent (a read-only copy of it) about this first (?)">
             <app-icon name="question" [size]="12" />
             Ask about this
           </button>
           @if (q.status === 'open') {
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="question-delegate" [disabled]="store.isBusy(q.id)" (click)="store.delegate(q)" ksTooltip="The orchestrator decides and tells you why; you can override it (o)">
-              <app-icon name="orchestrator" [size]="12" />
-              Let the orchestrator decide
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="question-delegate" [disabled]="store.isBusy(q.id)" (click)="store.delegate(q)" syTooltip="The commander decides and tells you why; you can override it (o)">
+              <app-icon name="commander" [size]="12" />
+              Let the commander decide
             </button>
           }
           @if (pending()) {
-            <ks-popover label="Snooze" placement="bottom-start" [(open)]="snoozeOpen">
-              <button ksPopoverTrigger type="button" class="ks-btn ks-btn-sm" data-testid="question-snooze">
+            <sy-popover label="Snooze" placement="bottom-start" [(open)]="snoozeOpen">
+              <button syPopoverTrigger type="button" class="sy-btn sy-btn-sm" data-testid="question-snooze">
                 <app-icon name="clock" [size]="12" />
                 {{ snoozed() ? 'Snoozed' : 'Snooze' }}
               </button>
               @for (s of snoozeChoices; track s.minutes) {
-                <button role="menuitem" type="button" class="ks-menu-item" [attr.data-snooze]="s.minutes" (click)="store.snooze(q, s.minutes)">{{ s.label }}</button>
+                <button role="menuitem" type="button" class="sy-menu-item" [attr.data-snooze]="s.minutes" (click)="store.snooze(q, s.minutes)">{{ s.label }}</button>
               }
-            </ks-popover>
+            </sy-popover>
           }
           @if (compact()) {
             <span class="flex-1"></span>
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="question-open-queue" (click)="store.open(q.id)">Open in Needs you</button>
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="question-open-queue" (click)="store.open(q.id)">Open in Needs you</button>
           }
         </div>
       }
 
       @if (q.answer && !pending()) {
-        <p class="flex items-start gap-1.5 text-[12px] text-[var(--ks-green)]" data-testid="question-receipt" role="status">
+        <p class="flex items-start gap-1.5 text-[12px] text-[var(--sy-green)]" data-testid="question-receipt" role="status">
           <app-icon name="check" [size]="13" />
           <span>{{ receipt() }}</span>
         </p>
       } @else if (!pending()) {
-        <p class="text-[12px] text-[var(--ks-text-muted)]" data-testid="question-receipt">{{ closedText() }}</p>
+        <p class="text-[12px] text-[var(--sy-text-muted)]" data-testid="question-receipt">{{ closedText() }}</p>
       }
     </article>
   `,
@@ -244,8 +244,8 @@ export class QuestionCardComponent {
 
   private static n = 0;
   private readonly uid = ++QuestionCardComponent.n;
-  readonly titleId = `ks-question-title-${this.uid}`;
-  readonly textId = `ks-question-text-${this.uid}`;
+  readonly titleId = `sy-question-title-${this.uid}`;
+  readonly textId = `sy-question-text-${this.uid}`;
 
   readonly pending = computed(() => isPending(this.question()));
   readonly canAnswer = computed(() => this.store.canAnswer(this.question()));
@@ -260,7 +260,7 @@ export class QuestionCardComponent {
   readonly receipt = computed(() => {
     const q = this.question();
     const base = sentMessage(q);
-    if (q.answer?.by?.actor === 'orchestrator' && q.delegation?.rationale) return `${base}. Its reason: ${q.delegation.rationale}`;
+    if (q.answer?.by?.actor === 'commander' && q.delegation?.rationale) return `${base}. Its reason: ${q.delegation.rationale}`;
     return base;
   });
   readonly closedText = computed(() => {
@@ -279,15 +279,15 @@ export class QuestionCardComponent {
     const choice = d.label || d.text;
     switch (d.state) {
       case 'pending':
-        return d.sent_at ? 'The orchestrator is deciding…' : 'Waiting for the orchestrator to finish its current turn…';
+        return d.sent_at ? 'The commander is deciding…' : 'Waiting for the commander to finish its current turn…';
       case 'decided': {
         const secs = d.deliver_at ? Math.max(0, Math.round((Date.parse(d.deliver_at) - this.store.now()) / 1000)) : 0;
-        return `The orchestrator chose “${choice}”: ${d.rationale ?? ''} It goes to the agent${secs ? ` in about ${secs}s` : ' shortly'}; pick another option to override.`;
+        return `The commander chose “${choice}”: ${d.rationale ?? ''} It goes to the agent${secs ? ` in about ${secs}s` : ' shortly'}; pick another option to override.`;
       }
       case 'failed':
-        return d.note || 'The orchestrator could not decide; the question is back with you.';
+        return d.note || 'The commander could not decide; the question is back with you.';
       case 'overridden':
-        return `You overrode the orchestrator's choice${choice ? ` (“${choice}”)` : ''}.`;
+        return `You overrode the commander's choice${choice ? ` (“${choice}”)` : ''}.`;
     }
     return '';
   });

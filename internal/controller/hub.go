@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
-	"github.com/BryanSant/konsert/internal/mcprelay"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/forge"
+	"github.com/BryanSant/syre/internal/mcprelay"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -28,7 +28,7 @@ type workerConn struct {
 	sendCh chan wsFrame
 	cancel context.CancelFunc
 
-	// mcp serves the per-chat MCP requests konsertd relays over this link (KON-DTN92).
+	// mcp serves the per-chat MCP requests syred relays over this link (SYR-DTN92).
 	mcp *mcprelay.Remote
 
 	// loopback is set when the daemon connected from a loopback address; with name,
@@ -39,7 +39,7 @@ type workerConn struct {
 	mu          sync.Mutex
 	activeTasks map[string]bool
 
-	// Spool (KON-VZR9F, hub_spool.go): the daemon's applied-seq state (nil when the
+	// Spool (SYR-VZR9F, hub_spool.go): the daemon's applied-seq state (nil when the
 	// daemon does not spool), its last seq at hello, and whether the replay of what it
 	// spooled before this connection is done (replayDoneCh closes then).
 	spool        *workerSpool
@@ -92,7 +92,7 @@ type Hub struct {
 	// pendingCauses holds the cause of an intervention sent to a worker (cancel, suspend,
 	// resume) until the worker reports the resulting status; keyed by task id or "chat:"+id.
 	pendingCauses map[string]pendingCause
-	// delivery batches fleet events for the orchestrator chat (see delivery.go).
+	// delivery batches fleet events for the commander chat (see delivery.go).
 	delivery deliveryState
 	// operatorCommands de-duplicates worker.operator_command reports by command id.
 	operatorCommands seenCommands
@@ -100,7 +100,7 @@ type Hub struct {
 	// wake holds desired and reported host wake lock (Keep Awake) state.
 	wake hostWakeLocks
 
-	orch *orchestrator.Service
+	orch *commander.Service
 
 	// Hub lifetime: ctx is canceled by Shutdown; wg tracks background goroutines
 	// (scheduler runs, delayed reconciliation checks, chat turns, the reaper).
@@ -145,24 +145,24 @@ type Hub struct {
 	spools  map[string]*workerSpool
 
 	// LostTaskGrace is how long a task may be missing from a connected worker's
-	// hello/heartbeat active list before the hub treats it as lost. konsertd
+	// hello/heartbeat active list before the hub treats it as lost. syred
 	// re-sends buffered final statuses right after hello, so this must comfortably
 	// exceed that flush and a heartbeat round-trip.
 	LostTaskGrace time.Duration
 
-	// ChatTurnTimeout bounds one orchestrator chat turn, including the time it
+	// ChatTurnTimeout bounds one commander chat turn, including the time it
 	// waits behind an earlier turn of the same session (default 15m).
 	ChatTurnTimeout time.Duration
 
 	// AskUserTimeout bounds how long the ask_user MCP tool waits (default 30m).
 	AskUserTimeout time.Duration
-	// hostname returns this machine's hostname (the default orchestrator prefers
+	// hostname returns this machine's hostname (the default commander prefers
 	// a worker on the hub's own machine); replaceable in tests.
 	hostname func() string
 	// chatFleetBackend, when set, serves the fleet tools on per-chat MCP endpoints
 	// of chats with fleet_tools.
 	chatFleetBackend FleetBackend
-	// chatMCP serves a chat's MCP endpoint for a request konsertd relayed over
+	// chatMCP serves a chat's MCP endpoint for a request syred relayed over
 	// workerID's link (the Server's serveRelayedChatMCP); nil answers 503.
 	chatMCP func(w http.ResponseWriter, r *http.Request, workerID string)
 	// version is reported by per-chat MCP servers.
@@ -199,7 +199,7 @@ type Hub struct {
 	// attach to (restart.go); the Server sets it, machine views show it.
 	restarts *restartTracker
 
-	// Delivery modes & forge integration (KON-H50YW). forge may be nil (no forge
+	// Delivery modes & forge integration (SYR-H50YW). forge may be nil (no forge
 	// adapter available → PR modes push and show a compare URL).
 	forge             forge.Resolver
 	deliverySvc       *FleetService
@@ -281,8 +281,8 @@ func (h *Hub) deliveryService() *FleetService {
 	return h.deliverySvc
 }
 
-// SetOrchestrator attaches the built-in Orchestrator Chat service to the Hub.
-func (h *Hub) SetOrchestrator(o *orchestrator.Service) {
+// SetCommander attaches the built-in Commander Chat service to the Hub.
+func (h *Hub) SetCommander(o *commander.Service) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.orch = o
@@ -299,7 +299,7 @@ func (h *Hub) Close() {
 // Shutdown stops the hub: it cancels the hub lifetime context (stopping the
 // reaper, scheduler runs, pending reconciliation checks and in-flight chat
 // turns), closes every worker and browser WebSocket with StatusGoingAway (which
-// konsertd treats as reconnectable), and waits for tracked background goroutines
+// syred treats as reconnectable), and waits for tracked background goroutines
 // to exit. It returns ctx.Err() if ctx expires first. Safe to call more than once.
 func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()

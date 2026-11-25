@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"runtime"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -48,7 +48,7 @@ func (s *vitalsSampler) sample(m *protocol.WorkerMetrics) {
 
 // memUsed is Activity Monitor's "Memory Used": app memory (anonymous pages that are not
 // purgeable) + wired + compressed. It tracks vm_stat's active + wired + compressor pages,
-// which konsertd used before, closely (TestVitalsDarwinMatchesVMStat).
+// which syred used before, closely (TestVitalsDarwinMatchesVMStat).
 func (s *vitalsSampler) memUsed() uint64 {
 	internal, ok1 := sysctlCount("vm.page_pageable_internal_count")
 	purgeable, ok2 := sysctlCount("vm.page_purgeable_count")

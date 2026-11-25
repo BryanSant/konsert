@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-// otherKonsertdRunning reports whether another konsertd daemon process (`konsertd run`)
+// otherSyredRunning reports whether another syred daemon process (`syred run`)
 // is currently running on this host.
-func otherKonsertdRunning(binPath string) (bool, error) {
+func otherSyredRunning(binPath string) (bool, error) {
 	out, err := exec.Command("ps", "-eo", "pid=,args=").Output()
 	if err != nil {
 		return false, err
@@ -38,7 +38,7 @@ func otherKonsertdRunning(binPath string) (bool, error) {
 			continue
 		}
 		cmd := fields[0]
-		if filepath.Base(cmd) != "konsertd" && (binPath == "" || !samePath(cmd, binPath)) {
+		if filepath.Base(cmd) != "syred" && (binPath == "" || !samePath(cmd, binPath)) {
 			continue
 		}
 		if slices.Contains(fields[1:], "run") {

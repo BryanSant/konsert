@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -133,11 +133,11 @@ func TestReviewApproveDirectLocalOnlyRecordsDecisionAndTimeline(t *testing.T) {
 	e := newAuditEnv(t)
 	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
 	ctx := context.Background()
-	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", Agent: "mock", Workdir: "/r", EffectiveDir: "/r/wt", Branch: "konsert/t1",
+	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", Agent: "mock", Workdir: "/r", EffectiveDir: "/r/wt", Branch: "syre/t1",
 		Prompt: "count words", Status: protocol.TaskStatusCompleted}); err != nil {
 		t.Fatal(err)
 	}
-	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t1", DefaultBranch: "main", HasRemote: false}, nil, nil)
+	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t1", DefaultBranch: "main", HasRemote: false}, nil, nil)
 	defer stop()
 
 	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/review", `{"decision":"approved"}`)
@@ -278,19 +278,19 @@ func TestTaskAcceptanceComesFromTheTicketElseThePrompt(t *testing.T) {
 	th := newTestHub(t)
 	ctx := context.Background()
 	th.h.kaShowFn = func(_ context.Context, id string) ([]byte, error) {
-		if id != "KON-H50YW" {
+		if id != "SYR-H50YW" {
 			return nil, context.DeadlineExceeded
 		}
-		return []byte(`{"id":"KON-H50YW","title":"Delivery modes","acceptance_items":[
+		return []byte(`{"id":"SYR-H50YW","title":"Delivery modes","acceptance_items":[
 			{"text":"Request changes returns to agent","done":true},{"text":"Approve runs delivery mode","done":false}]}`), nil
 	}
-	got := th.h.TaskAcceptance(ctx, store.Task{TicketID: "KON-H50YW", Prompt: "- prompt bullet"})
+	got := th.h.TaskAcceptance(ctx, store.Task{TicketID: "SYR-H50YW", Prompt: "- prompt bullet"})
 	want := []AcceptanceItem{{Text: "Request changes returns to agent", Done: true}, {Text: "Approve runs delivery mode"}}
-	if got.Source != "ticket" || got.TicketID != "KON-H50YW" || got.TicketTitle != "Delivery modes" || !slices.Equal(got.Items, want) {
+	if got.Source != "ticket" || got.TicketID != "SYR-H50YW" || got.TicketTitle != "Delivery modes" || !slices.Equal(got.Items, want) {
 		t.Fatalf("ticket acceptance %+v", got)
 	}
 	// An unknown ticket (or ka missing) falls back to the prompt.
-	got = th.h.TaskAcceptance(ctx, store.Task{TicketID: "KON-ZZZZZ", Prompt: "Do it\n- prompt bullet"})
+	got = th.h.TaskAcceptance(ctx, store.Task{TicketID: "SYR-ZZZZZ", Prompt: "Do it\n- prompt bullet"})
 	if got.Source != "prompt" || !slices.Equal(got.Items, []AcceptanceItem{{Text: "prompt bullet"}}) {
 		t.Fatalf("fallback acceptance %+v", got)
 	}

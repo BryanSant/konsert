@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
-	"github.com/BryanSant/konsert/internal/worker/spool"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
-// sendSeq sends a spooled record (Envelope.Seq set) as konsertd does.
+// sendSeq sends a spooled record (Envelope.Seq set) as syred does.
 func (fw *fakeWorker) sendSeq(seq uint64, msgType string, payload any) {
 	fw.t.Helper()
 	raw, err := protocol.NewEnvelope(msgType, "", payload)
@@ -29,7 +29,7 @@ func (fw *fakeWorker) sendSeq(seq uint64, msgType string, payload any) {
 	}
 }
 
-// dialSpoolWorker connects a fake konsertd that spools and returns the hub's resume point.
+// dialSpoolWorker connects a fake syred that spools and returns the hub's resume point.
 func (th *testHub) dialSpoolWorker(t *testing.T, id, epoch string, last uint64, chats []protocol.ActiveChatInfo) (*fakeWorker, uint64) {
 	t.Helper()
 	fw := th.dialPeer(t, "/ws/worker", false)
@@ -345,7 +345,7 @@ func TestSpoolDoesNotReplayAcrossHubs(t *testing.T) {
 	const wid = "w-cross-hub"
 	stateDir := t.TempDir()
 
-	// 1. Run a real konsertd against hub A so its spool binds to hub A.
+	// 1. Run a real syred against hub A so its spool binds to hub A.
 	ctxA, cancelA := context.WithCancel(ctx)
 	cfgA := config.DefaultWorkerConfig()
 	cfgA.ControllerURL = thA.wsURL("/ws/worker")
@@ -404,7 +404,7 @@ func TestSpoolDoesNotReplayAcrossHubs(t *testing.T) {
 	}
 	seedRunningTask(t, thB, "task-from-a", wid, protocol.OrphanPolicyFail)
 
-	// 3. Start konsertd with the same stateDir pointing at hub B.
+	// 3. Start syred with the same stateDir pointing at hub B.
 	ctxB, cancelB := context.WithCancel(ctx)
 	cfgB := config.DefaultWorkerConfig()
 	cfgB.ControllerURL = thB.wsURL("/ws/worker")

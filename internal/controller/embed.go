@@ -39,7 +39,7 @@ func SPAHandler() http.Handler {
 		if err != nil {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("Konsert API is running. Build the web UI (`make web`) to serve the embedded PWA.\n"))
+			_, _ = w.Write([]byte("Syre API is running. Build the web UI (`make web`) to serve the embedded PWA.\n"))
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

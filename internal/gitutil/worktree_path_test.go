@@ -19,7 +19,7 @@ func TestWorktreePathContainment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Dir(p) != filepath.Join(root, ".konsert-worktrees") {
+	if filepath.Dir(p) != filepath.Join(root, ".syre-worktrees") {
 		t.Fatalf("unexpected path %s", p)
 	}
 }
@@ -35,7 +35,7 @@ func TestCreateWorktreeRejectsTraversal(t *testing.T) {
 		t.Fatalf("expected ErrInvalidWorktreeName, got %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(filepath.Dir(repo), "escaped")); !os.IsNotExist(statErr) {
-		t.Fatal("worktree was created outside .konsert-worktrees")
+		t.Fatal("worktree was created outside .syre-worktrees")
 	}
 }
 

@@ -1,4 +1,4 @@
-/** Device sign-in (KON-W0P8B, KON-V5JZB, KON-A29CT). Mirrors internal/controller/devices.go. */
+/** Device sign-in (SYR-W0P8B, SYR-V5JZB, SYR-A29CT). Mirrors internal/controller/devices.go. */
 
 export type DeviceKind = 'browser' | 'phone' | 'cli' | 'mcp';
 
@@ -13,7 +13,7 @@ export interface Device {
   created_by?: string;
   last_used_at: string;
   last_ip?: string;
-  /** "Chrome on macOS", "konsert/1.2" (never the raw User-Agent). */
+  /** "Chrome on macOS", "syre/1.2" (never the raw User-Agent). */
   last_user_agent?: string;
   /** Sliding expiry: last use plus the idle period. */
   expires_at: string;
@@ -57,7 +57,7 @@ export interface McpCredential {
   mcp_url: string;
 }
 
-/** GET /api/auth/device-code/{code}: what `konsert login` is asking to sign in. */
+/** GET /api/auth/device-code/{code}: what `syre login` is asking to sign in. */
 export interface LoginRequest {
   sid: string;
   name: string;

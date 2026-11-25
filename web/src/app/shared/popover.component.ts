@@ -21,8 +21,8 @@ export type PopoverRole = 'menu' | 'listbox' | 'dialog';
 
 let nextId = 0;
 
-/** Marks the element that toggles a `<ks-popover>`. */
-@Directive({ selector: '[ksPopoverTrigger]', standalone: true })
+/** Marks the element that toggles a `<sy-popover>`. */
+@Directive({ selector: '[syPopoverTrigger]', standalone: true })
 export class PopoverTriggerDirective {
   readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
 }
@@ -33,10 +33,10 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
  * An anchored, elevated popover (menu, listbox or small dialog) without hard borders.
  *
  * ```html
- * <ks-popover label="Approval mode" [(open)]="open">
- *   <button ksPopoverTrigger class="ks-chip">…</button>
- *   <button role="menuitemradio" class="ks-menu-item">…</button>
- * </ks-popover>
+ * <sy-popover label="Approval mode" [(open)]="open">
+ *   <button syPopoverTrigger class="sy-chip">…</button>
+ *   <button role="menuitemradio" class="sy-menu-item">…</button>
+ * </sy-popover>
  * ```
  *
  * Keyboard: ArrowDown/ArrowUp on the trigger open it; inside a menu the arrows, Home and
@@ -45,7 +45,7 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
  * closes the menu (unless `closeOnSelect` is false).
  */
 @Component({
-  selector: 'ks-popover',
+  selector: 'sy-popover',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -56,7 +56,7 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
     '(keydown)': 'onHostKeydown($event)',
   },
   template: `
-    <ng-content select="[ksPopoverTrigger]" />
+    <ng-content select="[syPopoverTrigger]" />
     @if (open()) {
       <div
         #panel
@@ -65,7 +65,7 @@ const ITEM_SELECTOR = '[role="menuitem"],[role="menuitemradio"],[role="menuitemc
         [attr.aria-label]="label()"
         [attr.aria-orientation]="role() === 'menu' ? 'vertical' : null"
         tabindex="-1"
-        class="ks-menu absolute z-50 outline-none"
+        class="sy-menu absolute z-50 outline-none"
         [class]="panelClass()"
         [class.bottom-full]="placement().startsWith('top')"
         [class.mb-2]="placement().startsWith('top')"
@@ -90,7 +90,7 @@ export class PopoverComponent implements OnDestroy {
   readonly closeOnSelect = input(true);
   readonly closed = output<void>();
 
-  readonly panelId = `ks-popover-${++nextId}`;
+  readonly panelId = `sy-popover-${++nextId}`;
   private readonly trigger = contentChild(PopoverTriggerDirective);
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);

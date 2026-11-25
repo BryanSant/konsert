@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/syre/internal/ids"
 )
 
 func TestEncodeDecodeFrame(t *testing.T) {

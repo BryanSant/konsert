@@ -13,10 +13,10 @@ import (
 
 // TestRealCaffeinateAssertion takes a real caffeinate wake lock and checks that macOS
 // reports the idle-sleep assertion while held and drops it after release and shutdown.
-// It changes host power state, so it only runs with KONSERT_TEST_REAL_WAKELOCK=1.
+// It changes host power state, so it only runs with SYRE_TEST_REAL_WAKELOCK=1.
 func TestRealCaffeinateAssertion(t *testing.T) {
-	if os.Getenv("KONSERT_TEST_REAL_WAKELOCK") != "1" {
-		t.Skip("set KONSERT_TEST_REAL_WAKELOCK=1 to take a real caffeinate assertion")
+	if os.Getenv("SYRE_TEST_REAL_WAKELOCK") != "1" {
+		t.Skip("set SYRE_TEST_REAL_WAKELOCK=1 to take a real caffeinate assertion")
 	}
 	assertionFor := func(pid int) bool {
 		out, err := exec.Command("pmset", "-g", "assertions").Output()
@@ -34,7 +34,7 @@ func TestRealCaffeinateAssertion(t *testing.T) {
 
 	m := NewWakeLockManager(nil, nil, nil)
 	for _, release := range []func(){func() { m.Set(false, "") }, m.Shutdown} {
-		st := m.Set(true, "konsert real wakelock test")
+		st := m.Set(true, "syre real wakelock test")
 		if !st.Active || st.Method != "caffeinate" {
 			t.Fatalf("enable: %+v", st)
 		}

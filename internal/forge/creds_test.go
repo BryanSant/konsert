@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/secrets"
+	"github.com/BryanSant/syre/internal/secrets"
 )
 
 type fakeCmdCall struct {

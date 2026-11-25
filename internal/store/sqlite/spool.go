@@ -6,10 +6,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Applied spool seqs per worker (KON-VZR9F). See store/spool.go.
+// Applied spool seqs per worker (SYR-VZR9F). See store/spool.go.
 
 // GetSpoolState returns workerID's applied spool state.
 func (s *SQLiteStore) GetSpoolState(ctx context.Context, workerID string) (store.SpoolState, error) {

@@ -1,5 +1,5 @@
-// Package elevate runs a konsertd command with administrator rights on Windows
-// (KON-28HHD): `konsertd install --service` (and `uninstall --service` when the
+// Package elevate runs a syred command with administrator rights on Windows
+// (SYR-28HHD): `syred install --service` (and `uninstall --service` when the
 // account may not remove the service itself) relaunch themselves through UAC when
 // there is someone at the desktop to approve the prompt, and relay the elevated
 // process's output and exit code in the original terminal. Without a desktop (SSH,

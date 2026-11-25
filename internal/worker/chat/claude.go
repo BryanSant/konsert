@@ -26,9 +26,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/proctree"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/proctree"
 )
 
 const (
@@ -41,7 +41,7 @@ const (
 )
 
 // claudeDropEnv are inherited variables that must not leak into a child claude: nested
-// session markers (konsertd may itself run inside Claude Code) and an API key that would
+// session markers (syred may itself run inside Claude Code) and an API key that would
 // silently replace the subscription login.
 var claudeDropEnv = []string{
 	"ANTHROPIC_API_KEY", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID",
@@ -313,7 +313,7 @@ func (s *claudeSession) argsLocked() ([]string, error) {
 			s.mcpFile = path
 		}
 		args = append(args, "--mcp-config", s.mcpFile)
-		// Konsert's own servers (ask_user, fleet tools) are trusted: never ask the user
+		// Syre's own servers (ask_user, fleet tools) are trusted: never ask the user
 		// for permission to ask the user a question.
 		for _, srv := range s.opts.MCPServers {
 			if name := strings.TrimSpace(srv.Name); name != "" {
@@ -335,7 +335,7 @@ func (s *claudeSession) argsLocked() ([]string, error) {
 	return args, nil
 }
 
-// claudeWithMCPTimeout raises claude's MCP tool-call timeout for Konsert's servers. Its
+// claudeWithMCPTimeout raises claude's MCP tool-call timeout for Syre's servers. Its
 // HTTP MCP client otherwise aborts a call that sends nothing back for 60 s (the
 // first-byte budget is max(MCP_TOOL_TIMEOUT or the server's "timeout", 60 s)), which
 // ended ask_user while the user was still reading the question.
@@ -381,7 +381,7 @@ func claudeWriteMCPConfig(servers []protocol.AgentMCPServer) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp("", "konsert-mcp-*.json")
+	f, err := os.CreateTemp("", "syre-mcp-*.json")
 	if err != nil {
 		return "", err
 	}
@@ -516,7 +516,7 @@ func (s *claudeSession) write(v any) error {
 
 // control sends a control request and waits for its response.
 func (s *claudeSession) control(ctx context.Context, req map[string]any) (jsontext.Value, error) {
-	id := fmt.Sprintf("konsert-%d", s.reqSeq.Add(1))
+	id := fmt.Sprintf("syre-%d", s.reqSeq.Add(1))
 	ch := make(chan claudeCtlResult, 1)
 	s.ctlMu.Lock()
 	s.waiters[id] = ch
@@ -906,7 +906,7 @@ func (s *claudeSession) watchdogLoop() {
 		}
 		s.mu.Lock()
 		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 &&
-			!konsertToolRunning(s.turn.tools) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
+			!syreToolRunning(s.turn.tools) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		var tid string
 		if fire {
 			s.watchdogFired = true
@@ -1605,7 +1605,7 @@ func (s *claudeSession) handleControlRequest(l *claudeLine) {
 			"type": "control_response",
 			"response": map[string]any{
 				"subtype": "error", "request_id": l.RequestID,
-				"error": "konsert does not support control request " + req.Subtype,
+				"error": "syre does not support control request " + req.Subtype,
 			},
 		})
 		return

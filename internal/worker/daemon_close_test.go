@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/coder/websocket"
 )
 
-// konsertd reconnects after 1013 (try again later) and 1000 (superseded), and exits only on
+// syred reconnects after 1013 (try again later) and 1000 (superseded), and exits only on
 // 4001 (machine removed by an operator).
 func TestDaemonCloseCodePolicy(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

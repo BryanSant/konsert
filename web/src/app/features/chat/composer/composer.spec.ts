@@ -26,7 +26,7 @@ import {
   selectModel,
 } from './composer-logic';
 
-const SANDBOX_REASON = 'This machine runs konsertd with --sandbox, which refuses full-access modes.';
+const SANDBOX_REASON = 'This machine runs syred with --sandbox, which refuses full-access modes.';
 /** Claude on a --sandbox worker: full access is disabled with the reason. */
 function sandboxedClaude(over: Partial<AgentAccount> = {}): AgentAccount {
   const base = claudeAccount();
@@ -113,7 +113,7 @@ describe('composer logic', () => {
   standalone: true,
   imports: [ChatComposerComponent],
   template: `
-    <ks-chat-composer
+    <sy-chat-composer
       [accounts]="accounts()"
       [(selection)]="selection"
       [busy]="busy()"
@@ -143,7 +143,7 @@ describe('ChatComposerComponent', () => {
   });
   afterEach(() => {
     TestBed.resetTestingModule();
-    document.querySelectorAll('.ks-tooltip').forEach((n) => n.remove());
+    document.querySelectorAll('.sy-tooltip').forEach((n) => n.remove());
   });
 
   async function setup() {
@@ -184,7 +184,7 @@ describe('ChatComposerComponent', () => {
     await render();
     expect(host.selection().approvalMode).toBe('bypassPermissions');
     expect(host.changes.at(-1)).toEqual({ approvalMode: 'bypassPermissions' });
-    expect($('[data-testid="approval-chip"]').classList.contains('ks-chip-amber')).toBe(true);
+    expect($('[data-testid="approval-chip"]').classList.contains('sy-chip-amber')).toBe(true);
   });
 
   it('filters models with search and shows the effort row only for models with efforts', async () => {
@@ -372,7 +372,7 @@ describe('ChatComposerComponent', () => {
       expect(rec.continuous && rec.interimResults).toBe(true);
       expect(mic.getAttribute('aria-pressed')).toBe('true');
       expect(mic.getAttribute('aria-label')).toBe('Stop dictation');
-      expect(mic.classList.contains('ks-mic-recording')).toBe(true);
+      expect(mic.classList.contains('sy-mic-recording')).toBe(true);
       expect(document.body.textContent).toContain('Listening. Press Escape to cancel.');
 
       rec.emit([['run the', false]]);

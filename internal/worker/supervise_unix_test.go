@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // scriptDriver runs its prompt as a /bin/sh script; used to exercise the supervisor.
@@ -125,7 +125,7 @@ func TestLineSplitterBoundsLongLines(t *testing.T) {
 	}
 }
 
-// Managed tasks expose their PID (so discovery skips them) and carry KONSERT_TASK_ID.
+// Managed tasks expose their PID (so discovery skips them) and carry SYRE_TASK_ID.
 func TestRunnerManagedPIDAndTaskEnv(t *testing.T) {
 	rec := newStatusRecorder()
 	runner := NewRunner(scriptRegistry(), false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
@@ -135,7 +135,7 @@ func TestRunnerManagedPIDAndTaskEnv(t *testing.T) {
 		TaskID:  id,
 		Agent:   "script",
 		Workdir: workdir,
-		Prompt:  `printf %s "$KONSERT_TASK_ID" > tid.txt; sleep 30`,
+		Prompt:  `printf %s "$SYRE_TASK_ID" > tid.txt; sleep 30`,
 		Mode:    protocol.TaskModeOneshot,
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestRunnerManagedPIDAndTaskEnv(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("KONSERT_TASK_ID not set in task env (got %q)", raw)
+			t.Fatalf("SYRE_TASK_ID not set in task env (got %q)", raw)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

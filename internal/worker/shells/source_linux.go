@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// clockTicks is USER_HZ, 100 on every Linux konsertd runs on.
+// clockTicks is USER_HZ, 100 on every Linux syred runs on.
 const clockTicks = 100
 
 // procSource reads /proc: no process spawned per tick.

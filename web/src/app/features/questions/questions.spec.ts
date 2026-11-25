@@ -66,13 +66,13 @@ describe('questions logic', () => {
 
   it('groups by ticket in queue order', () => {
     const sorted = [
-      q({ id: 'a', group_key: 'ticket:KON-2Q0CH', group_label: 'KON-2Q0CH Questions and steering' }),
+      q({ id: 'a', group_key: 'ticket:SYR-2Q0CH', group_label: 'SYR-2Q0CH Questions and steering' }),
       q({ id: 'b', group_key: 'chat:c2', chat_title: 'Fix e2e' }),
-      q({ id: 'c', group_key: 'ticket:KON-2Q0CH' }),
+      q({ id: 'c', group_key: 'ticket:SYR-2Q0CH' }),
     ];
     const groups = groupQuestions(sorted);
     expect(groups.map((g) => [g.label, g.items.map((x) => x.id)])).toEqual([
-      ['KON-2Q0CH Questions and steering', ['a', 'c']],
+      ['SYR-2Q0CH Questions and steering', ['a', 'c']],
       ['Fix e2e', ['b']],
     ]);
   });
@@ -147,7 +147,7 @@ describe('questions UI', () => {
   });
 
   it('card shows context, consequences and the recommendation, and answers with an option or free text', async () => {
-    store.apply(q({ id: 'a', context: 'KON-2Q0CH needs a phone run', why_now: 'Closing waits on it', refs: [{ kind: 'ticket', ref: 'KON-2Q0CH', title: 'Questions and steering', status: 'in_progress', excerpt: 'Clear questions', resolved: true }] }));
+    store.apply(q({ id: 'a', context: 'SYR-2Q0CH needs a phone run', why_now: 'Closing waits on it', refs: [{ kind: 'ticket', ref: 'SYR-2Q0CH', title: 'Questions and steering', status: 'in_progress', excerpt: 'Clear questions', resolved: true }] }));
     const fixture = TestBed.createComponent(QuestionCardComponent);
     fixture.componentRef.setInput('question', store.question('a')!);
     await settle(fixture);
@@ -216,12 +216,12 @@ describe('questions UI', () => {
     await settle(fixture);
     const root = fixture.nativeElement as HTMLElement;
     const ta = byTestId(root, 'thread-input') as HTMLTextAreaElement;
-    ta.value = 'What is KON-2Q0CH and why do you recommend Yes?';
+    ta.value = 'What is SYR-2Q0CH and why do you recommend Yes?';
     ta.dispatchEvent(new Event('input'));
     await settle(fixture);
     byTestId(root, 'thread-send')!.click();
     await settle(fixture);
-    expect(api['askAboutQuestion']).toHaveBeenCalledWith('a', 'What is KON-2Q0CH and why do you recommend Yes?');
+    expect(api['askAboutQuestion']).toHaveBeenCalledWith('a', 'What is SYR-2Q0CH and why do you recommend Yes?');
 
     store.apply({
       ...store.question('a')!,
@@ -229,7 +229,7 @@ describe('questions UI', () => {
       thread_account_label: 'Claude 2',
       machine_name: 'mac',
       messages: [
-        { question_id: 'a', seq: 1, role: 'user', text: 'What is KON-2Q0CH?', created_at: '' },
+        { question_id: 'a', seq: 1, role: 'user', text: 'What is SYR-2Q0CH?', created_at: '' },
         { question_id: 'a', seq: 2, role: 'answerer', text: 'It is the questions epic.', created_at: '' },
       ],
     });

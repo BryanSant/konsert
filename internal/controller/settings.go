@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // errAdminScopeRequired is returned when a caller without the admin scope (an MCP
@@ -43,19 +43,19 @@ type SettingsUpdate struct {
 	VetoAckMinutes        *int    `json:"veto_ack_minutes"`
 	// DeviceIdleDays is the sliding expiry of device credentials (1-3650 days).
 	DeviceIdleDays *int `json:"device_idle_days"`
-	// Global delivery defaults (KON-H50YW).
+	// Global delivery defaults (SYR-H50YW).
 	DefaultDeliveryMode *string `json:"default_delivery_mode"`
 	DefaultMergeStyle   *string `json:"default_merge_style"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
-// it updates s.cfg under cfgMu, writes SQLite, and hot-reloads the orchestrator.
+// it updates s.cfg under cfgMu, writes SQLite, and hot-reloads the commander.
 // admin reports whether the caller holds the admin scope.
 func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool) error {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 
-	next := s.cfg.Orchestrator
+	next := s.cfg.Commander
 	updates := make(map[string]string)
 
 	if u.LLMProvider != nil {
@@ -95,7 +95,7 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 	if keyOrURLChange && !admin {
 		return errAdminScopeRequired
 	}
-	if err := validateOrchestratorConfig(next); err != nil {
+	if err := validateCommanderConfig(next); err != nil {
 		return errInvalidSettings{err}
 	}
 
@@ -152,8 +152,8 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 			return err
 		}
 	}
-	if next != s.cfg.Orchestrator {
-		s.cfg.Orchestrator = next
+	if next != s.cfg.Commander {
+		s.cfg.Commander = next
 		if err := s.orch.UpdateConfig(next); err != nil {
 			return errInvalidSettings{err}
 		}
@@ -184,13 +184,13 @@ func recordSettingsAudit(ctx context.Context, h *Hub, updates map[string]string)
 	})
 }
 
-// validateOrchestratorConfig applies config validation plus the orchestrator's own
-// provider check (config cannot import orchestrator, so both run here).
-func validateOrchestratorConfig(c config.OrchestratorConfig) error {
+// validateCommanderConfig applies config validation plus the commander's own
+// provider check (config cannot import commander, so both run here).
+func validateCommanderConfig(c config.CommanderConfig) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	return orchestrator.ValidateProvider(c.Provider)
+	return commander.ValidateProvider(c.Provider)
 }
 
 // settingsUpdateFromMap converts the string map used by the MCP update_settings tool.
@@ -281,7 +281,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"device_idle_days":        r.DeviceIdleDays,
 		"default_delivery_mode":   r.DefaultDeliveryMode,
 		"default_merge_style":     r.DefaultMergeStyle,
-		"orchestrator_backend":    r.OrchestratorBackend,
+		"commander_backend":       r.CommanderBackend,
 		"api_key_required":        r.APIKeyRequired,
 	}
 }
@@ -337,6 +337,6 @@ func writeSettingsError(w http.ResponseWriter, err error) {
 // effectiveModel is the API-key backend's configured model. There is no built-in
 // default: agent chats take models from capabilities, and the optional API-key
 // backend needs an explicit llm_model.
-func effectiveModel(c config.OrchestratorConfig) string {
+func effectiveModel(c config.CommanderConfig) string {
 	return strings.TrimSpace(c.Model)
 }

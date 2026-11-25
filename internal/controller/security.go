@@ -11,8 +11,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/worker"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/worker"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 	// csrfHeader may be sent by API clients that cannot set a JSON Content-Type.
 	// Browsers cannot attach custom headers cross-origin without a CORS preflight,
 	// which this server never approves.
-	csrfHeader = "X-Konsert-Request"
+	csrfHeader = "X-Syre-Request"
 )
 
 // buildOriginPatterns turns the configured public URL and extra allowed origins into

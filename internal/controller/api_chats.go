@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -48,7 +48,7 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 	case store.ChatBackendAPI:
 		cs.Backend = store.ChatBackendAPI
 		s.cfgMu.RLock()
-		cs.Provider, cs.Model = s.cfg.Orchestrator.Provider, effectiveModel(s.cfg.Orchestrator)
+		cs.Provider, cs.Model = s.cfg.Commander.Provider, effectiveModel(s.cfg.Commander)
 		s.cfgMu.RUnlock()
 		if v := strings.TrimSpace(body.Provider); v != "" {
 			cs.Provider = v
@@ -57,7 +57,7 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 			cs.Model = v
 		}
 		if cs.Title == "" {
-			cs.Title = "Orchestrator Session"
+			cs.Title = "Commander Session"
 		}
 	case "", store.ChatBackendAgent:
 		cs.Backend = store.ChatBackendAgent
@@ -82,7 +82,7 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 		if cs.Title == "" {
 			cs.Title = "New chat"
 			if cs.FleetTools {
-				cs.Title = "Orchestrator"
+				cs.Title = "Commander"
 			}
 		}
 	default:
@@ -94,7 +94,7 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 		return cs, err
 	}
 	// Other browsers (and tabs) learn about chats created elsewhere, e.g. by the CLI,
-	// the orchestrator or another tab.
+	// the commander or another tab.
 	s.hub.broadcastFleetUpdate("chat_session", cs)
 	return cs, nil
 }
@@ -112,13 +112,13 @@ func (s *Server) handleCreateChatSession(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, cs)
 }
 
-// ensureOrchestratorChat returns the default orchestrator chat, creating it as an
+// ensureCommanderChat returns the default commander chat, creating it as an
 // agent chat with fleet tools on the default worker and account.
-func (s *Server) ensureOrchestratorChat(ctx context.Context) (store.ChatSession, error) {
+func (s *Server) ensureCommanderChat(ctx context.Context) (store.ChatSession, error) {
 	s.orchChatMu.Lock()
 	defer s.orchChatMu.Unlock()
 	saved, _ := s.store.GetAllSettings(ctx)
-	if id := saved[orchestratorChatSetting]; id != "" {
+	if id := saved[commanderChatSetting]; id != "" {
 		if cs, err := s.store.GetChatSession(ctx, id); err == nil {
 			if cs.Backend == store.ChatBackendAgent && (cs.WorkerID == "" || cs.Agent == "") {
 				s.hub.resolveChatTarget(ctx, &cs)
@@ -129,18 +129,18 @@ func (s *Server) ensureOrchestratorChat(ctx context.Context) (store.ChatSession,
 			return cs, nil
 		}
 	}
-	cs, err := s.createChat(ctx, createChatRequest{Title: "Orchestrator", FleetTools: true})
+	cs, err := s.createChat(ctx, createChatRequest{Title: "Commander", FleetTools: true})
 	if err != nil {
 		return cs, err
 	}
-	if err := s.store.SetSettings(ctx, map[string]string{orchestratorChatSetting: cs.ID}); err != nil {
+	if err := s.store.SetSettings(ctx, map[string]string{commanderChatSetting: cs.ID}); err != nil {
 		return cs, err
 	}
 	return cs, nil
 }
 
-func (s *Server) handleEnsureOrchestratorChat(w http.ResponseWriter, r *http.Request) {
-	cs, err := s.ensureOrchestratorChat(r.Context())
+func (s *Server) handleEnsureCommanderChat(w http.ResponseWriter, r *http.Request) {
+	cs, err := s.ensureCommanderChat(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -266,7 +266,7 @@ func bearerToken(r *http.Request) string {
 }
 
 // serveRelayedChatMCP serves a chat's Streamable HTTP MCP server for a request
-// konsertd relayed over workerID's link (KON-DTN92). It is authenticated by that chat's
+// syred relayed over workerID's link (SYR-DTN92). It is authenticated by that chat's
 // bearer token (never a browser cookie), and only the link of the machine the chat runs
 // on reaches it: a token presented through another machine's link is refused. The hub
 // serves no per-chat MCP over HTTP.
@@ -279,7 +279,7 @@ func (s *Server) serveRelayedChatMCP(w http.ResponseWriter, r *http.Request, wor
 	user := "agent-chat:" + cs.ID
 	source := auditSourceMCP
 	if cs.FleetTools {
-		user, source = "orchestrator", auditSourceOrchestrator
+		user, source = "commander", auditSourceCommander
 	}
 	r = r.WithContext(withChatOrigin(withAuditActor(r.Context(), user, source), cs.ID, cs.FleetTools))
 	s.hub.chatMCPHandler(cs).ServeHTTP(w, r)
@@ -304,7 +304,7 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		if v == "" {
 			v = "1.0.0"
 		}
-		srv = mcp.NewServer(&mcp.Implementation{Name: "konsert", Version: v}, nil)
+		srv = mcp.NewServer(&mcp.Implementation{Name: "syre", Version: v}, nil)
 	}
 	chatID := cs.ID
 	mcp.AddTool(srv, &mcp.Tool{
@@ -321,8 +321,8 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 	if cs.FleetTools {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name: "answer_question",
-			Description: "Decide a question the user delegated to you (\"Let the orchestrator decide\"): give the option you choose (label or number) " +
-				"or a text answer, and a rationale the user sees as the receipt. Only for questions Konsert handed to you.",
+			Description: "Decide a question the user delegated to you (\"Let the commander decide\"): give the option you choose (label or number) " +
+				"or a text answer, and a rationale the user sees as the receipt. Only for questions Syre handed to you.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in answerQuestionInput) (*mcp.CallToolResult, any, error) {
 			res, err := h.decideDelegated(ctx, chatID, in)
 			if err != nil {

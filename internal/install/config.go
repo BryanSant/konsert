@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/syre/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
-const configHeader = "# konsertd worker config written by `konsertd install`.\n" +
+const configHeader = "# syred worker config written by `syred install`.\n" +
 	"# It can hold agent account settings: keep it readable only by you.\n"
 
 // MarshalWorkerConfig renders cfg as YAML with only the fields that were set. Unset
-// fields are left out (not written as zero values) so `konsertd run` still applies its
+// fields are left out (not written as zero values) so `syred run` still applies its
 // defaults to them, e.g. the hostname as the worker name.
 func MarshalWorkerConfig(cfg config.WorkerConfig) ([]byte, error) {
 	full, err := yaml.Marshal(cfg)

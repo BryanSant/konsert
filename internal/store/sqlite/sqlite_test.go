@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 
 	st, err := Open(ctx, dbPath)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	sp := store.Space{
 		ID:       "sp-1",
 		WorkerID: "w1",
-		Name:     "konsert",
+		Name:     "syre",
 		Path:     "/repo",
 		Branch:   "main",
 	}
@@ -66,7 +66,7 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("CreateSpace failed: %v", err)
 	}
 	gotSp, err := st.GetSpace(ctx, "sp-1")
-	if err != nil || gotSp.Name != "konsert" || gotSp.Path != "/repo" || gotSp.WorkerID != "w1" {
+	if err != nil || gotSp.Name != "syre" || gotSp.Path != "/repo" || gotSp.WorkerID != "w1" {
 		t.Fatalf("GetSpace mismatch: %+v err=%v", gotSp, err)
 	}
 	allSp, err := st.ListSpaces(ctx, "w1")
@@ -90,7 +90,7 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	if err := st.CreateTask(ctx, task); err != nil {
 		t.Fatalf("CreateTask failed: %v", err)
 	}
-	if err := st.UpdateTaskAssignment(ctx, "t1", "w1", "/repo/.konsert-worktrees/t1"); err != nil {
+	if err := st.UpdateTaskAssignment(ctx, "t1", "w1", "/repo/.syre-worktrees/t1"); err != nil {
 		t.Fatalf("UpdateTaskAssignment failed: %v", err)
 	}
 	if _, err := st.UpdateTaskStatus(ctx, "t1", protocol.TaskStatusRunning, "", "", nil, store.Cause{}); err != nil {
@@ -237,7 +237,7 @@ func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
 		t.Fatalf("expected task re-homed to Default after workspace delete, got %+v err=%v", gotRehomed, err)
 	}
 
-	// 3. Cached machine facts & Orchestrator persistent memory
+	// 3. Cached machine facts & Commander persistent memory
 	if err := st.UpdateWorkerFacts(ctx, "w-linux", `{"os_name":"Fedora Linux","cpu_cores":16,"tools":{"postgres":"18.1"}}`, now); err != nil {
 		t.Fatalf("UpdateWorkerFacts failed: %v", err)
 	}

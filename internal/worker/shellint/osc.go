@@ -10,14 +10,14 @@ import (
 type MarkKind byte
 
 const (
-	MarkPromptStart  MarkKind = 'A' // OSC 133;A
-	MarkPromptEnd    MarkKind = 'B' // OSC 133;B
-	MarkPreExec      MarkKind = 'C' // OSC 133;C
-	MarkCommandDone  MarkKind = 'D' // OSC 133;D[;exit]
-	MarkCommandLine  MarkKind = 'E' // OSC 633;E;<cmd>;<nonce>
-	MarkCwd          MarkKind = 'P' // OSC 633;P;Cwd=<path>;<nonce>
-	maxOSCPayload             = 256 << 10
-	konsertOSCPrefix          = "633;"
+	MarkPromptStart MarkKind = 'A' // OSC 133;A
+	MarkPromptEnd   MarkKind = 'B' // OSC 133;B
+	MarkPreExec     MarkKind = 'C' // OSC 133;C
+	MarkCommandDone MarkKind = 'D' // OSC 133;D[;exit]
+	MarkCommandLine MarkKind = 'E' // OSC 633;E;<cmd>;<nonce>
+	MarkCwd         MarkKind = 'P' // OSC 633;P;Cwd=<path>;<nonce>
+	maxOSCPayload            = 256 << 10
+	syreOSCPrefix            = "633;"
 )
 
 // Mark is one parsed shell-integration mark.
@@ -174,7 +174,7 @@ func (p *Parser) addPayload(out []byte, b byte) []byte {
 		p.held, p.payload = false, p.payload[:0]
 		if p.strip {
 			// An over-long 633 sequence is still dropped, but no longer buffered.
-			p.payload = append(p.payload[:0], konsertOSCPrefix...)
+			p.payload = append(p.payload[:0], syreOSCPrefix...)
 			return out
 		}
 		p.st = stOSCSkip
@@ -183,8 +183,8 @@ func (p *Parser) addPayload(out []byte, b byte) []byte {
 	p.payload = append(p.payload, b)
 	if p.held && !p.strip {
 		n := len(p.payload)
-		if n <= len(konsertOSCPrefix) && p.payload[n-1] == konsertOSCPrefix[n-1] {
-			if n == len(konsertOSCPrefix) {
+		if n <= len(syreOSCPrefix) && p.payload[n-1] == syreOSCPrefix[n-1] {
+			if n == len(syreOSCPrefix) {
 				p.strip = true
 			}
 			return out
@@ -232,10 +232,10 @@ func (p *Parser) abort(out []byte, b byte) []byte {
 
 // parseMark interprets an OSC payload. Over-long 633 payloads have been truncated to
 // the bare prefix and parse to nothing.
-func parseMark(payload []byte, konsert bool) (Mark, bool) {
+func parseMark(payload []byte, syre bool) (Mark, bool) {
 	s := string(payload)
-	if konsert {
-		rest := strings.TrimPrefix(s, konsertOSCPrefix)
+	if syre {
+		rest := strings.TrimPrefix(s, syreOSCPrefix)
 		switch {
 		case strings.HasPrefix(rest, "E;"):
 			fields := strings.Split(rest[2:], ";")

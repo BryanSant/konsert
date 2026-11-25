@@ -14,47 +14,47 @@ export const FIRST_RUN_SUGGESTIONS = [
 ];
 
 /**
- * Command on a fresh hub: what Konsert is, and "Add this machine" (the hub starts this
- * machine's konsertd, as the Add Machine dialog does). The orchestrator needs a machine
+ * Command on a fresh hub: what Syre is, and "Add this machine" (the hub starts this
+ * machine's syred, as the Add Machine dialog does). The commander needs a machine
  * to run on, so the composer stays disabled until one is online.
  */
 @Component({
-  selector: 'ks-first-run',
+  selector: 'sy-first-run',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   host: { class: 'flex flex-col min-h-0 h-full overflow-y-auto' },
   template: `
     <div class="flex-1 w-full max-w-[760px] mx-auto px-6 pt-10 pb-4 flex flex-col gap-5" data-testid="first-run">
-      <h1 class="m-0 text-[26px] font-semibold tracking-tight text-[var(--ks-text)]">Welcome to Konsert</h1>
-      <p class="m-0 text-[15px] leading-relaxed text-[var(--ks-text-secondary)]">
-        Konsert runs coding agents on your own machines with the subscriptions you already have. You chat with the orchestrator here; it sends
+      <h1 class="m-0 text-[26px] font-semibold tracking-tight text-[var(--sy-text)]">Welcome to Syre</h1>
+      <p class="m-0 text-[15px] leading-relaxed text-[var(--sy-text-secondary)]">
+        Syre runs coding agents on your own machines with the subscriptions you already have. You chat with the commander here; it sends
         work to agents across your machines, and you can watch, answer their questions, or take over at any time.
       </p>
 
       @if (online()) {
-        <div class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-green-soft)] px-4 py-3.5 text-[13.5px] text-[#cdebd3]" role="status" data-testid="first-run-online">
+        <div class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-green-soft)] px-4 py-3.5 text-[13.5px] text-[#cdebd3]" role="status" data-testid="first-run-online">
           <app-icon name="check" [size]="13" />
-          {{ online()!.name }} is online. Ask the orchestrator for anything below.
+          {{ online()!.name }} is online. Ask the commander for anything below.
         </div>
       } @else {
-        <section class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-1)] px-5 py-4 flex flex-col gap-3" aria-labelledby="ks-first-run-step">
-          <h2 id="ks-first-run-step" class="m-0 text-[13px] font-normal text-[var(--ks-text-secondary)]">Step 1 · The orchestrator needs a machine to run on</h2>
+        <section class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] px-5 py-4 flex flex-col gap-3" aria-labelledby="sy-first-run-step">
+          <h2 id="sy-first-run-step" class="m-0 text-[13px] font-normal text-[var(--sy-text-secondary)]">Step 1 · The commander needs a machine to run on</h2>
           <div class="flex flex-wrap items-center gap-3">
             <div class="flex-1 min-w-[220px]">
-              <div class="font-semibold text-[var(--ks-text)]">This machine{{ local()?.hostname ? ' (' + local()!.hostname + ')' : '' }}</div>
-              <div class="mt-0.5 text-[12.5px] text-[var(--ks-text-secondary)]" data-testid="first-run-local">{{ localLine() }}</div>
+              <div class="font-semibold text-[var(--sy-text)]">This machine{{ local()?.hostname ? ' (' + local()!.hostname + ')' : '' }}</div>
+              <div class="mt-0.5 text-[12.5px] text-[var(--sy-text-secondary)]" data-testid="first-run-local">{{ localLine() }}</div>
             </div>
             <button
               type="button"
-              class="ks-btn ks-btn-primary h-10 px-4"
+              class="sy-btn sy-btn-primary h-10 px-4"
               data-testid="first-run-add-local"
               [disabled]="busy() || starting() || !canAdd()"
               (click)="addLocal()"
             >
               @if (busy() || starting()) {
-                <span class="ks-spinner" style="width: 12px; height: 12px"></span>
-                Starting konsertd…
+                <span class="sy-spinner" style="width: 12px; height: 12px"></span>
+                Starting syred…
               } @else {
                 Add this machine
               }
@@ -63,29 +63,29 @@ export const FIRST_RUN_SUGGESTIONS = [
           @if (error()) {
             <p role="alert" class="m-0 text-[12.5px] text-[#f3a5a5]">{{ error() }}</p>
           }
-          <p class="m-0 text-[12.5px] text-[var(--ks-text-muted)]">
-            or <button type="button" class="underline text-[var(--ks-blue)] hover:text-[#cfe2ff]" data-testid="first-run-ssh" (click)="ui.addMachineOpen.set(true)">add another machine over SSH</button>
+          <p class="m-0 text-[12.5px] text-[var(--sy-text-muted)]">
+            or <button type="button" class="underline text-[var(--sy-blue)] hover:text-[#cfe2ff]" data-testid="first-run-ssh" (click)="ui.addMachineOpen.set(true)">add another machine over SSH</button>
           </p>
         </section>
       }
 
       <div class="flex flex-wrap gap-2">
         @for (s of suggestions; track s) {
-          <button type="button" class="ks-btn ks-btn-soft" [disabled]="!online()" (click)="start.emit(s)">{{ s }}</button>
+          <button type="button" class="sy-btn sy-btn-soft" [disabled]="!online()" (click)="start.emit(s)">{{ s }}</button>
         }
       </div>
     </div>
 
     <form class="w-full max-w-[760px] mx-auto px-6 pb-5 shrink-0" (submit)="$event.preventDefault(); submit()">
-      <div class="rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] px-4 py-3 shadow-[var(--ks-shadow-composer)]" [class.opacity-60]="!online()">
-        <label class="ks-sr-only" for="ks-first-run-composer">Message the orchestrator</label>
+      <div class="rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] px-4 py-3 shadow-[var(--sy-shadow-composer)]" [class.opacity-60]="!online()">
+        <label class="sy-sr-only" for="sy-first-run-composer">Message the commander</label>
         <textarea
-          id="ks-first-run-composer"
+          id="sy-first-run-composer"
           rows="2"
-          class="w-full resize-none bg-transparent text-[14px] text-[var(--ks-text)] placeholder:text-[var(--ks-text-muted)] outline-none"
+          class="w-full resize-none bg-transparent text-[14px] text-[var(--sy-text)] placeholder:text-[var(--sy-text-muted)] outline-none"
           data-testid="first-run-composer"
           [disabled]="!online()"
-          [placeholder]="online() ? 'Ask anything, queue new work, @ a machine or file…' : 'Add a machine to start chatting with the orchestrator'"
+          [placeholder]="online() ? 'Ask anything, queue new work, @ a machine or file…' : 'Add a machine to start chatting with the commander'"
           [value]="draft()"
           (input)="draft.set($any($event.target).value)"
           (keydown.enter)="onEnter($any($event))"
@@ -121,13 +121,13 @@ export class FirstRunComponent {
   });
   readonly canAdd = computed(() => {
     const lh = this.local();
-    return !lh || lh.connected || lh.konsertd_found || !!lh.worker_id;
+    return !lh || lh.connected || lh.syred_found || !!lh.worker_id;
   });
   readonly localLine = computed(() => {
     const lh = this.local();
-    if (!lh) return this.setup.loading() ? 'Checking this machine…' : this.setup.error() || 'konsertd not found yet';
+    if (!lh) return this.setup.loading() ? 'Checking this machine…' : this.setup.error() || 'syred not found yet';
     const w = this.addingId() ? this.fleet.workersById()[this.addingId()] : undefined;
-    if (w?.launch_state === 'failed') return `Could not start konsertd: ${w.launch_error || 'unknown error'}`;
+    if (w?.launch_state === 'failed') return `Could not start syred: ${w.launch_error || 'unknown error'}`;
     return localHostSummary(lh);
   });
 

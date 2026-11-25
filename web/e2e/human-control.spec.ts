@@ -3,9 +3,9 @@ import { expect, Locator, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Human control (KON-H6HJN, PRD §5.8a) against the mock engine: suspend/resume a chat
+ * Human control (SYR-H6HJN, PRD §5.8a) against the mock engine: suspend/resume a chat
  * mid-turn, veto with a reason, drain a machine, Pause everything, release a hold.
- * Shares the hub and konsertd started by global-setup (--enable-mock-driver).
+ * Shares the hub and syred started by global-setup (--enable-mock-driver).
  */
 
 interface E2EEnv {
@@ -45,7 +45,7 @@ async function postJSON<T>(page: Page, path: string, body?: unknown): Promise<T>
       const res = await fetch(path, {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: JSON.stringify(body ?? {}),
       });
       if (!res.ok) throw new Error(`${path} failed: ${res.status} ${await res.text()}`);
@@ -75,12 +75,12 @@ async function send(chat: Locator, text: string): Promise<void> {
 }
 
 function statusPill(chat: Locator): Locator {
-  return chat.locator('ks-status-pill:visible [data-status]').first();
+  return chat.locator('sy-status-pill:visible [data-status]').first();
 }
 
 /** Text of the last streamed assistant message (the "slow" script appends "tick N"). */
 async function transcriptText(chat: Locator): Promise<string> {
-  return (await chat.locator('ks-chat-transcript').innerText()) ?? '';
+  return (await chat.locator('sy-chat-transcript').innerText()) ?? '';
 }
 
 async function dispatchMockTask(
@@ -93,7 +93,7 @@ async function dispatchMockTask(
     repo_path: env.workdir,
     prompt: 'WAIT_INPUT',
     mode: 'interactive',
-    origin: 'orchestrator',
+    origin: 'commander',
   });
 }
 
@@ -110,7 +110,7 @@ test.describe('Human control (mock engine)', () => {
     const chat = await newChat(page);
     await send(chat, 'slow suspend test');
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'working');
-    await expect(chat.locator('ks-chat-transcript')).toContainText('tick 2');
+    await expect(chat.locator('sy-chat-transcript')).toContainText('tick 2');
 
     await chat.getByTestId('session-suspend').click();
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'suspended');
@@ -131,7 +131,7 @@ test.describe('Human control (mock engine)', () => {
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'cancelled');
   });
 
-  test('vetoes a running chat with a reason the orchestrator can see', async ({ page }) => {
+  test('vetoes a running chat with a reason the commander can see', async ({ page }) => {
     const chat = await newChat(page);
     await send(chat, 'slow veto test');
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'working');
@@ -167,7 +167,7 @@ test.describe('Human control (mock engine)', () => {
     const env = loadEnv();
     await page.getByRole('navigation', { name: 'Modes' }).locator('[data-mode="fleet"]').click();
     const row = page.getByTestId('fleet-machines').locator(`[data-machine="${env.workerSid}"]`);
-    const badge = row.locator('.ks-badge').first();
+    const badge = row.locator('.sy-badge').first();
     await expect(badge).not.toHaveText('DRAINING');
 
     await row.getByRole('button', { name: 'Drain', exact: true }).click();
@@ -191,7 +191,7 @@ test.describe('Human control (mock engine)', () => {
 
     // The machine's Details dialog shows the drain too, and undrains.
     await page.getByTestId(`machine-details-${env.workerSid}`).click();
-    const modal = page.locator('app-machine-detail-modal .ks-modal');
+    const modal = page.locator('app-machine-detail-modal .sy-modal');
     await expect(modal.getByTestId('machine-drained')).toBeVisible();
     await expect(modal.getByTestId('machine-drain')).toHaveText(/Undrain/);
     await modal.getByTestId('machine-drain').click();
@@ -231,7 +231,7 @@ test.describe('Human control (mock engine)', () => {
     await chat.getByTestId('header-stop').click();
   });
 
-  test('approves and denies the orchestrator’s override requests from Needs you', async ({ page }) => {
+  test('approves and denies the commander’s override requests from Needs you', async ({ page }) => {
     const env = loadEnv();
     const ask = (reason: string) =>
       postJSON<{ id: string; sid: string }>(page, '/api/overrides', {
@@ -280,19 +280,19 @@ test.describe('Human control (mock engine)', () => {
     expect(overrides.find((o) => o.id === second.id)?.status).toBe('denied');
   });
 
-  test('a vetoed task: the orchestrator acknowledges it on its next turn and Needs you clears by itself', async ({ page }) => {
+  test('a vetoed task: the commander acknowledges it on its next turn and Needs you clears by itself', async ({ page }) => {
     const env = loadEnv();
-    await postJSON(page, '/api/chats/orchestrator', {});
+    await postJSON(page, '/api/chats/commander', {});
     const t = await dispatchMockTask(page, env);
     await expect.poll(() => taskStatus(page, t.task_id), { timeout: 10_000 }).not.toMatch(/queued|assigned/);
     await postJSON(page, `/api/tasks/${t.task_id}/veto`, { reason: 'not_now', note: 'after the release' });
 
     type VetoRow = { sid: string; task_id?: string; status: string; delivered_to?: string; acked_by?: string };
     const vetoFor = async () => (await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes')).vetoes.find((v) => v.task_id === t.task_id);
-    // Konsert tells the orchestrator in a turn of its own; that turn ending acknowledges it.
+    // Syre tells the commander in a turn of its own; that turn ending acknowledges it.
     await expect.poll(async () => (await vetoFor())?.status, { timeout: 20_000 }).toBe('acknowledged');
     const v = (await vetoFor())!;
-    expect(v.acked_by).toMatch(/^the orchestrator \(chat c-/);
+    expect(v.acked_by).toMatch(/^the commander \(chat c-/);
     // Nothing is left for the user: no "Got it" to click, no item in the rail.
     await expect(page.getByTestId('needs-you-rail').locator(`[data-veto="${v.sid}"]`)).toHaveCount(0);
     const open = await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes?open=1');

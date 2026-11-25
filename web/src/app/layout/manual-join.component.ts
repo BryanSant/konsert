@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { JoinCode, JoinCodeStatus } from '../core/models/konsert.models';
+import { JoinCode, JoinCodeStatus } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { IconComponent } from '../shared/icon.component';
@@ -8,7 +8,7 @@ import { IconComponent } from '../shared/icon.component';
 /** How often the Manual tab checks whether its code was used. */
 const POLL_MS = 2000;
 
-/** The command a manual machine runs: `konsertd join <hub> <code>` plus any options. */
+/** The command a manual machine runs: `syred join <hub> <code>` plus any options. */
 export function joinCommand(code: JoinCode, opts: { sandbox: boolean; enableMock: boolean }): string {
   const parts = [code.command];
   if (opts.sandbox) parts.push('--sandbox');
@@ -25,7 +25,7 @@ export function expiresIn(expiresAt: string, now: number): string {
 }
 
 /**
- * Add machine → Manual (KON-RK9YD): one command with a short-lived, single-use join
+ * Add machine → Manual (SYR-RK9YD): one command with a short-lived, single-use join
  * code. The machine trades it for its own credential; this tab follows it until it is
  * online.
  */
@@ -38,7 +38,7 @@ export function expiresIn(expiresAt: string, now: number): string {
     <div class="space-y-3 text-[12px]" data-testid="manual-join">
       <p class="text-[11.5px] text-[#8e9098] leading-relaxed">
         For containers, Windows, or machines the hub cannot reach over ssh. Run this on the machine; the code works
-        once, for 15 minutes. It installs <code class="font-mono-ide text-[#b4b6be]">konsertd</code> to start at login
+        once, for 15 minutes. It installs <code class="font-mono-ide text-[#b4b6be]">syred</code> to start at login
         (add <code class="font-mono-ide text-[#b4b6be]">--foreground</code> to run it in that terminal only).
       </p>
 
@@ -101,20 +101,20 @@ export function expiresIn(expiresAt: string, now: number): string {
               </span>
             } @else {
               <span class="inline-flex items-center gap-1.5 text-[11px] text-[#c8cad0]" data-testid="joined-state">
-                <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
+                <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent sy-ring-spin"></span>
                 <span>Joined · connecting...</span>
               </span>
             }
           </div>
         } @else if (status() === 'pending') {
           <div class="flex items-center gap-2 text-[11.5px] text-[#86888f]">
-            <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
+            <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent sy-ring-spin"></span>
             <span>Waiting for the machine to join...</span>
           </div>
         }
 
         @if (status() !== 'pending') {
-          <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="newCode()" [disabled]="busy()" data-testid="new-join-code">
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="newCode()" [disabled]="busy()" data-testid="new-join-code">
             {{ status() === 'used' ? 'Add another machine' : 'New code' }}
           </button>
         }

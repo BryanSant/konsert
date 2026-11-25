@@ -53,40 +53,40 @@ const (
 	MsgFileUploadResult   = "file.upload.result"
 
 	// WSCloseWorkerRemoved is sent by the controller when an operator removes a machine
-	// from the fleet so konsertd exits cleanly instead of auto-reconnecting.
+	// from the fleet so syred exits cleanly instead of auto-reconnecting.
 	WSCloseWorkerRemoved = 4001
 
 	// WSCloseCredentialRevoked is sent by the controller when an operator revokes the
-	// machine's credential. konsertd keeps retrying slowly (re-reading its saved
-	// credential), so `konsertd join` with a new code brings it back.
+	// machine's credential. syred keeps retrying slowly (re-reading its saved
+	// credential), so `syred join` with a new code brings it back.
 	WSCloseCredentialRevoked = 4003
 
 	// WSCloseTryAgainLater (RFC 6455 1013) is sent by the controller to a new worker
-	// connection while another live connection holds the same identity. konsertd
+	// connection while another live connection holds the same identity. syred
 	// reconnects with backoff; only WSCloseWorkerRemoved makes it exit.
 	WSCloseTryAgainLater = 1013
 )
 
-// The local-socket transport (KON-K1B60): the hub (or `konsertd attach` on its behalf,
-// over SSH) opens a WebSocket on konsertd's local socket at AttachPath and speaks the
+// The local-socket transport (SYR-K1B60): the hub (or `syred attach` on its behalf,
+// over SSH) opens a WebSocket on syred's local socket at AttachPath and speaks the
 // same worker protocol as on /ws/worker, with the roles of who dials reversed.
 const (
 	// AttachPath is the HTTP path of the WebSocket upgrade on the local socket.
-	AttachPath = "/konsertd/attach"
-	// HubIDHeader carries the attaching hub's id, so konsertd knows which
+	AttachPath = "/syred/attach"
+	// HubIDHeader carries the attaching hub's id, so syred knows which
 	// authorized_keys line to drop when that hub removes the machine.
-	HubIDHeader = "X-Konsert-Hub"
+	HubIDHeader = "X-Syre-Hub"
 	// TransportHeader names the transport the hub attaches over ("ssh" or "local"), for
-	// `konsertd status`.
-	TransportHeader = "X-Konsert-Transport"
+	// `syred status`.
+	TransportHeader = "X-Syre-Transport"
 )
 
-// Task origins distinguish Direct Mode sessions, Orchestrated jobs, and Floating Scratch sessions.
+// Task origins distinguish Direct Mode sessions, Commander-dispatched jobs, and Floating Scratch sessions.
 const (
-	TaskOriginOrchestrator = "orchestrator"
-	TaskOriginDirect       = "direct"
-	TaskOriginScratch      = "scratch"
-	TaskOriginExternal     = "external"
+	TaskOriginCommander = "commander"
+	TaskOriginDirect    = "direct"
+	TaskOriginScratch   = "scratch"
+	TaskOriginExternal  = "external"
 )
 
 // Task statuses.
@@ -130,7 +130,7 @@ type Envelope struct {
 	Payload jsontext.Value `json:"payload,omitzero"`
 }
 
-// JSONOptions are the options for JSON Konsert exchanges over its wire
+// JSONOptions are the options for JSON Syre exchanges over its wire
 // protocols and REST API. Strings that come from the outside world (file
 // names, command and agent output) are not guaranteed to be valid UTF-8; v2
 // rejects invalid UTF-8 by default, which would drop a whole frame or
@@ -201,7 +201,7 @@ type MachineFacts struct {
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm" | "unknown"
 	Tools          map[string]string `json:"tools,omitempty"`
 	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
-	// StartMode (Windows) is how konsertd was started: "service", "background_task" (an
+	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
 	// only runs while the user is signed in); "" elsewhere or when unknown.
 	StartMode   string    `json:"start_mode,omitempty"`
@@ -214,7 +214,7 @@ type WorkerFactsPayload struct {
 
 // WorkerInfo describes a worker node during registration.
 type WorkerInfo struct {
-	// ID is konsertd's persistent UUIDv7 identity: the hub's workers.id.
+	// ID is syred's persistent UUIDv7 identity: the hub's workers.id.
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	HostGroup      string            `json:"host_group"`
@@ -226,7 +226,7 @@ type WorkerInfo struct {
 	Tags           map[string]string `json:"tags"`
 	MaxConcurrent  int               `json:"max_concurrent"`
 	Facts          *MachineFacts     `json:"facts,omitzero"`
-	// Version is konsertd's build version (ldflags main.version). Empty or "dev"
+	// Version is syred's build version (ldflags main.version). Empty or "dev"
 	// means unknown and never counts as a mismatch with the hub.
 	Version string `json:"version,omitempty"`
 	// Hostname is the OS hostname of the daemon's machine (its Name may differ). The hub
@@ -310,7 +310,7 @@ type WorkerQuotasPayload struct {
 	Quotas []SubscriptionQuota `json:"quotas"`
 }
 
-// ExternalSessionPayload reports a coding agent session launched outside Konsert
+// ExternalSessionPayload reports a coding agent session launched outside Syre
 // (discovered via agent hooks or lightweight passive process/transcript inspection).
 type ExternalSessionPayload struct {
 	ExternalID   string   `json:"external_id"` // stable per-host session key (e.g. "pid-1234" or hook session id)
@@ -348,7 +348,7 @@ type UsageSummary struct {
 type TaskStartPayload struct {
 	TaskID string `json:"task_id"`
 	// SID is the task's short user-facing ID (t-…); the worker names the task's git
-	// worktree directory after it (.konsert-worktrees/<sid>). The protocol keys on TaskID.
+	// worktree directory after it (.syre-worktrees/<sid>). The protocol keys on TaskID.
 	SID            string `json:"sid,omitempty"`
 	Agent          string `json:"agent"`
 	Model          string `json:"model,omitempty"`
@@ -530,7 +530,7 @@ type GitCommitResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// Plain-git delivery operations (KON-H50YW) run on the daemon that owns the checkout,
+// Plain-git delivery operations (SYR-H50YW) run on the daemon that owns the checkout,
 // using that machine's git credentials.
 const (
 	MsgGitInfo        = "git.info"
@@ -591,7 +591,7 @@ type GitMergeRequest struct {
 	Remote string `json:"remote,omitempty"`
 	// CommitMessage is used for squash/merge commits (and auto-committing dirty worktree changes).
 	CommitMessage string `json:"commit_message,omitempty"`
-	// TaskSID is the short task ID used to name konsert/merged/<sid> if the local target
+	// TaskSID is the short task ID used to name syre/merged/<sid> if the local target
 	// branch is checked out with uncommitted changes.
 	TaskSID string `json:"task_sid,omitempty"`
 }
@@ -605,7 +605,7 @@ type GitMergeResult struct {
 	TargetBranch  string   `json:"target_branch,omitempty"`
 	MergeSHA      string   `json:"merge_sha,omitempty"`
 	// MergedBranch is set when the local target branch was checked out dirty and the
-	// merge result was left on konsert/merged/<sid> instead of touching the checkout.
+	// merge result was left on syre/merged/<sid> instead of touching the checkout.
 	MergedBranch string `json:"merged_branch,omitempty"`
 	// LocalBehind is true when the merge was pushed to the remote while the local target
 	// branch was left untouched because it is checked out in a worktree.
@@ -653,7 +653,7 @@ type WorktreeScanMatch struct {
 	Path      string `json:"path"`
 	RepoRoot  string `json:"repo_root,omitempty"`
 	Branch    string `json:"branch,omitempty"`
-	Kind      string `json:"kind"` // "konsert_worktree" | "git_worktree" | "temp_dir"
+	Kind      string `json:"kind"` // "syre_worktree" | "git_worktree" | "temp_dir"
 	Removable bool   `json:"removable"`
 }
 
@@ -691,10 +691,10 @@ func IsTerminalTaskStatus(status string) bool {
 // send host.wakelock and workers that never report host.wakelock.state are unaffected,
 // and older peers ignore message types they do not know.
 const (
-	// MsgHostWakeLock (hub → worker) asks konsertd to hold or release an OS-level
-	// idle-sleep inhibitor. konsertd answers with MsgHostWakeLockState.
+	// MsgHostWakeLock (hub → worker) asks syred to hold or release an OS-level
+	// idle-sleep inhibitor. syred answers with MsgHostWakeLockState.
 	MsgHostWakeLock = "host.wakelock"
-	// MsgHostWakeLockState (worker → hub) reports the current wake lock state. konsertd
+	// MsgHostWakeLockState (worker → hub) reports the current wake lock state. syred
 	// sends it right after every worker.hello (so the hub learns the state after a
 	// reconnect) and whenever the state changes.
 	MsgHostWakeLockState = "host.wakelock.state"

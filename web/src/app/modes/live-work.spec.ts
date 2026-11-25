@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { HeatHistory, SessionActivity } from '../core/models/activity.models';
-import { ChatSession, Project, Task, Worker } from '../core/models/konsert.models';
+import { ChatSession, Project, Task, Worker } from '../core/models/syre.models';
 import { groupWork } from '../core/state/activity-logic';
 import { WorkItem, buildWorkItems } from '../core/state/work-logic';
 import { ActivitySpinnerComponent } from '../shared/activity-spinner.component';
@@ -46,7 +46,7 @@ const worker = (id: string, name: string, over: Partial<Worker> = {}): Worker =>
   ({ id, sid: `m-${id}`, name, host_group: '', os: 'linux', arch: 'amd64', isolation: 'host', permission_mode: 'full_access', agents: ['claude', 'codex'], tags: {}, max_concurrent: 2, status: 'online', last_seen_at: iso(NOW), ...over }) as Worker;
 
 const task = (id: string, status: Task['status'], over: Partial<Task> = {}): Task =>
-  ({ id, sid: `t-${id}`, worker_id: 'w1', agent: 'claude', status, prompt: `Do ${id}`, title: `Task ${id}`, workdir: '/src/jk', effective_dir: '', origin: 'orchestrator', project_id: 'p1', created_at: iso(NOW - 3600_000), started_at: iso(NOW - 3000_000), ...over }) as Task;
+  ({ id, sid: `t-${id}`, worker_id: 'w1', agent: 'claude', status, prompt: `Do ${id}`, title: `Task ${id}`, workdir: '/src/jk', effective_dir: '', origin: 'commander', project_id: 'p1', created_at: iso(NOW - 3600_000), started_at: iso(NOW - 3000_000), ...over }) as Task;
 
 const act = (task_id: string, state: SessionActivity['state'], over: Partial<SessionActivity> = {}): SessionActivity => ({ task_id, state, since: iso(NOW - 10_000), at: iso(NOW - 5_000), ...over });
 
@@ -120,17 +120,17 @@ describe('spinner logic', () => {
     f.componentRef.setInput('detail', { shells: 3, shellsBusy: 2, subs: ['working', 'speaking', 'thinking', 'asking', 'working'] });
     await f.whenStable();
     const el = f.nativeElement as HTMLElement;
-    expect(el.querySelector('.ks-sp-ring')?.getAttribute('data-ring')).toBe('waiting');
+    expect(el.querySelector('.sy-sp-ring')?.getAttribute('data-ring')).toBe('waiting');
     expect(el.querySelector('[data-testid="spinner-shells"]')?.textContent?.trim()).toBe('❯3');
-    expect(el.querySelector('.ks-sp-shells-busy')).not.toBeNull();
-    expect(el.querySelectorAll('.ks-sp-dot').length).toBe(4);
+    expect(el.querySelector('.sy-sp-shells-busy')).not.toBeNull();
+    expect(el.querySelectorAll('.sy-sp-dot').length).toBe(4);
     expect(el.querySelector('[data-testid="spinner-more"]')?.textContent?.trim()).toBe('+1');
     expect(el.getAttribute('aria-label')).toBe('desk · warm 55% · cpu — waiting on sub-agents · 3 shells (2 busy) · 5 sub-agents');
     // Idle shells: a still badge; none: no badge.
     f.componentRef.setInput('detail', { shells: 1, shellsBusy: 0, subs: [] });
     await f.whenStable();
-    expect(el.querySelector('.ks-sp-shells-busy')).toBeNull();
-    expect(el.querySelectorAll('.ks-sp-dot').length).toBe(0);
+    expect(el.querySelector('.sy-sp-shells-busy')).toBeNull();
+    expect(el.querySelectorAll('.sy-sp-dot').length).toBe(0);
     f.componentRef.setInput('detail', null);
     await f.whenStable();
     expect(el.querySelector('[data-testid="spinner-shells"]')).toBeNull();
@@ -167,9 +167,9 @@ describe('spinner logic', () => {
     const el = f.nativeElement as HTMLElement;
     expect(el.getAttribute('role')).toBe('img');
     expect(el.getAttribute('aria-label')).toBe('desk · cool 30% · cpu + gpu-box · hot 93% · gpu — asks you');
-    expect(el.querySelector('.ks-sp-badge')?.textContent).toBe('?');
-    expect(el.querySelector('.ks-sp-second')?.textContent?.trim()).toBe('gb');
-    expect(el.querySelector('.ks-sp-avatar')?.textContent?.trim()).toBe('dk');
+    expect(el.querySelector('.sy-sp-badge')?.textContent).toBe('?');
+    expect(el.querySelector('.sy-sp-second')?.textContent?.trim()).toBe('gb');
+    expect(el.querySelector('.sy-sp-avatar')?.textContent?.trim()).toBe('dk');
   });
 });
 
@@ -188,7 +188,7 @@ describe('live-work story', () => {
     expect(story.map((p) => p.name)).toEqual(['JumpKick']);
     const p = story[0];
     expect(p.headline).toBe('Adding remote cache capabilities');
-    expect(p.headlineByOrchestrator).toBe(true);
+    expect(p.headlineByCommander).toBe(true);
     expect(p.bar).toEqual({ done: 2, running: 2, needsYou: 1, queued: 2 });
     expect(p.summary).toBe('3 in flight on 2 machines · 2 queued · 1 needs you · 2 done today');
     expect(p.inFlight[0].state).toBe('asking');
@@ -356,19 +356,19 @@ describe('machine transport', () => {
 describe('machine restart state', () => {
   it('says when the hub restarts a daemon that died, and when a host is unreachable', () => {
     const next = iso(NOW + 5 * 60_000);
-    const down = worker('a', 'box', { status: 'offline', transport: 'ssh', restart: { state: 'down', attempt: 3, next_at: next, error: 'konsertd is not running here', since: iso(NOW - 600_000) } });
-    expect(offlineText(down, NOW)).toBe('konsertd down — restarting (attempt 3, next in 5m): konsertd is not running here');
+    const down = worker('a', 'box', { status: 'offline', transport: 'ssh', restart: { state: 'down', attempt: 3, next_at: next, error: 'syred is not running here', since: iso(NOW - 600_000) } });
+    expect(offlineText(down, NOW)).toBe('syred down — restarting (attempt 3, next in 5m): syred is not running here');
     // The last start's error wins over the attach error.
-    expect(offlineText({ ...down, launch_state: 'failed', launch_error: '[configuring_service] konsertd install failed' }, NOW)).toBe(
-      'konsertd down — restarting (attempt 3, next in 5m): [configuring_service] konsertd install failed',
+    expect(offlineText({ ...down, launch_state: 'failed', launch_error: '[configuring_service] syred install failed' }, NOW)).toBe(
+      'syred down — restarting (attempt 3, next in 5m): [configuring_service] syred install failed',
     );
-    expect(offlineText({ ...down, launch_state: 'starting' }, NOW)).toBe('konsertd down — restarting (attempt 3)…');
-    expect(offlineText(down, NOW + 6 * 60_000)).toBe('konsertd down — restarting (attempt 3, next soon): konsertd is not running here');
-    expect(offlineText(worker('b', 'box', { status: 'offline', restart: { state: 'down', error: 'gone', since: iso(NOW) } }), NOW)).toBe('konsertd down: gone');
+    expect(offlineText({ ...down, launch_state: 'starting' }, NOW)).toBe('syred down — restarting (attempt 3)…');
+    expect(offlineText(down, NOW + 6 * 60_000)).toBe('syred down — restarting (attempt 3, next soon): syred is not running here');
+    expect(offlineText(worker('b', 'box', { status: 'offline', restart: { state: 'down', error: 'gone', since: iso(NOW) } }), NOW)).toBe('syred down: gone');
     expect(offlineText(worker('c', 'far', { status: 'offline', restart: { state: 'unreachable', error: 'ssh: connect to host far port 22: Connection refused', since: iso(NOW) } }), NOW)).toBe(
       'unreachable over SSH — re-dialing: ssh: connect to host far port 22: Connection refused',
     );
-    expect(offlineText(worker('d', 'x', { status: 'offline', launch_state: 'starting' }), NOW)).toBe('starting konsertd…');
+    expect(offlineText(worker('d', 'x', { status: 'offline', launch_state: 'starting' }), NOW)).toBe('starting syred…');
     expect(offlineText(worker('e', 'x', { status: 'offline' }), NOW)).toBe('offline: not reporting');
   });
 });
@@ -376,20 +376,20 @@ describe('machine restart state', () => {
 describe('windows start mode', () => {
   const win = (start_mode?: 'background_task' | 'service' | 'user_session', over: Partial<Worker> = {}) =>
     worker('w', 'minipc', { os: 'windows', ssh_target: 'bryan@minipc', facts: { start_mode } as Worker['facts'], ...over });
-  it('says when konsertd starts and what to do for headless use', () => {
+  it('says when syred starts and what to do for headless use', () => {
     expect(windowsStartText(win('background_task'))).toContain('whether or not anyone is signed in');
     expect(windowsStartText(win('service'))).toContain('Windows service');
     const logon = windowsStartText(win('user_session'));
     expect(logon).toContain('starts only when bryan signs in');
     expect(logon).toContain('administrator');
-    expect(logon).toContain('konsertd install --service');
+    expect(logon).toContain('syred install --service');
     expect(windowsStartText(win(undefined))).toBe('');
     expect(windowsStartText(worker('l', 'linux'))).toBe('');
   });
   it('explains an offline logon-task machine instead of restarting blindly', () => {
     expect(offlineText(win('user_session', { status: 'offline' }), NOW)).toContain('starts only when bryan signs in');
-    const down = win('user_session', { status: 'offline', restart: { state: 'down', attempt: 2, error: 'konsertd is not running here', since: iso(NOW) } });
-    expect(offlineText(down, NOW)).toMatch(/^konsertd down: konsertd is not running here\. Windows: konsertd starts only when bryan signs in/);
+    const down = win('user_session', { status: 'offline', restart: { state: 'down', attempt: 2, error: 'syred is not running here', since: iso(NOW) } });
+    expect(offlineText(down, NOW)).toMatch(/^syred down: syred is not running here\. Windows: syred starts only when bryan signs in/);
     expect(offlineText(win('background_task', { status: 'offline' }), NOW)).toBe('offline: not reporting');
   });
 });

@@ -6,62 +6,62 @@ import { formatDuration } from '../../core/state/questions-logic';
 /**
  * Settings → Questions (PRD §5.8b): question quality over the last week (asked,
  * answered with/without a side conversation, time blocked, delegations, which agents ask
- * unclear questions), and the per-category "let the orchestrator decide" rules (off by
+ * unclear questions), and the per-category "let the commander decide" rules (off by
  * default). Rules save as they change.
  */
 @Component({
-  selector: 'ks-question-insights',
+  selector: 'sy-question-insights',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="question-insights" aria-labelledby="ks-q-insights">
-      <div id="ks-q-insights" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Questions · last 7 days</div>
+    <section class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="question-insights" aria-labelledby="sy-q-insights">
+      <div id="sy-q-insights" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Questions · last 7 days</div>
       @if (metrics(); as m) {
         <dl class="grid grid-cols-3 gap-2" data-testid="question-metrics">
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Asked</dt><dd class="text-[15px] font-semibold text-[var(--ks-text)]" data-metric="asked">{{ m.asked }}</dd></div>
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Answered</dt><dd class="text-[15px] font-semibold text-[var(--ks-text)]" data-metric="answered">{{ m.answered }}</dd></div>
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Open now</dt><dd class="text-[15px] font-semibold text-[var(--ks-text)]">{{ m.open }}</dd></div>
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Needed a side conversation</dt><dd class="text-[13px] text-[var(--ks-text)]" data-metric="clarified">{{ m.answered_with_clarification }} of {{ m.answered }}</dd></div>
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Blocked (median / p90)</dt><dd class="text-[13px] text-[var(--ks-text)]">{{ dur(m.median_blocked_seconds) }} / {{ dur(m.p90_blocked_seconds) }}</dd></div>
-          <div><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Delegated (overridden)</dt><dd class="text-[13px] text-[var(--ks-text)]" data-metric="delegated">{{ m.delegated }} ({{ m.delegation_overrides }})</dd></div>
-          <div class="col-span-3"><dt class="text-[10.5px] text-[var(--ks-text-muted)]">Sent back as under-specified</dt><dd class="text-[13px] text-[var(--ks-text)]" data-metric="rejected">{{ m.rejected }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Asked</dt><dd class="text-[15px] font-semibold text-[var(--sy-text)]" data-metric="asked">{{ m.asked }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Answered</dt><dd class="text-[15px] font-semibold text-[var(--sy-text)]" data-metric="answered">{{ m.answered }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Open now</dt><dd class="text-[15px] font-semibold text-[var(--sy-text)]">{{ m.open }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Needed a side conversation</dt><dd class="text-[13px] text-[var(--sy-text)]" data-metric="clarified">{{ m.answered_with_clarification }} of {{ m.answered }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Blocked (median / p90)</dt><dd class="text-[13px] text-[var(--sy-text)]">{{ dur(m.median_blocked_seconds) }} / {{ dur(m.p90_blocked_seconds) }}</dd></div>
+          <div><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Delegated (overridden)</dt><dd class="text-[13px] text-[var(--sy-text)]" data-metric="delegated">{{ m.delegated }} ({{ m.delegation_overrides }})</dd></div>
+          <div class="col-span-3"><dt class="text-[10.5px] text-[var(--sy-text-muted)]">Sent back as under-specified</dt><dd class="text-[13px] text-[var(--sy-text)]" data-metric="rejected">{{ m.rejected }}</dd></div>
         </dl>
         @if (m.agents.length) {
           <table class="w-full text-left text-[11.5px]" data-testid="question-agents">
-            <caption class="ks-sr-only">Question clarity per agent</caption>
-            <thead class="text-[10.5px] text-[var(--ks-text-muted)]">
+            <caption class="sy-sr-only">Question clarity per agent</caption>
+            <thead class="text-[10.5px] text-[var(--sy-text-muted)]">
               <tr><th class="font-normal py-1">Agent</th><th class="font-normal">Asked</th><th class="font-normal">Unclear</th><th class="font-normal">Sent back</th><th class="font-normal">Delegated</th></tr>
             </thead>
             <tbody>
               @for (a of m.agents; track a.agent) {
-                <tr class="text-[var(--ks-text-secondary)]" [attr.data-agent]="a.agent">
-                  <td class="py-0.5 text-[var(--ks-text)]">{{ a.agent }}</td>
+                <tr class="text-[var(--sy-text-secondary)]" [attr.data-agent]="a.agent">
+                  <td class="py-0.5 text-[var(--sy-text)]">{{ a.agent }}</td>
                   <td>{{ a.asked }}</td>
-                  <td [class.text-[var(--ks-amber)]]="a.unclear_rate >= 50">{{ a.unclear_rate }}%</td>
+                  <td [class.text-[var(--sy-amber)]]="a.unclear_rate >= 50">{{ a.unclear_rate }}%</td>
                   <td>{{ a.rejected }}</td>
                   <td>{{ a.delegated }}</td>
                 </tr>
               }
             </tbody>
           </table>
-          <p class="text-[10.5px] text-[var(--ks-text-muted)]">Unclear: the question needed a side conversation or was sent back for missing context first.</p>
+          <p class="text-[10.5px] text-[var(--sy-text-muted)]">Unclear: the question needed a side conversation or was sent back for missing context first.</p>
         }
       } @else if (error()) {
-        <p class="text-[var(--ks-text-muted)]">{{ error() }}</p>
+        <p class="text-[var(--sy-text-muted)]">{{ error() }}</p>
       }
 
       <fieldset class="space-y-1.5 pt-1">
-        <legend class="text-[11px] text-[#8e9098] mb-1">Let the orchestrator decide automatically (off by default)</legend>
+        <legend class="text-[11px] text-[#8e9098] mb-1">Let the commander decide automatically (off by default)</legend>
         @for (c of categories; track c.id) {
           <label class="flex items-start gap-2 cursor-pointer">
             <input type="checkbox" class="mt-0.5" [attr.data-testid]="'auto-delegate-' + c.id" [checked]="isAuto(c.id)" (change)="toggle(c.id, $any($event.target).checked)" />
-            <span><span class="text-[var(--ks-text)]">{{ c.label }}</span> <span class="text-[var(--ks-text-muted)]">— {{ c.hint }}</span></span>
+            <span><span class="text-[var(--sy-text)]">{{ c.label }}</span> <span class="text-[var(--sy-text-muted)]">— {{ c.hint }}</span></span>
           </label>
         }
         <label class="flex items-center gap-2 pt-1">
-          <span class="text-[var(--ks-text-secondary)]">Hold the orchestrator's decision for</span>
-          <input type="number" min="0" max="3600" class="ks-field ks-field-sm w-20" data-testid="delegation-grace" [value]="settings().delegation_grace_seconds" (change)="setGrace($any($event.target).value)" />
-          <span class="text-[var(--ks-text-secondary)]">seconds so you can override it</span>
+          <span class="text-[var(--sy-text-secondary)]">Hold the commander's decision for</span>
+          <input type="number" min="0" max="3600" class="sy-field sy-field-sm w-20" data-testid="delegation-grace" [value]="settings().delegation_grace_seconds" (change)="setGrace($any($event.target).value)" />
+          <span class="text-[var(--sy-text-secondary)]">seconds so you can override it</span>
         </label>
       </fieldset>
     </section>

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // beforeDirectPushHook is an optional test hook invoked immediately before each
@@ -110,9 +110,9 @@ func mainRepoRoot(ctx context.Context, dir string) string {
 	return root
 }
 
-// IsKonsertTaskWorktree reports whether dir is inside a Konsert-managed linked git
-// worktree at <repoRoot>/.konsert-worktrees/<taskID>.
-func IsKonsertTaskWorktree(ctx context.Context, dir string) bool {
+// IsSyreTaskWorktree reports whether dir is inside a Syre-managed linked git
+// worktree at <repoRoot>/.syre-worktrees/<taskID>.
+func IsSyreTaskWorktree(ctx context.Context, dir string) bool {
 	top, ok := IsGitRepo(ctx, dir)
 	if !ok || top == "" {
 		return false
@@ -132,7 +132,7 @@ func IsKonsertTaskWorktree(ctx context.Context, dir string) bool {
 	if topResolved == rootResolved {
 		return false
 	}
-	wtParent := filepath.Join(rootResolved, ".konsert-worktrees")
+	wtParent := filepath.Join(rootResolved, ".syre-worktrees")
 	if filepath.Dir(topResolved) != wtParent {
 		return false
 	}
@@ -141,7 +141,7 @@ func IsKonsertTaskWorktree(ctx context.Context, dir string) bool {
 }
 
 // requireGitIdentity ensures git user.name and user.email are configured for dir.
-// Konsert never invents a fallback identity.
+// Syre never invents a fallback identity.
 func requireGitIdentity(ctx context.Context, dir string) error {
 	name, _ := runGit(ctx, dir, "config", "user.name")
 	email, _ := runGit(ctx, dir, "config", "user.email")
@@ -150,13 +150,13 @@ func requireGitIdentity(ctx context.Context, dir string) error {
 		if err != nil || strings.TrimSpace(host) == "" {
 			host = "this machine"
 		}
-		return fmt.Errorf("git identity not configured: set git user.name and user.email on %s to let Konsert commit", host)
+		return fmt.Errorf("git identity not configured: set git user.name and user.email on %s to let Syre commit", host)
 	}
 	return nil
 }
 
 // commitIfDirty stages and commits any uncommitted changes in dir when msg is non-empty.
-// It refuses to auto-commit outside a Konsert-managed task worktree.
+// It refuses to auto-commit outside a Syre-managed task worktree.
 func commitIfDirty(ctx context.Context, dir, msg string) error {
 	if strings.TrimSpace(msg) == "" {
 		return nil
@@ -165,8 +165,8 @@ func commitIfDirty(ctx context.Context, dir, msg string) error {
 	if err != nil || st == "" {
 		return nil
 	}
-	if !IsKonsertTaskWorktree(ctx, dir) {
-		return fmt.Errorf("refusing to auto-commit uncommitted changes outside a Konsert task worktree (%s); commit your changes manually", dir)
+	if !IsSyreTaskWorktree(ctx, dir) {
+		return fmt.Errorf("refusing to auto-commit uncommitted changes outside a Syre task worktree (%s); commit your changes manually", dir)
 	}
 	if err := requireGitIdentity(ctx, dir); err != nil {
 		return err
@@ -180,7 +180,7 @@ func commitIfDirty(ctx context.Context, dir, msg string) error {
 
 // PushBranch pushes the checkout's branch to Remote (default "origin") or RemoteURL.
 // If req.CommitMessage is non-empty and the working tree is dirty, it stages and commits
-// the changes first (only inside a Konsert-managed task worktree).
+// the changes first (only inside a Syre-managed task worktree).
 func PushBranch(ctx context.Context, dir string, req protocol.GitPushRequest) protocol.GitPushResult {
 	res := protocol.GitPushResult{}
 	if _, ok := IsGitRepo(ctx, dir); !ok {
@@ -282,7 +282,7 @@ func MergeBranch(ctx context.Context, dir string, req protocol.GitMergeRequest) 
 	// Never auto-commit or push when a task ran directly in the user's own checkout on the
 	// target branch: leave it untouched and tell the user to commit their changes manually.
 	if source == target {
-		if !IsKonsertTaskWorktree(ctx, dir) {
+		if !IsSyreTaskWorktree(ctx, dir) {
 			res.Error = fmt.Sprintf("changes are in your checkout (%s) on %s and were not committed or pushed automatically; commit them manually", dir, target)
 			return res
 		}
@@ -434,8 +434,8 @@ func mergeLocalOnly(ctx context.Context, root, source, sourceSHA, target, style,
 		return res
 	}
 
-	// Dirty checkout: do NOT touch wtPath. Save the merge on konsert/merged/<sid>.
-	mergedBranch := "konsert/merged/" + sid
+	// Dirty checkout: do NOT touch wtPath. Save the merge on syre/merged/<sid>.
+	mergedBranch := "syre/merged/" + sid
 	if _, err := runGit(ctx, root, "update-ref", "refs/heads/"+mergedBranch, newSHA); err != nil {
 		res.Error = fmt.Sprintf("create %s: %v", mergedBranch, err)
 		return res
@@ -456,7 +456,7 @@ func runMergeInTempWorktree(
 	root, source, sourceSHA, target, baseSHA, style, msg string,
 	afterMerge func(tmpWT string) error,
 ) (newSHA string, earlyRes *protocol.GitMergeResult, afterErr error) {
-	tmpParent, err := os.MkdirTemp(tempBaseDir(), "konsert-merge-*")
+	tmpParent, err := os.MkdirTemp(tempBaseDir(), "syre-merge-*")
 	if err != nil {
 		r := protocol.GitMergeResult{TargetBranch: target, Error: fmt.Sprintf("create temp merge dir: %v", err)}
 		return "", &r, nil
@@ -589,8 +589,8 @@ func findBranchWorktree(ctx context.Context, dir, branch string) (string, error)
 	return "", nil
 }
 
-// isCheckoutClean reports whether dir has no uncommitted changes, ignoring Konsert's
-// own untracked .konsert-worktrees/ directory.
+// isCheckoutClean reports whether dir has no uncommitted changes, ignoring Syre's
+// own untracked .syre-worktrees/ directory.
 func isCheckoutClean(ctx context.Context, dir string) (bool, error) {
 	st, err := runGitRaw(ctx, dir, "status", "--porcelain")
 	if err != nil {
@@ -603,7 +603,7 @@ func isCheckoutClean(ctx context.Context, dir string) (bool, error) {
 		}
 		if len(line) >= 3 && line[:2] == "??" {
 			p := strings.TrimSpace(line[3:])
-			if p == ".konsert-worktrees" || p == ".konsert-worktrees/" || strings.HasPrefix(p, ".konsert-worktrees/") {
+			if p == ".syre-worktrees" || p == ".syre-worktrees/" || strings.HasPrefix(p, ".syre-worktrees/") {
 				continue
 			}
 		}

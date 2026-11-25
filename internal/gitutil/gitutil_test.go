@@ -89,7 +89,7 @@ func TestWorktreeAndCaptureSummary(t *testing.T) {
 	if baseSHA == "" {
 		t.Fatalf("expected non-empty baseSHA")
 	}
-	if !strings.HasSuffix(wtPath, filepath.Join(".konsert-worktrees", "task-1")) {
+	if !strings.HasSuffix(wtPath, filepath.Join(".syre-worktrees", "task-1")) {
 		t.Fatalf("unexpected wtPath: %s", wtPath)
 	}
 
@@ -124,7 +124,7 @@ func TestWorktreeAndCaptureSummary(t *testing.T) {
 		t.Fatalf("unexpected dirty files: %+v", summary.DirtyFiles)
 	}
 
-	// Test live InspectWorkingTree + CommitChanges + CleanupKonsertWorktree
+	// Test live InspectWorkingTree + CommitChanges + CleanupSyreWorktree
 	insp, err := InspectWorkingTree(ctx, wtPath)
 	if err != nil || !insp.IsGitRepo || !insp.IsWorktree || len(insp.Files) != 1 || insp.Files[0].Path != "untracked.txt" {
 		t.Fatalf("InspectWorkingTree mismatch: %+v err=%v", insp, err)
@@ -145,7 +145,7 @@ func TestWorktreeAndCaptureSummary(t *testing.T) {
 		t.Fatalf("expected clean tree after commit, got %+v", insp2.Files)
 	}
 
-	if err := CleanupKonsertWorktree(ctx, wtPath); err != nil {
-		t.Fatalf("CleanupKonsertWorktree error: %v", err)
+	if err := CleanupSyreWorktree(ctx, wtPath); err != nil {
+		t.Fatalf("CleanupSyreWorktree error: %v", err)
 	}
 }

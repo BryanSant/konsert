@@ -4,8 +4,8 @@ import { AuthService } from '../../core/services/auth.service';
 import { normalizeCode } from './device-name';
 
 /**
- * Signed out. Signing in is pairing: open a one-time link from `konsert serve`,
- * `konsert pair`, or a signed-in device (or type its code here). The recovery key is
+ * Signed out. Signing in is pairing: open a one-time link from `syre serve`,
+ * `syre pair`, or a signed-in device (or type its code here). The recovery key is
  * a fallback for emergencies.
  */
 @Component({
@@ -16,9 +16,9 @@ import { normalizeCode } from './device-name';
     <main class="min-h-dvh w-screen flex items-center justify-center bg-[#111214] px-4 py-8">
       <div class="w-full max-w-sm rounded-xl border border-[#26282e] bg-[#18191c] p-6 shadow-2xl">
         <div class="flex items-center gap-3 mb-5">
-          <img src="icon.svg" alt="" class="h-9 w-9 rounded-lg" />
+          <img src="logo.svg" alt="" class="h-9 w-9 rounded-lg" />
           <div>
-            <h1 class="text-[15px] font-semibold tracking-tight text-[#ececed]">Konsert</h1>
+            <h1 class="text-[15px] font-semibold tracking-tight text-[#ececed]">Syre</h1>
             <p class="text-[12px] text-[#8e9098]">Sign in this device</p>
           </div>
         </div>
@@ -37,7 +37,7 @@ import { normalizeCode } from './device-name';
             <span class="text-[#8e9098] font-mono-ide">1</span
             ><span
               >Open the <b class="text-[#ececed] font-medium">Sign in</b> link that
-              <code class="font-mono-ide text-[11.5px] text-[#ececed]">konsert serve</code> printed,
+              <code class="font-mono-ide text-[11.5px] text-[#ececed]">syre serve</code> printed,
               or scan its QR code.</span
             >
           </li>
@@ -45,7 +45,7 @@ import { normalizeCode } from './device-name';
             <span class="text-[#8e9098] font-mono-ide">2</span
             ><span
               >Need a new one? Run
-              <code class="font-mono-ide text-[11.5px] text-[#ececed]">konsert pair</code> on the
+              <code class="font-mono-ide text-[11.5px] text-[#ececed]">syre pair</code> on the
               hub, or use <b class="text-[#ececed] font-medium">Add a device</b> on a signed-in
               device.</span
             >
@@ -118,7 +118,7 @@ import { normalizeCode } from './device-name';
                 />
                 <p class="mt-1.5 text-[11px] leading-snug text-[#7c7e86]">
                   For emergencies. It is <code class="font-mono-ide">recovery_key</code> in the
-                  hub's <code class="font-mono-ide">konsert-tokens.yaml</code>.
+                  hub's <code class="font-mono-ide">syre-tokens.yaml</code>.
                 </p>
               </div>
               <button

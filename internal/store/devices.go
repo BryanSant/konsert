@@ -2,7 +2,7 @@ package store
 
 import "time"
 
-// Device kinds (KON-W0P8B).
+// Device kinds (SYR-W0P8B).
 const (
 	DeviceKindBrowser = "browser"
 	DeviceKindPhone   = "phone"

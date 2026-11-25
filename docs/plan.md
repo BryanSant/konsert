@@ -1,6 +1,6 @@
-# Konsert Technical Implementation Plan
+# Syre Technical Implementation Plan
 
-This document is the engineering blueprint for **Konsert** as specified in [prd.md](./prd.md).
+This document is the engineering blueprint for **Syre** as specified in [prd.md](./prd.md).
 
 > **Status (2026-11-23).** Sections 1–7 are the original MVP blueprint. Phases 1–4 are built, but the code has moved on: subscription-first agent chat ([design/agent-chat.md](./design/agent-chat.md)), UUIDv7 `id` + short `sid` on every record, a single squashed schema (`internal/store/sqlite/migrations/001_schema.sql`), `encoding/json/v2`, hub-managed daemons. Where sections 1–7 disagree with the code, the code wins. **Section 8 is the forward roadmap** for the two pillars in the PRD: total visibility and intelligent scheduling.
 
@@ -27,10 +27,10 @@ This document is the engineering blueprint for **Konsert** as specified in [prd.
 ## 2. Repository Structure
 
 ```text
-konsert/
+syre/
 ├── cmd/
-│   ├── konsert/                  # Controller CLI & HTTP/WS/MCP server (embeds web/dist)
-│   └── konsertd/                 # Cross-platform worker daemon CLI
+│   ├── syre/                  # Controller CLI & HTTP/WS/MCP server (embeds web/dist)
+│   └── syred/                 # Cross-platform worker daemon CLI
 ├── docs/
 │   ├── prd.md                    # Product Requirements Document
 │   └── plan.md                   # This implementation plan
@@ -49,12 +49,12 @@ konsert/
 │   ├── controller/
 │   │   ├── hub.go                # Worker registry, browser subscriber fan-out, ref-counted PTY streams
 │   │   ├── scheduler.go          # Capability/selector task routing & concurrency accounting
-│   │   ├── service.go            # Shared application service (used by REST, MCP, Orchestrator)
+│   │   ├── service.go            # Shared application service (used by REST, MCP, Commander)
 │   │   ├── mcp.go                # MCP server (stdio + Streamable HTTP/SSE)
 │   │   ├── api.go                # REST + Browser WS + Worker WS HTTP handlers
 │   │   └── embed.go              # //go:embed static PWA assets & SPA fallback handler
-│   ├── orchestrator/
-│   │   ├── backend.go            # OrchestratorBackend interface & tool-calling loop
+│   ├── commander/
+│   │   ├── backend.go            # CommanderBackend interface & tool-calling loop
 │   │   ├── openai.go             # OpenAI-compatible provider (OpenAI, OpenRouter, xAI, Ollama)
 │   │   ├── anthropic.go          # Anthropic Messages API provider
 │   │   └── gemini.go             # Google Gemini API provider
@@ -80,17 +80,17 @@ konsert/
 │       └── app/
 │           ├── core/
 │           │   ├── models/       # TypeScript mirrors of protocol/store DTOs
-│           │   ├── services/     # AuthService, ApiClient, KonsertSocketService
-│           │   └── state/        # FleetStore, TabsStore, TelemetryStore, OrchestratorStore (Signals)
+│           │   ├── services/     # AuthService, ApiClient, SyreSocketService
+│           │   └── state/        # FleetStore, TabsStore, TelemetryStore, CommanderStore (Signals)
 │           ├── layout/           # AppShell, FleetSidebar, TabBar, TelemetryDrawer, MobileHeader
 │           └── features/
 │               ├── auth/         # LoginViewComponent
 │               ├── terminal/     # XtermPaneComponent (Read-Only / Interactive Takeover)
-│               └── orchestrator/ # OrchestratorChatComponent (streaming markdown + tool cards)
+│               └── commander/ # CommanderChatComponent (streaming markdown + tool cards)
 ├── deploy/
-│   ├── systemd/                  # konsert.service, konsertd.service
-│   ├── quadlet/                  # konsertd.container (Podman)
-│   └── launchd/                  # dev.konsert.konsertd.plist
+│   ├── systemd/                  # syre.service, syred.service
+│   ├── quadlet/                  # syred.container (Podman)
+│   └── launchd/                  # dev.syre.syred.plist
 ├── Makefile
 └── .goreleaser.yaml
 ```
@@ -288,7 +288,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id
 
 ## 4. Wire Protocol Specification (`internal/protocol`)
 
-Both Worker (`konsertd` ↔ `konsert` at `/ws/worker`) and Browser (PWA ↔ `konsert` at `/ws/client`) use a **dual-frame WebSocket protocol**:
+Both Worker (`syred` ↔ `syre` at `/ws/worker`) and Browser (PWA ↔ `syre` at `/ws/client`) use a **dual-frame WebSocket protocol**:
 - **Text Frames (JSON):** Control plane messages, telemetry events, task dispatch/lifecycle, chat streaming.
 - **Binary Frames:** Raw PTY byte streams to eliminate base64 inflation and minimize GC/CPU overhead during noisy builds.
 
@@ -320,7 +320,7 @@ Envelope: `{"type": "<msg_type>", "id": "<optional_req_id>", "ts": "<rfc3339>", 
 | Browser ↔ Controller ↔ Worker | `pty.unsubscribe` | `task_id` (Controller forwards to Worker on `1 -> 0` transition) |
 | Browser → Controller → Worker | `pty.resize` | `task_id`, `cols`, `rows` |
 | Browser → Controller | `chat.send` | `session_id`, `content` |
-| Controller → Browser | `chat.delta` / `chat.tool` / `chat.done` | Streaming orchestrator tokens and tool-call execution cards |
+| Controller → Browser | `chat.delta` / `chat.tool` / `chat.done` | Streaming commander tokens and tool-call execution cards |
 | Controller → Browser | `fleet.update` | Incremental worker/task state changes pushed to all connected UI clients |
 
 ### 4.3 On-Demand PTY Streaming Sequence
@@ -328,8 +328,8 @@ Envelope: `{"type": "<msg_type>", "id": "<optional_req_id>", "ts": "<rfc3339>", 
 ```mermaid
 sequenceDiagram
     participant UI as Angular PWA
-    participant Hub as konsert (Controller)
-    participant W as konsertd (Worker)
+    participant Hub as syre (Controller)
+    participant W as syred (Worker)
 
     Note over W: Task running; PTY writes to 512KB RingBuffer (stream_active=false)
     UI->>Hub: JSON pty.subscribe {task_id}
@@ -354,11 +354,11 @@ sequenceDiagram
 
 ### 4.4 Backpressure & Slow Consumers
 - Each browser WebSocket client gets a bounded outbound channel (e.g., 256 frames).
-- If a browser's queue fills (e.g., backgrounded mobile Safari), `Hub` drops the slow subscriber and closes its socket rather than blocking `konsertd` or other viewers; the PWA auto-reconnects and re-subscribes cleanly.
+- If a browser's queue fills (e.g., backgrounded mobile Safari), `Hub` drops the slow subscriber and closes its socket rather than blocking `syred` or other viewers; the PWA auto-reconnects and re-subscribes cleanly.
 
 ---
 
-## 5. Worker Daemon (`konsertd`) Architecture
+## 5. Worker Daemon (`syred`) Architecture
 
 ### 5.1 Cross-Platform PTY Abstraction (`internal/worker/pty.go`)
 ```go
@@ -418,16 +418,16 @@ type AgentDriver interface {
 1. If worker has `--allowed-roots` configured (opt-in sandboxing), verify `filepath.EvalSymlinks(workdir)` is contained within an allowed root; otherwise allow any existing path.
 2. If `branch != ""` and `use_worktree == true` and `workdir` is inside a git repo:
    - Record `base_sha = git rev-parse HEAD`.
-   - Create worktree at `<repo_root>/.konsert-worktrees/<task_id>` on `branch` (`git worktree add -B <branch>` or checkout existing).
+   - Create worktree at `<repo_root>/.syre-worktrees/<task_id>` on `branch` (`git worktree add -B <branch>` or checkout existing).
    - Run agent with `effective_dir` set to the worktree path.
 3. On completion: compute `git status --short`, `git diff --stat <base_sha>`, and `git log --oneline <base_sha>..HEAD`, serialize into `GitSummaryJSON`, and emit in `task.status`.
 
 ---
 
-## 6. Controller (`konsert`) Architecture
+## 6. Controller (`syre`) Architecture
 
 ### 6.1 Shared Application Service (`internal/controller/service.go`)
-All three entrypoints—**REST API**, **MCP Server**, and **Built-in Orchestrator Chat**—call the same `FleetService` methods:
+All three entrypoints—**REST API**, **MCP Server**, and **Built-in Commander Chat**—call the same `FleetService` methods:
 - `FleetStatus(ctx)`
 - `DispatchTask(ctx, req)`
 - `ListTasks(ctx, filter)`
@@ -460,14 +460,14 @@ Matches `worker_selector` against online workers where `active_tasks < max_concu
 ### 7.1 State Architecture (Pure Signals)
 - `provideZonelessChangeDetection()` enabled at bootstrap; no Zone.js overhead.
 - **`FleetStore`:** `workers = signal<Worker[]>([])`, `tasks = signal<Task[]>([])`, `groupedFleet = computed(...)` (groups workers by `host_group` with nested active tasks and live status counts).
-- **`TabsStore`:** `openTabs = signal<WorkspaceTab[]>([{ id: 'orchestrator', kind: 'orchestrator', pinned: true }])`, `activeTabId = signal<string>('orchestrator')`. Tracks per-tab `interactiveMode: boolean` (always defaults to `false` / Read-Only).
+- **`TabsStore`:** `openTabs = signal<WorkspaceTab[]>([{ id: 'commander', kind: 'commander', pinned: true }])`, `activeTabId = signal<string>('commander')`. Tracks per-tab `interactiveMode: boolean` (always defaults to `false` / Read-Only).
 - **`TelemetryStore`:** `eventsByTask = signal<Record<string, TaskEvent[]>>({})` fed by `task.event` WS messages and initial REST hydration.
-- **`OrchestratorStore`:** Manages active chat session, streaming assistant delta buffer, and collapsible tool-call execution cards.
+- **`CommanderStore`:** Manages active chat session, streaming assistant delta buffer, and collapsible tool-call execution cards.
 
 ### 7.2 `XtermPaneComponent` Implementation Details
 - Mounts `@xterm/xterm` inside `afterNextRender()`, loads `FitAddon`, `WebLinksAddon`, and attempts `WebglAddon` (catching context errors and falling back to default canvas renderer).
-- Attaches a `ResizeObserver` on the container element; debounces resize events (`100ms`), calls `fitAddon.fit()`, and sends `pty.resize` to `konsert`.
-- Subscribes to `KonsertSocketService.ptyStream(taskId)`:
+- Attaches a `ResizeObserver` on the container element; debounces resize events (`100ms`), calls `fitAddon.fit()`, and sends `pty.resize` to `syre`.
+- Subscribes to `SyreSocketService.ptyStream(taskId)`:
   - On `0x01` (`pty.snapshot`): calls `term.reset()` then `term.write(bytes)`.
   - On `0x02` (`pty.data`): calls `term.write(bytes)`.
 - `term.onData(data)` checks `interactiveMode()` signal—when `false` (Read-Only), keystrokes are ignored and a subtle toast/hint reminds the user to toggle **"Take Control"**. When `true`, sends binary `0x03` frame.
@@ -482,7 +482,7 @@ Matches `worker_selector` against online workers where `active_tasks < max_concu
 
 ## 8. Roadmap: Visibility and Scheduling
 
-Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler and MCP; PWA; telemetry and packaging) are done, as are the subscription-first chat work and first-run setup. The phases below close the gaps marked **[gap]** in the PRD. They are ordered by dependency: scheduling decisions need visibility data, migration needs attempts and history, and the orchestrator skill needs the tools from every earlier phase. Each phase is one `ka` epic.
+Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler and MCP; PWA; telemetry and packaging) are done, as are the subscription-first chat work and first-run setup. The phases below close the gaps marked **[gap]** in the PRD. They are ordered by dependency: scheduling decisions need visibility data, migration needs attempts and history, and the commander skill needs the tools from every earlier phase. Each phase is one `ka` epic.
 
 ### Phase 5: Observed sessions (Visibility I)
 
@@ -503,13 +503,13 @@ Goal: every agent session on a machine shows up, whoever started it.
 
 Built right after observed sessions and before placement: it shapes every interaction, and holds are rules placement must respect.
 - Cause model on task/session status changes and audit rows (actor, confidence, correlation to request/command).
-- Controls: suspend/resume (Unix SIGSTOP/SIGCONT of the process group; Windows thread suspension of the job's processes), machine drain/suspend/stop, fleet pause, veto with reason (stored as orchestrator memory at the work key/project scope).
-- `holds` table (scope, cause, created_by, released_at) enforced by the scheduler, retry logic and orchestrator tools; `user_requests` (open requests from agents) linked to matching user actions.
-- Shell integration for Konsert terminals (OSC 133 prompt/command/exit marks; zsh, bash, PowerShell) → `worker.operator_command` events; command text kept on the daemon with a short TTL, redacted summary to the hub.
-- Event delivery: fleet events to the orchestrator chat; notes before a worker session's next prompt; `recent_events` MCP tool; standing operator-protocol instruction in managed sessions.
+- Controls: suspend/resume (Unix SIGSTOP/SIGCONT of the process group; Windows thread suspension of the job's processes), machine drain/suspend/stop, fleet pause, veto with reason (stored as commander memory at the work key/project scope).
+- `holds` table (scope, cause, created_by, released_at) enforced by the scheduler, retry logic and commander tools; `user_requests` (open requests from agents) linked to matching user actions.
+- Shell integration for Syre terminals (OSC 133 prompt/command/exit marks; zsh, bash, PowerShell) → `worker.operator_command` events; command text kept on the daemon with a short TTL, redacted summary to the hub.
+- Event delivery: fleet events to the commander chat; notes before a worker session's next prompt; `recent_events` MCP tool; standing operator-protocol instruction in managed sessions.
 - PWA: intervention controls, Pause everything, holds and requests visible, "your actions" timeline.
-- Later (needs Phase 6): process-death ↔ command correlation, SSH-outside-Konsert attribution, per-process kill.
-- Exit: user stops nginx in a Konsert terminal on host-1 → hold on host-1/nginx, orchestrator and the affected session are told and ask before restarting; when an agent asked the user to restart nginx, the same action resolves its request and the agent continues.
+- Later (needs Phase 6): process-death ↔ command correlation, SSH-outside-Syre attribution, per-process kill.
+- Exit: user stops nginx in a Syre terminal on host-1 → hold on host-1/nginx, commander and the affected session are told and ask before restarting; when an agent asked the user to restart nginx, the same action resolves its request and the agent continues.
 
 ### Phase 5b: Questions and steering
 
@@ -517,9 +517,9 @@ Built alongside 5a (open requests are questions with an action attached).
 - `ask_user` schema with required context/consequences/rationale and validation; question-writing guidance in managed sessions.
 - `questions` table, queue API, dedupe of re-asks, generous MCP tool timeouts for managed sessions (`MCP_TOOL_TIMEOUT` for claude) with re-ask on timeout.
 - Reference enrichment (ka tickets, PRs, files, sids).
-- Side-conversation engine: fork the asking session read-only (claude `--resume <id> --fork-session` with plan mode; codex fork), else the orchestrator with a context pack; answer drafts; summary delivered with the answer.
+- Side-conversation engine: fork the asking session read-only (claude `--resume <id> --fork-session` with plan mode; codex fork), else the commander with a context pack; answer drafts; summary delivered with the answer.
 - PWA: question card, queue with keyboard flow, thread with pinned options; mobile inbox and side-conversation sheet with dictation.
-- Delegation to the orchestrator with receipts; question quality metrics.
+- Delegation to the commander with receipts; question quality metrics.
 - Exit: an under-specified question is rejected and re-asked properly; the user asks "what is JK-ABC12 and why shorten it?" in a side conversation answered by a fork, then answers from a phone; the agent receives the answer and the summary.
 
 ### Phase 6: Processes and load (Visibility II)
@@ -545,7 +545,7 @@ Built alongside 5a (open requests are questions with an action attached).
 - Resource envelopes per OS: Linux systemd user scopes (cgroup v2) with rlimit fallback; Windows Job Object limits on the existing job; macOS priority plus monitored kill. Envelope size from the work profile or a default class.
 - Optional rootless Podman tier for Linux work (`isolation: container` per project): image, mounts for repo and agent login state, envelope via Podman flags.
 - Policy read-only over MCP; edits in UI/CLI, audited.
-- Break glass: `request_override` (rules, scope, duration, justification) with user approval by default (approval card in the orchestrator chat + notification), optional orchestrator self-approval, automatic expiry. `policy_events` log of every block and override with the stated intent; a report of how often rules blocked work and whether overrides followed.
+- Break glass: `request_override` (rules, scope, duration, justification) with user approval by default (approval card in the commander chat + notification), optional commander self-approval, automatic expiry. `policy_events` log of every block and override with the stated intent; a report of how often rules blocked work and whether overrides followed.
 - Container awareness: detect Podman/Docker; per-project opt-in container execution; never required for resource protection.
 - Exit: a memory-hungry test job is capped on Linux and Windows and killed (classified OOM) when it exceeds its envelope; an interactive machine with an active user receives no new heavy work.
 
@@ -569,16 +569,16 @@ Built alongside 5a (open requests are questions with an action attached).
 ### Phase 10a: Fleet transfer channel
 
 - Per-daemon fleet SSH keypair (generated locally, public key registered with the hub, private key never leaves the machine).
-- Receiver: konsertd runs a minimal SSH endpoint (Go `x/crypto/ssh`) on demand, or uses the system sshd with a forced-command `authorized_keys` entry; the hub authorizes one sender key for one transfer with an expiry. Design spike decides between the two (Windows has OpenSSH server optional; a built-in endpoint avoids depending on it).
+- Receiver: syred runs a minimal SSH endpoint (Go `x/crypto/ssh`) on demand, or uses the system sshd with a forced-command `authorized_keys` entry; the hub authorizes one sender key for one transfer with an expiry. Design spike decides between the two (Windows has OpenSSH server optional; a built-in endpoint avoids depending on it).
 - Reachability probe (Tailscale/LAN addresses reported in facts); transfer path selection git remote → direct → hub relay; audit of each transfer.
 - Exit: a repo bundle moves bocabox → bocamacmini directly, and via the hub when direct isn't reachable; keys are scoped and expire.
 
-### Phase 11: Orchestrator scheduling
+### Phase 11: Commander scheduling
 
-- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, `request_override`, plus event notifications to the orchestrator chat for failure, stall, needs-input and completion of work it dispatched.
-- Ship the Konsert scheduler skill (installed for the orchestrator agent): reading the snapshot, trusting vs overriding the built-in scheduler, responding to failure categories, migrating, recording rules.
-- Evaluation suite: scripted fleets (mock engine with synthetic resource profiles) and scenarios the orchestrator must handle; track decisions over versions.
-- Exit: the orchestrator handles the OOM → migrate → pin scenario and a usage-limit → switch-account scenario end to end, and its learned rules survive a hub restart and a fresh orchestrator context.
+- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, `request_override`, plus event notifications to the commander chat for failure, stall, needs-input and completion of work it dispatched.
+- Ship the Syre scheduler skill (installed for the commander agent): reading the snapshot, trusting vs overriding the built-in scheduler, responding to failure categories, migrating, recording rules.
+- Evaluation suite: scripted fleets (mock engine with synthetic resource profiles) and scenarios the commander must handle; track decisions over versions.
+- Exit: the commander handles the OOM → migrate → pin scenario and a usage-limit → switch-account scenario end to end, and its learned rules survive a hub restart and a fresh commander context.
 
 ### Cross-cutting
 
@@ -596,7 +596,7 @@ Built alongside 5a (open requests are questions with an action attached).
    - `scheduler`: selector matching, `sandboxed` vs `full_access` isolation rules, queue draining.
    - `gitutil`: temporary git repo worktree creation, commit diff stat extraction.
 2. **Integration Tests (`go test -race ./internal/controller/...`):**
-   - Spins up in-process `konsert` + `konsertd` over loopback WebSocket with `mock` driver to test full lifecycle: dispatch, subscribe/replay/unsubscribe ref-counting, interactive stdin, cancel PGID cleanup, and controller restart re-adoption.
+   - Spins up in-process `syre` + `syred` over loopback WebSocket with `mock` driver to test full lifecycle: dispatch, subscribe/replay/unsubscribe ref-counting, interactive stdin, cancel PGID cleanup, and controller restart re-adoption.
 3. **Frontend Tests & E2E:**
    - Angular unit tests for Signal stores (`FleetStore`, `TabsStore`).
-   - Playwright smoke test against a running `konsert` + `konsertd --enable-mock-driver` verifying login, fleet tree rendering, xterm snapshot replay, Read-Only guard vs Interactive Takeover, and mobile drawer layout.
+   - Playwright smoke test against a running `syre` + `syred --enable-mock-driver` verifying login, fleet tree rendering, xterm snapshot replay, Read-Only guard vs Interactive Takeover, and mobile drawer layout.

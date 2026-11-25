@@ -9,8 +9,8 @@ import (
 )
 
 func TestWriteSecretFileIsOwnerOnly(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "konsert")
-	path := filepath.Join(dir, "konsertd.yaml")
+	dir := filepath.Join(t.TempDir(), "syre")
+	path := filepath.Join(dir, "syred.yaml")
 	if err := WriteSecretFile(path, []byte("name: x\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestWriteSecretFileIsOwnerOnly(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != "name: y\n" {
 		t.Errorf("content = %q", data)
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, ".konsertd-*.tmp")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(dir, ".syred-*.tmp")); len(left) != 0 {
 		t.Errorf("temp files left: %v", left)
 	}
 }

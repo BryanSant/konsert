@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func TestCollectMachineFactsAndClassification(t *testing.T) {

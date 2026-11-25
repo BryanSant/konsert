@@ -6,7 +6,7 @@ import { ActivityStore } from './activity.store';
 import { activityFromChatStatus, activityFromTaskStatus, groupWork } from './activity-logic';
 import { ControlStore } from './control.store';
 import { FleetStore } from './fleet.store';
-import { OrchestratorStore } from './orchestrator.store';
+import { CommanderStore } from './commander.store';
 import { QuestionsStore } from './questions.store';
 import { TakenControlStore } from './taken-control.store';
 import { AgentChatStore } from './agent-chat.store';
@@ -34,7 +34,7 @@ export interface ItemSpinner {
 @Injectable({ providedIn: 'root' })
 export class WorkStore {
   private readonly fleet = inject(FleetStore);
-  private readonly orch = inject(OrchestratorStore);
+  private readonly orch = inject(CommanderStore);
   private readonly agentChat = inject(AgentChatStore);
   private readonly questions = inject(QuestionsStore);
   private readonly control = inject(ControlStore);
@@ -118,10 +118,10 @@ export class WorkStore {
       chatStatus: (id) => transcripts[id]?.status,
       chatNow: (id) => transcripts[id]?.subtitle ?? '',
     });
-    // Live work says what it is doing now: the orchestrator's narration or the live activity.
+    // Live work says what it is doing now: the commander's narration or the live activity.
     return built.map((it) => {
       const a = narrated[`${it.kind}:${it.id}`];
-      if (!a || !it.live || (a.nowSource !== 'orchestrator' && a.nowSource !== 'activity') || !a.now) return it;
+      if (!a || !it.live || (a.nowSource !== 'commander' && a.nowSource !== 'activity') || !a.now) return it;
       return { ...it, now: a.now, nowTitle: a.nowTitle };
     });
   });

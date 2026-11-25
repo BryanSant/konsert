@@ -11,7 +11,7 @@ import "time"
 const (
 	QuestionOpen      = "open"
 	QuestionAnswered  = "answered"
-	QuestionDelegated = "delegated" // waiting for the orchestrator to decide
+	QuestionDelegated = "delegated" // waiting for the commander to decide
 	QuestionExpired   = "expired"   // the agent no longer needs an answer (its prompt went away)
 	QuestionCancelled = "cancelled" // the user stopped the turn, the chat was deleted, ...
 )
@@ -24,7 +24,7 @@ const (
 
 // Question sources.
 const (
-	QuestionSourceAskUser     = "ask_user"    // Konsert's ask_user MCP tool (validated)
+	QuestionSourceAskUser     = "ask_user"    // Syre's ask_user MCP tool (validated)
 	QuestionSourceElicitation = "elicitation" // the agent's own prompt (permission, AskUserQuestion, ACP)
 )
 
@@ -45,11 +45,11 @@ type QuestionOption struct {
 	Kind string `json:"kind,omitempty"`
 }
 
-// QuestionRef is a reference found in a question (ticket, PR, file, Konsert sid),
+// QuestionRef is a reference found in a question (ticket, PR, file, Syre sid),
 // resolved into a card when possible.
 type QuestionRef struct {
 	Kind     string `json:"kind"` // ticket | pr | file | task | chat | machine | question
-	Ref      string `json:"ref"`  // as written: KON-2Q0CH, #123, internal/x.go, t-7qk3m
+	Ref      string `json:"ref"`  // as written: SYR-2Q0CH, #123, internal/x.go, t-7qk3m
 	Title    string `json:"title,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Excerpt  string `json:"excerpt,omitempty"`
@@ -79,21 +79,21 @@ type QuestionAnswer struct {
 
 // Delegation states.
 const (
-	DelegationPending    = "pending"    // waiting for the orchestrator
-	DelegationDecided    = "decided"    // the orchestrator chose; held briefly so the user can override
+	DelegationPending    = "pending"    // waiting for the commander
+	DelegationDecided    = "decided"    // the commander chose; held briefly so the user can override
 	DelegationDelivered  = "delivered"  // sent to the agent
-	DelegationOverridden = "overridden" // the user replaced the orchestrator's choice
-	DelegationFailed     = "failed"     // no orchestrator could decide; back in the user's queue
+	DelegationOverridden = "overridden" // the user replaced the commander's choice
+	DelegationFailed     = "failed"     // no commander could decide; back in the user's queue
 )
 
-// QuestionDelegation is the receipt of "Let the orchestrator decide".
+// QuestionDelegation is the receipt of "Let the commander decide".
 type QuestionDelegation struct {
 	State       string    `json:"state"`
 	RequestedAt time.Time `json:"requested_at"`
 	RequestedBy Cause     `json:"requested_by"`
 	Auto        bool      `json:"auto,omitzero"` // by an auto-delegate rule
 	ChatID      string    `json:"chat_id,omitempty"`
-	// SentAt is when the question was handed to the orchestrator (a turn started).
+	// SentAt is when the question was handed to the commander (a turn started).
 	SentAt    *time.Time `json:"sent_at,omitzero"`
 	OptionID  string     `json:"option_id,omitempty"`
 	Label     string     `json:"label,omitempty"`
@@ -107,8 +107,8 @@ type QuestionDelegation struct {
 
 // Thread answerers.
 const (
-	AnswererFork         = "fork"         // a read-only fork of the asking agent's session
-	AnswererOrchestrator = "orchestrator" // the orchestrator's agent with a context pack
+	AnswererFork      = "fork"      // a read-only fork of the asking agent's session
+	AnswererCommander = "commander" // the commander's agent with a context pack
 )
 
 // QuestionThread is the side conversation ("Ask about this") attached to a question.

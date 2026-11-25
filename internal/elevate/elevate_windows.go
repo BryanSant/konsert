@@ -108,9 +108,9 @@ func isBrokenPipe(err error) bool {
 }
 
 // pipePrefix starts every elevation pipe name; the rest is 128 random bits in hex.
-const pipePrefix = `\\.\pipe\konsertd-elevate-`
+const pipePrefix = `\\.\pipe\syred-elevate-`
 
-var pipeNameRE = regexp.MustCompile(`^\\\\\.\\pipe\\konsertd-elevate-[0-9a-f]{32}$`)
+var pipeNameRE = regexp.MustCompile(`^\\\\\.\\pipe\\syred-elevate-[0-9a-f]{32}$`)
 
 func newPipeName() (string, error) {
 	var b [16]byte
@@ -129,7 +129,7 @@ func pipeSDDL(userSID string) string { return "D:P(A;;GA;;;" + userSID + ")" }
 // launcher starts the child; tests replace verb and file.
 type launcher struct {
 	verb string // "runas" for UAC; "" (open) in tests
-	file string // the konsertd executable
+	file string // the syred executable
 }
 
 // Run relaunches this executable elevated (UAC prompt), hands it req over a private
@@ -245,7 +245,7 @@ func connectChild(pipe, proc windows.Handle, timeout time.Duration) error {
 	}
 	if client != want {
 		_ = windows.DisconnectNamedPipe(pipe)
-		return fmt.Errorf("the elevation pipe was opened by process %d, not the elevated konsertd (%d); refusing", client, want)
+		return fmt.Errorf("the elevation pipe was opened by process %d, not the elevated syred (%d); refusing", client, want)
 	}
 	return nil
 }
@@ -318,19 +318,19 @@ func (l launcher) shellExecute(params, dir string) (windows.Handle, error) {
 		if errors.Is(callErr, windows.ERROR_CANCELLED) {
 			return 0, ErrDeclined
 		}
-		return 0, fmt.Errorf("start the elevated konsertd: %w", callErr)
+		return 0, fmt.Errorf("start the elevated syred: %w", callErr)
 	}
 	if info.hProcess == 0 {
-		return 0, errors.New("start the elevated konsertd: no process handle")
+		return 0, errors.New("start the elevated syred: no process handle")
 	}
 	return info.hProcess, nil
 }
 
 // OpenChildPipe is the elevated child's end: it opens the parent's pipe, which must be
-// a konsertd elevation pipe on this machine.
+// a syred elevation pipe on this machine.
 func OpenChildPipe(name string) (io.ReadWriteCloser, error) {
 	if !pipeNameRE.MatchString(strings.ToLower(name)) || name != strings.ToLower(name) {
-		return nil, fmt.Errorf("%q is not a konsertd elevation pipe", name)
+		return nil, fmt.Errorf("%q is not a syred elevation pipe", name)
 	}
 	h, err := windows.CreateFile(windows.StringToUTF16Ptr(name),
 		windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING,

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 /** A tiny circular usage gauge: blue, amber near the limit, red when exhausted. Decorative. */
 @Component({
-  selector: 'ks-usage-ring',
+  selector: 'sy-usage-ring',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { 'aria-hidden': 'true', class: 'inline-flex shrink-0' },
@@ -36,11 +36,11 @@ export class UsageRingComponent {
   readonly color = computed(() => {
     switch (this.tone()) {
       case 'exhausted':
-        return 'var(--ks-red)';
+        return 'var(--sy-red)';
       case 'warning':
-        return 'var(--ks-amber)';
+        return 'var(--sy-amber)';
       default:
-        return 'var(--ks-blue)';
+        return 'var(--sy-blue)';
     }
   });
 }

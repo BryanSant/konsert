@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/forge"
-	"github.com/BryanSant/konsert/internal/forge/forgejo"
-	"github.com/BryanSant/konsert/internal/forge/github"
-	"github.com/BryanSant/konsert/internal/forge/gitlab"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/secrets"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/forge"
+	"github.com/BryanSant/syre/internal/forge/forgejo"
+	"github.com/BryanSant/syre/internal/forge/github"
+	"github.com/BryanSant/syre/internal/forge/gitlab"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/secrets"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 type pendingDeviceFlow struct {

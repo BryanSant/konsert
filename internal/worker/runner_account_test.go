@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/chat"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // capturingDriver records LaunchOptions and then fails to launch.

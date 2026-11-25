@@ -6,7 +6,7 @@ import { Browser, expect, Page, test } from '@playwright/test';
 import { getFreePort, subscriptionOnlyEnv, waitFor } from './global-setup';
 
 /**
- * Zero-copy sign-in with auth on (KON-W0P8B, KON-V5JZB, KON-A29CT): the hub prints a
+ * Zero-copy sign-in with auth on (SYR-W0P8B, SYR-V5JZB, SYR-A29CT): the hub prints a
  * one-time sign-in link at startup and nobody types a token. Each test gets its own hub
  * with no configured credentials, so the recovery key is generated into the tokens file.
  */
@@ -22,20 +22,20 @@ interface Hub {
 
 async function startHub(): Promise<Hub> {
   const repoRoot = path.resolve(__dirname, '..', '..');
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konsert-e2e-auth-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'syre-e2e-auth-'));
   const port = await getFreePort();
   const baseURL = `http://127.0.0.1:${port}`;
   const proc = spawn(
-    path.join(repoRoot, 'bin', 'konsert'),
-    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db')],
+    path.join(repoRoot, 'bin', 'syre'),
+    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'syre.db')],
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: subscriptionOnlyEnv({
-        KONSERT_STATE_DIR: path.join(tmpDir, 'state'),
-        KONSERT_CONFIG_DIR: path.join(tmpDir, 'config'),
-        KONSERT_INSTALL_DRY_RUN: '1',
-        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+        SYRE_STATE_DIR: path.join(tmpDir, 'state'),
+        SYRE_CONFIG_DIR: path.join(tmpDir, 'config'),
+        SYRE_INSTALL_DRY_RUN: '1',
+        SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),
     },
   );
@@ -64,14 +64,14 @@ async function stopHub(hub: Hub): Promise<void> {
 }
 
 function recoveryKey(hub: Hub): string {
-  const raw = fs.readFileSync(path.join(hub.tmpDir, 'konsert-tokens.yaml'), 'utf8');
+  const raw = fs.readFileSync(path.join(hub.tmpDir, 'syre-tokens.yaml'), 'utf8');
   return /recovery_key:\s*(\S+)/.exec(raw)?.[1] ?? '';
 }
 
 /** Opens a pairing link, names the device and signs in. */
 async function pairVia(page: Page, url: string, name: string): Promise<void> {
   await page.goto(url, { waitUntil: 'networkidle' });
-  await expect(page.getByRole('heading', { name: 'Sign in to Konsert' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to Syre' })).toBeVisible();
   await page.locator('#device-name').fill(name);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByTestId('open-palette')).toBeVisible();
@@ -189,17 +189,17 @@ test.describe('Device sign-in (auth on)', () => {
     ).toHaveCount(1);
   });
 
-  test('konsert login: a signed-in browser approves the CLI', async ({ page }) => {
+  test('syre login: a signed-in browser approves the CLI', async ({ page }) => {
     await pairVia(page, hub.signInURL, 'E2E laptop');
     const start = await (
       await fetch(`${hub.baseURL}/api/auth/device-code`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'konsert/e2e' },
-        body: JSON.stringify({ name: 'konsert CLI on buildbox' }),
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'syre/e2e' },
+        body: JSON.stringify({ name: 'syre CLI on buildbox' }),
       })
     ).json();
     await page.goto(start.verify_url, { waitUntil: 'networkidle' });
-    await expect(page.getByTestId('approve-name')).toHaveText('konsert CLI on buildbox');
+    await expect(page.getByTestId('approve-name')).toHaveText('syre CLI on buildbox');
     await page.getByRole('button', { name: 'Approve' }).click();
     await expect(page.getByRole('status')).toContainText('Approved');
     const poll = await (

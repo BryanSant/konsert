@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Hub wake grace (KON-VZR9F, docs/design/spool.md). When the hub's machine sleeps (or
+// Hub wake grace (SYR-VZR9F, docs/design/spool.md). When the hub's machine sleeps (or
 // its process is stopped), every link drops and every timer fires at once on wake: the
 // stale-machine reaper would mark every machine offline and fail its tasks, and lost-task
 // checks would fire against connections that are already dead, before any daemon had a

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // --- harness ------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ func fakeAccount(t *testing.T, o fakeOpts) (Account, string) {
 	return Account{
 		ID: o.agent, Agent: o.agent, Binary: exe,
 		Env: map[string]string{
-			"KONSERT_FAKE_ACP": "1", "FAKE_ACP_FIXTURE": o.fixture, "FAKE_ACP_SCENARIO": o.scenario,
+			"SYRE_FAKE_ACP": "1", "FAKE_ACP_FIXTURE": o.fixture, "FAKE_ACP_SCENARIO": o.scenario,
 			"FAKE_ACP_TESTDATA": td, "FAKE_ACP_LOG": logPath, "FAKE_SECRET_TOKEN": "supersecretvalue123",
 		},
 	}, logPath
@@ -151,7 +151,7 @@ func turnEnd(t *testing.T, rec *evRecorder) protocol.AgentChatEvent {
 
 func TestACPBasicTurnMapsUpdates(t *testing.T) {
 	s, rec, logPath := openFake(t, fakeOpts{agent: "grok", fixture: "grok", scenario: "basic"}, protocol.AgentChatOpen{
-		MCPServers: []protocol.AgentMCPServer{{Name: "konsert", URL: "http://127.0.0.1:1/mcp", Headers: map[string]string{"Authorization": "Bearer x"}}},
+		MCPServers: []protocol.AgentMCPServer{{Name: "syre", URL: "http://127.0.0.1:1/mcp", Headers: map[string]string{"Authorization": "Bearer x"}}},
 	})
 	ready := rec.waitKind(t, protocol.EventSessionReady)
 	if ready.AgentSessionID != "01a20748-45d5-7292-8507-ef4cca5f35d0" || ready.Model != "grok-4.5" || ready.Effort != "high" || ready.ApprovalMode != "default" {
@@ -408,7 +408,7 @@ func TestACPNotInstalled(t *testing.T) {
 
 func TestACPOpenAppliesModelEffortModeAndSystemPrompt(t *testing.T) {
 	_, rec, logPath := openFake(t, fakeOpts{agent: "agy", fixture: "agy", scenario: "basic"}, protocol.AgentChatOpen{
-		Model: "gemini-3.8-flash", Effort: "low", ApprovalMode: "accept-edits", SystemPrompt: "You are the orchestrator.",
+		Model: "gemini-3.8-flash", Effort: "low", ApprovalMode: "accept-edits", SystemPrompt: "You are the commander.",
 		MCPServers: []protocol.AgentMCPServer{{Name: "k", URL: "http://x/mcp"}},
 	})
 	ready := rec.waitKind(t, protocol.EventSessionReady)
@@ -418,10 +418,10 @@ func TestACPOpenAppliesModelEffortModeAndSystemPrompt(t *testing.T) {
 	log := readLog(t, logPath)
 	for _, want := range []string{
 		`"modelId":"gemini-3.8-flash-low"`, `"modeId":"accept-edits"`,
-		`"_meta":{"antigravity":{"systemPrompt":{"append":"You are the orchestrator."}}}`,
-		// agy does not advertise mcpCapabilities.http: Konsert's tools reach it through a
-		// stdio `konsertd mcp-bridge` with the URL in its environment (not argv).
-		`"args":["mcp-bridge"]`, `"name":"KONSERT_MCP_BRIDGE_URL","value":"http://x/mcp"`,
+		`"_meta":{"antigravity":{"systemPrompt":{"append":"You are the commander."}}}`,
+		// agy does not advertise mcpCapabilities.http: Syre's tools reach it through a
+		// stdio `syred mcp-bridge` with the URL in its environment (not argv).
+		`"args":["mcp-bridge"]`, `"name":"SYRE_MCP_BRIDGE_URL","value":"http://x/mcp"`,
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log lacks %s:\n%s", want, log)

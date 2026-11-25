@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
+	"github.com/BryanSant/syre/internal/forge"
 )
 
 const (
@@ -74,7 +74,7 @@ func (c *Client) do(ctx context.Context, method, fullURL string, reqBody any) ([
 		return nil, nil, 0, fmt.Errorf("gitlab: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}

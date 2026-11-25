@@ -40,7 +40,7 @@ export class QuestionsStore {
   });
 
   /**
-   * The last question the user dealt with here (answered, handed to the orchestrator or
+   * The last question the user dealt with here (answered, handed to the commander or
    * snoozed): the Needs-you dialog moves on to the next item.
    */
   readonly acted = signal<{ id: string; at: number } | null>(null);
@@ -168,7 +168,7 @@ export class QuestionsStore {
   }
 
   async delegate(q: QuestionView): Promise<boolean> {
-    const ok = await this.run(q.id, 'Could not hand the question to the orchestrator', () => this.api.delegateQuestion(q.id));
+    const ok = await this.run(q.id, 'Could not hand the question to the commander', () => this.api.delegateQuestion(q.id));
     if (ok) {
       this.recent.update((s) => new Set(s).add(q.id));
       this.acted.set({ id: q.id, at: Date.now() });
@@ -182,10 +182,10 @@ export class QuestionsStore {
     return ok;
   }
 
-  /** Whether the user can (still) answer: pending, or an orchestrator answer to override. */
+  /** Whether the user can (still) answer: pending, or a commander answer to override. */
   canAnswer(q: QuestionView): boolean {
     if (isPending(q)) return true;
-    return q.status === 'answered' && q.answer?.by?.actor === 'orchestrator' && (q.source === 'ask_user' || !q.answer.delivered_at);
+    return q.status === 'answered' && q.answer?.by?.actor === 'commander' && (q.source === 'ask_user' || !q.answer.delivered_at);
   }
 
   private startClock(): void {

@@ -20,7 +20,7 @@ func DefaultEnv() (Env, error) {
 		Home:       home,
 		UID:        os.Getuid(),
 		PATH:       CleanPATH(os.Getenv("PATH"), os.PathListSeparator),
-		ManagedBin: filepath.Join(home, ".local", "bin", "konsertd"),
+		ManagedBin: filepath.Join(home, ".local", "bin", "syred"),
 	}
 	if u, err := user.Current(); err == nil {
 		env.User = u.Username
@@ -28,8 +28,8 @@ func DefaultEnv() (Env, error) {
 		env.User = os.Getenv("USER")
 	}
 	if runtime.GOOS == "darwin" {
-		env.ConfigDir = filepath.Join(home, "Library", "Application Support", "konsert")
-		env.LogDir = filepath.Join(home, "Library", "Logs", "konsert")
+		env.ConfigDir = filepath.Join(home, "Library", "Application Support", "syre")
+		env.LogDir = filepath.Join(home, "Library", "Logs", "syre")
 		env.UnitDir = filepath.Join(home, "Library", "LaunchAgents")
 		return env, nil
 	}
@@ -37,8 +37,8 @@ func DefaultEnv() (Env, error) {
 	if cfg == "" || !filepath.IsAbs(cfg) {
 		cfg = filepath.Join(home, ".config")
 	}
-	env.ConfigDir = filepath.Join(cfg, "konsert")
-	env.LogDir = filepath.Join(home, ".konsert", "logs")
+	env.ConfigDir = filepath.Join(cfg, "syre")
+	env.LogDir = filepath.Join(home, ".syre", "logs")
 	env.UnitDir = filepath.Join(cfg, "systemd", "user")
 	return env, nil
 }

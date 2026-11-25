@@ -50,7 +50,7 @@ export function sessionActions(
  * Cancel (tasks; chats keep their own Stop), and Veto with a reason. Flat until hovered.
  */
 @Component({
-  selector: 'ks-session-controls',
+  selector: 'sy-session-controls',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, PopoverComponent, PopoverTriggerDirective, TooltipDirective],
@@ -59,11 +59,11 @@ export function sessionActions(
     @if (actions().suspend) {
       <button
         type="button"
-        class="ks-btn ks-btn-sm"
+        class="sy-btn sy-btn-sm"
         data-testid="session-suspend"
         [disabled]="busy()"
         (click)="suspend()"
-        ksTooltip="Freeze its processes without losing work"
+        syTooltip="Freeze its processes without losing work"
         aria-label="Suspend"
       >
         <app-icon name="pause" [size]="11" />
@@ -75,11 +75,11 @@ export function sessionActions(
     @if (actions().resume) {
       <button
         type="button"
-        class="ks-btn ks-btn-sm text-[var(--ks-violet)]"
+        class="sy-btn sy-btn-sm text-[var(--sy-violet)]"
         data-testid="session-resume"
         [disabled]="busy()"
         (click)="resume()"
-        ksTooltip="Continue where it was frozen"
+        syTooltip="Continue where it was frozen"
         aria-label="Resume"
       >
         <app-icon name="play" [size]="11" />
@@ -91,11 +91,11 @@ export function sessionActions(
     @if (actions().cancel && !hideCancel()) {
       <button
         type="button"
-        class="ks-btn ks-btn-sm ks-btn-danger"
+        class="sy-btn sy-btn-sm sy-btn-danger"
         data-testid="session-cancel"
         [disabled]="busy()"
         (click)="cancel()"
-        ksTooltip="Stop the remote process tree"
+        syTooltip="Stop the remote process tree"
         aria-label="Cancel"
       >
         <app-icon name="stop" [size]="10" />
@@ -108,11 +108,11 @@ export function sessionActions(
       @if (hold(); as h) {
         <button
           type="button"
-          class="ks-btn ks-btn-sm text-[#e6b763]"
+          class="sy-btn sy-btn-sm text-[#e6b763]"
           data-testid="session-release-hold"
           [disabled]="control.isBusy(h.id)"
           (click)="control.releaseHold(h)"
-          ksTooltip="Let automatic actions (retries, orchestrator steering) touch it again"
+          syTooltip="Let automatic actions (retries, commander steering) touch it again"
           aria-label="Release hold"
         >
           <app-icon name="unlock" [size]="11" />
@@ -123,11 +123,11 @@ export function sessionActions(
       } @else {
         <button
           type="button"
-          class="ks-btn ks-btn-sm"
+          class="sy-btn sy-btn-sm"
           data-testid="session-hold-btn"
           [disabled]="busy()"
           (click)="placeHold()"
-          ksTooltip="Nothing automatic touches it (retries, orchestrator steering) until you release it; it keeps running"
+          syTooltip="Nothing automatic touches it (retries, commander steering) until you release it; it keeps running"
           aria-label="Hold"
         >
           <app-icon name="lock" [size]="11" />
@@ -138,7 +138,7 @@ export function sessionActions(
       }
     }
     @if (actions().veto || vetoAlways()) {
-      <ks-popover
+      <sy-popover
         label="Veto"
         role="dialog"
         placement="bottom-end"
@@ -148,11 +148,11 @@ export function sessionActions(
       >
         <button
           type="button"
-          ksPopoverTrigger
-          class="ks-btn ks-btn-sm ks-btn-danger"
+          syPopoverTrigger
+          class="sy-btn sy-btn-sm sy-btn-danger"
           data-testid="session-veto"
           [disabled]="busy()"
-          ksTooltip="Stop it and tell the orchestrator why, so it is not simply retried"
+          syTooltip="Stop it and tell the commander why, so it is not simply retried"
           aria-label="Veto"
         >
           <app-icon name="ban" [size]="11" />
@@ -161,15 +161,15 @@ export function sessionActions(
           }
         </button>
         <form class="space-y-2.5" (submit)="$event.preventDefault(); veto()">
-          <div class="text-[12px] font-semibold text-[var(--ks-text)]">Veto: why?</div>
+          <div class="text-[12px] font-semibold text-[var(--sy-text)]">Veto: why?</div>
           <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Veto reason">
             @for (r of reasons; track r.id) {
               <button
                 type="button"
                 role="radio"
-                class="ks-chip"
+                class="sy-chip"
                 [attr.aria-checked]="reason() === r.id"
-                [class.bg-[var(--ks-red-soft)]]="reason() === r.id"
+                [class.bg-[var(--sy-red-soft)]]="reason() === r.id"
                 [class.text-[#f6b8b8]]="reason() === r.id"
                 [attr.data-testid]="'veto-reason-' + r.id"
                 (click)="reason.set(r.id)"
@@ -178,23 +178,23 @@ export function sessionActions(
               </button>
             }
           </div>
-          <label class="ks-sr-only" [attr.for]="noteId">Note for the orchestrator</label>
+          <label class="sy-sr-only" [attr.for]="noteId">Note for the commander</label>
           <textarea
             [id]="noteId"
             rows="2"
             data-testid="veto-note"
-            placeholder="Optional note for the orchestrator"
-            class="ks-field w-full resize-none text-[12px]"
+            placeholder="Optional note for the commander"
+            class="sy-field w-full resize-none text-[12px]"
             [value]="note()"
             (input)="note.set($any($event.target).value)"
           ></textarea>
           <div class="flex justify-end gap-1.5">
-            <button type="button" class="ks-btn ks-btn-sm" (click)="vetoOpen.set(false)">
+            <button type="button" class="sy-btn sy-btn-sm" (click)="vetoOpen.set(false)">
               Cancel
             </button>
             <button
               type="submit"
-              class="ks-btn ks-btn-sm ks-btn-primary"
+              class="sy-btn sy-btn-sm sy-btn-primary"
               data-testid="veto-submit"
               [disabled]="!reason() || busy()"
             >
@@ -202,7 +202,7 @@ export function sessionActions(
             </button>
           </div>
         </form>
-      </ks-popover>
+      </sy-popover>
     }
   `,
 })
@@ -223,7 +223,7 @@ export class SessionControlsComponent {
   readonly hold = computed(() => this.control.sessionHold(this.sessionId()));
 
   private static seq = 0;
-  readonly noteId = `ks-veto-note-${++SessionControlsComponent.seq}`;
+  readonly noteId = `sy-veto-note-${++SessionControlsComponent.seq}`;
   readonly reasons = VETO_REASONS;
   readonly vetoOpen = signal(false);
   readonly reason = signal<VetoReason | ''>('');

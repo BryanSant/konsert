@@ -30,41 +30,41 @@ let nextId = 0;
 
 /** One tool call: icon by kind, title, live status, expandable input/output and paths. */
 @Component({
-  selector: 'ks-tool-call-card',
+  selector: 'sy-tool-call-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
   template: `
-    <div class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-1)] text-[12px]" [attr.data-tool-status]="call().status">
+    <div class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] text-[12px]" [attr.data-tool-status]="call().status">
       <button
         type="button"
-        class="flex w-full items-center gap-2.5 rounded-[var(--ks-radius-lg)] px-3 py-2 text-left cursor-pointer hover:bg-[var(--ks-raised)] transition-colors ks-focusable"
+        class="flex w-full items-center gap-2.5 rounded-[var(--sy-radius-lg)] px-3 py-2 text-left cursor-pointer hover:bg-[var(--sy-raised)] transition-colors sy-focusable"
         [attr.aria-expanded]="expanded()"
         [attr.aria-controls]="bodyId"
         (click)="expanded.set(!expanded())"
       >
-        <span class="text-[var(--ks-text-secondary)] shrink-0"><app-icon [name]="icon()" [size]="14" /></span>
-        <span class="flex-1 min-w-0 truncate text-[var(--ks-text)]">{{ call().title || call().name }}</span>
+        <span class="text-[var(--sy-text-secondary)] shrink-0"><app-icon [name]="icon()" [size]="14" /></span>
+        <span class="flex-1 min-w-0 truncate text-[var(--sy-text)]">{{ call().title || call().name }}</span>
         @if (call().title && call().name) {
-          <span class="hidden sm:inline font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] shrink-0">{{ call().name }}</span>
+          <span class="hidden sm:inline font-mono-ide text-[10.5px] text-[var(--sy-text-muted)] shrink-0">{{ call().name }}</span>
         }
         <span class="shrink-0 inline-flex items-center" [attr.aria-label]="statusLabel()" role="img">
           @switch (statusClass()) {
             @case ('running') {
-              <span class="ks-spinner text-[var(--ks-blue)]" style="width: 11px; height: 11px"></span>
+              <span class="sy-spinner text-[var(--sy-blue)]" style="width: 11px; height: 11px"></span>
             }
             @case ('completed') {
-              <span class="text-[var(--ks-green)]"><app-icon name="check" [size]="13" /></span>
+              <span class="text-[var(--sy-green)]"><app-icon name="check" [size]="13" /></span>
             }
             @case ('failed') {
-              <span class="text-[var(--ks-red)]"><app-icon name="x-circle" [size]="13" /></span>
+              <span class="text-[var(--sy-red)]"><app-icon name="x-circle" [size]="13" /></span>
             }
             @default {
-              <span class="h-2 w-2 rounded-full border border-[var(--ks-text-muted)]"></span>
+              <span class="h-2 w-2 rounded-full border border-[var(--sy-text-muted)]"></span>
             }
           }
         </span>
-        <span class="text-[var(--ks-text-muted)] shrink-0 transition-transform" [class.rotate-90]="expanded()">
+        <span class="text-[var(--sy-text-muted)] shrink-0 transition-transform" [class.rotate-90]="expanded()">
           <app-icon name="chevron-right" [size]="11" />
         </span>
       </button>
@@ -73,24 +73,24 @@ let nextId = 0;
           @if (call().paths?.length) {
             <div class="flex flex-wrap gap-1">
               @for (p of call().paths; track p) {
-                <span class="rounded-full bg-[var(--ks-raised)] px-2 py-0.5 font-mono-ide text-[10.5px] text-[var(--ks-text-secondary)] max-w-full truncate">{{ p }}</span>
+                <span class="rounded-full bg-[var(--sy-raised)] px-2 py-0.5 font-mono-ide text-[10.5px] text-[var(--sy-text-secondary)] max-w-full truncate">{{ p }}</span>
               }
             </div>
           }
           @if (call().input) {
             <div>
-              <div class="mb-1 text-[10.5px] uppercase tracking-wide text-[var(--ks-text-muted)]">Input</div>
-              <pre class="max-h-56 overflow-auto rounded-[var(--ks-radius-md)] bg-black/30 p-2.5 font-mono-ide text-[11px] leading-relaxed text-[#c9cbd2] whitespace-pre-wrap break-words">{{ pretty(call().input!) }}</pre>
+              <div class="mb-1 text-[10.5px] uppercase tracking-wide text-[var(--sy-text-muted)]">Input</div>
+              <pre class="max-h-56 overflow-auto rounded-[var(--sy-radius-md)] bg-black/30 p-2.5 font-mono-ide text-[11px] leading-relaxed text-[#c9cbd2] whitespace-pre-wrap break-words">{{ pretty(call().input!) }}</pre>
             </div>
           }
           @if (call().output) {
             <div>
-              <div class="mb-1 text-[10.5px] uppercase tracking-wide text-[var(--ks-text-muted)]">Output</div>
-              <pre class="max-h-72 overflow-auto rounded-[var(--ks-radius-md)] bg-black/30 p-2.5 font-mono-ide text-[11px] leading-relaxed text-[#c9cbd2] whitespace-pre-wrap break-words">{{ call().output }}</pre>
+              <div class="mb-1 text-[10.5px] uppercase tracking-wide text-[var(--sy-text-muted)]">Output</div>
+              <pre class="max-h-72 overflow-auto rounded-[var(--sy-radius-md)] bg-black/30 p-2.5 font-mono-ide text-[11px] leading-relaxed text-[#c9cbd2] whitespace-pre-wrap break-words">{{ call().output }}</pre>
             </div>
           }
           @if (!call().input && !call().output && !call().paths?.length) {
-            <div class="text-[11.5px] text-[var(--ks-text-muted)]">No details reported.</div>
+            <div class="text-[11.5px] text-[var(--sy-text-muted)]">No details reported.</div>
           }
         </div>
       }
@@ -100,7 +100,7 @@ let nextId = 0;
 export class ToolCallCardComponent {
   readonly call = input.required<AgentToolCall>();
   readonly expanded = signal(false);
-  readonly bodyId = `ks-tool-${++nextId}`;
+  readonly bodyId = `sy-tool-${++nextId}`;
 
   readonly icon = computed(() => toolIcon(this.call().kind, this.call().name));
   readonly statusClass = computed(() => {

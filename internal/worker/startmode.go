@@ -1,8 +1,8 @@
 package worker
 
-// How a Windows konsertd was started (MachineFacts.StartMode, KON-224K5).
+// How a Windows syred was started (MachineFacts.StartMode, SYR-224K5).
 const (
-	// StartModeService: a Windows service (`konsertd install --service`).
+	// StartModeService: a Windows service (`syred install --service`).
 	StartModeService = "service"
 	// StartModeBackgroundTask: a scheduled task that runs whether or not the user is
 	// signed in (S4U, batch logon), at boot as well.

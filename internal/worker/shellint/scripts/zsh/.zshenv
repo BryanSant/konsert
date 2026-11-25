@@ -1,29 +1,29 @@
-# Konsert terminal shell integration. konsertd points ZDOTDIR here for Konsert
+# Syre terminal shell integration. syred points ZDOTDIR here for Syre
 # terminals only; each file sources your own startup file (your dotfiles are not
 # modified) and the hooks are added after your .zshrc.
-__konsert_zdotdir=$ZDOTDIR
-if [[ -n ${KONSERT_USER_ZDOTDIR+x} ]]; then
-	__konsert_user_zdotdir=$KONSERT_USER_ZDOTDIR
+__syre_zdotdir=$ZDOTDIR
+if [[ -n ${SYRE_USER_ZDOTDIR+x} ]]; then
+	__syre_user_zdotdir=$SYRE_USER_ZDOTDIR
 else
-	__konsert_user_zdotdir=$HOME
+	__syre_user_zdotdir=$HOME
 fi
 # Run the user's file with their ZDOTDIR (scripts may read it), at top level so its
 # typeset/local behave as usual. A file may change ZDOTDIR; remember that for later files.
-__konsert_pre() {
-	ZDOTDIR=$__konsert_user_zdotdir
-	[[ $ZDOTDIR != "$__konsert_zdotdir" && -r $ZDOTDIR/$1 ]]
+__syre_pre() {
+	ZDOTDIR=$__syre_user_zdotdir
+	[[ $ZDOTDIR != "$__syre_zdotdir" && -r $ZDOTDIR/$1 ]]
 }
-__konsert_post() {
-	__konsert_user_zdotdir=$ZDOTDIR
-	ZDOTDIR=$__konsert_zdotdir
+__syre_post() {
+	__syre_user_zdotdir=$ZDOTDIR
+	ZDOTDIR=$__syre_zdotdir
 }
 # Hand ZDOTDIR back to the user once startup is over, so nested shells use their config.
-__konsert_restore() {
-	if [[ -z ${KONSERT_USER_ZDOTDIR+x} && $__konsert_user_zdotdir == "$HOME" ]]; then
+__syre_restore() {
+	if [[ -z ${SYRE_USER_ZDOTDIR+x} && $__syre_user_zdotdir == "$HOME" ]]; then
 		unset ZDOTDIR
 	else
-		export ZDOTDIR=$__konsert_user_zdotdir
+		export ZDOTDIR=$__syre_user_zdotdir
 	fi
 }
-if __konsert_pre .zshenv; then source "$ZDOTDIR/.zshenv"; fi
-__konsert_post
+if __syre_pre .zshenv; then source "$ZDOTDIR/.zshenv"; fi
+__syre_post

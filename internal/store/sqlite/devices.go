@@ -6,11 +6,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Device credentials and pairing codes (KON-W0P8B, KON-V5JZB, KON-A29CT). Timestamps
+// Device credentials and pairing codes (SYR-W0P8B, SYR-V5JZB, SYR-A29CT). Timestamps
 // are fixed-width UTC text (formatTime), so they compare correctly as strings in SQL.
 
 const deviceCols = `id, sid, name, kind, secret_hash, created_at, created_by, last_used_at,

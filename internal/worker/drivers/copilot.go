@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/syre/internal/ids"
 )
 
 func init() {

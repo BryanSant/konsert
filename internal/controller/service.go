@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // FleetService is the shared application service used by REST API, MCP Server,
-// and the Built-in Orchestrator Chat.
+// and the Built-in Commander Chat.
 type FleetService struct {
 	store store.Store
 	hub   *Hub
@@ -46,13 +46,13 @@ type WorkerStatusView struct {
 	LastSeenAt     time.Time               `json:"last_seen_at"`
 	Metrics        *protocol.WorkerMetrics `json:"metrics,omitzero"`
 	Facts          *protocol.MachineFacts  `json:"facts,omitzero"`
-	// Version is the worker's konsertd build version ("" when unknown).
+	// Version is the worker's syred build version ("" when unknown).
 	Version string `json:"version,omitempty"`
-	// Launch is how the hub (re)starts this machine's konsertd ("", "local", "ssh");
+	// Launch is how the hub (re)starts this machine's syred ("", "local", "ssh");
 	// LaunchState/LaunchError report the last start attempt ("starting", "failed").
 	Launch string `json:"launch,omitempty"`
 	// Transport is how the machine reaches the hub: "ssh" (the hub attaches over SSH),
-	// "local" (the hub's own machine, over konsertd's socket) or "outbound" (konsertd
+	// "local" (the hub's own machine, over syred's socket) or "outbound" (syred
 	// dials the hub with its machine credential).
 	Transport   string     `json:"transport"`
 	SSHTarget   string     `json:"ssh_target,omitempty"`
@@ -60,7 +60,7 @@ type WorkerStatusView struct {
 	LaunchError string     `json:"launch_error,omitempty"`
 	LaunchAt    *time.Time `json:"launch_at,omitzero"`
 	// Restart is the outage of a hub-started daemon the hub cannot attach to: the host
-	// is unreachable, or konsertd is down and being restarted (nil while connected).
+	// is unreachable, or syred is down and being restarted (nil while connected).
 	Restart *WorkerRestartView `json:"restart,omitzero"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
@@ -334,7 +334,7 @@ type DispatchRequest struct {
 	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
 	// Title is a short name for the task shown in the live work views (default: the
 	// prompt's first line).
-	Title          string `json:"title,omitempty" jsonschema:"Short name for the task (max 80 chars), e.g. 'KON-2Q0CH: questions card on mobile'"`
+	Title          string `json:"title,omitempty" jsonschema:"Short name for the task (max 80 chars), e.g. 'SYR-2Q0CH: questions card on mobile'"`
 	Agent          string `json:"agent"`
 	Model          string `json:"model,omitempty"`
 	RepoPath       string `json:"repo_path"`
@@ -342,7 +342,7 @@ type DispatchRequest struct {
 	UseWorktree    *bool  `json:"use_worktree,omitzero"`
 	Prompt         string `json:"prompt"`
 	Mode           string `json:"mode,omitempty"`
-	Origin         string `json:"origin,omitempty"` // "orchestrator" | "direct" | "scratch"
+	Origin         string `json:"origin,omitempty"` // "commander" | "direct" | "scratch"
 	PermissionMode string `json:"permission_mode,omitempty"`
 	OrphanPolicy   string `json:"orphan_policy,omitempty"`
 	TimeoutSeconds *int   `json:"timeout_seconds,omitzero"`
@@ -479,7 +479,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	origin := req.Origin
 	if origin == "" {
-		origin = protocol.TaskOriginOrchestrator
+		origin = protocol.TaskOriginCommander
 	}
 	mode := req.Mode
 	if mode == "" {
@@ -951,7 +951,7 @@ func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionRes
 
 // cancelTask cancels a task with the cause in ctx. note (a veto reason) is added to the
 // audit message. A cancel by the user that no agent asked for places a hold on the
-// session so the orchestrator doesn't simply restart it.
+// session so the commander doesn't simply restart it.
 func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult, error) {
 	t, err := h.store.GetTask(ctx, taskID)
 	if err != nil {
@@ -1014,10 +1014,10 @@ func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult
 	return ActionResult{OK: true, TaskID: taskID, TaskSID: t.SID, Status: protocol.TaskStatusCanceled}, nil
 }
 
-// --- orchestrator.ContextProvider & daemon-first RPC helpers ---
+// --- commander.ContextProvider & daemon-first RPC helpers ---
 
 // BuildCompactContext produces a token-efficient (<~400 token) live snapshot of fleet facts,
-// taxonomy, active sessions, and persisted SQLite memory for the Orchestrator system prompt.
+// taxonomy, active sessions, and persisted SQLite memory for the Commander system prompt.
 func (s *FleetService) BuildCompactContext(ctx context.Context, sessionID string) string {
 	var b strings.Builder
 	fs, err := s.FleetStatus(ctx)
@@ -1086,7 +1086,7 @@ func (s *FleetService) BuildCompactContext(ctx context.Context, sessionID string
 	return b.String()
 }
 
-// ScanTempWorktrees deterministically scans one or all online machines via konsertd RPC (zero agent LLM calls).
+// ScanTempWorktrees deterministically scans one or all online machines via syred RPC (zero agent LLM calls).
 func (s *FleetService) ScanTempWorktrees(ctx context.Context, workerID, rootPath, query string) (map[string]any, error) {
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
@@ -1153,13 +1153,13 @@ func (s *FleetService) ScanTempWorktrees(ctx context.Context, workerID, rootPath
 	}, nil
 }
 
-// --- orchestrator.ToolExecutor implementation ---
+// --- commander.ToolExecutor implementation ---
 
-func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
-	return []orchestrator.ToolDef{
+func (s *FleetService) ToolDefinitions() []commander.ToolDef {
+	return []commander.ToolDef{
 		{
 			Name:        "fleet_status",
-			Description: "List all registered Konsert worker nodes, their online status, available coding agents, cached machine facts, isolation tier, permission mode, and active task counts.",
+			Description: "List all registered Syre worker nodes, their online status, available coding agents, cached machine facts, isolation tier, permission mode, and active task counts.",
 			Parameters: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -1202,7 +1202,7 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 		},
 		{
 			Name:        "scan_temp_worktrees",
-			Description: "Deterministic daemon RPC across one or all online machines to find .konsert-worktrees or temp worktrees matching a query (short-circuits no-op hosts at zero agent token cost).",
+			Description: "Deterministic daemon RPC across one or all online machines to find .syre-worktrees or temp worktrees matching a query (short-circuits no-op hosts at zero agent token cost).",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1214,7 +1214,7 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 		},
 		{
 			Name:        "cleanup_worktree",
-			Description: "Deterministic daemon RPC to cleanly remove a Konsert-managed git worktree on a remote machine without invoking any coding agent.",
+			Description: "Deterministic daemon RPC to cleanly remove a Syre-managed git worktree on a remote machine without invoking any coding agent.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1226,7 +1226,7 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 		},
 		{
 			Name:        "save_memory",
-			Description: "Persist a concise fleet, project, or session note in SQLite so the Orchestrator remembers decisions and active bindings across context resets.",
+			Description: "Persist a concise fleet, project, or session note in SQLite so the Commander remembers decisions and active bindings across context resets.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1239,7 +1239,7 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 		},
 		{
 			Name:        "recall_memory",
-			Description: "Query persisted Orchestrator fleet/project/session memory entries from SQLite.",
+			Description: "Query persisted Commander fleet/project/session memory entries from SQLite.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -1370,8 +1370,8 @@ func (s *FleetService) ToolDefinitions() []orchestrator.ToolDef {
 }
 
 func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsontext.Value) (any, error) {
-	// Tool calls made by the Orchestrator LLM are audited as "orchestrator".
-	ctx = withDefaultAuditActor(ctx, auditSourceOrchestrator, auditSourceOrchestrator)
+	// Tool calls made by the Commander LLM are audited as "commander".
+	ctx = withDefaultAuditActor(ctx, auditSourceCommander, auditSourceCommander)
 	switch name {
 	case "fleet_status":
 		return s.FleetStatus(ctx)

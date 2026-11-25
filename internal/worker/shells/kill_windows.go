@@ -7,7 +7,7 @@ import "golang.org/x/sys/windows"
 type terminateKiller struct{}
 
 // OSKiller terminates processes with TerminateProcess (Windows has no gentle signal for
-// console processes that konsertd does not own, so Terminate and Kill are the same).
+// console processes that syred does not own, so Terminate and Kill are the same).
 func OSKiller() Killer { return terminateKiller{} }
 
 func (terminateKiller) Terminate(pid int) error { return terminate(pid) }

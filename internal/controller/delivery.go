@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Event delivery (PRD §5.8a): user actions, holds, requests and vetoes reach
-//   - the orchestrator chat as fleet events: when its work is affected and it is idle, a
+//   - the commander chat as fleet events: when its work is affected and it is idle, a
 //     turn starts with a concise system note;
 //   - every affected agent chat as a note prepended before its next prompt;
 //   - any agent on demand through the recent_events MCP tool.
@@ -21,14 +21,14 @@ import (
 // so nothing is lost across hub restarts and nothing is told twice.
 
 // deliveryDebounce batches events that arrive together (a cancel, its status change and
-// the hold it placed) into one orchestrator turn.
+// the hold it placed) into one commander turn.
 var deliveryDebounce = 1500 * time.Millisecond
 
 // maxNoteLines bounds a note.
 const maxNoteLines = 12
 
-// eventNotePrefix marks Konsert's notes in prompts.
-const eventNotePrefix = "[Konsert]"
+// eventNotePrefix marks Syre's notes in prompts.
+const eventNotePrefix = "[Syre]"
 
 type deliveryState struct {
 	mu      sync.Mutex
@@ -36,7 +36,7 @@ type deliveryState struct {
 }
 
 // deliverFleetEvent schedules delivery of a newly recorded event. It never blocks: the
-// orchestrator check runs on a background goroutine after a short debounce.
+// commander check runs on a background goroutine after a short debounce.
 func (h *Hub) deliverFleetEvent(e store.FleetEvent) {
 	if !eventRelevant(e) {
 		return
@@ -63,7 +63,7 @@ func (h *Hub) scheduleDelivery() {
 		h.delivery.mu.Lock()
 		h.delivery.pending = false
 		h.delivery.mu.Unlock()
-		h.notifyOrchestrators(ctx)
+		h.notifyCommanders(ctx)
 	})
 	if !started {
 		h.delivery.mu.Lock()
@@ -80,7 +80,7 @@ func eventRelevant(e store.FleetEvent) bool {
 	case store.EventKindHold, store.EventKindRequest, store.EventKindVeto:
 		return true
 	case EventKindOverride:
-		// The orchestrator hears the user's decision on its override request and when an
+		// The commander hears the user's decision on its override request and when an
 		// approved one expires.
 		return e.Action == store.OverrideApproved || e.Action == store.OverrideDenied || e.Action == store.OverrideExpired
 	case store.EventKindAction:
@@ -92,7 +92,7 @@ func eventRelevant(e store.FleetEvent) bool {
 	return false
 }
 
-// chatAffected reports whether event e concerns chat cs: for the orchestrator (fleet
+// chatAffected reports whether event e concerns chat cs: for the commander (fleet
 // tools) every relevant event; for other agent chats, relevant events on their machine
 // or about the chat itself. Events the chat caused itself are never echoed back.
 func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
@@ -100,11 +100,11 @@ func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
 		return false
 	}
 	if e.Kind == EventKindOverride {
-		// Overrides are the orchestrator's business only.
+		// Overrides are the commander's business only.
 		return cs.FleetTools
 	}
 	if cs.FleetTools {
-		// The requesting chat's own request stays with it; the orchestrator hears about
+		// The requesting chat's own request stays with it; the commander hears about
 		// everyone else's.
 		return true
 	}
@@ -114,15 +114,15 @@ func chatAffected(cs store.ChatSession, e store.FleetEvent) bool {
 	return e.WorkerID != "" && e.WorkerID == cs.WorkerID
 }
 
-// orchestratorWork is what an orchestrator chat is responsible for: the tasks it
+// commanderWork is what a commander chat is responsible for: the tasks it
 // dispatched that are still live, and the machines they run on.
-type orchestratorWork struct {
+type commanderWork struct {
 	tasks    map[string]bool
 	machines map[string]bool
 }
 
-func (h *Hub) orchestratorWorkOf(ctx context.Context, chatID string) orchestratorWork {
-	w := orchestratorWork{tasks: map[string]bool{}, machines: map[string]bool{}}
+func (h *Hub) commanderWorkOf(ctx context.Context, chatID string) commanderWork {
+	w := commanderWork{tasks: map[string]bool{}, machines: map[string]bool{}}
 	tasks, err := h.store.ListTasks(ctx, "", "", 500)
 	if err != nil {
 		return w
@@ -139,15 +139,15 @@ func (h *Hub) orchestratorWorkOf(ctx context.Context, chatID string) orchestrato
 	return w
 }
 
-// affectsWork reports whether an event touches an orchestrator's work (which starts a
+// affectsWork reports whether an event touches a commander's work (which starts a
 // turn rather than waiting for its next prompt).
-func (w orchestratorWork) affects(chatID string, e store.FleetEvent) bool {
+func (w commanderWork) affects(chatID string, e store.FleetEvent) bool {
 	if e.Kind == EventKindOverride {
 		// A decision on (or the expiry of) its own override request.
 		return e.ChatID == chatID
 	}
 	if e.ChatID == chatID && e.TaskID == "" {
-		// The user acted on the orchestrator chat itself (stopped, suspended, vetoed it):
+		// The user acted on the commander chat itself (stopped, suspended, vetoed it):
 		// starting a turn would defy them. It hears about it before its next prompt.
 		return false
 	}
@@ -164,8 +164,8 @@ func (w orchestratorWork) affects(chatID string, e store.FleetEvent) bool {
 	return false
 }
 
-// orchestratorChats lists the agent chats with fleet tools.
-func (h *Hub) orchestratorChats(ctx context.Context) []store.ChatSession {
+// commanderChats lists the agent chats with fleet tools.
+func (h *Hub) commanderChats(ctx context.Context) []store.ChatSession {
 	chats, err := h.store.ListChatSessions(ctx, 500)
 	if err != nil {
 		return nil
@@ -188,10 +188,10 @@ func chatIdle(status string) bool {
 	return false
 }
 
-// notifyOrchestrators starts a turn in every idle orchestrator chat whose work is
+// notifyCommanders starts a turn in every idle commander chat whose work is
 // affected by events it hasn't been told about yet.
-func (h *Hub) notifyOrchestrators(ctx context.Context) {
-	for _, cs := range h.orchestratorChats(ctx) {
+func (h *Hub) notifyCommanders(ctx context.Context) {
+	for _, cs := range h.commanderChats(ctx) {
 		if !chatIdle(cs.Status) || cs.WorkerID == "" || h.workerConnFor(cs.WorkerID) == nil {
 			continue
 		}
@@ -199,7 +199,7 @@ func (h *Hub) notifyOrchestrators(ctx context.Context) {
 		if len(events) == 0 {
 			continue
 		}
-		work := h.orchestratorWorkOf(ctx, cs.ID)
+		work := h.commanderWorkOf(ctx, cs.ID)
 		affected := false
 		for _, e := range events {
 			if work.affects(cs.ID, e) {
@@ -218,12 +218,12 @@ func (h *Hub) notifyOrchestrators(ctx context.Context) {
 		}
 		note += "\nThe user is in charge: don't undo or work around their actions. If this affects work you started, tell the user what is paused or blocked and ask (ask_user) whether to restart, wait or change plans."
 		if err := h.sendAgentChat(dctx, cs, chatSendRequest{SessionID: cs.ID, Content: note, TurnID: turnID}); err != nil {
-			h.logger.Warn("orchestrator notification failed", "chat_id", cs.ID, "err", err)
+			h.logger.Warn("commander notification failed", "chat_id", cs.ID, "err", err)
 			continue
 		}
 		h.recordFleetEvent(dctx, store.FleetEvent{
-			Kind: store.EventKindNotice, Action: "orchestrator_turn", ChatID: cs.ID, WorkerID: cs.WorkerID,
-			Summary: fmt.Sprintf("Konsert told the orchestrator (chat %s) about %d event(s) and started a turn", cs.SID, len(events)),
+			Kind: store.EventKindNotice, Action: "commander_turn", ChatID: cs.ID, WorkerID: cs.WorkerID,
+			Summary: fmt.Sprintf("Syre told the commander (chat %s) about %d event(s) and started a turn", cs.SID, len(events)),
 		})
 	}
 }
@@ -291,7 +291,7 @@ func (h *Hub) formatNote(ctx context.Context, events []store.FleetEvent) string 
 	for _, e := range events[start:] {
 		fmt.Fprintf(&b, "- %s %s\n", e.CreatedAt.Local().Format("15:04"), h.eventLine(ctx, e))
 	}
-	b.WriteString("These were deliberate actions by the user (or Konsert on their behalf), not failures: don't investigate them; if something you depend on is affected, stop and ask the user before acting.")
+	b.WriteString("These were deliberate actions by the user (or Syre on their behalf), not failures: don't investigate them; if something you depend on is affected, stop and ask the user before acting.")
 	return b.String()
 }
 
@@ -365,7 +365,7 @@ type RecentEvent struct {
 }
 
 // RecentEvents answers recent_events. forChat, when set, restricts the default view to
-// events that concern that chat (its machine, itself, or everything for the orchestrator).
+// events that concern that chat (its machine, itself, or everything for the commander).
 func (h *Hub) RecentEvents(ctx context.Context, in RecentEventsInput, forChat *store.ChatSession) (RecentEventsResult, error) {
 	limit := in.Limit
 	if limit <= 0 {

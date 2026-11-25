@@ -42,7 +42,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
  * output unless the user scrolled up, then offers "Jump to latest".
  */
 @Component({
-  selector: 'ks-chat-transcript',
+  selector: 'sy-chat-transcript',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, MarkdownViewComponent, ToolCallCardComponent, ElicitationCardComponent, ErrorCardComponent],
@@ -63,7 +63,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
       <div class="max-w-3xl mx-auto space-y-4">
         @if (compactedAt()) {
           <p
-            class="flex items-start gap-2 rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-1)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ks-text-muted)]"
+            class="flex items-start gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] px-3 py-2 text-[12px] leading-relaxed text-[var(--sy-text-muted)]"
             data-testid="transcript-compacted"
             role="note"
           >
@@ -101,13 +101,13 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
                 class="text-[13.5px] leading-relaxed"
                 [class.pl-3]="questionTurns().has(it.turnId)"
                 [class.border-l-2]="questionTurns().has(it.turnId)"
-                [class.border-[var(--ks-amber)]]="questionTurns().has(it.turnId)"
+                [class.border-[var(--sy-amber)]]="questionTurns().has(it.turnId)"
                 data-testid="assistant-message"
                 [attr.data-streaming]="it.streaming"
               >
                 <app-markdown-view [content]="it.text" />
                 @if (it.streaming) {
-                  <span class="inline-block h-3.5 w-1.5 translate-y-0.5 rounded-sm bg-[var(--ks-text-secondary)] ks-pulse" aria-hidden="true"></span>
+                  <span class="inline-block h-3.5 w-1.5 translate-y-0.5 rounded-sm bg-[var(--sy-text-secondary)] sy-pulse" aria-hidden="true"></span>
                 }
               </div>
             }
@@ -115,7 +115,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
               <div class="text-[12px]">
                 <button
                   type="button"
-                  class="ks-btn ks-btn-sm -ml-2 gap-1.5 text-[var(--ks-text-muted)]"
+                  class="sy-btn sy-btn-sm -ml-2 gap-1.5 text-[var(--sy-text-muted)]"
                   [attr.aria-expanded]="openThoughts().has(it.key)"
                   (click)="toggleThought(it.key)"
                 >
@@ -124,16 +124,16 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
                   <span class="transition-transform" [class.rotate-90]="openThoughts().has(it.key)"><app-icon name="chevron-right" [size]="10" /></span>
                 </button>
                 @if (openThoughts().has(it.key)) {
-                  <div class="mt-1 border-l-2 border-[var(--ks-hairline)] pl-3 text-[12.5px] leading-relaxed text-[var(--ks-text-secondary)] whitespace-pre-wrap break-words">{{ it.text }}</div>
+                  <div class="mt-1 border-l-2 border-[var(--sy-hairline)] pl-3 text-[12.5px] leading-relaxed text-[var(--sy-text-secondary)] whitespace-pre-wrap break-words">{{ it.text }}</div>
                 }
               </div>
             }
             @case ('tool') {
-              <ks-tool-call-card [call]="it.call" />
+              <sy-tool-call-card [call]="it.call" />
             }
             @case ('plan') {
-              <div class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-1)] px-3.5 py-3" data-testid="plan">
-                <div class="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--ks-text-muted)]">
+              <div class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] px-3.5 py-3" data-testid="plan">
+                <div class="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--sy-text-muted)]">
                   <app-icon name="list-todo" [size]="12" />
                   Plan
                 </div>
@@ -143,24 +143,24 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
                       <span class="mt-0.5 shrink-0">
                         @switch (p.status) {
                           @case ('completed') {
-                            <span class="text-[var(--ks-green)]" role="img" aria-label="Done"><app-icon name="check-circle" [size]="13" /></span>
+                            <span class="text-[var(--sy-green)]" role="img" aria-label="Done"><app-icon name="check-circle" [size]="13" /></span>
                           }
                           @case ('in_progress') {
-                            <span class="ks-spinner text-[var(--ks-blue)] mt-0.5" style="width: 11px; height: 11px" role="img" aria-label="In progress"></span>
+                            <span class="sy-spinner text-[var(--sy-blue)] mt-0.5" style="width: 11px; height: 11px" role="img" aria-label="In progress"></span>
                           }
                           @default {
-                            <span class="mt-[3px] block h-2.5 w-2.5 rounded-full border border-[var(--ks-text-muted)]" role="img" aria-label="To do"></span>
+                            <span class="mt-[3px] block h-2.5 w-2.5 rounded-full border border-[var(--sy-text-muted)]" role="img" aria-label="To do"></span>
                           }
                         }
                       </span>
-                      <span [class.text-[var(--ks-text-muted)]]="p.status === 'completed'" [class.line-through]="p.status === 'completed'">{{ p.text }}</span>
+                      <span [class.text-[var(--sy-text-muted)]]="p.status === 'completed'" [class.line-through]="p.status === 'completed'">{{ p.text }}</span>
                     </li>
                   }
                 </ul>
               </div>
             }
             @case ('elicitation') {
-              <ks-elicitation-card
+              <sy-elicitation-card
                 [item]="it"
                 [accountLabel]="accountLabel()"
                 [relogin]="relogin()"
@@ -171,7 +171,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
             }
             @case ('error') {
               @if (!it.dismissed) {
-                <ks-error-card
+                <sy-error-card
                   [error]="it.error"
                   [agent]="agent()"
                   [accountLabel]="accountLabel()"
@@ -188,9 +188,9 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
             }
             @case ('turn_end') {
               @if (it.repliedWithQuestion || it.usage || it.stopReason !== 'end_turn') {
-                <div class="flex flex-wrap items-center gap-2 text-[11px] text-[var(--ks-text-muted)]" data-testid="turn-end">
+                <div class="flex flex-wrap items-center gap-2 text-[11px] text-[var(--sy-text-muted)]" data-testid="turn-end">
                   @if (it.repliedWithQuestion) {
-                    <span class="inline-flex items-center gap-1 rounded-full bg-[var(--ks-amber-soft)] px-2 py-0.5 font-medium text-[#f0c27a]" data-testid="replied-question">
+                    <span class="inline-flex items-center gap-1 rounded-full bg-[var(--sy-amber-soft)] px-2 py-0.5 font-medium text-[#f0c27a]" data-testid="replied-question">
                       <app-icon name="question" [size]="11" />
                       Replied with a question
                     </span>
@@ -212,19 +212,19 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
         }
 
         @if (status() === 'working' && !hasStreaming()) {
-          <div class="flex items-center gap-2 text-[12px] text-[var(--ks-text-muted)]" data-testid="working-indicator">
-            <span class="ks-spinner" style="width: 10px; height: 10px"></span>
+          <div class="flex items-center gap-2 text-[12px] text-[var(--sy-text-muted)]" data-testid="working-indicator">
+            <span class="sy-spinner" style="width: 10px; height: 10px"></span>
             {{ subtitle() || 'Working…' }}
           </div>
         } @else if (status() === 'starting') {
-          <div class="flex items-center gap-2 text-[12px] text-[var(--ks-text-muted)]">
-            <span class="ks-spinner" style="width: 10px; height: 10px"></span>
+          <div class="flex items-center gap-2 text-[12px] text-[var(--sy-text-muted)]">
+            <span class="sy-spinner" style="width: 10px; height: 10px"></span>
             Starting {{ accountLabel() || agent() || 'the agent' }}…
           </div>
         }
 
         @for (el of pendingCards(); track el.key) {
-          <ks-elicitation-card
+          <sy-elicitation-card
             [item]="el"
             [accountLabel]="accountLabel()"
             [relogin]="relogin()"
@@ -239,7 +239,7 @@ export function usageLine(u: AgentTokenUsage | undefined): string {
     @if (!stuck()) {
       <button
         type="button"
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 ks-btn ks-btn-sm bg-[var(--ks-surface-3)] text-[var(--ks-text)] shadow-[var(--ks-shadow-popover)] rounded-full"
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 sy-btn sy-btn-sm bg-[var(--sy-surface-3)] text-[var(--sy-text)] shadow-[var(--sy-shadow-popover)] rounded-full"
         data-testid="jump-latest"
         (click)="jumpToLatest()"
       >
@@ -259,7 +259,7 @@ export class ChatTranscriptComponent {
   readonly accountId = input('');
   readonly relogin = input<AgentRelogin | undefined>(undefined);
   readonly alternatives = input<AgentAccount[]>([]);
-  /** Retention markers of the chat (KON-CSCWP): when detailed events were compacted and
+  /** Retention markers of the chat (SYR-CSCWP): when detailed events were compacted and
    *  the age cutoff used. The transcript itself is kept. */
   readonly compactedAt = input<string | null | undefined>(null);
   readonly compactedBefore = input<string | null | undefined>(null);

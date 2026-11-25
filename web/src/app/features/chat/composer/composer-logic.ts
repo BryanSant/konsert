@@ -156,5 +156,5 @@ export function modelTriggerText(model: AgentModel | null | undefined, effortId:
 
 /** "claude2" -> agent icon name. */
 export function agentIcon(agent: string): string {
-  return agent || 'orchestrator';
+  return agent || 'commander';
 }

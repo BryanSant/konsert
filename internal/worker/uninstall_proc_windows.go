@@ -10,8 +10,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// otherKonsertdRunning reports whether another konsertd.exe process is currently running.
-func otherKonsertdRunning(_ string) (bool, error) {
+// otherSyredRunning reports whether another syred.exe process is currently running.
+func otherSyredRunning(_ string) (bool, error) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return false, err
@@ -26,7 +26,7 @@ func otherKonsertdRunning(_ string) (bool, error) {
 	parent := uint32(os.Getppid())
 	for {
 		if pe.ProcessID != self && pe.ProcessID != parent {
-			if strings.EqualFold(windows.UTF16ToString(pe.ExeFile[:]), "konsertd.exe") {
+			if strings.EqualFold(windows.UTF16ToString(pe.ExeFile[:]), "syred.exe") {
 				return true, nil
 			}
 		}

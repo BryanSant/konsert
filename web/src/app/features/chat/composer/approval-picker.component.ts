@@ -10,21 +10,21 @@ let pickerId = 0;
 
 /** Shield chip + menu of the account's own approval modes (icon, label, description). */
 @Component({
-  selector: 'ks-approval-picker',
+  selector: 'sy-approval-picker',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PopoverComponent, PopoverTriggerDirective, ChipTriggerComponent, IconComponent, TooltipDirective],
   template: `
     @if (modes().length > 0) {
-      <ks-popover label="Approval mode" placement="top-start" panelClass="w-[330px]" [(open)]="open">
+      <sy-popover label="Approval mode" placement="top-start" panelClass="w-[330px]" [(open)]="open">
         <button
-          ksChip
-          ksPopoverTrigger
+          syChip
+          syPopoverTrigger
           data-testid="approval-chip"
           [tone]="tone()"
           [disabled]="disabled()"
           [attr.aria-label]="'Approval mode: ' + (current()?.label ?? 'default')"
-          [ksTooltip]="current()?.label ?? 'Approval mode'"
+          [syTooltip]="current()?.label ?? 'Approval mode'"
         >
           <app-icon [name]="icon()" [size]="14" />
           <span class="hidden sm:inline max-w-[130px] truncate">{{ current()?.label }}</span>
@@ -38,7 +38,7 @@ let pickerId = 0;
           <button
             type="button"
             role="menuitemradio"
-            class="ks-menu-item"
+            class="sy-menu-item"
             [attr.aria-checked]="m.id === selectedId()"
             [attr.aria-disabled]="off ? 'true' : null"
             [attr.aria-describedby]="off ? reasonId(m) : null"
@@ -46,16 +46,16 @@ let pickerId = 0;
             [attr.data-disabled]="off ? 'true' : null"
             (click)="choose(m)"
           >
-            <span class="mt-0.5 shrink-0" [class.text-[var(--ks-amber)]]="amber" [class.text-[var(--ks-text-secondary)]]="!amber">
+            <span class="mt-0.5 shrink-0" [class.text-[var(--sy-amber)]]="amber" [class.text-[var(--sy-text-secondary)]]="!amber">
               <app-icon [name]="iconOf(m)" [size]="15" />
             </span>
             <span class="flex-1 min-w-0">
-              <span class="ks-menu-label block" [class.text-[#f0c27a]]="amber">{{ m.label }}</span>
+              <span class="sy-menu-label block" [class.text-[#f0c27a]]="amber">{{ m.label }}</span>
               @if (m.description) {
-                <span class="ks-menu-desc block">{{ m.description }}</span>
+                <span class="sy-menu-desc block">{{ m.description }}</span>
               }
               @if (off) {
-                <span class="ks-menu-reason" [id]="reasonId(m)" data-testid="approval-disabled-reason">
+                <span class="sy-menu-reason" [id]="reasonId(m)" data-testid="approval-disabled-reason">
                   <app-icon name="lock" [size]="11" />
                   <span>{{ m.disabled }}</span>
                 </span>
@@ -63,15 +63,15 @@ let pickerId = 0;
             </span>
             <span class="w-3 shrink-0 self-center flex justify-center">
               @if (m.id === selectedId()) {
-                <span class="h-1.5 w-1.5 rounded-full bg-[var(--ks-text)]" aria-hidden="true"></span>
+                <span class="h-1.5 w-1.5 rounded-full bg-[var(--sy-text)]" aria-hidden="true"></span>
               }
             </span>
           </button>
         }
         @if (note()) {
-          <div class="px-2.5 pt-1.5 pb-1 text-[11px] text-[var(--ks-text-muted)]">{{ note() }}</div>
+          <div class="px-2.5 pt-1.5 pb-1 text-[11px] text-[var(--sy-text-muted)]">{{ note() }}</div>
         }
-      </ks-popover>
+      </sy-popover>
     }
   `,
 })
@@ -96,7 +96,7 @@ export class ApprovalPickerComponent {
   }
 
   reasonId(m: AgentApprovalMode): string {
-    return `ks-approval-${this.uid}-${m.id}-reason`;
+    return `sy-approval-${this.uid}-${m.id}-reason`;
   }
   readonly tone = computed(() => approvalTone(this.current()));
   readonly icon = computed(() => approvalIcon(this.current()));

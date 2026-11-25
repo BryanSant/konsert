@@ -14,8 +14,8 @@ import (
 
 // childEnv makes the test binary act as the elevated child: ShellExecuteEx passes the
 // parent's environment through, and the child gets only the pipe name on its command
-// line, as konsertd's would.
-const childEnv = "KONSERT_ELEVATE_TEST_CHILD"
+// line, as syred's would.
+const childEnv = "SYRE_ELEVATE_TEST_CHILD"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(childEnv) != "" {
@@ -110,8 +110,8 @@ func TestPipeIsSingleInstanceAndUserOnly(t *testing.T) {
 }
 
 func TestOpenChildPipeRejectsOtherNames(t *testing.T) {
-	for _, n := range []string{`\\.\pipe\other`, `\\server\pipe\konsertd-elevate-00000000000000000000000000000000`, `C:\x`, pipePrefix + "ZZ"} {
-		if _, err := OpenChildPipe(n); err == nil || !strings.Contains(err.Error(), "not a konsertd elevation pipe") {
+	for _, n := range []string{`\\.\pipe\other`, `\\server\pipe\syred-elevate-00000000000000000000000000000000`, `C:\x`, pipePrefix + "ZZ"} {
+		if _, err := OpenChildPipe(n); err == nil || !strings.Contains(err.Error(), "not a syred elevation pipe") {
 			t.Errorf("%s: %v", n, err)
 		}
 	}

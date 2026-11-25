@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
-	"github.com/BryanSant/konsert/internal/worker/spool"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 

@@ -55,12 +55,12 @@ function ev(id: number, over: Partial<FleetEvent> = {}): FleetEvent {
 
 describe('control models', () => {
   it('describes causes from the viewer’s perspective', () => {
-    expect(causeLine('canceled', userUI)).toBe('Canceled by you via the Konsert UI');
-    expect(causeLine('suspended', { actor: 'orchestrator', confidence: 'certain' })).toBe(
-      'Suspended by the orchestrator',
+    expect(causeLine('canceled', userUI)).toBe('Canceled by you via the Syre UI');
+    expect(causeLine('suspended', { actor: 'commander', confidence: 'certain' })).toBe(
+      'Suspended by the commander',
     );
     expect(causeLine('failed', { actor: 'user', source: 'terminal', confidence: 'likely' })).toBe(
-      'Failed by you via a Konsert terminal (likely)',
+      'Failed by you via a Syre terminal (likely)',
     );
     expect(causeLine('canceled', undefined)).toBe('');
   });

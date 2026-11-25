@@ -1,5 +1,5 @@
 import { Hold } from '../models/control.models';
-import { ChatSession, DEFAULT_PROJECT_ID, GitSummary, Project, Repo, Task, Worker } from '../models/konsert.models';
+import { ChatSession, DEFAULT_PROJECT_ID, GitSummary, Project, Repo, Task, Worker } from '../models/syre.models';
 import { QuestionView, isPending } from '../models/question.models';
 
 /**
@@ -36,7 +36,7 @@ export interface WorkItem {
   live: boolean;
   /** The machine it runs on stopped reporting while the work was live. */
   stale: boolean;
-  /** Started outside Konsert (the user's own agent session, seen on the machine): read-only. */
+  /** Started outside Syre (the user's own agent session, seen on the machine): read-only. */
   observed: boolean;
   origin: string;
   goal: string;
@@ -229,7 +229,7 @@ export function buildWorkItems(inp: WorkInputs): WorkItem[] {
     else if (hold) control = 'HELD';
     else if (t.status === 'waiting_input' || questions > 0) control = 'ASKING';
     else if (t.status === 'queued') control = 'QUEUED';
-    else if (t.origin === 'orchestrator' || t.parent_chat_id) control = 'ORCH';
+    else if (t.origin === 'commander' || t.parent_chat_id) control = 'ORCH';
     else control = 'AUTO';
     const proj = taskProject(t, inp.projects, inp.repos);
     const goal = firstLine(t.prompt) || (isShell(t) ? 'Terminal' : `${t.agent} session`);
@@ -250,7 +250,7 @@ export function buildWorkItems(inp: WorkInputs): WorkItem[] {
       live,
       stale,
       observed,
-      origin: t.origin || 'orchestrator',
+      origin: t.origin || 'commander',
       goal,
       now: taskNow(t, w),
       questions,
@@ -264,7 +264,7 @@ export function buildWorkItems(inp: WorkInputs): WorkItem[] {
   }
 
   for (const c of inp.chats) {
-    // Fleet-tools chats are the orchestrator conversation (its own pinned tab).
+    // Fleet-tools chats are the commander conversation (its own pinned tab).
     if (c.fleet_tools || !(c.backend === 'agent' || (!c.backend && c.agent))) continue;
     const status = inp.chatStatus?.(c.id) || c.status || 'idle';
     const w = c.worker_id ? inp.workers[c.worker_id] : undefined;

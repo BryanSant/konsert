@@ -10,11 +10,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/forge"
-	"github.com/BryanSant/konsert/internal/secrets"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/forge"
+	"github.com/BryanSant/syre/internal/secrets"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 )
 
 type noopCredRunner struct{}

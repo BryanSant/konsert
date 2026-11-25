@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func mustNoDanglingTaskRefs(t *testing.T, st *SQLiteStore) {

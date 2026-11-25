@@ -10,16 +10,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/linkwatch"
-	"github.com/BryanSant/konsert/internal/mcprelay"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/linkwatch"
+	"github.com/BryanSant/syre/internal/mcprelay"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
 // DisconnectWorker closes any active WebSocket session for workerID with WSCloseWorkerRemoved
-// so the remote konsertd exits cleanly instead of auto-reconnecting.
+// so the remote syred exits cleanly instead of auto-reconnecting.
 func (h *Hub) DisconnectWorker(workerID string) {
 	h.disconnectWorkerWith(workerID, protocol.WSCloseWorkerRemoved, "worker removed from fleet")
 }
@@ -40,7 +40,7 @@ func (h *Hub) disconnectWorkerWith(workerID string, code int, reason string) {
 	}
 }
 
-// ServeWorkerConn handles a single authenticated konsertd WebSocket connection until disconnect.
+// ServeWorkerConn handles a single authenticated syred WebSocket connection until disconnect.
 func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	conn.SetReadLimit(20 * 1024 * 1024)
 	connCtx, cancel := context.WithCancel(ctx)
@@ -69,20 +69,20 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	// A connection is bound to exactly one machine (its credential's, or the one the
 	// hub attached to over SSH or the local socket): it cannot register as another.
 	if b, ok := boundMachineFrom(ctx); ok && b.workerID != hello.Worker.ID {
-		h.logger.Warn("rejecting konsertd: hello names another machine",
+		h.logger.Warn("rejecting syred: hello names another machine",
 			"bound", b.workerID, "credential", b.credSID, "via", b.via, "claimed", hello.Worker.ID)
 		_ = conn.Close(websocket.StatusPolicyViolation, "connection belongs to another machine")
 		return
 	}
 
-	// hello.Worker.ID is konsertd's persistent UUID: the workers.id. identityMu keeps two
+	// hello.Worker.ID is syred's persistent UUID: the workers.id. identityMu keeps two
 	// simultaneous hellos for the same identity from both taking the slot.
 	h.identityMu.Lock()
 	if !h.supersedeExistingConn(ctx, hello.Worker.ID) {
 		h.identityMu.Unlock()
-		h.logger.Warn("rejecting duplicate konsertd connection; the existing one is still alive",
+		h.logger.Warn("rejecting duplicate syred connection; the existing one is still alive",
 			"worker_id", hello.Worker.ID, "name", hello.Worker.Name)
-		_ = conn.Close(websocket.StatusTryAgainLater, "another konsertd with this identity is connected")
+		_ = conn.Close(websocket.StatusTryAgainLater, "another syred with this identity is connected")
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		Ctx:        connCtx,
 		Handler:    h.relayedChatMCPHandler(wc.id),
 		Send:       func(ctx context.Context, t string, p any) error { return h.sendWorkerJSONCtx(ctx, wc, t, p) },
-		RemoteAddr: "konsertd:" + wc.id,
+		RemoteAddr: "syred:" + wc.id,
 	}
 
 	// Register worker in SQLite and Hub.
@@ -157,11 +157,11 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	if prevConn != nil && prevConn != wc {
 		// The previous connection failed its liveness ping, so it is a dead or
 		// half-open socket. Close it with a normal, reconnectable code: 4001
-		// (WSCloseWorkerRemoved) would make konsertd exit for good. The close
+		// (WSCloseWorkerRemoved) would make syred exit for good. The close
 		// handshake can block for seconds on a dead peer, so run it off this path.
 		go func(old *workerConn) {
 			if old.conn != nil {
-				_ = old.conn.Close(websocket.StatusNormalClosure, "superseded by newer konsertd connection")
+				_ = old.conn.Close(websocket.StatusNormalClosure, "superseded by newer syred connection")
 			}
 			old.cancel()
 		}(prevConn)
@@ -253,8 +253,8 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	// Drain any queued tasks that can now run on this worker.
 	h.kickScheduler()
 
-	// Liveness (KON-G8WA3): ping when the hub has sent nothing for LinkQuiet; a link on
-	// which nothing (data or pong) arrived for LinkDead is dead. konsertd sends a vitals
+	// Liveness (SYR-G8WA3): ping when the hub has sent nothing for LinkQuiet; a link on
+	// which nothing (data or pong) arrived for LinkDead is dead. syred sends a vitals
 	// heartbeat whenever it is quiet, so a live daemon is always heard from.
 	lv := linkwatch.New(linkwatch.Config{QuietAfter: h.LinkQuiet, DeadAfter: h.LinkDead}, nil)
 	var dead atomic.Bool
@@ -495,7 +495,7 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 	// must not recreate its row (a read-then-upsert here left ghost workers).
 	if err := h.store.TouchWorker(ctx, wc.id, time.Now().UTC()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			// Removed while this connection was still registering: tell konsertd to stop.
+			// Removed while this connection was still registering: tell syred to stop.
 			h.logger.Info("heartbeat from a removed worker; closing its connection", "worker_id", wc.id)
 			_ = wc.conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
 			wc.cancel()
@@ -715,7 +715,7 @@ func (h *Hub) RequestWorker(ctx context.Context, workerID, msgType string, paylo
 	wc, ok := h.workers[workerID]
 	h.mu.RUnlock()
 	if !ok {
-		// Callers (REST, MCP, orchestrator tools) may name the worker by its sid.
+		// Callers (REST, MCP, commander tools) may name the worker by its sid.
 		h.mu.RLock()
 		wc, ok = h.workers[resolveRef(ctx, h.store, ids.Machine, workerID)]
 		h.mu.RUnlock()
@@ -770,7 +770,7 @@ func (h *Hub) sendWorkerJSONCtx(ctx context.Context, wc *workerConn, msgType str
 	}
 }
 
-// relayedChatMCPHandler serves the per-chat MCP requests konsertd relays over
+// relayedChatMCPHandler serves the per-chat MCP requests syred relays over
 // workerID's link.
 func (h *Hub) relayedChatMCPHandler(workerID string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

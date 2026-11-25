@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // DefaultShellInterval is how often the shells under hosted sessions are counted (one

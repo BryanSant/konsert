@@ -6,7 +6,7 @@ import { expect, Locator, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * The mode UI (KON-88NN9): users land in Command on desktop and in the needs-you inbox on a
+ * The mode UI (SYR-88NN9): users land in Command on desktop and in the needs-you inbox on a
  * phone. Command has one Needs-you area (the right rail); Work is the board with the review
  * panel; Fleet has the machine rows with their heat strips and the queue; Wall tiles stream and stay put.
  * Runs against the suite's hub with the mock worker.
@@ -21,7 +21,7 @@ interface E2EEnv {
   workdir: string;
 }
 
-const QUESTION = 'Accept the shortened exit criteria on KON-2Q0CH?';
+const QUESTION = 'Accept the shortened exit criteria on SYR-2Q0CH?';
 
 function loadEnv(): E2EEnv {
   return JSON.parse(fs.readFileSync(E2E_STATE_FILE, 'utf8')) as E2EEnv;
@@ -42,7 +42,7 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
       const res = await fetch(path, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
@@ -60,7 +60,7 @@ async function dispatchWaiting(page: Page, env: E2EEnv, title: string): Promise<
     repo_path: env.workdir,
     prompt: `${title}\nWAIT_INPUT`,
     mode: 'interactive',
-    origin: 'orchestrator',
+    origin: 'commander',
   });
   let sid = '';
   await expect
@@ -77,8 +77,8 @@ async function cancel(page: Page, id: string): Promise<void> {
   await api(page, 'POST', `/api/tasks/${id}/cancel`).catch(() => undefined);
 }
 
-/** Starts a mock agent chat in the orchestrator tab and has it ask the canned question. */
-async function askFromOrchestrator(page: Page): Promise<string> {
+/** Starts a mock agent chat in the commander tab and has it ask the canned question. */
+async function askFromCommander(page: Page): Promise<string> {
   const chat = page.locator('app-chat-view');
   await chat.getByTestId('new-chat').click();
   await chat.getByTestId('account-chip').click();
@@ -114,10 +114,10 @@ test.describe('Mode UI (desktop)', () => {
     await expect(page.getByTestId('fleet-state')).toHaveText('FLEET: RUNNING');
     await expect(page.getByTestId('pause-everything')).toBeVisible();
 
-    // The orchestrator tab is pinned: no close button.
+    // The commander tab is pinned: no close button.
     const tabs = page.getByTestId('command-tabs');
-    await expect(tabs.getByRole('tab', { name: 'Orchestrator' })).toHaveAttribute('aria-selected', 'true');
-    await expect(tabs.locator('[data-tab="orchestrator"] [aria-label^="Close"]')).toHaveCount(0);
+    await expect(tabs.getByRole('tab', { name: 'Commander' })).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.locator('[data-tab="commander"] [aria-label^="Close"]')).toHaveCount(0);
 
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     for (const [key, mode] of [
@@ -151,9 +151,9 @@ test.describe('Mode UI (desktop)', () => {
       const row = live.locator(`[data-project] [data-work-item="${task.sid}"]`);
       await expect(row).toContainText('Tidy the release notes');
       await expect(row).toHaveAttribute('data-state', 'asking');
-      await expect(row.locator('ks-spinner[data-spinner="asking"]')).toBeVisible();
+      await expect(row.locator('sy-spinner[data-spinner="asking"]')).toBeVisible();
       await expect(row.getByTestId('line-needs-you')).toBeVisible();
-      await row.locator('button.ks-lw-open').click();
+      await row.locator('button.sy-lw-open').click();
       await expect(page).toHaveURL(new RegExp(`/command/${task.sid}$`));
 
       const tab = page.getByTestId('command-tabs').locator(`[data-tab="${task.sid}"]`);
@@ -179,7 +179,7 @@ test.describe('Mode UI (desktop)', () => {
       await strip.getByTestId('session-release-hold').click();
       await expect(rail(page).locator('[data-hold]').filter({ hasText: task.sid })).toHaveCount(0);
 
-      // Deep link survives a reload, then the tab closes back to the orchestrator.
+      // Deep link survives a reload, then the tab closes back to the commander.
       await page.reload();
       await expect(page.getByTestId('session-strip')).toContainText('Tidy the release notes');
       await page.getByTestId(`close-tab-${task.sid}`).click();
@@ -193,10 +193,10 @@ test.describe('Mode UI (desktop)', () => {
   test('Needs you: every item opens the one dialog; it walks the queue and answering moves on', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env);
-    const sid = await askFromOrchestrator(page);
+    const sid = await askFromCommander(page);
 
     // The rail lists it as the shared compact item; the left pane carries none.
-    const item = rail(page).locator(`ks-needs-you-item [data-question="${sid}"]`);
+    const item = rail(page).locator(`sy-needs-you-item [data-question="${sid}"]`);
     await expect(item).toContainText(QUESTION);
     await expect(page.locator('aside[aria-label="Live work"] [data-needs-you]')).toHaveCount(0);
 
@@ -263,7 +263,7 @@ test.describe('Mode UI (desktop)', () => {
       await expect(panel.getByTestId('toggle-expedite')).toHaveAttribute('aria-pressed', 'true');
       await panel.getByTestId('toggle-expedite').click();
       await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toHaveCount(0);
-      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('konsert.review')))).toEqual([]);
+      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('syre.review')))).toEqual([]);
 
       await page.getByTestId('view-list').click();
       await expect(page.getByTestId('work-list').locator(`[data-row="${task.sid}"]`)).toBeVisible();
@@ -278,7 +278,7 @@ test.describe('Mode UI (desktop)', () => {
     const env = loadEnv();
     await signIn(page, env, '/work');
     // A git checkout for the agent to change (the mock touches a file and leaves it uncommitted).
-    const repo = fs.mkdtempSync(path.join('/var/tmp', 'konsert-e2e-review-'));
+    const repo = fs.mkdtempSync(path.join('/var/tmp', 'syre-e2e-review-'));
     try {
       const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
       git('init', '-q', '-b', 'main');
@@ -292,10 +292,10 @@ test.describe('Mode UI (desktop)', () => {
         agent: 'mock',
         repo_path: repo,
         use_worktree: true,
-        branch: 'konsert/e2e-review',
+        branch: 'syre/e2e-review',
         prompt: 'Add the changelog entry\n- mention the new modes\nTOUCH_FILE=CHANGELOG.md',
         mode: 'oneshot',
-        origin: 'orchestrator',
+        origin: 'commander',
       });
       let sid = '';
       await expect
@@ -339,7 +339,7 @@ test.describe('Mode UI (desktop)', () => {
   test('Work: Approve in direct mode pushes to a local bare remote; pr_merge without forge shows compare URL text', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/work');
-    const base = fs.mkdtempSync(path.join('/var/tmp', 'konsert-e2e-delivery-'));
+    const base = fs.mkdtempSync(path.join('/var/tmp', 'syre-e2e-delivery-'));
     const bare = path.join(base, 'origin.git');
     const repoDirect = path.join(base, 'repo-direct');
     const repoPR = path.join(base, 'repo-pr');
@@ -377,10 +377,10 @@ test.describe('Mode UI (desktop)', () => {
         agent: 'mock',
         repo_path: repoDirect,
         use_worktree: true,
-        branch: 'konsert/e2e-direct',
+        branch: 'syre/e2e-direct',
         prompt: 'Direct delivery test\nTOUCH_FILE=DIRECT.md',
         mode: 'oneshot',
-        origin: 'orchestrator',
+        origin: 'commander',
       });
       let directSid = '';
       await expect
@@ -432,10 +432,10 @@ test.describe('Mode UI (desktop)', () => {
         agent: 'mock',
         repo_path: repoPR,
         use_worktree: true,
-        branch: 'konsert/e2e-pr',
+        branch: 'syre/e2e-pr',
         prompt: 'PR merge panel test\nTOUCH_FILE=PRMERGE.md',
         mode: 'oneshot',
-        origin: 'orchestrator',
+        origin: 'commander',
       });
       let prSid = '';
       await expect
@@ -466,7 +466,7 @@ test.describe('Mode UI (desktop)', () => {
     try {
       const row = page.getByTestId('fleet-machines').locator(`[data-machine="${env.workerSid}"]`);
       await expect(row.getByRole('heading', { name: env.workerName })).toBeVisible();
-      await expect(row.locator('.ks-badge').first()).toHaveText(/^(OK|IDLE|FULL)$/);
+      await expect(row.locator('.sy-badge').first()).toHaveText(/^(OK|IDLE|FULL)$/);
       await expect(row.getByTestId('machine-heat')).not.toBeEmpty();
       for (const name of ['Drain', 'Suspend', 'Details']) {
         await expect(row.getByRole('button', { name, exact: true })).toBeVisible();
@@ -474,7 +474,7 @@ test.describe('Mode UI (desktop)', () => {
       // The session runs on its machine's row as a card with the spinner.
       const card = row.locator(`[data-session="${task.sid}"]`);
       await expect(card).toContainText('Fleet row session');
-      await expect(card.locator('ks-spinner[data-spinner]')).toBeVisible();
+      await expect(card.locator('sy-spinner[data-spinner]')).toBeVisible();
 
       // The heat strip follows the range picker.
       const strip = row.getByTestId('heat-strip');
@@ -597,7 +597,7 @@ test.describe('Mode UI (phone)', () => {
     try {
       await page.getByTestId('mobile-working').click();
       const line = page.locator(`[data-work-item="${task.sid}"]`);
-      await expect(line.locator('ks-spinner[data-spinner]')).toBeVisible();
+      await expect(line.locator('sy-spinner[data-spinner]')).toBeVisible();
       await line.click();
       await expect(page).toHaveURL(new RegExp(`/inbox/${task.sid}$`));
       await expect(page.getByRole('heading', { level: 1 })).toContainText('Phone check task');
@@ -642,7 +642,7 @@ test.describe('Mode UI (phone)', () => {
   test('a needs-you item opens the dialog as a full-screen sheet; answering moves on', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/command');
-    const sid = await askFromOrchestrator(page);
+    const sid = await askFromCommander(page);
     await page.goto(`${env.baseURL}/inbox`);
     const item = page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`);
     expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);

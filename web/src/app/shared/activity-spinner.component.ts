@@ -26,35 +26,35 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
  * always put a text label next to it too. prefers-reduced-motion stops every animation.
  */
 @Component({
-  selector: 'ks-spinner',
+  selector: 'sy-spinner',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective],
   host: {
     role: 'img',
-    class: 'ks-activity-spinner',
+    class: 'sy-activity-spinner',
     '[attr.aria-label]': 'description()',
     '[attr.data-spinner]': 'state()',
-    '[class.ks-spinner-two]': 'second() !== null',
-    '[class.ks-spinner-coarse]': 'coarse()',
-    '[style.--ks-sz]': "size() + 'px'",
-    '[style.--ks-ripple]': 'ripple()',
+    '[class.sy-spinner-two]': 'second() !== null',
+    '[class.sy-spinner-coarse]': 'coarse()',
+    '[style.--sy-sz]': "size() + 'px'",
+    '[style.--sy-ripple]': 'ripple()',
   },
   template: `
-    <span class="ks-sp-wrap" [ksTooltip]="description()">
+    <span class="sy-sp-wrap" [syTooltip]="description()">
     @if (second(); as m2) {
-      <span class="ks-sp-second" aria-hidden="true" [style.background]="m2.fill.background" [style.animation-duration]="m2.fill.drift">{{ m2.initials }}</span>
+      <span class="sy-sp-second" aria-hidden="true" [style.background]="m2.fill.background" [style.animation-duration]="m2.fill.drift">{{ m2.initials }}</span>
     }
     @if (state() === 'speaking') {
-      <span class="ks-sp-ripple" aria-hidden="true"></span>
+      <span class="sy-sp-ripple" aria-hidden="true"></span>
     }
-    <span class="ks-sp-ring" [attr.data-ring]="state()" aria-hidden="true"></span>
+    <span class="sy-sp-ring" [attr.data-ring]="state()" aria-hidden="true"></span>
     <span
-      class="ks-sp-avatar"
+      class="sy-sp-avatar"
       aria-hidden="true"
-      [class.ks-sp-hollow]="state() === 'queued'"
-      [class.ks-sp-neutral]="state() === 'done' || glyph()"
-      [class.ks-sp-drift]="state() !== 'queued' && state() !== 'done' && !glyph()"
+      [class.sy-sp-hollow]="state() === 'queued'"
+      [class.sy-sp-neutral]="state() === 'done' || glyph()"
+      [class.sy-sp-drift]="state() !== 'queued' && state() !== 'done' && !glyph()"
       [style.background]="avatarBg()"
       [style.animation-duration]="first()?.fill?.drift ?? null"
     >
@@ -66,241 +66,241 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
     </span>
     @if (orbit(); as o) {
       @if (o.dots.length) {
-        <span class="ks-sp-orbit" aria-hidden="true" data-testid="spinner-orbit">
+        <span class="sy-sp-orbit" aria-hidden="true" data-testid="spinner-orbit">
           @for (d of o.dots; track $index) {
-            <span class="ks-sp-dot" [attr.data-dot]="d.state" [style.transform]="'rotate(' + d.angle + 'deg) translateY(calc(var(--ks-sz) * -0.633))'"></span>
+            <span class="sy-sp-dot" [attr.data-dot]="d.state" [style.transform]="'rotate(' + d.angle + 'deg) translateY(calc(var(--sy-sz) * -0.633))'"></span>
           }
         </span>
       }
       @if (o.more) {
-        <span class="ks-sp-more" aria-hidden="true" data-testid="spinner-more">+{{ o.more }}</span>
+        <span class="sy-sp-more" aria-hidden="true" data-testid="spinner-more">+{{ o.more }}</span>
       }
     }
     @if (detail()?.shells; as n) {
-      <span class="ks-sp-shells" [class.ks-sp-shells-busy]="(detail()?.shellsBusy ?? 0) > 0" aria-hidden="true" data-testid="spinner-shells">❯{{ n }}</span>
+      <span class="sy-sp-shells" [class.sy-sp-shells-busy]="(detail()?.shellsBusy ?? 0) > 0" aria-hidden="true" data-testid="spinner-shells">❯{{ n }}</span>
     }
     @if (badge(); as b) {
-      <span class="ks-sp-badge" [attr.data-badge]="state()" aria-hidden="true">{{ b }}</span>
+      <span class="sy-sp-badge" [attr.data-badge]="state()" aria-hidden="true">{{ b }}</span>
     }
     </span>
   `,
   styles: `
     :host {
-      --ks-sz: 30px;
+      --sy-sz: 30px;
       position: relative;
       display: inline-block;
       flex: none;
-      width: var(--ks-sz);
-      height: var(--ks-sz);
+      width: var(--sy-sz);
+      height: var(--sy-sz);
       vertical-align: middle;
     }
-    .ks-sp-wrap {
+    .sy-sp-wrap {
       position: absolute;
       inset: 0;
     }
-    :host(.ks-spinner-two) {
-      margin-left: calc(var(--ks-sz) * 0.33);
+    :host(.sy-spinner-two) {
+      margin-left: calc(var(--sy-sz) * 0.33);
     }
-    .ks-sp-ring,
-    .ks-sp-ripple {
+    .sy-sp-ring,
+    .sy-sp-ripple {
       position: absolute;
       inset: 0;
       border-radius: 50%;
     }
-    .ks-sp-ring {
+    .sy-sp-ring {
       /* A 2px ring: the fill is masked to its outer band, so it sits on any surface. */
       -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
       mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
     }
-    :host(.ks-spinner-coarse) .ks-sp-ring,
-    :host(.ks-spinner-coarse) .ks-sp-ripple {
+    :host(.sy-spinner-coarse) .sy-sp-ring,
+    :host(.sy-spinner-coarse) .sy-sp-ripple {
       opacity: 0.5;
     }
-    .ks-sp-ring[data-ring='thinking'] {
+    .sy-sp-ring[data-ring='thinking'] {
       background: conic-gradient(from 0deg, transparent 0 50%, #b9a8ff 100%);
       animation:
-        ks-spin 2.6s linear infinite,
-        ks-breath 2.6s ease-in-out infinite;
+        sy-spin 2.6s linear infinite,
+        sy-breath 2.6s ease-in-out infinite;
     }
-    .ks-sp-ring[data-ring='working'] {
+    .sy-sp-ring[data-ring='working'] {
       background: repeating-conic-gradient(#e6e8ee 0 46deg, transparent 46deg 120deg);
-      animation: ks-spin 1s linear infinite;
+      animation: sy-spin 1s linear infinite;
     }
-    .ks-sp-ring[data-ring='speaking'] {
+    .sy-sp-ring[data-ring='speaking'] {
       background: #8fe0b0;
     }
-    .ks-sp-ripple {
-      animation: ks-ripple var(--ks-ripple, 0.9s) ease-out infinite;
+    .sy-sp-ripple {
+      animation: sy-ripple var(--sy-ripple, 0.9s) ease-out infinite;
     }
-    .ks-sp-ring[data-ring='asking'] {
+    .sy-sp-ring[data-ring='asking'] {
       background: #e0a84c;
     }
-    .ks-sp-ring[data-ring='held'] {
+    .sy-sp-ring[data-ring='held'] {
       background: repeating-conic-gradient(#6aaefa 0 22deg, transparent 22deg 45deg);
     }
-    .ks-sp-ring[data-ring='you'] {
+    .sy-sp-ring[data-ring='you'] {
       background: #2f6fd6;
     }
-    .ks-sp-ring[data-ring='queued'] {
+    .sy-sp-ring[data-ring='queued'] {
       background: repeating-conic-gradient(rgba(255, 255, 255, 0.3) 0 10deg, transparent 10deg 30deg);
     }
-    .ks-sp-ring[data-ring='done'] {
+    .sy-sp-ring[data-ring='done'] {
       background: rgba(255, 255, 255, 0.16);
     }
-    .ks-sp-ring[data-ring='waiting'] {
+    .sy-sp-ring[data-ring='waiting'] {
       background: rgba(255, 255, 255, 0.22);
     }
-    .ks-sp-orbit {
+    .sy-sp-orbit {
       position: absolute;
-      inset: calc(var(--ks-sz) * -0.133);
+      inset: calc(var(--sy-sz) * -0.133);
       border-radius: 50%;
-      animation: ks-spin 9s linear infinite;
+      animation: sy-spin 9s linear infinite;
       pointer-events: none;
     }
-    .ks-sp-dot {
+    .sy-sp-dot {
       position: absolute;
       left: 50%;
       top: 50%;
-      width: max(4px, calc(var(--ks-sz) * 0.2));
-      height: max(4px, calc(var(--ks-sz) * 0.2));
-      margin: calc(max(4px, calc(var(--ks-sz) * 0.2)) / -2) 0 0 calc(max(4px, calc(var(--ks-sz) * 0.2)) / -2);
+      width: max(4px, calc(var(--sy-sz) * 0.2));
+      height: max(4px, calc(var(--sy-sz) * 0.2));
+      margin: calc(max(4px, calc(var(--sy-sz) * 0.2)) / -2) 0 0 calc(max(4px, calc(var(--sy-sz) * 0.2)) / -2);
       border-radius: 50%;
-      box-shadow: 0 0 0 1.2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+      box-shadow: 0 0 0 1.2px var(--sy-spinner-hole, var(--sy-bg-chrome));
     }
-    .ks-sp-dot[data-dot='thinking'] {
+    .sy-sp-dot[data-dot='thinking'] {
       background: #b9a8ff;
-      animation: ks-breath 2s ease-in-out infinite;
+      animation: sy-breath 2s ease-in-out infinite;
     }
-    .ks-sp-dot[data-dot='working'] {
+    .sy-sp-dot[data-dot='working'] {
       background: #e6e8ee;
-      animation: ks-blink 0.8s ease-in-out infinite;
+      animation: sy-blink 0.8s ease-in-out infinite;
     }
-    .ks-sp-dot[data-dot='speaking'] {
+    .sy-sp-dot[data-dot='speaking'] {
       background: #8fe0b0;
     }
-    .ks-sp-dot[data-dot='asking'] {
+    .sy-sp-dot[data-dot='asking'] {
       background: #e0a84c;
     }
-    .ks-sp-more {
+    .sy-sp-more {
       position: absolute;
-      right: calc(var(--ks-sz) * -0.3);
-      top: calc(var(--ks-sz) * -0.23);
+      right: calc(var(--sy-sz) * -0.3);
+      top: calc(var(--sy-sz) * -0.23);
       padding: 1px 3px;
       border-radius: 6px;
-      font: 700 max(6.5px, calc(var(--ks-sz) * 0.23)) / 1.2 'JetBrains Mono', ui-monospace, monospace;
+      font: 700 max(6.5px, calc(var(--sy-sz) * 0.23)) / 1.2 'JetBrains Mono', ui-monospace, monospace;
       color: #c9cbd1;
       background: #2a2c31;
-      box-shadow: 0 0 0 1.5px var(--ks-spinner-hole, var(--ks-bg-chrome));
+      box-shadow: 0 0 0 1.5px var(--sy-spinner-hole, var(--sy-bg-chrome));
     }
-    .ks-sp-shells {
+    .sy-sp-shells {
       position: absolute;
-      left: calc(var(--ks-sz) * -0.133);
-      bottom: calc(var(--ks-sz) * -0.133);
-      min-width: max(11px, calc(var(--ks-sz) * 0.433));
-      height: max(11px, calc(var(--ks-sz) * 0.433));
+      left: calc(var(--sy-sz) * -0.133);
+      bottom: calc(var(--sy-sz) * -0.133);
+      min-width: max(11px, calc(var(--sy-sz) * 0.433));
+      height: max(11px, calc(var(--sy-sz) * 0.433));
       padding: 0 2px;
       box-sizing: border-box;
       border-radius: 7px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font: 700 max(6.5px, calc(var(--ks-sz) * 0.25)) / 1 'JetBrains Mono', ui-monospace, monospace;
+      font: 700 max(6.5px, calc(var(--sy-sz) * 0.25)) / 1 'JetBrains Mono', ui-monospace, monospace;
       color: #ececed;
       background: #2a2c31;
-      box-shadow: 0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+      box-shadow: 0 0 0 2px var(--sy-spinner-hole, var(--sy-bg-chrome));
     }
-    .ks-sp-shells-busy {
-      animation: ks-pulse 1.2s ease-in-out infinite;
+    .sy-sp-shells-busy {
+      animation: sy-pulse 1.2s ease-in-out infinite;
     }
-    .ks-sp-ring[data-ring='error'] {
+    .sy-sp-ring[data-ring='error'] {
       background: #e86b6b;
     }
-    .ks-sp-avatar {
+    .sy-sp-avatar {
       position: absolute;
-      inset: calc(var(--ks-sz) * 0.135);
+      inset: calc(var(--sy-sz) * 0.135);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font: 600 calc(var(--ks-sz) * 0.3) / 1 'JetBrains Mono', ui-monospace, monospace;
+      font: 600 calc(var(--sy-sz) * 0.3) / 1 'JetBrains Mono', ui-monospace, monospace;
       color: #fff;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
       text-transform: lowercase;
       overflow: hidden;
     }
-    .ks-sp-drift,
-    .ks-sp-second {
+    .sy-sp-drift,
+    .sy-sp-second {
       background-size: 300% 300% !important;
-      animation-name: ks-drift;
+      animation-name: sy-drift;
       animation-timing-function: ease-in-out;
       animation-iteration-count: infinite;
       animation-direction: alternate;
     }
-    .ks-sp-hollow {
+    .sy-sp-hollow {
       background: transparent !important;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
       color: #8f9199;
       text-shadow: none;
     }
-    .ks-sp-neutral {
+    .sy-sp-neutral {
       background: #2a2c31 !important;
       color: #8f9199;
       text-shadow: none;
     }
-    .ks-sp-second {
+    .sy-sp-second {
       position: absolute;
-      left: calc(var(--ks-sz) * -0.33);
-      top: calc(var(--ks-sz) * 0.33);
-      width: calc(var(--ks-sz) * 0.6);
-      height: calc(var(--ks-sz) * 0.6);
+      left: calc(var(--sy-sz) * -0.33);
+      top: calc(var(--sy-sz) * 0.33);
+      width: calc(var(--sy-sz) * 0.6);
+      height: calc(var(--sy-sz) * 0.6);
       border-radius: 50%;
-      box-shadow: 0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+      box-shadow: 0 0 0 2px var(--sy-spinner-hole, var(--sy-bg-chrome));
       display: flex;
       align-items: center;
       justify-content: center;
-      font: 600 calc(var(--ks-sz) * 0.23) / 1 'JetBrains Mono', ui-monospace, monospace;
+      font: 600 calc(var(--sy-sz) * 0.23) / 1 'JetBrains Mono', ui-monospace, monospace;
       color: #fff;
     }
-    .ks-sp-badge {
+    .sy-sp-badge {
       position: absolute;
-      right: calc(var(--ks-sz) * -0.1);
-      bottom: calc(var(--ks-sz) * -0.1);
-      width: max(11px, calc(var(--ks-sz) * 0.43));
-      height: max(11px, calc(var(--ks-sz) * 0.43));
+      right: calc(var(--sy-sz) * -0.1);
+      bottom: calc(var(--sy-sz) * -0.1);
+      width: max(11px, calc(var(--sy-sz) * 0.43));
+      height: max(11px, calc(var(--sy-sz) * 0.43));
       border-radius: 50%;
-      font: 700 max(7px, calc(var(--ks-sz) * 0.27)) / 1 Inter, system-ui, sans-serif;
+      font: 700 max(7px, calc(var(--sy-sz) * 0.27)) / 1 Inter, system-ui, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome));
+      box-shadow: 0 0 0 2px var(--sy-spinner-hole, var(--sy-bg-chrome));
     }
-    .ks-sp-badge[data-badge='asking'] {
+    .sy-sp-badge[data-badge='asking'] {
       background: #e0a84c;
       color: #1b1406;
     }
-    .ks-sp-badge[data-badge='held'] {
+    .sy-sp-badge[data-badge='held'] {
       background: #6aaefa;
       color: #0d1a2a;
-      font-size: max(6px, calc(var(--ks-sz) * 0.2));
+      font-size: max(6px, calc(var(--sy-sz) * 0.2));
     }
-    .ks-sp-badge[data-badge='done'] {
+    .sy-sp-badge[data-badge='done'] {
       background: #69b879;
       color: #0b1a0f;
     }
-    .ks-sp-badge[data-badge='error'] {
+    .sy-sp-badge[data-badge='error'] {
       background: #e86b6b;
       color: #1e0b0b;
     }
-    .ks-sp-badge[data-badge='you'] {
+    .sy-sp-badge[data-badge='you'] {
       background: #2f6fd6;
       color: #fff;
     }
-    @keyframes ks-spin {
+    @keyframes sy-spin {
       to {
         transform: rotate(360deg);
       }
     }
-    @keyframes ks-drift {
+    @keyframes sy-drift {
       0% {
         background-position: 0% 50%;
       }
@@ -308,7 +308,7 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
         background-position: 100% 50%;
       }
     }
-    @keyframes ks-breath {
+    @keyframes sy-breath {
       0%,
       100% {
         opacity: 0.4;
@@ -317,7 +317,7 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
         opacity: 1;
       }
     }
-    @keyframes ks-blink {
+    @keyframes sy-blink {
       0%,
       100% {
         opacity: 1;
@@ -326,38 +326,38 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
         opacity: 0.35;
       }
     }
-    @keyframes ks-pulse {
+    @keyframes sy-pulse {
       0%,
       100% {
         box-shadow:
-          0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome)),
+          0 0 0 2px var(--sy-spinner-hole, var(--sy-bg-chrome)),
           0 0 0 2px rgba(230, 232, 238, 0);
       }
       50% {
         box-shadow:
-          0 0 0 2px var(--ks-spinner-hole, var(--ks-bg-chrome)),
+          0 0 0 2px var(--sy-spinner-hole, var(--sy-bg-chrome)),
           0 0 0 3.5px rgba(230, 232, 238, 0.75);
       }
     }
-    @keyframes ks-ripple {
+    @keyframes sy-ripple {
       0% {
         box-shadow: 0 0 0 0 rgba(143, 224, 176, 0.6);
       }
       100% {
-        box-shadow: 0 0 0 calc(var(--ks-sz) * 0.2) rgba(143, 224, 176, 0);
+        box-shadow: 0 0 0 calc(var(--sy-sz) * 0.2) rgba(143, 224, 176, 0);
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ks-sp-ring,
-      .ks-sp-ripple,
-      .ks-sp-drift,
-      .ks-sp-second,
-      .ks-sp-orbit,
-      .ks-sp-dot,
-      .ks-sp-shells {
+      .sy-sp-ring,
+      .sy-sp-ripple,
+      .sy-sp-drift,
+      .sy-sp-second,
+      .sy-sp-orbit,
+      .sy-sp-dot,
+      .sy-sp-shells {
         animation: none !important;
       }
-      .ks-sp-ripple {
+      .sy-sp-ripple {
         box-shadow: 0 0 0 2px rgba(143, 224, 176, 0.35);
       }
     }
@@ -423,7 +423,7 @@ export class ActivitySpinnerComponent {
  * drifting fill without an activity ring. Rounded square at Fleet size, a dot in the footer.
  */
 @Component({
-  selector: 'ks-heat-avatar',
+  selector: 'sy-heat-avatar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -435,10 +435,10 @@ export class ActivitySpinnerComponent {
     '[style.background]': 'fill().background',
     '[style.animation-duration]': 'fill().drift',
     '[style.font-size.px]': 'size() * 0.3',
-    '[class.ks-ha-drift]': 'heat() != null',
+    '[class.sy-ha-drift]': 'heat() != null',
   },
   imports: [TooltipDirective],
-  template: `<span class="ks-ha-wrap" [ksTooltip]="title()">@if (showInitials()) {<span aria-hidden="true">{{ initials() }}</span>}</span>`,
+  template: `<span class="sy-ha-wrap" [syTooltip]="title()">@if (showInitials()) {<span aria-hidden="true">{{ initials() }}</span>}</span>`,
   styles: `
     :host {
       display: inline-flex;
@@ -451,21 +451,21 @@ export class ActivitySpinnerComponent {
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
       vertical-align: middle;
     }
-    .ks-ha-wrap {
+    .sy-ha-wrap {
       display: flex;
       align-items: center;
       justify-content: center;
       width: 100%;
       height: 100%;
     }
-    :host(.ks-ha-drift) {
+    :host(.sy-ha-drift) {
       background-size: 300% 300% !important;
-      animation-name: ks-ha-drift;
+      animation-name: sy-ha-drift;
       animation-timing-function: ease-in-out;
       animation-iteration-count: infinite;
       animation-direction: alternate;
     }
-    @keyframes ks-ha-drift {
+    @keyframes sy-ha-drift {
       0% {
         background-position: 0% 50%;
       }
@@ -474,7 +474,7 @@ export class ActivitySpinnerComponent {
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      :host(.ks-ha-drift) {
+      :host(.sy-ha-drift) {
         animation: none !important;
       }
     }

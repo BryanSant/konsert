@@ -3,8 +3,8 @@ import { expect, Page, WebSocketRoute, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Shells and sub-agents on Fleet session cards (KON-ZAY87), against the suite's hub and
- * konsertd: a mock task starts a real background shell (BG_SHELL), konsertd counts it from
+ * Shells and sub-agents on Fleet session cards (SYR-ZAY87), against the suite's hub and
+ * syred: a mock task starts a real background shell (BG_SHELL), syred counts it from
  * the process tree and the card's chip and spinner badge rise; "Ask to stop" and "Kill"
  * call the cleanup API (Kill really terminates it, so the count falls). Sub-agents are
  * driven by fleet.update frames injected into the browser's socket.
@@ -27,7 +27,7 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
       const res = await fetch(path, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
@@ -75,7 +75,7 @@ async function dispatch(
     repo_path: env.workdir,
     prompt,
     mode: interactive ? 'interactive' : 'oneshot',
-    origin: 'orchestrator',
+    origin: 'commander',
   });
   const t = await api<{ task_sid: string }>(page, 'GET', `/api/tasks/${res.task_id}`);
   return { id: res.task_id, sid: t.task_sid };
@@ -92,7 +92,7 @@ test.describe('Shells and sub-agents (desktop)', () => {
     await page.goto(`${env.baseURL}/fleet`);
     const card = page.locator(`[data-session-card="${task.sid}"]`);
 
-    // konsertd counts the shell from the process tree (~1 s poll + debounce).
+    // syred counts the shell from the process tree (~1 s poll + debounce).
     await expect(card.getByTestId('shell-chip')).toHaveText('❯ 1 shell · 1 busy', {
       timeout: 15_000,
     });
@@ -139,7 +139,7 @@ test.describe('Shells and sub-agents (desktop)', () => {
     await expect(card.getByTestId('subagent-row').first()).toContainText(
       'S3 client tests · Run: go test ./internal/cache/...',
     );
-    await expect(card.locator('.ks-sp-dot')).toHaveCount(2);
+    await expect(card.locator('.sy-sp-dot')).toHaveCount(2);
     await expect(card.locator('[data-state]').first()).toHaveAttribute('data-state', 'waiting');
     // A sub-agent asks: the whole ring turns amber.
     sock.push('fleet.update', {

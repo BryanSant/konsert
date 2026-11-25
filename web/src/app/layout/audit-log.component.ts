@@ -1,7 +1,7 @@
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AuditEvent, AuditQuery } from '../core/models/konsert.models';
+import { AuditEvent, AuditQuery } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuditStore } from '../core/state/audit.store';
 import { FleetStore, basenamePath } from '../core/state/fleet.store';
@@ -18,8 +18,8 @@ export const AUDIT_ACTIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'task.cancel', label: 'Cancel' },
   { id: 'git.commit', label: 'Git commit' },
   { id: 'worker.remove', label: 'Remove host' },
-  { id: 'worker.restart', label: 'Restart konsertd' },
-  { id: 'worker.uninstall', label: 'Uninstall konsertd' },
+  { id: 'worker.restart', label: 'Restart syred' },
+  { id: 'worker.uninstall', label: 'Uninstall syred' },
   { id: 'settings.update', label: 'Settings change' },
   { id: 'wakelock.host', label: 'Keep Awake (host)' },
   { id: 'wakelock.fleet', label: 'Keep Awake (fleet)' },
@@ -34,10 +34,10 @@ export const AUDIT_ACTIONS: ReadonlyArray<{ id: string; label: string }> = [
 const ACTION_LABELS: Record<string, string> = Object.fromEntries(AUDIT_ACTIONS.map((a) => [a.id, a.label]));
 
 /** Identities that are not people but appear as audit users. */
-const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
+const BUILTIN_USERS = ['token', 'mcp', 'commander'];
 
 /**
- * Fleet-wide operator audit log (KON-WP2A5): who took control, steered, canceled,
+ * Fleet-wide operator audit log (SYR-WP2A5): who took control, steered, canceled,
  * committed, removed a host or changed settings, when, and on which host/task.
  * Lives in the right Inspector so task links open tabs beside it.
  */
@@ -54,13 +54,13 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
       class="shrink-0 grid grid-cols-2 gap-2.5 px-4 pt-1.5 pb-3 text-[11.5px]"
     >
       <div>
-        <label for="audit-filter-host" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Host</label>
+        <label for="audit-filter-host" class="block text-[11px] text-[var(--sy-text-muted)] mb-1">Host</label>
         <select
           id="audit-filter-host"
           name="host"
           [ngModel]="hostFilter()"
           (ngModelChange)="hostFilter.set($event); reload()"
-          class="ks-field ks-field-sm w-full"
+          class="sy-field sy-field-sm w-full"
         >
           <option value="">All hosts</option>
           @for (w of hosts(); track w.id) {
@@ -69,13 +69,13 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </select>
       </div>
       <div>
-        <label for="audit-filter-action" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Action</label>
+        <label for="audit-filter-action" class="block text-[11px] text-[var(--sy-text-muted)] mb-1">Action</label>
         <select
           id="audit-filter-action"
           name="action"
           [ngModel]="actionFilter()"
           (ngModelChange)="actionFilter.set($event); reload()"
-          class="ks-field ks-field-sm w-full"
+          class="sy-field sy-field-sm w-full"
         >
           <option value="">All actions</option>
           @for (a of actions; track a.id) {
@@ -84,7 +84,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </select>
       </div>
       <div>
-        <label for="audit-filter-user" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">User</label>
+        <label for="audit-filter-user" class="block text-[11px] text-[var(--sy-text-muted)] mb-1">User</label>
         <input
           id="audit-filter-user"
           name="user"
@@ -95,7 +95,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           [ngModel]="userFilter()"
           (ngModelChange)="userFilter.set($event)"
           (change)="reload()"
-          class="ks-field ks-field-sm w-full"
+          class="sy-field sy-field-sm w-full"
         />
         <datalist id="audit-user-options">
           @for (u of knownUsers(); track u) {
@@ -104,7 +104,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
         </datalist>
       </div>
       <div>
-        <label for="audit-filter-task" class="block text-[11px] text-[var(--ks-text-muted)] mb-1">Task ID</label>
+        <label for="audit-filter-task" class="block text-[11px] text-[var(--sy-text-muted)] mb-1">Task ID</label>
         <input
           id="audit-filter-task"
           name="task"
@@ -114,7 +114,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           [ngModel]="taskFilter()"
           (ngModelChange)="taskFilter.set($event)"
           (change)="reload()"
-          class="ks-field ks-field-sm w-full font-mono-ide"
+          class="sy-field sy-field-sm w-full font-mono-ide"
         />
       </div>
       <div class="col-span-2 flex items-center justify-between pt-0.5">
@@ -123,12 +123,12 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
           <button
             type="button"
             (click)="clearFilters()"
-            class="ks-btn ks-btn-sm"
+            class="sy-btn sy-btn-sm"
           >
             Clear filters
           </button>
         }
-        <button type="submit" class="ks-sr-only">Apply filters</button>
+        <button type="submit" class="sy-sr-only">Apply filters</button>
       </div>
     </form>
 
@@ -145,7 +145,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
       }
       @if (events().length > 0) {
         <table class="w-full table-fixed border-collapse text-[11px]">
-          <caption class="ks-sr-only">Operator audit log, newest first</caption>
+          <caption class="sy-sr-only">Operator audit log, newest first</caption>
           <colgroup>
             <col class="w-[60px]" />
             <col class="w-[64px]" />
@@ -164,27 +164,27 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
             @for (ev of events(); track ev.id) {
               <tr class="align-top border-t border-white/[0.04] hover:bg-white/[0.03]" [attr.data-audit-id]="ev.id">
                 <td class="px-3 py-2 font-mono-ide text-[10px] text-[#86888f]">
-                  <time [attr.datetime]="ev.created_at" [ksTooltip]="fullTime(ev.created_at)">{{ shortTime(ev.created_at) }}</time>
+                  <time [attr.datetime]="ev.created_at" [syTooltip]="fullTime(ev.created_at)">{{ shortTime(ev.created_at) }}</time>
                 </td>
-                <td class="px-1.5 py-2 text-[#d4d4d8] truncate" [ksTooltip]="ev.user + (ev.source ? ' via ' + ev.source : '')">
+                <td class="px-1.5 py-2 text-[#d4d4d8] truncate" [syTooltip]="ev.user + (ev.source ? ' via ' + ev.source : '')">
                   {{ ev.user }}
                 </td>
                 <td class="px-1.5 py-2">
                   <div class="font-medium text-[#d9a043] truncate">{{ actionLabel(ev.action) }}</div>
                   @if (ev.message) {
-                    <div class="text-[10px] text-[#8e9098] break-words line-clamp-2" [ksTooltip]="ev.message">{{ ev.message }}</div>
+                    <div class="text-[10px] text-[#8e9098] break-words line-clamp-2" [syTooltip]="ev.message">{{ ev.message }}</div>
                   }
                 </td>
                 <td class="px-3 py-2 min-w-0">
                   @if (ev.worker_id) {
-                    <div class="truncate text-[#d4d4d8]" [ksTooltip]="ev.worker_sid || ev.worker_id">{{ hostName(ev) }}</div>
+                    <div class="truncate text-[#d4d4d8]" [syTooltip]="ev.worker_sid || ev.worker_id">{{ hostName(ev) }}</div>
                   }
                   @if (ev.task_id) {
                     <button
                       type="button"
                       (click)="openTask(ev)"
                       [attr.aria-label]="'Open task ' + taskLabel(ev)"
-                      [ksTooltip]="ev.task_sid || ev.task_id"
+                      [syTooltip]="ev.task_sid || ev.task_id"
                       class="max-w-full truncate font-mono-ide text-[10px] text-[#7aa2d6] hover:text-[#a8c6ee] underline underline-offset-2 cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#4a668a] rounded-sm"
                     >
                       {{ taskLabel(ev) }}
@@ -205,7 +205,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'orchestrator'];
             type="button"
             (click)="loadMore()"
             [disabled]="loadingMore()"
-            class="ks-btn ks-btn-sm w-full"
+            class="sy-btn sy-btn-sm w-full"
           >
             {{ loadingMore() ? 'Loading…' : 'Load older events' }}
           </button>

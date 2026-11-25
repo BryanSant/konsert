@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/install"
 	"github.com/google/uuid"
 )
 
-// The local socket (KON-K1B60). A konsertd without a controller URL serves the hub on
+// The local socket (SYR-K1B60). A syred without a controller URL serves the hub on
 // an AF_UNIX socket in its state directory (every OS, Windows 10 1803+ included):
 // <stateDir>/run/<worker id>.sock, in a directory only the user can open (0700, or a
 // protected user-only DACL on Windows). The hub reaches it directly when it runs on
 // the same machine, and over SSH otherwise: the hub key's forced command is
-// `konsertd attach`, which bridges the SSH session's stdin/stdout to the socket.
+// `syred attach`, which bridges the SSH session's stdin/stdout to the socket.
 // Keying the path by identity lets daemons sharing a home directory (a container and
 // its host) each have their own.
 
@@ -63,7 +63,7 @@ func listenLocal(path string) (net.Listener, error) {
 	if _, err := os.Lstat(path); err == nil {
 		if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
 			_ = c.Close()
-			return nil, fmt.Errorf("another konsertd is already listening on %s", path)
+			return nil, fmt.Errorf("another syred is already listening on %s", path)
 		}
 		if err := os.Remove(path); err != nil {
 			return nil, fmt.Errorf("remove stale socket %s: %w", path, err)
@@ -82,7 +82,7 @@ func listenLocal(path string) (net.Listener, error) {
 	return ln, nil
 }
 
-// AttachRequest picks the identity `konsertd attach` connects to: the worker id the
+// AttachRequest picks the identity `syred attach` connects to: the worker id the
 // hub asked for (the last word of SSH_ORIGINAL_COMMAND, or an argument), which must be
 // in allow when the forced command restricts it; with no request, the only allowed id.
 func AttachRequest(requested string, allow []string) (string, error) {
@@ -122,7 +122,7 @@ func Attach(ctx context.Context, path string, in io.Reader, out io.Writer) error
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		return fmt.Errorf("konsertd is not running here (no socket at %s): %w", path, err)
+		return fmt.Errorf("syred is not running here (no socket at %s): %w", path, err)
 	}
 	defer conn.Close()
 	done := make(chan error, 2)

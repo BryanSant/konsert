@@ -38,7 +38,7 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
     case 'model':
       return { icon: 'alert', title: 'That model is not available', detail: `${err.message} Pick another model below.`, tone: 'red' };
     case 'protocol':
-      return { icon: 'alert', title: 'The agent sent something Konsert could not read', detail: err.message, tone: 'red' };
+      return { icon: 'alert', title: 'The agent sent something Syre could not read', detail: err.message, tone: 'red' };
     default:
       return { icon: 'alert', title: 'Something went wrong', detail: err.message, tone: 'red' };
   }
@@ -46,7 +46,7 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
 
 /** A classified failure with the action that fixes it. */
 @Component({
-  selector: 'ks-error-card',
+  selector: 'sy-error-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, ReloginHelpComponent],
@@ -54,38 +54,38 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
     @let err = error();
     <section
       role="alert"
-      class="rounded-[var(--ks-radius-lg)] p-3.5 space-y-2.5"
-      [class.bg-[var(--ks-red-soft)]]="view().tone === 'red'"
-      [class.bg-[var(--ks-amber-soft)]]="view().tone === 'amber'"
+      class="rounded-[var(--sy-radius-lg)] p-3.5 space-y-2.5"
+      [class.bg-[var(--sy-red-soft)]]="view().tone === 'red'"
+      [class.bg-[var(--sy-amber-soft)]]="view().tone === 'amber'"
       [attr.data-error-kind]="err.kind"
     >
       <div class="flex items-start gap-2.5">
-        <span class="mt-0.5 shrink-0" [class.text-[var(--ks-red)]]="view().tone === 'red'" [class.text-[var(--ks-amber)]]="view().tone === 'amber'">
+        <span class="mt-0.5 shrink-0" [class.text-[var(--sy-red)]]="view().tone === 'red'" [class.text-[var(--sy-amber)]]="view().tone === 'amber'">
           <app-icon [name]="view().icon" [size]="15" />
         </span>
         <div class="flex-1 min-w-0">
-          <h2 class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug" data-testid="error-title">{{ view().title }}</h2>
+          <h2 class="text-[13px] font-semibold text-[var(--sy-text)] leading-snug" data-testid="error-title">{{ view().title }}</h2>
           @if (err.kind === 'usage_limit' && err.resets_at) {
             <div class="text-[12px] text-[#f3d29b]" data-testid="error-reset">Resets {{ countdown() }} · {{ resetAt() }}</div>
           }
           @if (view().detail && view().detail !== view().title) {
-            <p class="mt-0.5 text-[12px] text-[var(--ks-text-secondary)] break-words">{{ view().detail }}</p>
+            <p class="mt-0.5 text-[12px] text-[var(--sy-text-secondary)] break-words">{{ view().detail }}</p>
           }
         </div>
       </div>
 
       @if (err.kind === 'auth') {
-        <ks-relogin-help [relogin]="err.relogin || relogin()" [workerId]="workerId()" [accountId]="accountId()" />
+        <sy-relogin-help [relogin]="err.relogin || relogin()" [workerId]="workerId()" [accountId]="accountId()" />
       }
 
       @if (err.kind === 'exit' && err.stderr) {
         <div>
-          <button type="button" class="ks-btn ks-btn-sm" [attr.aria-expanded]="showStderr()" (click)="showStderr.set(!showStderr())">
+          <button type="button" class="sy-btn sy-btn-sm" [attr.aria-expanded]="showStderr()" (click)="showStderr.set(!showStderr())">
             <span class="transition-transform" [class.rotate-90]="showStderr()"><app-icon name="chevron-right" [size]="11" /></span>
             {{ showStderr() ? 'Hide' : 'Show' }} error output
           </button>
           @if (showStderr()) {
-            <pre class="mt-1.5 max-h-60 overflow-auto rounded-[var(--ks-radius-md)] bg-black/35 p-2.5 font-mono-ide text-[11px] text-[#e9c3c3] whitespace-pre-wrap break-words" data-testid="error-stderr">{{ err.stderr }}</pre>
+            <pre class="mt-1.5 max-h-60 overflow-auto rounded-[var(--sy-radius-md)] bg-black/35 p-2.5 font-mono-ide text-[11px] text-[#e9c3c3] whitespace-pre-wrap break-words" data-testid="error-stderr">{{ err.stderr }}</pre>
           }
         </div>
       }
@@ -94,18 +94,18 @@ export function errorCardView(err: AgentChatError, ctx: { agent?: string; accoun
         <div class="flex flex-wrap items-center gap-1.5">
           @if (err.kind === 'usage_limit' || err.kind === 'rate_limit') {
             @for (alt of alternatives(); track alt.id) {
-              <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" [attr.data-switch]="alt.id" (click)="switchAccount.emit(alt)">
+              <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" [attr.data-switch]="alt.id" (click)="switchAccount.emit(alt)">
                 <app-icon [name]="alt.agent" [size]="12" />
                 Switch to {{ alt.label }}
               </button>
             }
           }
           @if (err.kind === 'timeout') {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="keepWaiting.emit()">Keep waiting</button>
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" (click)="stop.emit()">Stop</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="keepWaiting.emit()">Keep waiting</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" (click)="stop.emit()">Stop</button>
           }
           @if (err.retryable && err.kind !== 'timeout') {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="retry.emit()">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="retry.emit()">
               <app-icon name="refresh" [size]="12" />
               Retry
             </button>

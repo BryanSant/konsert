@@ -10,7 +10,7 @@ import (
 // ServiceSupported reports whether --service is available on this OS.
 const ServiceSupported = false
 
-var errServiceWindowsOnly = errors.New("--service is only available on Windows; on Linux and macOS `konsertd install` already runs the daemon as you, at boot (systemd with lingering) or login (launchd)")
+var errServiceWindowsOnly = errors.New("--service is only available on Windows; on Linux and macOS `syred install` already runs the daemon as you, at boot (systemd with lingering) or login (launchd)")
 
 // ErrServiceAccessDenied means this account may not remove the service (Windows only).
 var ErrServiceAccessDenied = errors.New("this account may not remove the service")

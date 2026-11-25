@@ -15,9 +15,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
-import { FRAME_PTY_DATA, FRAME_PTY_SNAPSHOT } from '../../core/models/konsert.models';
+import { FRAME_PTY_DATA, FRAME_PTY_SNAPSHOT } from '../../core/models/syre.models';
 import { ApiClientService } from '../../core/services/api-client.service';
-import { KonsertSocketService } from '../../core/services/konsert-socket.service';
+import { SyreSocketService } from '../../core/services/syre-socket.service';
 import { FleetStore } from '../../core/state/fleet.store';
 import { TakenControlStore } from '../../core/state/taken-control.store';
 import { IconComponent } from '../../shared/icon.component';
@@ -72,9 +72,9 @@ import { SessionControlsComponent } from '../control/session-controls.component'
                 </span>
               } @else if (task()?.status === 'suspended') {
                 <span
-                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--ks-violet-soft)] text-[var(--ks-violet)]"
+                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--sy-violet-soft)] text-[var(--sy-violet)]"
                   data-status="suspended"
-                  [ksTooltip]="causeText() || 'Processes frozen; resume to continue'"
+                  [syTooltip]="causeText() || 'Processes frozen; resume to continue'"
                 >
                   <app-icon name="pause" [size]="9" />
                   {{ task()?.suspended_by === 'pause' ? 'Paused' : 'Suspended' }}
@@ -85,16 +85,16 @@ import { SessionControlsComponent } from '../control/session-controls.component'
                   [class.text-[#69b879]]="task()?.status === 'completed'"
                   [class.text-[#e05d5d]]="task()?.status === 'failed'"
                   [class.text-[#8e9098]]="task()?.status === 'canceled'"
-                  [ksTooltip]="causeText()"
+                  [syTooltip]="causeText()"
                 >
                   {{ task()?.status }}
                 </span>
               }
               @if (hold(); as h) {
                 <span
-                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--ks-amber-soft)] text-[#e6b763]"
+                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--sy-amber-soft)] text-[#e6b763]"
                   data-testid="session-hold"
-                  [ksTooltip]="h.summary + ' — automatic actions are blocked until it is released'"
+                  [syTooltip]="h.summary + ' — automatic actions are blocked until it is released'"
                 >
                   <app-icon name="lock" [size]="9" />
                   Held
@@ -119,7 +119,7 @@ import { SessionControlsComponent } from '../control/session-controls.component'
               </button>
 
               @if (task(); as t) {
-                <ks-session-controls kind="task" [sessionId]="t.id" [status]="t.status" [compact]="true" />
+                <sy-session-controls kind="task" [sessionId]="t.id" [status]="t.status" [compact]="true" />
               }
             </div>
           </div>
@@ -168,7 +168,7 @@ export class XtermPaneComponent implements OnDestroy {
   /** The rounded frame and padding (classic tabs); hosts with their own frame drop it. */
   readonly framed = computed(() => !this.embedded() && !this.bare());
 
-  private readonly socket = inject(KonsertSocketService);
+  private readonly socket = inject(SyreSocketService);
   private readonly api = inject(ApiClientService);
   private readonly fleetStore = inject(FleetStore);
   private readonly tabsStore = inject(TakenControlStore);

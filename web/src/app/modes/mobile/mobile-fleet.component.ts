@@ -11,14 +11,14 @@ import { heatLevelOf } from '../../core/state/activity-logic';
 
 /** Read-only fleet and quota summary for a phone. */
 @Component({
-  selector: 'ks-mobile-fleet',
+  selector: 'sy-mobile-fleet',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, HeatAvatarComponent],
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <div class="px-4 pt-4 pb-1">
-      <a routerLink="/inbox" class="ks-btn ks-btn-sm h-[44px] -ml-2 no-underline">
+      <a routerLink="/inbox" class="sy-btn sy-btn-sm h-[44px] -ml-2 no-underline">
         <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="12" /></span>
         Inbox
       </a>
@@ -26,28 +26,28 @@ import { heatLevelOf } from '../../core/state/activity-logic';
     <h1 class="px-4 m-0 pb-2 text-[15px] font-semibold">Fleet (read-only)</h1>
     <ul class="m-0 p-0 list-none" data-testid="mobile-fleet">
       @for (m of machines(); track m.id) {
-        <li class="grid grid-cols-[28px_minmax(0,1fr)_auto_96px] items-center gap-2.5 px-4 py-2.5 border-b border-[var(--ks-hairline)] text-[14px]" [attr.data-machine]="m.name">
-          <ks-heat-avatar [machine]="m.machine" [size]="28" />
+        <li class="grid grid-cols-[28px_minmax(0,1fr)_auto_96px] items-center gap-2.5 px-4 py-2.5 border-b border-[var(--sy-hairline)] text-[14px]" [attr.data-machine]="m.name">
+          <sy-heat-avatar [machine]="m.machine" [size]="28" />
           <span class="truncate">{{ m.name }}</span>
           <span class="text-[12.5px]" [style.color]="m.heatColor">{{ m.heatWord }}</span>
-          <span class="text-right text-[12.5px]" [class.text-[var(--ks-amber)]]="m.tone === 'warn'" [class.text-[var(--ks-text-muted)]]="m.tone !== 'warn'">{{ m.note }}</span>
+          <span class="text-right text-[12.5px]" [class.text-[var(--sy-amber)]]="m.tone === 'warn'" [class.text-[var(--sy-text-muted)]]="m.tone !== 'warn'">{{ m.note }}</span>
         </li>
       } @empty {
-        <li class="px-4 py-3 text-[13px] text-[var(--ks-text-muted)]">No machines yet.</li>
+        <li class="px-4 py-3 text-[13px] text-[var(--sy-text-muted)]">No machines yet.</li>
       }
     </ul>
-    <h2 class="px-4 pt-4 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Quota</h2>
+    <h2 class="px-4 pt-4 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Quota</h2>
     <ul class="m-0 p-0 list-none" data-testid="mobile-quota">
       @for (q of quotas(); track q.key) {
         <li class="flex justify-between px-4 py-1.5 text-[14px]">
           <span>{{ q.label }}</span>
-          <span [class.text-[var(--ks-amber)]]="q.warn" [class.text-[var(--ks-text-secondary)]]="!q.warn">{{ q.text }}</span>
+          <span [class.text-[var(--sy-amber)]]="q.warn" [class.text-[var(--sy-text-secondary)]]="!q.warn">{{ q.text }}</span>
         </li>
       } @empty {
-        <li class="px-4 py-1.5 text-[13px] text-[var(--ks-text-muted)]">No usage reported yet.</li>
+        <li class="px-4 py-1.5 text-[13px] text-[var(--sy-text-muted)]">No usage reported yet.</li>
       }
     </ul>
-    <p class="px-4 py-4 text-[12.5px] leading-relaxed text-[var(--ks-text-muted)]">
+    <p class="px-4 py-4 text-[12.5px] leading-relaxed text-[var(--sy-text-muted)]">
       No board, wall or placement editing on a phone. Terminals only as an emergency take-control, behind a confirmation.
     </p>
   `,

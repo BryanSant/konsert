@@ -268,7 +268,7 @@ func (d *Detector) probeGitLab(ctx context.Context, client *http.Client, timeout
 		return false
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
@@ -301,7 +301,7 @@ func (d *Detector) probeForgejo(ctx context.Context, client *http.Client, timeou
 		return false
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
@@ -325,7 +325,7 @@ func (d *Detector) probeGitHubEnterprise(ctx context.Context, client *http.Clien
 		return false
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

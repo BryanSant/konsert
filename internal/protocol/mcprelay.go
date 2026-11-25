@@ -2,11 +2,11 @@ package protocol
 
 import "net/http"
 
-// Per-chat MCP relay (KON-DTN92). Agent chats reach the hub's per-chat MCP tools
-// (ask_user, the fleet tools) through konsertd: konsertd serves a loopback HTTP endpoint
+// Per-chat MCP relay (SYR-DTN92). Agent chats reach the hub's per-chat MCP tools
+// (ask_user, the fleet tools) through syred: syred serves a loopback HTTP endpoint
 // and relays each request to the hub as frames over the link it already has (outbound,
 // SSH or local), so no machine needs a network path to the hub's port. Frames carry a
-// request id chosen by konsertd; the hub answers with one head, any number of body
+// request id chosen by syred; the hub answers with one head, any number of body
 // chunks (an SSE stream is relayed as the hub flushes it) and one end.
 const (
 	// MsgMCPRequest (worker->hub) is one HTTP request for a chat's MCP endpoint.
@@ -21,7 +21,7 @@ const (
 	MsgMCPEnd = "mcp.end"
 
 	// MCPChatPathPrefix is the path of a chat's MCP endpoint (MCPChatPathPrefix + chat
-	// id) on konsertd's loopback relay.
+	// id) on syred's loopback relay.
 	MCPChatPathPrefix = "/mcp/chat/"
 
 	// MCPMaxBody bounds one relayed request body.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // blockingProvider streams one delta and then blocks until released or until
@@ -33,7 +33,7 @@ func newBlockingProvider() *blockingProvider {
 
 func (p *blockingProvider) Name() string { return "blocking-test" }
 
-func (p *blockingProvider) Complete(ctx context.Context, _, _ string, _ []orchestrator.Message, _ []orchestrator.ToolDef, onDelta func(string)) (orchestrator.Message, error) {
+func (p *blockingProvider) Complete(ctx context.Context, _, _ string, _ []commander.Message, _ []commander.ToolDef, onDelta func(string)) (commander.Message, error) {
 	p.mu.Lock()
 	p.active++
 	if p.active > p.maxActive {
@@ -51,10 +51,10 @@ func (p *blockingProvider) Complete(ctx context.Context, _, _ string, _ []orches
 	}
 	select {
 	case <-p.release:
-		return orchestrator.Message{Role: "assistant", Content: "done"}, nil
+		return commander.Message{Role: "assistant", Content: "done"}, nil
 	case <-ctx.Done():
 		p.canceled <- struct{}{}
-		return orchestrator.Message{}, ctx.Err()
+		return commander.Message{}, ctx.Err()
 	}
 }
 
@@ -67,10 +67,10 @@ func (p *blockingProvider) max() int {
 func newChatTestHub(t *testing.T) (*testHub, *blockingProvider) {
 	t.Helper()
 	th := newTestHub(t)
-	orch := orchestrator.NewService(config.OrchestratorConfig{Provider: "test", Model: "m", APIKey: "k"}, th.st, th.svc)
+	orch := commander.NewService(config.CommanderConfig{Provider: "test", Model: "m", APIKey: "k"}, th.st, th.svc)
 	prov := newBlockingProvider()
 	orch.SetProvider(prov)
-	th.h.SetOrchestrator(orch)
+	th.h.SetCommander(orch)
 	return th, prov
 }
 

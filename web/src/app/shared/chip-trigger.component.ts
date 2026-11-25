@@ -1,18 +1,18 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 /**
- * `<button ksChip>`: a flat pill trigger with a trailing chevron that lifts on hover.
- * Tone `amber` / `red` colors it (full access, logged out). Use with `ksPopoverTrigger`.
+ * `<button syChip>`: a flat pill trigger with a trailing chevron that lifts on hover.
+ * Tone `amber` / `red` colors it (full access, logged out). Use with `syPopoverTrigger`.
  */
 @Component({
-  selector: 'button[ksChip]',
+  selector: 'button[syChip]',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     type: 'button',
-    class: 'ks-chip',
-    '[class.ks-chip-amber]': "tone() === 'amber'",
-    '[class.ks-chip-red]': "tone() === 'red'",
+    class: 'sy-chip',
+    '[class.sy-chip-amber]': "tone() === 'amber'",
+    '[class.sy-chip-red]': "tone() === 'red'",
   },
   template: `
     <ng-content />

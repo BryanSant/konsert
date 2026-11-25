@@ -17,7 +17,7 @@ func localPath() (string, error) {
 	return AuthorizedKeysPath(runtime.GOOS, isAdmin(), home, os.Getenv("ProgramData")), nil
 }
 
-// Install allows e on this machine (konsertd runs this over the user's SSH during the
+// Install allows e on this machine (syred runs this over the user's SSH during the
 // hub's bootstrap) and returns the file it changed.
 func Install(e Entry) (string, error) {
 	path, err := localPath()

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // promptIsInert reports whether a prompt can only be seen by the CLI as a prompt:

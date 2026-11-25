@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// HookInstallReport summarizes idempotent Konsert agent hook/skill installation on a host.
+// HookInstallReport summarizes idempotent Syre agent hook/skill installation on a host.
 type HookInstallReport struct {
 	ClaudeHooksInstalled bool     `json:"claude_hooks_installed"`
 	AgySkillInstalled    bool     `json:"agy_skill_installed"`
@@ -20,7 +20,7 @@ type HookInstallReport struct {
 	Notes                []string `json:"notes,omitempty"`
 }
 
-// HookEvent is written atomically by `konsertd hook-event` (or notify.sh) to ~/.konsert/hook-events.jsonl.
+// HookEvent is written atomically by `syred hook-event` (or notify.sh) to ~/.syre/hook-events.jsonl.
 type HookEvent struct {
 	SessionID string `json:"session_id"`
 	Agent     string `json:"agent"`
@@ -31,27 +31,27 @@ type HookEvent struct {
 	Message   string `json:"message,omitempty"`
 	// Tool is the tool a PreToolUse/PostToolUse hook fired for (from the hook's stdin JSON).
 	Tool string `json:"tool,omitempty"`
-	// TaskID is set when the hook fired inside a konsertd-managed task (KONSERT_TASK_ID).
+	// TaskID is set when the hook fired inside a syred-managed task (SYRE_TASK_ID).
 	TaskID    string    `json:"task_id,omitempty"`
 	Timestamp time.Time `json:"ts"`
 }
 
-// ManagedTaskEnv is set in the environment of every konsertd-managed task process. Global
+// ManagedTaskEnv is set in the environment of every syred-managed task process. Global
 // agent hooks (installed by install-hooks) see it and do not report the managed task as an
 // external session: the task already reports through its own PTY/telemetry pipeline.
-const ManagedTaskEnv = "KONSERT_TASK_ID"
+const ManagedTaskEnv = "SYRE_TASK_ID"
 
 // HookEventsPath returns the local JSONL inbox path where agent hooks append real-time telemetry.
 func HookEventsPath(homeDir string) string {
 	if homeDir == "" {
 		homeDir, _ = os.UserHomeDir()
 	}
-	return filepath.Join(homeDir, ".konsert", "hook-events.jsonl")
+	return filepath.Join(homeDir, ".syre", "hook-events.jsonl")
 }
 
-// RecordHookEvent appends a single HookEvent JSON line to ~/.konsert/hook-events.jsonl cleanly.
+// RecordHookEvent appends a single HookEvent JSON line to ~/.syre/hook-events.jsonl cleanly.
 //
-// Events from inside a konsertd-managed task (ev.TaskID or $KONSERT_TASK_ID set) are not
+// Events from inside a syred-managed task (ev.TaskID or $SYRE_TASK_ID set) are not
 // recorded, so a managed agent never shows up a second time as an external session.
 func RecordHookEvent(homeDir string, ev HookEvent) error {
 	if ev.TaskID == "" {
@@ -86,9 +86,9 @@ func RecordHookEvent(homeDir string, ev HookEvent) error {
 	return err
 }
 
-// InstallAgentHooks idempotently installs lightweight Konsert telemetry hooks/skills for
+// InstallAgentHooks idempotently installs lightweight Syre telemetry hooks/skills for
 // Claude Code, Antigravity/Gemini, and a portable notify.sh shim for Codex/Grok/custom agents.
-func InstallAgentHooks(homeDir, konsertdBin string) (HookInstallReport, error) {
+func InstallAgentHooks(homeDir, syredBin string) (HookInstallReport, error) {
 	if homeDir == "" {
 		var err error
 		homeDir, err = os.UserHomeDir()
@@ -96,24 +96,24 @@ func InstallAgentHooks(homeDir, konsertdBin string) (HookInstallReport, error) {
 			return HookInstallReport{}, err
 		}
 	}
-	if strings.TrimSpace(konsertdBin) == "" {
-		konsertdBin = "konsertd"
+	if strings.TrimSpace(syredBin) == "" {
+		syredBin = "syred"
 	}
 
 	report := HookInstallReport{
 		EventsFilePath: HookEventsPath(homeDir),
 	}
 
-	// 1. Portable ~/.konsert/hooks/notify.sh shim (for Codex, Grok, custom shells/agents).
-	hooksDir := filepath.Join(homeDir, ".konsert", "hooks")
+	// 1. Portable ~/.syre/hooks/notify.sh shim (for Codex, Grok, custom shells/agents).
+	hooksDir := filepath.Join(homeDir, ".syre", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return report, err
 	}
 	notifyPath := filepath.Join(hooksDir, "notify.sh")
 	notifyScript := fmt.Sprintf(`#!/usr/bin/env bash
-# Konsert lightweight agent telemetry hook (managed by konsertd install-hooks)
+# Syre lightweight agent telemetry hook (managed by syred install-hooks)
 exec %s hook-event "$@" >/dev/null 2>&1 || true
-`, shellQuote(konsertdBin))
+`, shellQuote(syredBin))
 	if err := os.WriteFile(notifyPath, []byte(notifyScript), 0o755); err != nil {
 		return report, err
 	}
@@ -121,14 +121,14 @@ exec %s hook-event "$@" >/dev/null 2>&1 || true
 
 	// 2. Claude Code (~/.claude/settings.json): our entries edited into the JSON text in
 	// place, with a backup first (claude_settings.go).
-	if err := installClaudeHooks(homeDir, konsertdBin); err != nil {
+	if err := installClaudeHooks(homeDir, syredBin); err != nil {
 		report.Notes = append(report.Notes, "claude hooks skipped: "+err.Error())
 	} else {
 		report.ClaudeHooksInstalled = true
 	}
 
-	// 3. Antigravity / Gemini skill (~/.gemini/config/skills/konsert-telemetry/SKILL.md).
-	if err := installAgyTelemetrySkill(homeDir, konsertdBin); err != nil {
+	// 3. Antigravity / Gemini skill (~/.gemini/config/skills/syre-telemetry/SKILL.md).
+	if err := installAgyTelemetrySkill(homeDir, syredBin); err != nil {
 		report.Notes = append(report.Notes, "agy skill skipped: "+err.Error())
 	} else {
 		report.AgySkillInstalled = true
@@ -138,7 +138,7 @@ exec %s hook-event "$@" >/dev/null 2>&1 || true
 }
 
 // shellQuote quotes s for POSIX sh (Claude Code runs hook commands through a shell), so a
-// konsertd path containing spaces or metacharacters stays one word.
+// syred path containing spaces or metacharacters stays one word.
 func shellQuote(s string) string {
 	if s != "" && strings.IndexFunc(s, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-+:@%=,", r))
@@ -164,11 +164,11 @@ func RemoveAgentHooks(homeDir string) (HookInstallReport, error) {
 		return report, err
 	}
 	if changed {
-		report.Notes = append(report.Notes, "removed the Konsert hooks from ~/.claude/settings.json")
+		report.Notes = append(report.Notes, "removed the Syre hooks from ~/.claude/settings.json")
 	}
 	for _, p := range []string{
-		filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry", "SKILL.md"),
-		filepath.Join(homeDir, ".konsert", "hooks", "notify.sh"),
+		filepath.Join(homeDir, ".gemini", "config", "skills", "syre-telemetry", "SKILL.md"),
+		filepath.Join(homeDir, ".syre", "hooks", "notify.sh"),
 	} {
 		if err := os.Remove(p); err == nil {
 			report.Notes = append(report.Notes, "removed "+p)
@@ -176,29 +176,29 @@ func RemoveAgentHooks(homeDir string) (HookInstallReport, error) {
 			return report, err
 		}
 	}
-	_ = os.Remove(filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry"))
-	_ = os.Remove(filepath.Join(homeDir, ".konsert", "hooks")) // only when empty
+	_ = os.Remove(filepath.Join(homeDir, ".gemini", "config", "skills", "syre-telemetry"))
+	_ = os.Remove(filepath.Join(homeDir, ".syre", "hooks")) // only when empty
 	return report, nil
 }
 
-func installAgyTelemetrySkill(homeDir, konsertdBin string) error {
-	skillDir := filepath.Join(homeDir, ".gemini", "config", "skills", "konsert-telemetry")
+func installAgyTelemetrySkill(homeDir, syredBin string) error {
+	skillDir := filepath.Join(homeDir, ".gemini", "config", "skills", "syre-telemetry")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		return err
 	}
 	content := fmt.Sprintf(`---
-name: konsert-telemetry
-description: Report lightweight session milestones to the local konsertd daemon when running outside the Konsert UI.
+name: syre-telemetry
+description: Report lightweight session milestones to the local syred daemon when running outside the Syre UI.
 ---
 
-# Konsert Telemetry Hook
+# Syre Telemetry Hook
 
-When running on a Konsert-managed machine outside the Konsert UI, you can emit concise status transitions (working, needs_you, done, fail) with zero overhead:
+When running on a Syre-managed machine outside the Syre UI, you can emit concise status transitions (working, needs_you, done, fail) with zero overhead:
 
 `+"```bash"+`
 %s hook-event --agent agy --event working --cwd "$PWD"
 %s hook-event --agent agy --event done --cwd "$PWD"
 `+"```"+`
-`, shellQuote(konsertdBin), shellQuote(konsertdBin))
+`, shellQuote(syredBin), shellQuote(syredBin))
 	return os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644)
 }

@@ -8,13 +8,13 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // MCP tools for human control: recent_events everywhere; intervention tools the
-// orchestrator uses when the user tells it to (suspend, veto, drain, pause); and, on the
+// commander uses when the user tells it to (suspend, veto, drain, pause); and, on the
 // per-chat endpoint, request_user_action and release_hold. Undoing what the user did
 // (resume, resume everything, undrain, release a hold) needs the user's confirmation:
 // per-chat endpoints ask in the chat; the external MCP server refuses and points to the UI.
@@ -192,9 +192,9 @@ func (c *RemoteFleetClient) ResumeEverything(ctx context.Context) (FleetPauseSta
 // nil when confirmed. A nil confirmFunc refuses (no way to ask).
 type confirmFunc func(ctx context.Context, question string) error
 
-var errNeedsUI = errors.New("this undoes something the user did: only the user can do it, in the Konsert UI (or by telling an orchestrator chat, which asks them to confirm)")
+var errNeedsUI = errors.New("this undoes something the user did: only the user can do it, in the Syre UI (or by telling a commander chat, which asks them to confirm)")
 
-const recentEventsDescription = "Recent fleet events with attribution: what the user did (Konsert UI, CLI, Konsert terminals), holds, open requests, vetoes, pauses and failures — who caused each change and how sure Konsert is. " +
+const recentEventsDescription = "Recent fleet events with attribution: what the user did (Syre UI, CLI, Syre terminals), holds, open requests, vetoes, pauses and failures — who caused each change and how sure Syre is. " +
 	"Call it BEFORE investigating anything that changed unexpectedly (a service stopped, a session ended, a port closed): if the user caused it, stop and ask the user instead of investigating or undoing it. Also lists active holds and open requests."
 
 // addHumanControlTools registers recent_events and the intervention tools on srv.
@@ -241,7 +241,7 @@ func addHumanControlTools(srv *mcp.Server, b HumanControlBackend, recent func(co
 	})
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "veto_task",
-		Description: "Veto a task for the user: cancel it and record why (reason wrong_approach, wrong_machine, not_now, dangerous or other, plus the user's note) in orchestrator memory so the approach isn't retried.",
+		Description: "Veto a task for the user: cancel it and record why (reason wrong_approach, wrong_machine, not_now, dangerous or other, plus the user's note) in commander memory so the approach isn't retried.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in VetoInput) (*mcp.CallToolResult, any, error) {
 		res, err := b.VetoTask(ctx, in)
 		if err != nil {
@@ -301,11 +301,11 @@ func (h *Hub) chatConfirm(chatID string) confirmFunc {
 		f := false
 		text, ans, err := h.askUserAnswer(ctx, chatID, askUserInput{
 			Question: question,
-			Context:  "The orchestrator wants to do this on your behalf.",
+			Context:  "The commander wants to do this on your behalf.",
 			WhyNow:   "It waits for your confirmation before acting.",
 			Options: []askOption{
-				{Label: "Yes, do it", Consequence: "The orchestrator does it now."},
-				{Label: "No", Consequence: "Nothing happens; the orchestrator asks you what you want instead."},
+				{Label: "Yes, do it", Consequence: "The commander does it now."},
+				{Label: "No", Consequence: "Nothing happens; the commander asks you what you want instead."},
 			},
 			AllowText: &f,
 		})
@@ -320,7 +320,7 @@ func (h *Hub) chatConfirm(chatID string) confirmFunc {
 }
 
 // addChatControlTools registers the per-chat human-control tools: request_user_action,
-// release_hold, recent_events (scoped to the chat) and, for orchestrator chats, the
+// release_hold, recent_events (scoped to the chat) and, for commander chats, the
 // intervention tools.
 func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet HumanControlBackend) {
 	chatID := cs.ID
@@ -337,8 +337,8 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 			Name: "request_override",
 			Description: "Break glass: ask the user for a time-boxed exception to a limit or hold when the work truly needs it — e.g. " +
 				"scope=machine_slots machine=mac extra_slots=1 duration_minutes=30 to allow a 2nd session on mac for 30m, or scope=hold hold_id=h-… to lift a hold for a while. " +
-				"The request shows in Konsert's Needs you with your reason and what approving allows; it returns at once. Nothing changes until the user approves: " +
-				"you are told the decision (and later the expiry) before your next turn, or a turn starts if you are idle. Konsert enforces an approved override until it expires. " +
+				"The request shows in Syre's Needs you with your reason and what approving allows; it returns at once. Nothing changes until the user approves: " +
+				"you are told the decision (and later the expiry) before your next turn, or a turn starts if you are idle. Syre enforces an approved override until it expires. " +
 				"Never use it to undo something the user did on purpose without saying so in the reason.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in requestOverrideInput) (*mcp.CallToolResult, any, error) {
 			o, err := h.createOverride(ctx, chatID, in)
@@ -362,7 +362,7 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "request_user_action",
 		Description: "Ask the user to DO something on a machine that you cannot or must not do yourself (e.g. restart nginx — you have no sudo; plug in a device; approve a deploy). " +
-			"Creates a tracked request shown in Konsert and waits until the user does it (Konsert notices when they do it in a Konsert terminal) or marks it done/declined. " +
+			"Creates a tracked request shown in Syre and waits until the user does it (Syre notices when they do it in a Syre terminal) or marks it done/declined. " +
 			"Returns the outcome; continue your task when it says the user did it. Use ask_user for questions; use this for actions.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in requestUserActionInput) (*mcp.CallToolResult, any, error) {
 		out, err := h.requestUserAction(ctx, chatID, in)
@@ -373,7 +373,7 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 	})
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "release_hold",
-		Description: "Release a hold (h-…) ONLY when the user has told you to (e.g. 'go ahead and restart it'). Konsert asks the user to confirm in the chat before releasing. " +
+		Description: "Release a hold (h-…) ONLY when the user has told you to (e.g. 'go ahead and restart it'). Syre asks the user to confirm in the chat before releasing. " +
 			"Never call it on your own initiative to get around a hold.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in releaseHoldInput) (*mcp.CallToolResult, any, error) {
 		id := resolveRef(ctx, h.store, ids.Hold, in.HoldID)
@@ -399,7 +399,7 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 }
 
 // handleRecentEvents serves GET /api/events/recent (the recent_events view for
-// `konsert mcp`).
+// `syre mcp`).
 func (s *Server) handleRecentEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	in := RecentEventsInput{Machine: q.Get("machine"), TaskID: q.Get("task_id"), All: q.Get("all") == "1"}

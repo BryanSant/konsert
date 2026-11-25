@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/shellint"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/shellint"
 )
 
 // FindBinary locates an executable via PATH first, then falls back to common user install directories
@@ -65,7 +65,7 @@ type LaunchOptions struct {
 	// Effort is the model's reasoning effort ID, mapped to the CLI's effort flag.
 	Effort string
 	// ShellIntegration, when set, asks the shell driver to start an interactive shell
-	// with Konsert's shell integration (command and exit-status marks).
+	// with Syre's shell integration (command and exit-status marks).
 	ShellIntegration *shellint.Integration
 }
 

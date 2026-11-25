@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // TestWorkerFactsDuringDispatchRace sends worker.facts frames while tasks are
 // dispatched to the same worker. Run under -race: the facts handler reads the
-// active-task count that DispatchToWorker writes (KON-FVR3K).
+// active-task count that DispatchToWorker writes (SYR-FVR3K).
 func TestWorkerFactsDuringDispatchRace(t *testing.T) {
 	th := newTestHub(t)
 	info := testWorkerInfo("w-race", "race-box")

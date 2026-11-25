@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/proctree"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/proctree"
 )
 
 // Tunables (variables so tests can shorten them).
@@ -37,7 +37,7 @@ var (
 const (
 	acpToolTextMax = 2000
 	acpAttachMax   = 256 << 10
-	acpClientName  = "konsert"
+	acpClientName  = "syre"
 )
 
 // NewACPEngine returns the engine for one ACP agent (grok, agy, copilot, cursor).
@@ -93,7 +93,7 @@ func (e *acpEngine) start(ctx context.Context, acct Account, cwd string, l acpLa
 			"fs":       map[string]any{"readTextFile": false, "writeTextFile": false},
 			"terminal": false,
 		},
-		"clientInfo": map[string]any{"name": acpClientName, "title": "Konsert", "version": "1"},
+		"clientInfo": map[string]any{"name": acpClientName, "title": "Syre", "version": "1"},
 	}, &c.init)
 	if err != nil {
 		return c, err
@@ -108,7 +108,7 @@ func (c *acpConn) kill() {
 }
 
 // bridgeCommand is the executable used to bridge HTTP MCP servers to stdio for agents
-// that don't accept HTTP MCP (konsertd itself: `konsertd mcp-bridge`). Tests override it.
+// that don't accept HTTP MCP (syred itself: `syred mcp-bridge`). Tests override it.
 var bridgeCommand = func() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -118,7 +118,7 @@ var bridgeCommand = func() string {
 }
 
 // mcpServers converts opts.MCPServers to ACP session/new entries: HTTP when the agent
-// advertises mcpCapabilities.http, otherwise a stdio entry running `konsertd mcp-bridge`
+// advertises mcpCapabilities.http, otherwise a stdio entry running `syred mcp-bridge`
 // with the URL and headers in its environment (agy accepts only stdio MCP over ACP).
 func mcpServers(init *acpInitResult, servers []protocol.AgentMCPServer) []any {
 	out := []any{}
@@ -134,8 +134,8 @@ func mcpServers(init *acpInitResult, servers []protocol.AgentMCPServer) []any {
 				"command": exe,
 				"args":    []string{"mcp-bridge"},
 				"env": []map[string]string{
-					{"name": "KONSERT_MCP_BRIDGE_URL", "value": s.URL},
-					{"name": "KONSERT_MCP_BRIDGE_HEADERS", "value": string(hdr)},
+					{"name": "SYRE_MCP_BRIDGE_URL", "value": s.URL},
+					{"name": "SYRE_MCP_BRIDGE_HEADERS", "value": string(hdr)},
 				},
 			})
 		}
@@ -191,7 +191,7 @@ type acpSession struct {
 	catalog     acpCatalog
 	model       string // user-facing model id
 	effort      string
-	approval    string // Konsert approval id
+	approval    string // Syre approval id
 	launch      acpLaunch
 	needRestart bool
 	restartWhy  string
@@ -299,7 +299,7 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 	mcp := mcpServers(init, s.opts.MCPServers)
 	if len(s.opts.MCPServers) > 0 && len(mcp) == 0 {
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting,
-			Text: s.ad.Label + " could not be given Konsert's tools (ask_user, fleet) in this chat."})
+			Text: s.ad.Label + " could not be given Syre's tools (ask_user, fleet) in this chat."})
 	}
 	resumed, forked := false, false
 	if resumeID == "" && s.opts.ForkFrom != "" {
@@ -959,7 +959,7 @@ func (s *acpSession) onPermission(id jsontext.Value, params jsontext.Value) {
 			*tc = *known
 		}
 	}
-	// Konsert's own MCP tools (ask_user, fleet tools) are trusted: answer the agent's
+	// Syre's own MCP tools (ask_user, fleet tools) are trusted: answer the agent's
 	// permission request ourselves instead of asking the user for permission to ask them.
 	// Checked after merging the earlier tool_call update, which carries the identifying
 	// rawInput (cursor sends only the id and title in the permission request itself).
@@ -995,9 +995,9 @@ func (s *acpSession) onPermission(id jsontext.Value, params jsontext.Value) {
 }
 
 // trustedToolAllowOption returns the allow option to pick automatically when the permission
-// request is for a tool of a Konsert-provided MCP server, or "" to ask the user. Agents
+// request is for a tool of a Syre-provided MCP server, or "" to ask the user. Agents
 // identify MCP tools differently (cursor: rawInput providerIdentifier; others: names like
-// "mcp__konsert__ask_user" or titles like "konsert: ask_user"). Caller holds s.mu.
+// "mcp__syre__ask_user" or titles like "syre: ask_user"). Caller holds s.mu.
 func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw jsontext.Value, opts []protocol.AgentElicitationOption) string {
 	if len(s.opts.MCPServers) == 0 {
 		return ""
@@ -1010,7 +1010,7 @@ func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json
 	}
 	_ = unmarshal(raw, &probe)
 	// The merged tool call's input is the agent's rawInput (e.g. cursor:
-	// {"args":…,"providerIdentifier":"konsert","toolName":"ask_user"}).
+	// {"args":…,"providerIdentifier":"syre","toolName":"ask_user"}).
 	var merged struct {
 		ProviderIdentifier string `json:"providerIdentifier"`
 		ToolName           string `json:"toolName"`
@@ -1027,7 +1027,7 @@ func (s *acpSession) trustedToolAllowOption(tc *protocol.AgentToolCall, raw json
 		}
 		for _, v := range []string{tc.Name, tc.Title, probe.RawInput.ToolName} {
 			v = strings.ToLower(strings.TrimSpace(v))
-			// agy titles MCP calls "Run mcp_konsert_ask_user"; others use mcp__konsert__x.
+			// agy titles MCP calls "Run mcp_syre_ask_user"; others use mcp__syre__x.
 			if strings.Contains(v, "mcp__"+name+"__") || strings.Contains(v, "mcp_"+name+"_") ||
 				strings.HasPrefix(v, name+": ") || strings.HasPrefix(v, name+"__") || strings.HasPrefix(v, name+".") || strings.HasPrefix(v, name+"-") {
 				trusted = true
@@ -1407,7 +1407,7 @@ func (s *acpSession) watchdog() {
 		}
 		s.mu.Lock()
 		t := s.turn
-		fire := t != nil && !t.timedOut && !s.suspended && len(s.perms) == 0 && !konsertToolRunning(t.tools) && time.Since(t.lastEvent) > s.wdAfter
+		fire := t != nil && !t.timedOut && !s.suspended && len(s.perms) == 0 && !syreToolRunning(t.tools) && time.Since(t.lastEvent) > s.wdAfter
 		if fire {
 			t.timedOut = true
 		}

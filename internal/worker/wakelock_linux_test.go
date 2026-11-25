@@ -10,18 +10,18 @@ import (
 	"time"
 )
 
-// TestRealSystemdInhibit takes a real systemd-inhibit lock (KONSERT_TEST_REAL_WAKELOCK=1).
+// TestRealSystemdInhibit takes a real systemd-inhibit lock (SYRE_TEST_REAL_WAKELOCK=1).
 // Where logind is unreachable (containers) it checks that the failure is reported cleanly.
 func TestRealSystemdInhibit(t *testing.T) {
-	if os.Getenv("KONSERT_TEST_REAL_WAKELOCK") != "1" {
-		t.Skip("set KONSERT_TEST_REAL_WAKELOCK=1 to take a real systemd-inhibit lock")
+	if os.Getenv("SYRE_TEST_REAL_WAKELOCK") != "1" {
+		t.Skip("set SYRE_TEST_REAL_WAKELOCK=1 to take a real systemd-inhibit lock")
 	}
 	listed := func() bool {
 		out, _ := exec.Command("systemd-inhibit", "--list", "--no-pager").CombinedOutput()
-		return strings.Contains(string(out), "konsert real wakelock test")
+		return strings.Contains(string(out), "syre real wakelock test")
 	}
 	m := NewWakeLockManager(nil, nil, nil)
-	st := m.Set(true, "konsert real wakelock test")
+	st := m.Set(true, "syre real wakelock test")
 	t.Logf("enable state: %+v", st)
 	if !st.Active {
 		if st.Error == "" {

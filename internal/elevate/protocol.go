@@ -23,7 +23,7 @@ import (
 // The password travels only in the request frame: never in argv, the environment or a
 // file, and it is never logged.
 
-// ChildCommand is the hidden konsertd subcommand the elevated process runs, with the
+// ChildCommand is the hidden syred subcommand the elevated process runs, with the
 // pipe name as its only argument.
 const ChildCommand = "elevated-child"
 
@@ -39,7 +39,7 @@ const (
 
 // Request is what the parent hands the elevated child.
 type Request struct {
-	// Args is the konsertd command line after the program name.
+	// Args is the syred command line after the program name.
 	Args []string `json:"args"`
 	// Dir is the parent's working directory.
 	Dir string `json:"dir"`

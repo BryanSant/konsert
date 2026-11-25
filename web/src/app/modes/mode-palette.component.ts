@@ -20,14 +20,14 @@ interface Item {
 
 /** ⌘K: jump to a mode, a session, a machine, or run an action. */
 @Component({
-  selector: 'ks-mode-palette',
+  selector: 'sy-mode-palette',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, ModalDialogComponent],
   template: `
-    <app-modal-dialog label="Search and commands" align="top" panelClass="w-full max-w-xl rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] overflow-hidden" (close)="close.emit()">
-      <div class="p-2.5 border-b border-[var(--ks-hairline)]">
-        <div class="flex items-center gap-2.5 rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-1)] px-3 h-10">
+    <app-modal-dialog label="Search and commands" align="top" panelClass="w-full max-w-xl rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] overflow-hidden" (close)="close.emit()">
+      <div class="p-2.5 border-b border-[var(--sy-hairline)]">
+        <div class="flex items-center gap-2.5 rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] px-3 h-10">
           <app-icon name="search" [size]="15" />
           <input
             type="text"
@@ -35,44 +35,44 @@ interface Item {
             aria-label="Search work, machines, or run a command"
             aria-autocomplete="list"
             aria-expanded="true"
-            aria-controls="ks-mode-palette-list"
-            [attr.aria-activedescendant]="items().length ? 'ks-mp-' + active() : null"
+            aria-controls="sy-mode-palette-list"
+            [attr.aria-activedescendant]="items().length ? 'sy-mp-' + active() : null"
             placeholder="Search work, machines, or run a command"
             autofocus
-            class="flex-1 bg-transparent text-[13px] text-[var(--ks-text)] placeholder:text-[var(--ks-text-muted)] outline-none"
+            class="flex-1 bg-transparent text-[13px] text-[var(--sy-text)] placeholder:text-[var(--sy-text-muted)] outline-none"
             [value]="query()"
             (input)="query.set($any($event.target).value); active.set(0)"
             (keydown)="onKey($event)"
           />
         </div>
       </div>
-      <div id="ks-mode-palette-list" class="max-h-[380px] overflow-y-auto p-2 text-[12.5px]" [attr.role]="items().length ? 'listbox' : null" aria-label="Results">
+      <div id="sy-mode-palette-list" class="max-h-[380px] overflow-y-auto p-2 text-[12.5px]" [attr.role]="items().length ? 'listbox' : null" aria-label="Results">
         @if (items().length === 0) {
-          <p class="py-8 text-center text-[var(--ks-text-muted)]" role="status">Nothing matches.</p>
+          <p class="py-8 text-center text-[var(--sy-text-muted)]" role="status">Nothing matches.</p>
         }
         @for (it of items(); track it.id; let i = $index) {
           @if (i === 0 || items()[i - 1].group !== it.group) {
-            <div class="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]" aria-hidden="true">{{ it.group }}</div>
+            <div class="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]" aria-hidden="true">{{ it.group }}</div>
           }
           <button
             type="button"
             role="option"
             tabindex="-1"
-            [id]="'ks-mp-' + i"
+            [id]="'sy-mp-' + i"
             [attr.aria-selected]="active() === i"
-            class="w-full flex items-center gap-2.5 rounded-[var(--ks-radius-md)] px-2.5 py-2 text-left"
-            [class.bg-[var(--ks-raised-strong)]]="active() === i"
+            class="w-full flex items-center gap-2.5 rounded-[var(--sy-radius-md)] px-2.5 py-2 text-left"
+            [class.bg-[var(--sy-raised-strong)]]="active() === i"
             (mouseenter)="active.set(i)"
             (click)="run(it)"
           >
             <app-icon [name]="it.icon" [size]="14" />
-            <span class="truncate text-[var(--ks-text)]">{{ it.label }}</span>
+            <span class="truncate text-[var(--sy-text)]">{{ it.label }}</span>
             @if (it.sub) {
-              <span class="truncate text-[11.5px] text-[var(--ks-text-muted)]">{{ it.sub }}</span>
+              <span class="truncate text-[11.5px] text-[var(--sy-text-muted)]">{{ it.sub }}</span>
             }
             <span class="flex-1"></span>
             @if (it.keys) {
-              <span class="ks-kbd">{{ it.keys }}</span>
+              <span class="sy-kbd">{{ it.keys }}</span>
             }
           </button>
         }
@@ -97,7 +97,7 @@ export class ModePaletteComponent {
       id: `mode-${m.id}`,
       group: 'Modes',
       label: `Go to ${m.label}`,
-      icon: m.id === 'command' ? 'orchestrator' : m.id === 'work' ? 'list-todo' : m.id === 'fleet' ? 'server' : 'split',
+      icon: m.id === 'command' ? 'commander' : m.id === 'work' ? 'list-todo' : m.id === 'fleet' ? 'server' : 'split',
       keys: m.key,
       run: go(['/', m.id]),
     }));

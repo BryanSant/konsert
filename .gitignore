@@ -1,17 +1,17 @@
 # Binaries & build artifacts
 /bin/
 /dist/
-/konsert
-/konsertd
+/syre
+/syred
 *.exe
 
 # Local database & runtime state
 *.db
 *.db-shm
 *.db-wal
-konsert-secret.key
-konsert-tokens.yaml
-.konsert-worktrees/
+syre-secret.key
+syre-tokens.yaml
+.syre-worktrees/
 
 # Frontend build & deps
 web/node_modules/

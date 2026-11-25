@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// FleetBackend abstracts local FleetService or a remote HTTP client for `konsert mcp` & `konsertd mcp`.
+// FleetBackend abstracts local FleetService or a remote HTTP client for `syre mcp` & `syred mcp`.
 type FleetBackend interface {
 	FleetStatus(ctx context.Context) (FleetStatusResult, error)
 	DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error)
@@ -200,7 +200,7 @@ func (s *FleetService) GetSettingsMap(ctx context.Context) (map[string]any, erro
 // UpdateSettingsMap persists UI/dispatch preferences only. LLM settings (provider,
 // model, base URL, key) are deliberately not writable here: they must go through
 // Server.applySettings (REST or the controller's /mcp endpoint), which validates them,
-// enforces the admin scope, updates the live config, and hot-reloads the orchestrator.
+// enforces the admin scope, updates the live config, and hot-reloads the commander.
 func (s *FleetService) UpdateSettingsMap(ctx context.Context, updates map[string]string) (map[string]any, error) {
 	allowed := map[string]bool{
 		"default_agent":           true,
@@ -262,12 +262,12 @@ type inspectFactsInput struct {
 }
 
 type updateSettingsInput struct {
-	Updates map[string]string `json:"updates" jsonschema:"Map of Konsert settings keys to values (e.g. default_agent, default_model, default_permission_mode)"`
+	Updates map[string]string `json:"updates" jsonschema:"Map of Syre settings keys to values (e.g. default_agent, default_model, default_permission_mode)"`
 }
 
-type askOrchestratorInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Optional Orchestrator session ID (creates/reuses 'mcp-orchestrator' if omitted)"`
-	Prompt    string `json:"prompt" jsonschema:"Question or fleet instruction for Konsert Orchestrator"`
+type askCommanderInput struct {
+	SessionID string `json:"session_id,omitempty" jsonschema:"Optional Commander session ID (creates/reuses 'mcp-commander' if omitted)"`
+	Prompt    string `json:"prompt" jsonschema:"Question or fleet instruction for Syre Commander"`
 }
 
 type saveMemoryInput struct {
@@ -293,10 +293,10 @@ func jsonToolResult(v any) (*mcp.CallToolResult, any, error) {
 	}, v, nil
 }
 
-// NewMCPServer constructs a full-control MCP server exposing Konsert's fleet, taxonomy,
-// facts, configuration, memory, fan-out, and Orchestrator tools with concise progress notifications.
-func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Service) *mcp.Server {
-	var orchSvc *orchestrator.Service
+// NewMCPServer constructs a full-control MCP server exposing Syre's fleet, taxonomy,
+// facts, configuration, memory, fan-out, and Commander tools with concise progress notifications.
+func NewMCPServer(backend FleetBackend, version string, orch ...*commander.Service) *mcp.Server {
+	var orchSvc *commander.Service
 	if len(orch) > 0 {
 		orchSvc = orch[0]
 	}
@@ -310,19 +310,19 @@ func NewMCPServer(backend FleetBackend, version string, orch ...*orchestrator.Se
 
 // newMCPServer builds the fleet tool server without the human-control tools (per-chat
 // endpoints add their own, which can ask the chat's user to confirm).
-func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Service) *mcp.Server {
+func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Service) *mcp.Server {
 	if version == "" {
 		version = "1.0.0"
 	}
 
 	srv := mcp.NewServer(&mcp.Implementation{
-		Name:    "konsert",
+		Name:    "syre",
 		Version: version,
 	}, nil)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "fleet_status",
-		Description: "Inspect registered Konsert workers, their online status, cached machine facts, isolation tier, permission mode, available coding agents, and active task counts.",
+		Description: "Inspect registered Syre workers, their online status, cached machine facts, isolation tier, permission mode, available coding agents, and active task counts.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 		res, err := backend.FleetStatus(ctx)
 		if err != nil {
@@ -358,7 +358,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "dispatch_task",
-		Description: "Dispatch a coding agent session/task to a matching worker node in the Konsert fleet (supports fact-based selectors like required_tools, required_auth, os, name).",
+		Description: "Dispatch a coding agent session/task to a matching worker node in the Syre fleet (supports fact-based selectors like required_tools, required_auth, os, name).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DispatchRequest) (*mcp.CallToolResult, any, error) {
 		res, err := backend.DispatchTask(ctx, in)
 		if err != nil {
@@ -457,7 +457,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 		return jsonToolResult(res)
 	})
 
-	// Read-only fleet audit log (KON-WP2A5).
+	// Read-only fleet audit log (SYR-WP2A5).
 	if ab, ok := backend.(AuditBackend); ok {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "list_audit",
@@ -472,11 +472,11 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 		})
 	}
 
-	// Full control-plane tools (taxonomy, fan-out, settings, memory, Orchestrator)
+	// Full control-plane tools (taxonomy, fan-out, settings, memory, Commander)
 	if cp, ok := backend.(ControlPlaneBackend); ok {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "get_taxonomy",
-			Description: "Query Konsert's Space > Project > Repo > Worktree taxonomy hierarchy.",
+			Description: "Query Syre's Space > Project > Repo > Worktree taxonomy hierarchy.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 			res, err := cp.GetTaxonomy(ctx)
 			if err != nil {
@@ -487,7 +487,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "manage_taxonomy",
-			Description: "Create or delete a Workspace (Space), Project, Repo, or Worktree in Konsert's taxonomy.",
+			Description: "Create or delete a Workspace (Space), Project, Repo, or Worktree in Syre's taxonomy.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageTaxonomyInput) (*mcp.CallToolResult, any, error) {
 			res, err := cp.ManageTaxonomy(ctx, in)
 			if err != nil {
@@ -509,7 +509,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "get_settings",
-			Description: "Read Konsert controller settings and session defaults (API keys are never exposed).",
+			Description: "Read Syre controller settings and session defaults (API keys are never exposed).",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 			res, err := cp.GetSettingsMap(ctx)
 			if err != nil {
@@ -520,7 +520,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "update_settings",
-			Description: "Configure Konsert settings (default_agent, default_model, default_permission_mode, llm_provider, llm_model, etc.).",
+			Description: "Configure Syre settings (default_agent, default_model, default_permission_mode, llm_provider, llm_model, etc.).",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateSettingsInput) (*mcp.CallToolResult, any, error) {
 			res, err := cp.UpdateSettingsMap(ctx, in.Updates)
 			if err != nil {
@@ -531,7 +531,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "save_memory",
-			Description: "Persist a concise note in Konsert's SQLite Orchestrator memory store.",
+			Description: "Persist a concise note in Syre's SQLite Commander memory store.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in saveMemoryInput) (*mcp.CallToolResult, any, error) {
 			if err := cp.SaveMemory(ctx, in.Scope, in.Key, in.Summary); err != nil {
 				return nil, nil, err
@@ -541,7 +541,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "recall_memory",
-			Description: "Query persisted fleet/project/session memory entries from Konsert's SQLite store.",
+			Description: "Query persisted fleet/project/session memory entries from Syre's SQLite store.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in recallMemoryInput) (*mcp.CallToolResult, any, error) {
 			entries, err := cp.RecallMemory(ctx, in.Scope, in.Limit)
 			if err != nil {
@@ -553,15 +553,15 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 
 	if orchSvc != nil {
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "ask_orchestrator",
-			Description: "Invoke or query Konsert's logical-fleet Orchestrator programmatically and return its concise response.",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in askOrchestratorInput) (*mcp.CallToolResult, any, error) {
+			Name:        "ask_commander",
+			Description: "Invoke or query Syre's logical-fleet Commander programmatically and return its concise response.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in askCommanderInput) (*mcp.CallToolResult, any, error) {
 			sid := strings.TrimSpace(in.SessionID)
 			if sid == "" {
-				sid = "mcp-orchestrator"
+				sid = "mcp-commander"
 			}
 			var buf strings.Builder
-			err := orchSvc.HandleUserMessage(ctx, sid, in.Prompt, orchestrator.StreamCallbacks{
+			err := orchSvc.HandleUserMessage(ctx, sid, in.Prompt, commander.StreamCallbacks{
 				OnDelta: func(_, d string) { buf.WriteString(d) },
 			})
 			if err != nil {
@@ -575,7 +575,7 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *orchestrator.Se
 }
 
 // NewMCPHTTPHandler wraps NewMCPServer in the official StreamableHTTPHandler.
-func NewMCPHTTPHandler(backend FleetBackend, version string, orch ...*orchestrator.Service) http.Handler {
+func NewMCPHTTPHandler(backend FleetBackend, version string, orch ...*commander.Service) http.Handler {
 	srv := NewMCPServer(backend, version, orch...)
 	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return srv
@@ -583,18 +583,18 @@ func NewMCPHTTPHandler(backend FleetBackend, version string, orch ...*orchestrat
 }
 
 // RunMCPStdio runs the MCP server over stdio until EOF or context cancellation.
-func RunMCPStdio(ctx context.Context, backend FleetBackend, version string, orch ...*orchestrator.Service) error {
+func RunMCPStdio(ctx context.Context, backend FleetBackend, version string, orch ...*commander.Service) error {
 	srv := NewMCPServer(backend, version, orch...)
 	return srv.Run(ctx, &mcp.StdioTransport{})
 }
 
-// RemoteFleetClient implements ControlPlaneBackend over the konsert REST API (for `konsert mcp`, `konsertd mcp`, & CLI commands).
+// RemoteFleetClient implements ControlPlaneBackend over the syre REST API (for `syre mcp`, `syred mcp`, & CLI commands).
 type RemoteFleetClient struct {
 	BaseURL string
 	Token   string
 	Client  *http.Client
 	// Source optionally labels this client ("cli" or "mcp") in the hub's audit
-	// log via the X-Konsert-Client header. Identity still comes from Token.
+	// log via the X-Syre-Client header. Identity still comes from Token.
 	Source string
 	// UserAgent, when set, identifies this client (shown in Settings → Devices).
 	UserAgent string
@@ -608,7 +608,7 @@ func NewRemoteFleetClient(baseURL, token string) *RemoteFleetClient {
 	}
 }
 
-// APIError is a non-2xx response from the konsert REST API.
+// APIError is a non-2xx response from the syre REST API.
 type APIError struct {
 	Method     string
 	Path       string
@@ -618,7 +618,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("konsert API %s %s failed (HTTP %d): %s", e.Method, e.Path, e.StatusCode, e.Message)
+	return fmt.Sprintf("syre API %s %s failed (HTTP %d): %s", e.Method, e.Path, e.StatusCode, e.Message)
 }
 
 // DoJSON sends a JSON request to the hub's REST API and decodes the JSON reply into
@@ -642,10 +642,10 @@ func (c *RemoteFleetClient) doJSON(ctx context.Context, method, path string, req
 	}
 	req.Header.Set("Accept", "application/json")
 	if reqBody != nil || (method != http.MethodGet && method != http.MethodHead) {
-		// The hub's CSRF guard requires a JSON body type or X-Konsert-Request on
+		// The hub's CSRF guard requires a JSON body type or X-Syre-Request on
 		// state-changing /api requests; send both.
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Konsert-Request", "1")
+		req.Header.Set("X-Syre-Request", "1")
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -790,7 +790,7 @@ func (c *RemoteFleetClient) UpdateSettingsMap(ctx context.Context, updates map[s
 }
 
 func (c *RemoteFleetClient) SaveMemory(ctx context.Context, scope, key, summary string) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/orchestrator/memory", map[string]string{
+	return c.doJSON(ctx, http.MethodPost, "/api/commander/memory", map[string]string{
 		"scope":   scope,
 		"key":     key,
 		"summary": summary,
@@ -801,6 +801,6 @@ func (c *RemoteFleetClient) RecallMemory(ctx context.Context, scope string, limi
 	var resp struct {
 		Entries []store.MemoryEntry `json:"entries"`
 	}
-	err := c.doJSON(ctx, http.MethodGet, "/api/orchestrator/memory?scope="+scope, nil, &resp)
+	err := c.doJSON(ctx, http.MethodGet, "/api/commander/memory?scope="+scope, nil, &resp)
 	return resp.Entries, err
 }

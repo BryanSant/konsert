@@ -52,7 +52,7 @@ import { Component, input } from '@angular/core';
           <path d="M9.2 1.8 3.8 9h4l-.8 5.2L12.4 7h-4l.8-5.2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
         </svg>
       }
-      @case ('orchestrator') {
+      @case ('commander') {
         <svg [attr.width]="size()" [attr.height]="size()" viewBox="0 0 16 16" fill="none" class="shrink-0">
           <path d="M8 1.8 9.6 6.4 14.2 8 9.6 9.6 8 14.2 6.4 9.6 1.8 8 6.4 6.4 8 1.8Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
         </svg>

@@ -38,8 +38,8 @@ describe('approveActionLabel', () => {
     expect(approveActionLabel(null, { mode: 'pr_open', hasRemote: true, defaultBranch: 'main' })).toBe(
       'Approve → push branch and open a PR against main',
     );
-    expect(approveActionLabel(null, { mode: 'keep_branch', branch: 'konsert/t-1' })).toBe(
-      'Approve → mark accepted and keep branch konsert/t-1',
+    expect(approveActionLabel(null, { mode: 'keep_branch', branch: 'syre/t-1' })).toBe(
+      'Approve → mark accepted and keep branch syre/t-1',
     );
   });
 });

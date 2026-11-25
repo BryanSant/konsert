@@ -13,25 +13,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/google/uuid"
 )
 
-// Per-machine credentials (KON-RK9YD) and their rotation (KON-W1YRP).
+// Per-machine credentials (SYR-RK9YD) and their rotation (SYR-W1YRP).
 //
-// Every konsertd authenticates /ws/worker with its own credential, bound to its machine:
+// Every syred authenticates /ws/worker with its own credential, bound to its machine:
 // the hub maps the credential to a worker id and refuses a worker.hello for any other
 // identity, so one machine cannot impersonate another. Credentials reach machines
 // without anyone copying them:
 //
 //   - a manual machine trades a short-lived, single-use join code for one
-//     (`konsertd join <hub> <code>`, POST /api/machines/join);
+//     (`syred join <hub> <code>`, POST /api/machines/join);
 //   - machines the hub installs itself (its own machine, or over SSH) need none: the
 //     hub attaches to them over their local socket, directly or over SSH, and SSH is
-//     the auth (KON-K1B60; see transport.go).
+//     the auth (SYR-K1B60; see transport.go).
 //
 // Revoking a machine's credential, or rotating (which revokes manual machines'
 // credentials so they re-join with a new code), disconnects it immediately.
@@ -313,7 +313,7 @@ func (s *Server) handleCreateJoinCode(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, http.StatusCreated, JoinCodeResponse{
 		ID: jc.ID, Code: code, ExpiresAt: jc.ExpiresAt, HubURL: hubURL,
-		Command: "konsertd join " + hubURL + " " + code,
+		Command: "syred join " + hubURL + " " + code,
 	})
 }
 
@@ -352,7 +352,7 @@ func (s *Server) handleGetJoinCode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
-// JoinRequest is POST /api/machines/join, sent by `konsertd join`.
+// JoinRequest is POST /api/machines/join, sent by `syred join`.
 type JoinRequest struct {
 	Code      string `json:"code"`
 	WorkerID  string `json:"worker_id"`
@@ -376,7 +376,7 @@ const errBadJoinCode = "invalid or expired join code"
 // handleMachineJoin trades a join code for a credential. It is unauthenticated (the
 // code is the credential), so failures are rate-limited per client and fleet-wide.
 func (s *Server) handleMachineJoin(w http.ResponseWriter, r *http.Request) {
-	ctx := withAuditActor(r.Context(), "konsertd join", auditSourceREST)
+	ctx := withAuditActor(r.Context(), "syred join", auditSourceREST)
 	ip := auth.ClientIP(r)
 	for _, l := range []struct {
 		lim *auth.LoginLimiter
@@ -409,7 +409,7 @@ func (s *Server) handleMachineJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u, err := uuid.Parse(req.WorkerID); err != nil || u.String() != req.WorkerID {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id must be konsertd's UUID identity"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id must be syred's UUID identity"})
 		return
 	}
 	name := cleanLabel(req.Name, cleanLabel(req.Hostname, "machine"))

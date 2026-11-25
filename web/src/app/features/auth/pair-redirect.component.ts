@@ -7,7 +7,7 @@ import { Router } from '@angular/router';
  * route keeps the code in the address bar.)
  */
 @Component({
-  selector: 'ks-pair-redirect',
+  selector: 'sy-pair-redirect',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: ``,

@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/install"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/install"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// Link state (KON-G8WA3). The running daemon keeps <stateDir>/run/<worker id>.link.json
+// Link state (SYR-G8WA3). The running daemon keeps <stateDir>/run/<worker id>.link.json
 // (0600, in the user-only run directory next to the local socket) up to date with its
-// link to the hub; `konsertd status` reads it. A file rather than a query on the local
+// link to the hub; `syred status` reads it. A file rather than a query on the local
 // socket: an outbound daemon has no socket, and a stopped daemon's last state is still
 // worth showing (the pid tells whether it is still running).
 
@@ -30,13 +30,13 @@ const (
 	LinkWaiting = "waiting for the hub"
 )
 
-// LinkStatus is the daemon's link to the hub as `konsertd status` shows it.
+// LinkStatus is the daemon's link to the hub as `syred status` shows it.
 type LinkStatus struct {
 	WorkerID string `json:"worker_id"`
 	Name     string `json:"name,omitempty"`
 	PID      int    `json:"pid"`
 	State    string `json:"state"`
-	// Transport is outbound (konsertd dials the hub), ssh or local (the hub attaches).
+	// Transport is outbound (syred dials the hub), ssh or local (the hub attaches).
 	Transport string `json:"transport"`
 	Peer      string `json:"peer,omitempty"`
 	// Since is when State began.
@@ -176,7 +176,7 @@ func (t *linkTracker) stopped() {
 	n := t.now()
 	t.st.State, t.st.Since, t.st.NextAttempt = LinkDisconnected, n, time.Time{}
 	if t.st.LastError == "" {
-		t.st.LastError = "konsertd stopped"
+		t.st.LastError = "syred stopped"
 	}
 	t.writeLocked(n)
 	t.mu.Unlock()

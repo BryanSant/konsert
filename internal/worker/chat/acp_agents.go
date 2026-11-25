@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// acpApproval maps one Konsert approval mode to the agent's own controls.
+// acpApproval maps one Syre approval mode to the agent's own controls.
 type acpApproval struct {
 	Mode protocol.AgentApprovalMode
 	// ACPMode is applied with session/set_mode ("" = leave the session's mode alone).
@@ -33,7 +33,7 @@ type acpApproval struct {
 }
 
 type acpLaunch struct {
-	Approval string // Konsert approval mode id
+	Approval string // Syre approval mode id
 	Model    string // only for agents that take the model at launch (copilot)
 	Effort   string // only for agents that take the effort at launch (copilot)
 }
@@ -83,7 +83,7 @@ func (a *acpAdapter) approval(id string) (acpApproval, bool) {
 	return acpApproval{}, false
 }
 
-// approvalForACPMode maps an agent-reported mode back to a Konsert approval id, keeping
+// approvalForACPMode maps an agent-reported mode back to a Syre approval id, keeping
 // the current one when it already maps to that mode (several modes share an ACP mode).
 func (a *acpAdapter) approvalForACPMode(mode string, current string) string {
 	if cur, ok := a.approval(current); ok && cur.ACPMode == mode {
@@ -374,7 +374,7 @@ func parseCursorStatus(out string) (state, email, detail string) {
 	return protocol.AuthUnknown, "", ""
 }
 
-const acpProbePrefix = "konsert-acp-probe-"
+const acpProbePrefix = "syre-acp-probe-"
 
 // cwdVariants returns cwd and its symlink-resolved form (/var/tmp vs /private/var/tmp).
 func cwdVariants(cwd string) []string {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func TestClaudeSessionIDPerLaunch(t *testing.T) {

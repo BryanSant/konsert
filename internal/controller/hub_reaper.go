@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // RunReaper periodically marks workers with missed heartbeats offline and applies orphan policies.

@@ -3,78 +3,79 @@
 
 :root {
   /* Surfaces, by elevation */
-  --ks-bg-canvas: #111214;
-  --ks-bg-chrome: #16171a;
-  --ks-bg-surface: #1c1d21;
-  --ks-bg-elevated: #222328;
-  --ks-bg-hover: #282a30;
-  --ks-surface-0: #111214; /* canvas */
-  --ks-surface-1: #17181c; /* panels, composer */
-  --ks-surface-2: #1e1f24; /* cards */
-  --ks-surface-3: #26282e; /* popovers, raised hover */
-  --ks-raised: rgba(255, 255, 255, 0.07);
-  --ks-raised-strong: rgba(255, 255, 255, 0.11);
-  --ks-pressed: rgba(255, 255, 255, 0.14);
-  --ks-border: #26282e;
-  --ks-border-subtle: rgba(255, 255, 255, 0.06);
-  --ks-border-focus: #4a668a;
-  --ks-hairline: rgba(255, 255, 255, 0.07);
+  --sy-bg-canvas: #111214;
+  --sy-bg-chrome: #16171a;
+  --sy-bg-surface: #1c1d21;
+  --sy-bg-elevated: #222328;
+  --sy-bg-hover: #282a30;
+  --sy-surface-0: #111214; /* canvas */
+  --sy-surface-1: #17181c; /* panels, composer */
+  --sy-surface-2: #1e1f24; /* cards */
+  --sy-surface-3: #26282e; /* popovers, raised hover */
+  --sy-raised: rgba(255, 255, 255, 0.07);
+  --sy-raised-strong: rgba(255, 255, 255, 0.11);
+  --sy-pressed: rgba(255, 255, 255, 0.14);
+  --sy-border: #26282e;
+  --sy-border-subtle: rgba(255, 255, 255, 0.06);
+  --sy-border-focus: #4a668a;
+  --sy-hairline: rgba(255, 255, 255, 0.07);
 
   /* Text */
-  --ks-text: #ececed;
-  --ks-text-secondary: #9a9ca4;
-  --ks-text-muted: #8f9199; /* >= 4.5:1 on surfaces up to the raised hover */
+  --sy-text: #ececed;
+  --sy-text-secondary: #9a9ca4;
+  --sy-text-muted: #8f9199; /* >= 4.5:1 on surfaces up to the raised hover */
 
   /* Status hues */
-  --ks-green: #69b879;
-  --ks-amber: #e0a84c;
-  --ks-red: #e86b6b;
-  --ks-blue: #6aaefa;
-  --ks-amber-soft: rgba(224, 168, 76, 0.14);
-  --ks-red-soft: rgba(232, 107, 107, 0.13);
-  --ks-green-soft: rgba(105, 184, 121, 0.13);
-  --ks-blue-soft: rgba(106, 174, 250, 0.13);
+  --sy-green: #69b879;
+  --sy-amber: #e0a84c;
+  --sy-red: #e86b6b;
+  --sy-blue: #6aaefa;
+  --sy-amber-soft: rgba(224, 168, 76, 0.14);
+  --sy-red-soft: rgba(232, 107, 107, 0.13);
+  --sy-green-soft: rgba(105, 184, 121, 0.13);
+  --sy-blue-soft: rgba(106, 174, 250, 0.13);
+  --sy-accent-tab: #0365b3; /* logo median blue lifted to 3:1 contrast on dark chrome */
   /* Suspended (frozen by the user / Pause everything) */
-  --ks-violet: #b4a7f5;
-  --ks-violet-soft: rgba(180, 167, 245, 0.14);
+  --sy-violet: #b4a7f5;
+  --sy-violet-soft: rgba(180, 167, 245, 0.14);
 
   /* Spacing scale (4px base) */
-  --ks-space-1: 4px;
-  --ks-space-2: 8px;
-  --ks-space-3: 12px;
-  --ks-space-4: 16px;
-  --ks-space-5: 20px;
-  --ks-space-6: 24px;
-  --ks-space-8: 32px;
+  --sy-space-1: 4px;
+  --sy-space-2: 8px;
+  --sy-space-3: 12px;
+  --sy-space-4: 16px;
+  --sy-space-5: 20px;
+  --sy-space-6: 24px;
+  --sy-space-8: 32px;
 
   /* Radii */
-  --ks-radius-sm: 6px;
-  --ks-radius-md: 8px;
-  --ks-radius-lg: 12px;
-  --ks-radius-xl: 18px;
-  --ks-radius-pill: 9999px;
+  --sy-radius-sm: 6px;
+  --sy-radius-md: 8px;
+  --sy-radius-lg: 12px;
+  --sy-radius-xl: 18px;
+  --sy-radius-pill: 9999px;
 
   /* Shadows */
-  --ks-shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --ks-shadow-popover: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --ks-shadow-composer: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --sy-shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --sy-shadow-popover: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --sy-shadow-composer: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.06);
 
   /* Focus */
-  --ks-focus-ring: 0 0 0 2px var(--ks-bg-canvas), 0 0 0 4px #6d8fbf;
+  --sy-focus-ring: 0 0 0 2px var(--sy-bg-canvas), 0 0 0 4px #6d8fbf;
 
   /* Motion */
-  --ks-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ks-dur-fast: 120ms;
-  --ks-dur-base: 160ms;
-  --ks-dur-slow: 220ms;
+  --sy-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --sy-dur-fast: 120ms;
+  --sy-dur-base: 160ms;
+  --sy-dur-slow: 220ms;
 }
 
 html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: var(--ks-bg-canvas);
-  color: var(--ks-text);
+  background-color: var(--sy-bg-canvas);
+  color: var(--sy-text);
   font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   overflow: hidden;
@@ -110,18 +111,18 @@ html, body {
   background-color: #111214 !important;
 }
 
-@keyframes ks-spin-slow {
+@keyframes sy-spin-slow {
   to {
     transform: rotate(360deg);
   }
 }
 
-.ks-ring-spin {
-  animation: ks-spin-slow 1.6s linear infinite;
+.sy-ring-spin {
+  animation: sy-spin-slow 1.6s linear infinite;
 }
 
 /* Subtle Herdr/macOS-style micro-animations & glass transitions */
-@keyframes ks-backdrop-in {
+@keyframes sy-backdrop-in {
   from {
     opacity: 0;
     backdrop-filter: blur(0px);
@@ -132,7 +133,7 @@ html, body {
   }
 }
 
-@keyframes ks-modal-in {
+@keyframes sy-modal-in {
   from {
     opacity: 0;
     transform: translateY(-8px) scale(0.97);
@@ -143,7 +144,7 @@ html, body {
   }
 }
 
-@keyframes ks-popover-up {
+@keyframes sy-popover-up {
   from {
     opacity: 0;
     transform: translateY(6px) scale(0.975);
@@ -154,7 +155,7 @@ html, body {
   }
 }
 
-@keyframes ks-slide-up {
+@keyframes sy-slide-up {
   from {
     transform: translateY(100%);
   }
@@ -163,21 +164,21 @@ html, body {
   }
 }
 
-.ks-backdrop {
+.sy-backdrop {
   background: rgba(8, 9, 11, 0.42);
   backdrop-filter: blur(2.5px);
   -webkit-backdrop-filter: blur(2.5px);
-  animation: ks-backdrop-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sy-backdrop-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.ks-modal {
+.sy-modal {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  animation: ks-modal-in 165ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sy-modal-in 165ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Native <dialog> used by app-modal-dialog: transparent full-viewport host in the top
-   layer; the .ks-backdrop / .ks-modal children provide the visuals. */
-dialog.ks-dialog {
+   layer; the .sy-backdrop / .sy-modal children provide the visuals. */
+dialog.sy-dialog {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -191,12 +192,12 @@ dialog.ks-dialog {
   color: inherit;
   overflow: hidden;
 }
-dialog.ks-dialog::backdrop {
+dialog.sy-dialog::backdrop {
   background: transparent;
 }
 
 /* Visually hidden but available to assistive technology. */
-.ks-sr-only {
+.sy-sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -208,19 +209,19 @@ dialog.ks-dialog::backdrop {
   border: 0;
 }
 
-.ks-popover {
+.sy-popover {
   background: rgba(22, 23, 27, 0.94);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.44), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  animation: ks-popover-up 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: sy-popover-up 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.ks-drawer-bottom {
-  animation: ks-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+.sy-drawer-bottom {
+  animation: sy-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.ks-kbd {
+.sy-kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -238,130 +239,130 @@ dialog.ks-dialog::backdrop {
    can override them per use. */
 @layer components {
 /* ---------- Buttons: flat until hover ---------- */
-.ks-btn,
-.ks-icon-btn,
-.ks-chip {
+.sy-btn,
+.sy-icon-btn,
+.sy-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border: 0;
   background: transparent;
-  color: var(--ks-text-secondary);
+  color: var(--sy-text-secondary);
   font: inherit;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background-color var(--ks-dur-fast) var(--ks-ease-out),
-    color var(--ks-dur-fast) var(--ks-ease-out),
-    box-shadow var(--ks-dur-fast) var(--ks-ease-out),
-    transform var(--ks-dur-fast) var(--ks-ease-out);
+    background-color var(--sy-dur-fast) var(--sy-ease-out),
+    color var(--sy-dur-fast) var(--sy-ease-out),
+    box-shadow var(--sy-dur-fast) var(--sy-ease-out),
+    transform var(--sy-dur-fast) var(--sy-ease-out);
   -webkit-tap-highlight-color: transparent;
 }
-.ks-btn {
+.sy-btn {
   height: 30px;
   padding: 0 12px;
-  border-radius: var(--ks-radius-md);
+  border-radius: var(--sy-radius-md);
   font-size: 12px;
 }
-.ks-btn-sm {
+.sy-btn-sm {
   height: 26px;
   padding: 0 9px;
   font-size: 11.5px;
 }
-.ks-icon-btn {
+.sy-icon-btn {
   width: 30px;
   height: 30px;
-  border-radius: var(--ks-radius-md);
+  border-radius: var(--sy-radius-md);
   flex-shrink: 0;
 }
-.ks-icon-btn.ks-icon-btn-sm {
+.sy-icon-btn.sy-icon-btn-sm {
   width: 26px;
   height: 26px;
-  border-radius: var(--ks-radius-sm);
+  border-radius: var(--sy-radius-sm);
 }
-.ks-chip {
+.sy-chip {
   height: 30px;
   padding: 0 8px 0 9px;
-  border-radius: var(--ks-radius-pill);
+  border-radius: var(--sy-radius-pill);
   font-size: 12px;
 }
-.ks-btn:hover:not(:disabled),
-.ks-icon-btn:hover:not(:disabled),
-.ks-chip:hover:not(:disabled),
-.ks-btn[aria-pressed='true'],
-.ks-icon-btn[aria-pressed='true'],
-.ks-btn[aria-expanded='true'],
-.ks-icon-btn[aria-expanded='true'],
-.ks-chip[aria-expanded='true'] {
-  background: var(--ks-raised);
-  box-shadow: var(--ks-shadow-raised);
-  color: var(--ks-text);
+.sy-btn:hover:not(:disabled),
+.sy-icon-btn:hover:not(:disabled),
+.sy-chip:hover:not(:disabled),
+.sy-btn[aria-pressed='true'],
+.sy-icon-btn[aria-pressed='true'],
+.sy-btn[aria-expanded='true'],
+.sy-icon-btn[aria-expanded='true'],
+.sy-chip[aria-expanded='true'] {
+  background: var(--sy-raised);
+  box-shadow: var(--sy-shadow-raised);
+  color: var(--sy-text);
 }
-.ks-btn:active:not(:disabled),
-.ks-icon-btn:active:not(:disabled),
-.ks-chip:active:not(:disabled) {
-  background: var(--ks-pressed);
+.sy-btn:active:not(:disabled),
+.sy-icon-btn:active:not(:disabled),
+.sy-chip:active:not(:disabled) {
+  background: var(--sy-pressed);
   transform: translateY(0.5px);
 }
-.ks-btn:disabled,
-.ks-icon-btn:disabled,
-.ks-chip:disabled {
+.sy-btn:disabled,
+.sy-icon-btn:disabled,
+.sy-chip:disabled {
   opacity: 0.4;
   cursor: default;
 }
-.ks-btn:focus-visible,
-.ks-icon-btn:focus-visible,
-.ks-chip:focus-visible,
-.ks-focusable:focus-visible {
+.sy-btn:focus-visible,
+.sy-icon-btn:focus-visible,
+.sy-chip:focus-visible,
+.sy-focusable:focus-visible {
   outline: none;
-  box-shadow: var(--ks-focus-ring);
+  box-shadow: var(--sy-focus-ring);
 }
 /* Quiet filled button for secondary actions inside cards. */
-.ks-btn-soft {
-  background: var(--ks-raised);
-  color: var(--ks-text);
+.sy-btn-soft {
+  background: var(--sy-raised);
+  color: var(--sy-text);
 }
-.ks-btn-soft:hover:not(:disabled) {
-  background: var(--ks-raised-strong);
+.sy-btn-soft:hover:not(:disabled) {
+  background: var(--sy-raised-strong);
 }
 /* Primary: light fill on the dark UI. */
-.ks-btn-primary {
+.sy-btn-primary {
   background: #e6e6e8;
   color: #111214;
   font-weight: 600;
 }
-.ks-btn-primary:hover:not(:disabled) {
+.sy-btn-primary:hover:not(:disabled) {
   background: #ffffff;
   color: #111214;
 }
-.ks-btn-danger {
+.sy-btn-danger {
   color: #f0a0a0;
 }
-.ks-btn-danger:hover:not(:disabled) {
-  background: var(--ks-red-soft);
+.sy-btn-danger:hover:not(:disabled) {
+  background: var(--sy-red-soft);
   color: #f6b8b8;
 }
-.ks-chip-amber {
-  color: var(--ks-amber);
+.sy-chip-amber {
+  color: var(--sy-amber);
 }
-.ks-chip-amber:hover:not(:disabled),
-.ks-chip-amber[aria-expanded='true'] {
+.sy-chip-amber:hover:not(:disabled),
+.sy-chip-amber[aria-expanded='true'] {
   color: #f0c27a;
-  background: var(--ks-amber-soft);
+  background: var(--sy-amber-soft);
 }
-.ks-chip-red {
+.sy-chip-red {
   color: #f19a9a;
 }
-.ks-chip-red:hover:not(:disabled) {
-  background: var(--ks-red-soft);
+.sy-chip-red:hover:not(:disabled) {
+  background: var(--sy-red-soft);
 }
 /* Round send button (light circle, dark arrow). */
-.ks-send-btn {
+.sy-send-btn {
   width: 32px;
   height: 32px;
-  border-radius: var(--ks-radius-pill);
+  border-radius: var(--sy-radius-pill);
   border: 0;
   background: #e6e6e8;
   color: #111214;
@@ -370,54 +371,54 @@ dialog.ks-dialog::backdrop {
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color var(--ks-dur-fast) var(--ks-ease-out), transform var(--ks-dur-fast) var(--ks-ease-out);
+  transition: background-color var(--sy-dur-fast) var(--sy-ease-out), transform var(--sy-dur-fast) var(--sy-ease-out);
 }
-.ks-send-btn:hover:not(:disabled) {
+.sy-send-btn:hover:not(:disabled) {
   background: #ffffff;
   transform: scale(1.04);
 }
-.ks-send-btn:disabled {
+.sy-send-btn:disabled {
   opacity: 0.3;
   cursor: default;
 }
-.ks-send-btn:focus-visible {
+.sy-send-btn:focus-visible {
   outline: none;
-  box-shadow: var(--ks-focus-ring);
+  box-shadow: var(--sy-focus-ring);
 }
 
 /* ---------- Form fields: filled, borderless, focus ring ---------- */
-.ks-field {
+.sy-field {
   display: block;
   border: 0;
-  border-radius: var(--ks-radius-md);
+  border-radius: var(--sy-radius-md);
   background: rgba(255, 255, 255, 0.045);
-  color: var(--ks-text);
+  color: var(--sy-text);
   font: inherit;
   font-size: 12px;
   line-height: 1.35;
   padding: 8px 11px;
-  transition: background-color var(--ks-dur-fast) var(--ks-ease-out), box-shadow var(--ks-dur-fast) var(--ks-ease-out);
+  transition: background-color var(--sy-dur-fast) var(--sy-ease-out), box-shadow var(--sy-dur-fast) var(--sy-ease-out);
 }
-.ks-field::placeholder {
+.sy-field::placeholder {
   color: #80828a;
 }
-.ks-field:hover:not(:disabled) {
+.sy-field:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.065);
 }
-.ks-field:focus,
-.ks-field:focus-visible {
+.sy-field:focus,
+.sy-field:focus-visible {
   outline: none;
   background: rgba(255, 255, 255, 0.065);
   box-shadow: 0 0 0 1.5px #6d8fbf;
 }
-.ks-field:disabled {
+.sy-field:disabled {
   opacity: 0.5;
 }
-.ks-field-sm {
+.sy-field-sm {
   padding: 6px 10px;
   font-size: 11.5px;
 }
-select.ks-field {
+select.sy-field {
   padding-right: 28px;
   appearance: none;
   -webkit-appearance: none;
@@ -426,56 +427,56 @@ select.ks-field {
   background-position: right 10px center;
   cursor: pointer;
 }
-select.ks-field option {
+select.sy-field option {
   background: #1e1f24;
-  color: var(--ks-text);
+  color: var(--sy-text);
 }
 
 /* ---------- Popover / menu ---------- */
-.ks-menu {
+.sy-menu {
   min-width: 220px;
   padding: 6px;
-  border-radius: var(--ks-radius-lg);
+  border-radius: var(--sy-radius-lg);
   background: rgba(30, 31, 36, 0.97);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--ks-shadow-popover);
-  color: var(--ks-text);
-  animation: ks-popover-up var(--ks-dur-base) var(--ks-ease-out) both;
+  box-shadow: var(--sy-shadow-popover);
+  color: var(--sy-text);
+  animation: sy-popover-up var(--sy-dur-base) var(--sy-ease-out) both;
 }
-.ks-menu-item {
+.sy-menu-item {
   display: flex;
   width: 100%;
   align-items: flex-start;
   gap: 10px;
   padding: 8px 10px;
   border: 0;
-  border-radius: var(--ks-radius-md);
+  border-radius: var(--sy-radius-md);
   background: transparent;
-  color: var(--ks-text);
+  color: var(--sy-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--ks-dur-fast) var(--ks-ease-out);
+  transition: background-color var(--sy-dur-fast) var(--sy-ease-out);
 }
-.ks-menu-item:hover:not([aria-disabled='true']),
-.ks-menu-item:focus-visible,
-.ks-menu-item.ks-active {
+.sy-menu-item:hover:not([aria-disabled='true']),
+.sy-menu-item:focus-visible,
+.sy-menu-item.sy-active {
   outline: none;
-  background: var(--ks-raised);
+  background: var(--sy-raised);
 }
-.ks-menu-item[aria-disabled='true'] {
+.sy-menu-item[aria-disabled='true'] {
   cursor: not-allowed;
 }
 /* Grey the label/icon only, so the reason below stays readable (contrast >= 4.5:1). */
-.ks-menu-item[aria-disabled='true'] > :first-child,
-.ks-menu-item[aria-disabled='true'] .ks-menu-label {
-  color: var(--ks-text-muted);
+.sy-menu-item[aria-disabled='true'] > :first-child,
+.sy-menu-item[aria-disabled='true'] .sy-menu-label {
+  color: var(--sy-text-muted);
 }
-.ks-menu-item[aria-disabled='true'] .ks-menu-desc {
-  color: var(--ks-text-muted);
+.sy-menu-item[aria-disabled='true'] .sy-menu-desc {
+  color: var(--sy-text-muted);
 }
-.ks-menu-reason {
+.sy-menu-reason {
   display: flex;
   align-items: flex-start;
   gap: 5px;
@@ -484,36 +485,36 @@ select.ks-field option {
   line-height: 1.35;
   color: #c9a46a;
 }
-.ks-menu-reason > app-icon {
+.sy-menu-reason > app-icon {
   margin-top: 2px;
   flex-shrink: 0;
 }
-.ks-menu-label {
+.sy-menu-label {
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1.3;
 }
-.ks-menu-desc {
+.sy-menu-desc {
   font-size: 11.5px;
   line-height: 1.35;
   color: #a0a2aa; /* stays >= 4.5:1 on the hovered/active row */
 }
-.ks-menu-sep {
+.sy-menu-sep {
   height: 1px;
   margin: 5px 6px;
-  background: var(--ks-hairline);
+  background: var(--sy-hairline);
 }
-.ks-menu-heading {
+.sy-menu-heading {
   padding: 6px 10px 4px;
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ks-text-muted);
+  color: var(--sy-text-muted);
 }
 
 /* ---------- Tooltip ---------- */
-@keyframes ks-tooltip-up {
+@keyframes sy-tooltip-up {
   from {
     opacity: 0;
     transform: translate(-50%, 5px);
@@ -523,7 +524,7 @@ select.ks-field option {
     transform: translate(-50%, 0);
   }
 }
-@keyframes ks-tooltip-down {
+@keyframes sy-tooltip-down {
   from {
     opacity: 0;
     transform: translate(-50%, -5px);
@@ -533,13 +534,13 @@ select.ks-field option {
     transform: translate(-50%, 0);
   }
 }
-.ks-tooltip {
+.sy-tooltip {
   position: fixed;
   z-index: 1000;
   pointer-events: none;
   max-width: 280px;
   padding: 5px 10px;
-  border-radius: var(--ks-radius-pill);
+  border-radius: var(--sy-radius-pill);
   background: #ececee;
   color: #141518;
   font-size: 11.5px;
@@ -551,63 +552,63 @@ select.ks-field option {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   transform: translate(-50%, 0);
 }
-.ks-tooltip[hidden] {
+.sy-tooltip[hidden] {
   display: none;
 }
-.ks-tooltip.ks-tooltip-animate {
-  animation: ks-tooltip-up var(--ks-dur-fast) var(--ks-ease-out) both;
+.sy-tooltip.sy-tooltip-animate {
+  animation: sy-tooltip-up var(--sy-dur-fast) var(--sy-ease-out) both;
 }
-.ks-tooltip.ks-tooltip-below.ks-tooltip-animate {
-  animation-name: ks-tooltip-down;
+.sy-tooltip.sy-tooltip-below.sy-tooltip-animate {
+  animation-name: sy-tooltip-down;
 }
 
 /* ---------- Spinner ---------- */
-.ks-spinner {
+.sy-spinner {
   display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 9999px;
   border: 1.5px solid currentColor;
   border-top-color: transparent;
-  animation: ks-spin-slow 0.9s linear infinite;
+  animation: sy-spin-slow 0.9s linear infinite;
 }
 
-@keyframes ks-pulse-dot {
+@keyframes sy-pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
-.ks-pulse {
-  animation: ks-pulse-dot 1.4s ease-in-out infinite;
+.sy-pulse {
+  animation: sy-pulse-dot 1.4s ease-in-out infinite;
 }
 
 /* Mic button while dictating: red, with a soft pulsing ring. */
-@keyframes ks-mic-ring {
+@keyframes sy-mic-ring {
   0% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0.45); }
   70% { box-shadow: 0 0 0 7px rgba(232, 107, 107, 0); }
   100% { box-shadow: 0 0 0 0 rgba(232, 107, 107, 0); }
 }
-.ks-icon-btn.ks-mic-recording,
-.ks-icon-btn.ks-mic-recording:hover:not(:disabled) {
+.sy-icon-btn.sy-mic-recording,
+.sy-icon-btn.sy-mic-recording:hover:not(:disabled) {
   color: #f6b8b8;
-  background: var(--ks-red-soft);
-  animation: ks-mic-ring 1.5s var(--ks-ease-out) infinite;
+  background: var(--sy-red-soft);
+  animation: sy-mic-ring 1.5s var(--sy-ease-out) infinite;
 }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ks-menu,
-  .ks-tooltip,
-  .ks-tooltip.ks-tooltip-animate,
-  .ks-pulse,
-  .ks-mic-recording,
-  .ks-btn,
-  .ks-icon-btn,
-  .ks-chip,
-  .ks-send-btn,
-  .ks-backdrop,
-  .ks-modal,
-  .ks-popover,
-  .ks-drawer-bottom {
+  .sy-menu,
+  .sy-tooltip,
+  .sy-tooltip.sy-tooltip-animate,
+  .sy-pulse,
+  .sy-mic-recording,
+  .sy-btn,
+  .sy-icon-btn,
+  .sy-chip,
+  .sy-send-btn,
+  .sy-backdrop,
+  .sy-modal,
+  .sy-popover,
+  .sy-drawer-bottom {
     animation: none !important;
     transition: none !important;
   }

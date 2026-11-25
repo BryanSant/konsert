@@ -55,7 +55,7 @@ func writeDist(t *testing.T, name string) {
 	t.Chdir(dir)
 }
 
-func TestBootstrapUsesKonsertdInstall(t *testing.T) {
+func TestBootstrapUsesSyredInstall(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
 	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{
@@ -67,25 +67,25 @@ func TestBootstrapUsesKonsertdInstall(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	cmds := f.remoteCmds()
-	const bin = "/home/me/.local/bin/konsertd"
+	const bin = "/home/me/.local/bin/syred"
 	id := indexOf(cmds, bin+" id --name box --host-group box")
 	hooks := indexOf(cmds, bin+" install-hooks")
 	inst := slices.Index(cmds, bin+" install --name box --host-group box --sandbox")
 	if id < 0 || hooks < 0 || inst < 0 || id > inst {
-		t.Fatalf("want konsertd id, install-hooks, then install; got %q", cmds)
+		t.Fatalf("want syred id, install-hooks, then install; got %q", cmds)
 	}
 	for _, c := range cmds {
 		if strings.Contains(c, "systemctl") || strings.Contains(c, "nohup") || strings.Contains(c, "worker.yaml") {
-			t.Fatalf("bootstrap must leave the service to konsertd install, ran %q", c)
+			t.Fatalf("bootstrap must leave the service to syred install, ran %q", c)
 		}
 	}
 }
 
 func TestBootstrapCopiesMissingBinary(t *testing.T) {
-	writeDist(t, "konsertd-linux-amd64")
+	writeDist(t, "syred-linux-amd64")
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob, remote: func(cmd string, stdin []byte) (string, error) {
-		if strings.Contains(cmd, "command -v konsertd") {
-			return "missing:/home/me/.local/bin/konsertd\nmanaged:/home/me/.local/bin/konsertd\n", nil
+		if strings.Contains(cmd, "command -v syred") {
+			return "missing:/home/me/.local/bin/syred\nmanaged:/home/me/.local/bin/syred\n", nil
 		}
 		return posixRemote(cmd, stdin)
 	}}
@@ -95,19 +95,19 @@ func TestBootstrapCopiesMissingBinary(t *testing.T) {
 		t.Fatalf("bootstrap failed: %+v", res)
 	}
 	scp := lastSCP(f)
-	if scp == nil || !strings.HasSuffix(scp[len(scp)-2], filepath.Join("dist", "konsertd-linux-amd64")) || scp[len(scp)-1] != "box:~/.local/bin/konsertd.new" {
+	if scp == nil || !strings.HasSuffix(scp[len(scp)-2], filepath.Join("dist", "syred-linux-amd64")) || scp[len(scp)-1] != "box:~/.local/bin/syred.new" {
 		t.Fatalf("scp = %q", scp)
 	}
 	cmds := f.remoteCmds()
-	if indexOf(cmds, `chmod +x /home/me/.local/bin/konsertd.new && mv -f /home/me/.local/bin/konsertd.new /home/me/.local/bin/konsertd`) < 0 {
+	if indexOf(cmds, `chmod +x /home/me/.local/bin/syred.new && mv -f /home/me/.local/bin/syred.new /home/me/.local/bin/syred`) < 0 {
 		t.Fatalf("copied binary not moved into place: %q", cmds)
 	}
 }
 
-// A konsertd that differs from the hub's build is replaced (renamed over, so a running
+// A syred that differs from the hub's build is replaced (renamed over, so a running
 // daemon is unaffected); a matching one is left alone.
 func TestBootstrapUpdatesDifferentBinary(t *testing.T) {
-	writeDist(t, "konsertd-linux-amd64")                                               // contents "bin"
+	writeDist(t, "syred-linux-amd64")                                                  // contents "bin"
 	const binHash = "9e8e1b5a6d4ffdc52ac7a0d1e2c4dd1b3d5a2b4f5e9d2a4e6b8c0d1e2f3a4b5c" // not "bin"
 	for _, tc := range []struct {
 		remoteHash string
@@ -117,16 +117,16 @@ func TestBootstrapUpdatesDifferentBinary(t *testing.T) {
 		{"5551c2a1c4c1b1a4d0e6b0f1a1fa38d1b1f5b9ec9c94e2cb0b4cf6ec1ebb0b8e", true},
 		{"", false},
 	} {
-		want, _ := fileSHA256(filepath.Join("dist", "konsertd-linux-amd64"))
+		want, _ := fileSHA256(filepath.Join("dist", "syred-linux-amd64"))
 		remote := tc.remoteHash
 		f := &fakeSSH{knownKey: true, hostBlob: testHostBlob, remote: func(cmd string, stdin []byte) (string, error) {
 			if strings.Contains(cmd, "sha256sum") {
-				return remote + "  /usr/local/bin/konsertd\n", nil
+				return remote + "  /usr/local/bin/syred\n", nil
 			}
-			if strings.Contains(cmd, "command -v konsertd") {
-				return "found:/usr/local/bin/konsertd\nmanaged:/home/me/.local/bin/konsertd\n", nil
+			if strings.Contains(cmd, "command -v syred") {
+				return "found:/usr/local/bin/syred\nmanaged:/home/me/.local/bin/syred\n", nil
 			}
-			return posixRemote(strings.ReplaceAll(cmd, "/usr/local/bin/konsertd", "/home/me/.local/bin/konsertd"), stdin)
+			return posixRemote(strings.ReplaceAll(cmd, "/usr/local/bin/syred", "/home/me/.local/bin/syred"), stdin)
 		}}
 		withFakeSSH(t, f)
 		res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "box"})
@@ -134,8 +134,8 @@ func TestBootstrapUpdatesDifferentBinary(t *testing.T) {
 			t.Fatalf("bootstrap failed: %+v", res)
 		}
 		copied := lastSCP(f) != nil
-		if copied != tc.wantCopy || (copied && res.KonsertdPath != "/home/me/.local/bin/konsertd") || (!copied && res.KonsertdPath != "/usr/local/bin/konsertd") {
-			t.Fatalf("remote hash %q: copied=%v path=%s", tc.remoteHash, copied, res.KonsertdPath)
+		if copied != tc.wantCopy || (copied && res.SyredPath != "/home/me/.local/bin/syred") || (!copied && res.SyredPath != "/usr/local/bin/syred") {
+			t.Fatalf("remote hash %q: copied=%v path=%s", tc.remoteHash, copied, res.SyredPath)
 		}
 		// Same hash: nothing to do.
 		f2 := &fakeSSH{knownKey: true, hostBlob: testHostBlob, remote: func(cmd string, stdin []byte) (string, error) {
@@ -169,14 +169,14 @@ func TestBootstrapFallsBackToNohupWithoutUserSystemd(t *testing.T) {
 	if indexOf(cmds, " uninstall") >= 0 {
 		t.Fatalf("the nohup fallback must not run uninstall: %q", cmds)
 	}
-	cfg := indexOf(cmds, "konsertd-nohup-box.yaml.tmp")
-	start := indexOf(cmds, "nohup /home/me/.local/bin/konsertd run -c")
-	if cfg < 0 || start < 0 || !(cfg < start) || !strings.Contains(cmds[start], "konsertd-nohup-box.pid") {
+	cfg := indexOf(cmds, "syred-nohup-box.yaml.tmp")
+	start := indexOf(cmds, "nohup /home/me/.local/bin/syred run -c")
+	if cfg < 0 || start < 0 || !(cfg < start) || !strings.Contains(cmds[start], "syred-nohup-box.pid") {
 		t.Fatalf("nohup fallback sequence wrong: %q", cmds)
 	}
 	for i, c := range f.calls {
 		// The nohup daemon serves the hub on its local socket too: no controller URL.
-		if strings.Contains(c[len(c)-1], "konsertd-nohup-box.yaml.tmp") && strings.Contains(string(f.stdins[i]), "controller") {
+		if strings.Contains(c[len(c)-1], "syred-nohup-box.yaml.tmp") && strings.Contains(string(f.stdins[i]), "controller") {
 			t.Fatalf("nohup config must not carry a controller URL, got %q", f.stdins[i])
 		}
 	}
@@ -197,8 +197,8 @@ func TestBootstrapInstallFailureIsReported(t *testing.T) {
 }
 
 func TestBootstrapWindows(t *testing.T) {
-	writeDist(t, "konsertd-windows-amd64.exe")
-	const exe = `C:\Users\me\AppData\Local\Programs\konsertd\konsertd.exe`
+	writeDist(t, "syred-windows-amd64.exe")
+	const exe = `C:\Users\me\AppData\Local\Programs\syred\syred.exe`
 	var keyStdin []byte
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	f.remote = func(cmd string, stdin []byte) (string, error) {
@@ -222,7 +222,7 @@ func TestBootstrapWindows(t *testing.T) {
 		case strings.Contains(script, "'install'"):
 			return "Registered scheduled task", nil
 		case strings.Contains(script, "'status'"):
-			return "konsertd \\konsertd\r\n  Installed  : yes\r\n  Running    : no\r\n", nil
+			return "syred \\syred\r\n  Installed  : yes\r\n  Running    : no\r\n", nil
 		}
 		return "", nil
 	}
@@ -233,7 +233,7 @@ func TestBootstrapWindows(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	scp := lastSCP(f)
-	if scp == nil || scp[len(scp)-1] != "bryan@winbox:/C:/Users/me/AppData/Local/Programs/konsertd/konsertd.exe.new" {
+	if scp == nil || scp[len(scp)-1] != "bryan@winbox:/C:/Users/me/AppData/Local/Programs/syred/syred.exe.new" {
 		t.Fatalf("scp = %q", scp)
 	}
 	cmds := f.remoteCmds()
@@ -258,8 +258,8 @@ func TestBootstrapWindows(t *testing.T) {
 // After an upgrade the task comes up within the wait: the bootstrap says it runs, not
 // that it starts at the next login.
 func TestBootstrapWindowsReportsRunning(t *testing.T) {
-	writeDist(t, "konsertd-windows-amd64.exe")
-	const exe = `C:\Users\me\AppData\Local\Programs\konsertd\konsertd.exe`
+	writeDist(t, "syred-windows-amd64.exe")
+	const exe = `C:\Users\me\AppData\Local\Programs\syred\syred.exe`
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	f.remote = func(cmd string, stdin []byte) (string, error) {
 		if strings.HasPrefix(cmd, "uname") {
@@ -274,9 +274,9 @@ func TestBootstrapWindowsReportsRunning(t *testing.T) {
 		case strings.Contains(script, "'id'"):
 			return testWorkerID + "\r\n", nil
 		case strings.Contains(script, "'status'") && strings.Contains(script, "'--start'"):
-			return "konsertd \\konsertd-winbox\r\n  Installed  : yes\r\n  Running    : yes\r\n  State      : Ready (daemon answering)\r\n", nil
+			return "syred \\syred-winbox\r\n  Installed  : yes\r\n  Running    : yes\r\n  State      : Ready (daemon answering)\r\n", nil
 		case strings.Contains(script, "'status'"):
-			return "konsertd \\konsertd-winbox\r\n  Installed  : yes\r\n  Running    : no\r\n", nil
+			return "syred \\syred-winbox\r\n  Installed  : yes\r\n  Running    : no\r\n", nil
 		}
 		return "", nil
 	}
@@ -316,7 +316,7 @@ func TestParseWindowsProbe(t *testing.T) {
 		t.Fatalf("encodePS round trip = %q %v", s, ok)
 	}
 	if !notRunning("  Running    : no\n") || notRunning("  Running    : yes (pid 4)\n") {
-		t.Fatal("notRunning misparses konsertd status")
+		t.Fatal("notRunning misparses syred status")
 	}
 	if !isWindowsUname("mingw64_nt-10.0-26100") || isWindowsUname("linux") {
 		t.Fatal("isWindowsUname")

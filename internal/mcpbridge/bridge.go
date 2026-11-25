@@ -1,5 +1,5 @@
 // Package mcpbridge serves a Streamable HTTP MCP server's tools over stdio. Agents that
-// only accept stdio MCP servers (Antigravity over ACP) launch `konsertd mcp-bridge`, which
+// only accept stdio MCP servers (Antigravity over ACP) launch `syred mcp-bridge`, which
 // forwards tool calls to the hub's per-chat endpoint (ask_user, fleet tools).
 //
 // The target URL and headers come from the environment (EnvURL, EnvHeaders) rather than
@@ -20,9 +20,9 @@ import (
 
 const (
 	// EnvURL is the Streamable HTTP MCP endpoint to bridge to.
-	EnvURL = "KONSERT_MCP_BRIDGE_URL"
+	EnvURL = "SYRE_MCP_BRIDGE_URL"
 	// EnvHeaders is a JSON object of extra HTTP headers (e.g. Authorization).
-	EnvHeaders = "KONSERT_MCP_BRIDGE_HEADERS"
+	EnvHeaders = "SYRE_MCP_BRIDGE_HEADERS"
 )
 
 // Config is where to forward.
@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg Config, transport mcp.Transport) error {
 	}
 	// No overall timeout: ask_user blocks until the user answers (up to the hub's limit).
 	hc := &http.Client{Transport: headerTransport{base: http.DefaultTransport, headers: cfg.Headers}}
-	client := mcp.NewClient(&mcp.Implementation{Name: "konsertd-mcp-bridge", Version: "1"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "syred-mcp-bridge", Version: "1"}, nil)
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	upstream, err := client.Connect(cctx, &mcp.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: hc}, nil)
 	cancel()
@@ -83,7 +83,7 @@ func Run(ctx context.Context, cfg Config, transport mcp.Transport) error {
 		return fmt.Errorf("list tools: %w", err)
 	}
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "konsert", Version: "1"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "syre", Version: "1"}, nil)
 	for _, t := range tools.Tools {
 		name := t.Name
 		server.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

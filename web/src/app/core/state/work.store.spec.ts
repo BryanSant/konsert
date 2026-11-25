@@ -1,12 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionActivity } from '../models/activity.models';
-import { ChatSession, Project, Repo, Task, Worker } from '../models/konsert.models';
+import { ChatSession, Project, Repo, Task, Worker } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 import { activityFromTaskStatus, bucketOf, groupWork, heatLevelOf, nowTitle, taskNow, taskTitle } from './activity-logic';
 import { ActivityStore } from './activity.store';
 import { FleetStore } from './fleet.store';
-import { OrchestratorStore } from './orchestrator.store';
+import { CommanderStore } from './commander.store';
 import { WorkStore } from './work.store';
 
 const proj = (id: string, name: string, extra: Partial<Project> = {}): Project =>
@@ -63,20 +63,20 @@ describe('activity logic', () => {
   it('never leaves a title or now line blank', () => {
     const bare = task('a', 'running', { prompt: '' });
     expect(taskTitle(bare).text).toBe('claude t-a');
-    expect(taskTitle(task('a', 'running', { ticket_id: 'KON-2Q0CH', ticket_title: 'Questions' })).text).toBe('KON-2Q0CH Questions');
+    expect(taskTitle(task('a', 'running', { ticket_id: 'SYR-2Q0CH', ticket_title: 'Questions' })).text).toBe('SYR-2Q0CH Questions');
     expect(taskTitle(task('a', 'running', { title: 'Mobile card' })).source).toBe('title');
-    // Orchestrator narration > live tool label > title.
+    // Commander narration > live tool label > title.
     const t = task('a', 'running', { title: 'Mobile card' });
     expect(taskNow(t, act({ task_id: 'a' }, 'thinking'))).toEqual({ text: 'Mobile card', source: 'title' });
     expect(taskNow(t, act({ task_id: 'a' }, 'working', { tool: 'Bash', label: 'Run: go test ./...' }))).toEqual({
       text: 'Run: go test ./...',
       source: 'activity',
     });
-    expect(taskNow({ ...t, narration: 'Porting the card' }, act({ task_id: 'a' }, 'working', { label: 'x' })).source).toBe('orchestrator');
+    expect(taskNow({ ...t, narration: 'Porting the card' }, act({ task_id: 'a' }, 'working', { label: 'x' })).source).toBe('commander');
   });
 
   it("shows the hub's summary of the running tool and keeps the raw label as the hover title", () => {
-    const raw = 'Bash: cd /private/var/tmp/konsert-live/x && python -m pytest -q';
+    const raw = 'Bash: cd /private/var/tmp/syre-live/x && python -m pytest -q';
     const a = act({ task_id: 'a' }, 'working', { tool: 'Bash', label: raw, summary: 'running tests' });
     const t = task('a', 'running', { title: 'Word count' });
     expect(taskNow(t, a)).toEqual({ text: 'running tests', source: 'activity' });
@@ -96,8 +96,8 @@ describe('activity logic', () => {
 
   it('groups by project, maps chats and observed sessions by cwd, puts the rest under Other work', () => {
     const groups = groupWork({
-      projects: [defProj, proj('p1', 'Konsert', { headline: 'Ship mobile questions' }), proj('p2', 'Website')],
-      repos: [repo('p1', '/src/konsert'), repo('p2', '/src/site')],
+      projects: [defProj, proj('p1', 'Syre', { headline: 'Ship mobile questions' }), proj('p2', 'Website')],
+      repos: [repo('p1', '/src/syre'), repo('p2', '/src/site')],
       tasks: [
         task('t1', 'running', { project_id: 'p1', title: 'Card' }),
         task('t2', 'waiting_input', { project_id: 'p1' }),
@@ -107,17 +107,17 @@ describe('activity logic', () => {
         task('scratch', 'running', { origin: 'scratch' }),
         task('sh', 'running', { agent: 'shell' }),
       ],
-      chats: [chat('c1', 'working', { cwd: '/src/konsert/web' }), chat('c2', 'done', { cwd: '/tmp' }), chat('orch', 'working', { fleet_tools: true })],
+      chats: [chat('c1', 'working', { cwd: '/src/syre/web' }), chat('c2', 'done', { cwd: '/tmp' }), chat('orch', 'working', { fleet_tools: true })],
       activityOf: (k) => (k === 'task:t1' ? act({ task_id: 't1' }, 'working', { label: 'Run: go test' }) : undefined),
     });
-    expect(groups.map((g) => g.name)).toEqual(['Konsert', 'Website', 'Other work']);
-    const [konsert, website, other] = groups;
-    expect(konsert.headline).toBe('Ship mobile questions');
-    expect(konsert.headlineSource).toBe('orchestrator');
-    expect(konsert.counts).toMatchObject({ running: 2, needs_you: 1, queued: 0, done: 0 });
+    expect(groups.map((g) => g.name)).toEqual(['Syre', 'Website', 'Other work']);
+    const [syre, website, other] = groups;
+    expect(syre.headline).toBe('Ship mobile questions');
+    expect(syre.headlineSource).toBe('commander');
+    expect(syre.counts).toMatchObject({ running: 2, needs_you: 1, queued: 0, done: 0 });
     // Needs-you first.
-    expect(konsert.items[0].id).toBe('t2');
-    expect(konsert.items.find((i) => i.id === 't1')?.now).toBe('Run: go test');
+    expect(syre.items[0].id).toBe('t2');
+    expect(syre.items.find((i) => i.id === 't1')?.now).toBe('Run: go test');
     expect(website.counts).toMatchObject({ running: 1, queued: 1 });
     expect(website.items.find((i) => i.id === 'obs')?.observed).toBe(true);
     // Fallback headline from facts.
@@ -137,7 +137,7 @@ describe('activity logic', () => {
 describe('WorkStore + ActivityStore', () => {
   let fleet: FleetStore;
   let activity: ActivityStore;
-  let orch: OrchestratorStore;
+  let orch: CommanderStore;
   let work: WorkStore;
 
   beforeEach(() => {
@@ -146,10 +146,10 @@ describe('WorkStore + ActivityStore', () => {
     });
     fleet = TestBed.inject(FleetStore);
     activity = TestBed.inject(ActivityStore);
-    orch = TestBed.inject(OrchestratorStore);
+    orch = TestBed.inject(CommanderStore);
     work = TestBed.inject(WorkStore);
-    fleet.projects.set([defProj, proj('p1', 'Konsert')]);
-    fleet.repos.set([repo('p1', '/src/konsert')]);
+    fleet.projects.set([defProj, proj('p1', 'Syre')]);
+    fleet.repos.set([repo('p1', '/src/syre')]);
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -178,7 +178,7 @@ describe('WorkStore + ActivityStore', () => {
   });
 
   it('exposes activity per chat and per task, with status fallbacks', () => {
-    orch.sessions.set([chat('c1', 'needs_you', { cwd: '/src/konsert' })]);
+    orch.sessions.set([chat('c1', 'needs_you', { cwd: '/src/syre' })]);
     fleet.upsertTask(task('t1', 'running', { project_id: 'p1' }));
     expect(work.chatActivity('c1')?.state).toBe('asking');
     expect(work.taskActivity('t1')?.state).toBe('thinking');

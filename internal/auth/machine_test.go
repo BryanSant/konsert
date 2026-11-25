@@ -33,8 +33,8 @@ func TestMachineCredentialRoundTrip(t *testing.T) {
 	if _, s, ok := ParseMachineCredential(FormatMachineCredential(id, underscored)); !ok || s != underscored {
 		t.Fatalf("underscore secret: %q %v", s, ok)
 	}
-	for _, bad := range []string{"", "kmc_", "fleet-token", "kmc_" + id, "kmc_" + id + "_short",
-		"kmc_" + strings.ToUpper(id) + "_" + sec.Secret, "kmd_" + id + "_" + sec.Secret} {
+	for _, bad := range []string{"", "smc_", "fleet-token", "smc_" + id, "smc_" + id + "_short",
+		"smc_" + strings.ToUpper(id) + "_" + sec.Secret, "smd_" + id + "_" + sec.Secret} {
 		if _, _, ok := ParseMachineCredential(bad); ok {
 			t.Errorf("parsed %q", bad)
 		}

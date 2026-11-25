@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 func unauthorizedHub(t *testing.T) (*httptest.Server, *atomic.Int32) {
@@ -29,13 +29,13 @@ func unauthorizedHub(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	return srv, &hits
 }
 
-// isolateState points konsertd's state directory at a fresh temp dir.
+// isolateState points syred's state directory at a fresh temp dir.
 func isolateState(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	t.Setenv(StateDirEnv, filepath.Join(dir, ".konsert"))
-	return filepath.Join(dir, ".konsert")
+	t.Setenv(StateDirEnv, filepath.Join(dir, ".syre"))
+	return filepath.Join(dir, ".syre")
 }
 
 func TestDaemonExitsClearlyWithoutCredential(t *testing.T) {
@@ -51,8 +51,8 @@ func TestDaemonExitsClearlyWithoutCredential(t *testing.T) {
 	if !errors.Is(err, ErrCredentialRequired) {
 		t.Fatalf("expected ErrCredentialRequired, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "konsertd join") {
-		t.Fatalf("the error must point at konsertd join: %v", err)
+	if !strings.Contains(err.Error(), "syred join") {
+		t.Fatalf("the error must point at syred join: %v", err)
 	}
 	if n := hits.Load(); n != 1 {
 		t.Fatalf("expected a single attempt without a credential, got %d", n)
@@ -64,7 +64,7 @@ func TestDaemonBacksOffSlowlyOnRejectedCredential(t *testing.T) {
 	srv, hits := unauthorizedHub(t)
 	d := NewDaemon(config.WorkerConfig{
 		ControllerURL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/worker",
-		Credential:    "kmc_wrong", WorkerID: "auth-test-2", Name: "auth-test-2", Tags: map[string]string{},
+		Credential:    "smc_wrong", WorkerID: "auth-test-2", Name: "auth-test-2", Tags: map[string]string{},
 	}, drivers.DefaultRegistry, discardLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -74,7 +74,7 @@ func TestDaemonBacksOffSlowlyOnRejectedCredential(t *testing.T) {
 	}
 }
 
-// A daemon started before the machine joined picks up the credential `konsertd join`
+// A daemon started before the machine joined picks up the credential `syred join`
 // saves, instead of exiting.
 func TestDaemonUsesCredentialSavedWhileRunning(t *testing.T) {
 	isolateState(t)
@@ -93,7 +93,7 @@ func TestDaemonUsesCredentialSavedWhileRunning(t *testing.T) {
 		ControllerURL: "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/worker",
 		WorkerID:      "auth-test-3", Name: "auth-test-3", Tags: map[string]string{},
 	}, drivers.DefaultRegistry, discardLogger())
-	if err := SaveCredential("", "auth-test-3", "kmc_joined"); err != nil {
+	if err := SaveCredential("", "auth-test-3", "smc_joined"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -101,7 +101,7 @@ func TestDaemonUsesCredentialSavedWhileRunning(t *testing.T) {
 	_ = d.Run(ctx)
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) < 2 || seen[0] != "" || seen[1] != "Bearer kmc_joined" {
+	if len(seen) < 2 || seen[0] != "" || seen[1] != "Bearer smc_joined" {
 		t.Fatalf("authorization headers = %q, want none, then the saved credential", seen)
 	}
 }
@@ -115,10 +115,10 @@ func TestCredentialFile(t *testing.T) {
 	if err := SaveCredential("", id, "has space"); err == nil {
 		t.Fatal("saved a credential with whitespace")
 	}
-	if err := SaveCredential("", id, "kmc_abc"); err != nil {
+	if err := SaveCredential("", id, "smc_abc"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := LoadCredential("", id); err != nil || got != "kmc_abc" {
+	if got, err := LoadCredential("", id); err != nil || got != "smc_abc" {
 		t.Fatalf("load = %q %v", got, err)
 	}
 	path := filepath.Join(state, "credentials", id)
@@ -138,7 +138,7 @@ func TestCredentialFile(t *testing.T) {
 	}
 	// A daemon loads the saved credential.
 	d := NewDaemon(config.WorkerConfig{WorkerID: id, Name: "rot", Tags: map[string]string{}}, drivers.DefaultRegistry, discardLogger())
-	if d.credential() != "kmc_abc" {
+	if d.credential() != "smc_abc" {
 		t.Fatalf("daemon did not load the saved credential: %q", d.credential())
 	}
 }

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/chat"
 )
 
 // Agent chat wiring: hub messages → chat.Manager; events and capabilities → hub as
@@ -22,7 +22,7 @@ const DefaultCapabilitiesInterval = 10 * time.Minute
 
 // DisableAgentDiscoveryEnv=1 limits agent accounts to configured and mock ones and skips
 // CLI status commands (for tests that run a real daemon).
-const DisableAgentDiscoveryEnv = "KONSERT_DISABLE_AGENT_DISCOVERY"
+const DisableAgentDiscoveryEnv = "SYRE_DISABLE_AGENT_DISCOVERY"
 
 // newAccountRegistry and chatStatusChecker are replaced by tests so they never run the
 // developer's real agent CLIs or read their home directory.
@@ -31,7 +31,7 @@ var (
 	chatStatusChecker  chat.StatusChecker
 )
 
-// BuiltinChatEngines returns the chat engines konsertd registers at startup: claude
+// BuiltinChatEngines returns the chat engines syred registers at startup: claude
 // (stream-json), codex (app-server) and, with --enable-mock-driver, the mock engine.
 // The ACP engine (grok, agy, copilot, cursor) is added by registerACPEngines.
 var BuiltinChatEngines = func(cfg config.WorkerConfig, logger *slog.Logger) map[string]chat.Engine {
@@ -91,7 +91,7 @@ func (d *Daemon) initChat() {
 		Engine:   d.chat.Engine,
 		Status:   status,
 		Logger:   d.logger,
-		// Exhausted usage windows survive a konsertd restart (no secrets stored).
+		// Exhausted usage windows survive a syred restart (no secrets stored).
 		PersistPath: usageCachePath(d.stateDir()),
 		Sandboxed:   d.cfg.Sandbox,
 	})

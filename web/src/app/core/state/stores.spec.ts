@@ -5,7 +5,7 @@ import {
   parseUserMessageWithAttachments,
 } from '../../features/chat/legacy-adapter';
 import { parseMarkdown } from '../../shared/markdown-view.component';
-import { Task, Worker } from '../models/konsert.models';
+import { Task, Worker } from '../models/syre.models';
 import { FleetStore } from './fleet.store';
 
 describe('FleetStore (Zoneless Signals)', () => {
@@ -54,11 +54,11 @@ describe('FleetStore (Zoneless Signals)', () => {
       sid: 'task-1-sid',
       worker_id: 'w1',
       agent: 'claude',
-      workdir: '/home/dev/konsert',
-      effective_dir: '/home/dev/konsert',
+      workdir: '/home/dev/syre',
+      effective_dir: '/home/dev/syre',
       branch: 'feat/demo',
       mode: 'oneshot',
-      origin: 'orchestrator',
+      origin: 'commander',
       permission_mode: 'full_access',
       orphan_policy: 'fail',
       prompt: 'test',
@@ -84,8 +84,8 @@ describe('FleetStore (Zoneless Signals)', () => {
       id: 'sp-w1',
       sid: 'sp-w1-sid',
       worker_id: 'w1',
-      name: 'konsert',
-      path: '/home/dev/konsert',
+      name: 'syre',
+      path: '/home/dev/syre',
       created_at: new Date().toISOString(),
     });
     fleet.removeWorker('w1');
@@ -167,7 +167,7 @@ describe('FleetStore (Zoneless Signals)', () => {
     expect(blocks[2].lang).toBe('go');
 
     const parsedMsg = parseUserMessageWithAttachments(
-      'Please inspect this log\n\n[Attached files on host]\n- /var/tmp/konsert-attachments/sess1-1700000000-abcd1234-error.log'
+      'Please inspect this log\n\n[Attached files on host]\n- /var/tmp/syre-attachments/sess1-1700000000-abcd1234-error.log'
     );
     expect(parsedMsg.text).toBe('Please inspect this log');
     expect(parsedMsg.files).toEqual(['error.log']);

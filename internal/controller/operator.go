@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Terminal awareness (PRD §5.8a): konsertd's shell integration reports each command the
-// user runs in a Konsert terminal as worker.operator_command (a redacted summary). The
+// Terminal awareness (PRD §5.8a): syred's shell integration reports each command the
+// user runs in a Syre terminal as worker.operator_command (a redacted summary). The
 // hub records it as a user action (actor user, source terminal, confidence high), links
 // it to an open request it answers, or — for an unrequested intervention — places a hold
 // on the resource it touched; the event is broadcast and delivered to affected agents.
@@ -100,13 +100,13 @@ func (h *Hub) ingestOperatorCommand(ctx context.Context, workerID string, p prot
 			cause.RequestID = req.ID
 		}
 	}
-	summary := fmt.Sprintf("The user ran `%s` in a Konsert terminal on %s (%s)", cmd, where, exit)
+	summary := fmt.Sprintf("The user ran `%s` in a Syre terminal on %s (%s)", cmd, where, exit)
 	if intervention {
 		target := "something on " + where
 		if eff.resource != nil {
 			target = describeResource(eff.resource) + " on " + where
 		}
-		summary = fmt.Sprintf("The user %s %s via a Konsert terminal (`%s`, %s)", pastTense(eff.verb), target, cmd, exit)
+		summary = fmt.Sprintf("The user %s %s via a Syre terminal (`%s`, %s)", pastTense(eff.verb), target, cmd, exit)
 		if matched {
 			summary += fmt.Sprintf(", answering request %s", req.SID)
 		}
@@ -130,11 +130,11 @@ func (h *Hub) ingestOperatorCommand(ctx context.Context, workerID string, p prot
 	// Unrequested: hold the resource (or, if the target is unknown, automatic restarts
 	// on the machine) so no agent undoes it on its own.
 	spec := holdSpec{scope: store.HoldScopeResource, workerID: workerID, resource: eff.resource,
-		summary: fmt.Sprintf("The user %s %s via a Konsert terminal (`%s`)", pastTense(eff.verb), describeResource(eff.resource), cmd)}
+		summary: fmt.Sprintf("The user %s %s via a Syre terminal (`%s`)", pastTense(eff.verb), describeResource(eff.resource), cmd)}
 	if eff.resource == nil {
 		spec.scope = store.HoldScopeMachine
 		spec.resource = &store.Resource{Kind: ResourceRestarts}
-		spec.summary = fmt.Sprintf("The user ran `%s` on %s via a Konsert terminal", cmd, where)
+		spec.summary = fmt.Sprintf("The user ran `%s` on %s via a Syre terminal", cmd, where)
 	}
 	h.holdAfterIntervention(ctx, cause, spec)
 }

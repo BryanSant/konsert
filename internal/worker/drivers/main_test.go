@@ -9,7 +9,7 @@ import (
 // TestMain points the agent state the drivers read by default (Copilot's account cache) at
 // an empty throwaway directory, so tests never read the developer's real files.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "konsert-drivers-test-")
+	dir, err := os.MkdirTemp("", "syre-drivers-test-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create test dir:", err)
 		os.Exit(1)

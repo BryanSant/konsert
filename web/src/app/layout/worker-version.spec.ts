@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Worker } from '../core/models/konsert.models';
+import { Worker } from '../core/models/syre.models';
 import { isVersionMismatch, normalizeVersion } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
@@ -83,7 +83,7 @@ describe('worker version UI', () => {
       expect(badge.getAttribute('aria-label')).toContain('node-old');
       expect(badge.getAttribute('aria-label')).toContain('1.4.0');
       expect(badge.getAttribute('aria-label')).toContain('1.5.0');
-      // No native title: the ksTooltip repeats the aria-label, so it isn't linked twice.
+      // No native title: the syTooltip repeats the aria-label, so it isn't linked twice.
       expect(badge.hasAttribute('title')).toBe(false);
       expect(badge.hasAttribute('aria-describedby')).toBe(false);
       expect(badge.getAttribute('role')).toBe('img');
@@ -107,7 +107,7 @@ describe('worker version UI', () => {
     it('shows the worker version and a mismatch note', () => {
       const root = render('1.5.0', worker('x', '1.4.0'));
       const row = root.querySelector('[data-testid="worker-version"]') as HTMLElement;
-      expect(row.textContent).toContain('konsertd version');
+      expect(row.textContent).toContain('syred version');
       expect(row.textContent).toContain('1.4.0');
       const note = root.querySelector('[data-testid="worker-version-mismatch"]') as HTMLElement;
       expect(note.textContent).toContain('Differs from hub 1.5.0');

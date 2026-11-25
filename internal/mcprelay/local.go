@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// DefaultWaitLink is how long a request waits for a hub link while konsertd has none
+// DefaultWaitLink is how long a request waits for a hub link while syred has none
 // (a dropped link usually comes back within seconds).
 const DefaultWaitLink = 20 * time.Second
 
-// Local is konsertd's side of the relay: the loopback endpoint agents use. The zero
+// Local is syred's side of the relay: the loopback endpoint agents use. The zero
 // value is not usable; call NewLocal.
 type Local struct {
 	// WaitLink overrides DefaultWaitLink.
@@ -202,7 +202,7 @@ func (l *Local) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	link := l.waitLink(r.Context())
 	if link == nil {
-		unavailable(w, "konsertd is not linked to the hub; retry")
+		unavailable(w, "syred is not linked to the hub; retry")
 		return
 	}
 	id := newID()

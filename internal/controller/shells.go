@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Shell cleanup (KON-ZAY87): the shells konsertd counts under a session (activity
+// Shell cleanup (SYR-ZAY87): the shells syred counts under a session (activity
 // shell_list) can be cleaned up from Fleet: ask the agent to stop them, or kill them
-// (konsertd terminates each shell's process tree after checking it still belongs to that
+// (syred terminates each shell's process tree after checking it still belongs to that
 // session). Both are human actions: audited and recorded in the fleet timeline.
 
 // Audit actions for shell cleanup.
@@ -82,7 +82,7 @@ func (h *Hub) shellSession(ctx context.Context, taskID, chatID string) (key, wor
 	return "task:" + t.ID, t.WorkerID, "task " + t.SID, nil
 }
 
-// KillShells asks the session's konsertd to terminate shells (all when idents is empty).
+// KillShells asks the session's syred to terminate shells (all when idents is empty).
 func (h *Hub) KillShells(ctx context.Context, taskID, chatID string, idents []protocol.ShellIdent) (ShellActionResult, error) {
 	return h.killShells(ctx, taskID, chatID, idents, "")
 }

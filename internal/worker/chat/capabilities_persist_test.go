@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// A restarted konsertd must still know an account is out of usage (seen live: claude2 at
+// A restarted syred must still know an account is out of usage (seen live: claude2 at
 // 100% weekly showed as fine after a restart until the user sent a message).
 func TestExhaustedUsageSurvivesRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage-cache.json")

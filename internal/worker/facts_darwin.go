@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func collectPlatformFacts(ctx context.Context, f *protocol.MachineFacts) {

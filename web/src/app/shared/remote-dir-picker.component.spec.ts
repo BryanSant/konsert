@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FSListResult } from '../core/models/konsert.models';
+import { FSListResult } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { RemoteDirPickerComponent } from './remote-dir-picker.component';
 

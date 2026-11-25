@@ -1,6 +1,6 @@
-# Multi-stage, multi-arch Containerfile for konsertd worker daemon (linux/amd64, linux/arm64)
+# Multi-stage, multi-arch Containerfile for syred worker daemon (linux/amd64, linux/arm64)
 # Usage:
-#   podman build --platform linux/amd64,linux/arm64 -t ghcr.io/bryansant/konsertd:latest -f Containerfile .
+#   podman build --platform linux/amd64,linux/arm64 -t ghcr.io/bryansant/syred:latest -f Containerfile .
 
 ARG GO_VERSION=1.27
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
@@ -21,7 +21,7 @@ ARG VERSION=dev
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /out/konsertd ./cmd/konsertd
+    -o /out/syred ./cmd/syred
 
 FROM alpine:3.24
 
@@ -34,18 +34,18 @@ RUN apk add --no-cache \
     procps \
     ripgrep \
     tzdata \
-    && adduser -D -u 1000 -s /bin/bash konsert \
-    && mkdir -p /workspace /var/tmp/konsert-attachments \
-    && chown -R konsert:konsert /workspace /var/tmp/konsert-attachments
+    && adduser -D -u 1000 -s /bin/bash syre \
+    && mkdir -p /workspace /var/tmp/syre-attachments \
+    && chown -R syre:syre /workspace /var/tmp/syre-attachments
 
-COPY --from=builder /out/konsertd /usr/local/bin/konsertd
+COPY --from=builder /out/syred /usr/local/bin/syred
 
-ENV KONSERT_ISOLATION=container
-ENV HOME=/home/konsert
+ENV SYRE_ISOLATION=container
+ENV HOME=/home/syre
 ENV TERM=xterm-256color
 
 WORKDIR /workspace
-USER konsert
+USER syre
 
-ENTRYPOINT ["/usr/local/bin/konsertd"]
+ENTRYPOINT ["/usr/local/bin/syred"]
 CMD ["run"]

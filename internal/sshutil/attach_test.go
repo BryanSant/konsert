@@ -15,7 +15,7 @@ import (
 // The attach ssh uses only the hub key, never a personal key, agent or shared
 // connection, forwards nothing, and pins host keys.
 func TestAttachArgsUseOnlyTheHubKey(t *testing.T) {
-	args := AttachArgs(Target{User: "me", Host: "box", Port: "2222"}, "/db/konsert-hub-ssh-key", "01890a5d-ac96-774b-bcce-b302099a8057")
+	args := AttachArgs(Target{User: "me", Host: "box", Port: "2222"}, "/db/syre-hub-ssh-key", "01890a5d-ac96-774b-bcce-b302099a8057")
 	for _, want := range []string{
 		"BatchMode=yes", "StrictHostKeyChecking=yes", "IdentitiesOnly=yes", "IdentityAgent=none",
 		"ControlMaster=no", "ControlPath=none", "ForwardAgent=no", "ClearAllForwardings=yes",
@@ -26,10 +26,10 @@ func TestAttachArgsUseOnlyTheHubKey(t *testing.T) {
 		}
 	}
 	i := slices.Index(args, "--")
-	if i < 0 || args[i+1] != "me@box" || args[i+2] != "konsertd attach 01890a5d-ac96-774b-bcce-b302099a8057" || len(args) != i+3 {
+	if i < 0 || args[i+1] != "me@box" || args[i+2] != "syred attach 01890a5d-ac96-774b-bcce-b302099a8057" || len(args) != i+3 {
 		t.Fatalf("argv must end with -- dest request: %q", args)
 	}
-	if k := slices.Index(args, "-i"); k < 0 || k > i || args[k+1] != "/db/konsert-hub-ssh-key" {
+	if k := slices.Index(args, "-i"); k < 0 || k > i || args[k+1] != "/db/syre-hub-ssh-key" {
 		t.Fatalf("-i must name the hub key before --: %q", args)
 	}
 	if p := slices.Index(args, "-p"); p < 0 || args[p+1] != "2222" {
@@ -61,14 +61,14 @@ func TestCommandConn(t *testing.T) {
 	_ = c.Close()
 }
 
-func TestUninstallRemoteRunsKonsertdOverUserSSH(t *testing.T) {
+func TestUninstallRemoteRunsSyredOverUserSSH(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
 	if _, err := UninstallRemote(context.Background(), "me@box", "hub1", testWorkerID); err != nil {
 		t.Fatal(err)
 	}
 	cmds := f.remoteCmds()
-	if indexOf(cmds, "/home/me/.local/bin/konsertd uninstall --worker "+testWorkerID+" --hub hub1") < 0 {
+	if indexOf(cmds, "/home/me/.local/bin/syred uninstall --worker "+testWorkerID+" --hub hub1") < 0 {
 		t.Fatalf("cmds = %q", cmds)
 	}
 	for _, c := range f.calls {
@@ -77,10 +77,10 @@ func TestUninstallRemoteRunsKonsertdOverUserSSH(t *testing.T) {
 		}
 	}
 
-	// No konsertd on the host: nothing to remove.
+	// No syred on the host: nothing to remove.
 	f2 := &fakeSSH{knownKey: true, hostBlob: testHostBlob, remote: func(cmd string, stdin []byte) (string, error) {
-		if strings.Contains(cmd, "command -v konsertd") {
-			return "missing:/home/me/.local/bin/konsertd\nmanaged:/home/me/.local/bin/konsertd\n", nil
+		if strings.Contains(cmd, "command -v syred") {
+			return "missing:/home/me/.local/bin/syred\nmanaged:/home/me/.local/bin/syred\n", nil
 		}
 		return posixRemote(cmd, stdin)
 	}}
@@ -101,7 +101,7 @@ func TestUninstallRemoteRunsKonsertdOverUserSSH(t *testing.T) {
 
 // A Windows host runs the same uninstall through PowerShell.
 func TestUninstallRemoteWindows(t *testing.T) {
-	const exe = `C:\Users\me\AppData\Local\Programs\konsertd\konsertd.exe`
+	const exe = `C:\Users\me\AppData\Local\Programs\syred\syred.exe`
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	f.remote = func(cmd string, _ []byte) (string, error) {
 		if strings.HasPrefix(cmd, "uname") {
@@ -117,7 +117,7 @@ func TestUninstallRemoteWindows(t *testing.T) {
 		case strings.Contains(script, "Test-Path -LiteralPath $p) { \"found"):
 			return "found:" + exe + "\r\nmanaged:" + exe + "\r\n", nil
 		case strings.Contains(script, "'uninstall'"):
-			return "Deleted scheduled task \\konsertd\r\nRemoved the scheduled task for win\r\n", nil
+			return "Deleted scheduled task \\syred\r\nRemoved the scheduled task for win\r\n", nil
 		}
 		return "", nil
 	}
@@ -127,6 +127,6 @@ func TestUninstallRemoteWindows(t *testing.T) {
 		t.Fatalf("out=%q err=%v", out, err)
 	}
 	if indexOf(f.remoteCmds(), "& '"+exe+"' 'uninstall' '--worker' '"+testWorkerID+"' '--hub' 'hub1'") < 0 {
-		t.Fatalf("no konsertd uninstall on Windows: %q", f.remoteCmds())
+		t.Fatalf("no syred uninstall on Windows: %q", f.remoteCmds())
 	}
 }

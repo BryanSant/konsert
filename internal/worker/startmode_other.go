@@ -2,7 +2,7 @@
 
 package worker
 
-import "github.com/BryanSant/konsert/internal/protocol"
+import "github.com/BryanSant/syre/internal/protocol"
 
 // collectStartMode is Windows-only (MachineFacts.StartMode).
 func collectStartMode(*protocol.MachineFacts) {}

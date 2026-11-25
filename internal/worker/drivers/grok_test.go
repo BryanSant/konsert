@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Fixtures in testdata/grok were captured from grok 1.0.92 and sanitized:

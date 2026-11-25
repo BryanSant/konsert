@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Cause model (PRD §5.8a): every task and chat status transition, intervention and audit
-// row records who caused it (actor), through which path, how sure Konsert is, and what it
+// row records who caused it (actor), through which path, how sure Syre is, and what it
 // correlates with. Causes travel in the request context; code paths without a caller
 // (worker reports, the reaper, the scheduler) pass an explicit cause.
 
@@ -26,13 +26,13 @@ type chatOriginKey struct{}
 
 // withChatOrigin records that the request came from an agent chat's MCP endpoint, so
 // dispatched tasks remember their parent chat and actions are attributed to it.
-func withChatOrigin(ctx context.Context, chatID string, orchestrator bool) context.Context {
-	return context.WithValue(ctx, chatOriginKey{}, chatOrigin{id: chatID, orchestrator: orchestrator})
+func withChatOrigin(ctx context.Context, chatID string, commander bool) context.Context {
+	return context.WithValue(ctx, chatOriginKey{}, chatOrigin{id: chatID, commander: commander})
 }
 
 type chatOrigin struct {
-	id           string
-	orchestrator bool
+	id        string
+	commander bool
 }
 
 func chatOriginFrom(ctx context.Context) (chatOrigin, bool) {
@@ -47,8 +47,8 @@ func causeFrom(ctx context.Context) store.Cause {
 		return c
 	}
 	if o, ok := chatOriginFrom(ctx); ok {
-		if o.orchestrator {
-			return store.Cause{Actor: store.ActorOrchestrator, Source: "mcp", ActorID: o.id, Confidence: store.ConfidenceCertain}
+		if o.commander {
+			return store.Cause{Actor: store.ActorCommander, Source: "mcp", ActorID: o.id, Confidence: store.ConfidenceCertain}
 		}
 		return store.Cause{Actor: store.ActorAgent, Source: "mcp", ActorID: o.id, Confidence: store.ConfidenceCertain}
 	}
@@ -61,13 +61,13 @@ func causeFrom(ctx context.Context) store.Cause {
 		return store.Cause{Actor: store.ActorUser, Source: store.SourceUI, ActorID: a.User, Confidence: store.ConfidenceCertain}
 	case auditSourceCLI:
 		return store.Cause{Actor: store.ActorUser, Source: store.SourceCLI, ActorID: a.User, Confidence: store.ConfidenceCertain}
-	case auditSourceOrchestrator:
-		return store.Cause{Actor: store.ActorOrchestrator, Source: "orchestrator", Confidence: store.ConfidenceCertain}
+	case auditSourceCommander:
+		return store.Cause{Actor: store.ActorCommander, Source: "commander", Confidence: store.ConfidenceCertain}
 	case auditSourceMCP:
 		if id, ok := strings.CutPrefix(a.User, "agent-chat:"); ok {
 			return store.Cause{Actor: store.ActorAgent, Source: "mcp", ActorID: id, Confidence: store.ConfidenceCertain}
 		}
-		// An external MCP client (konsert mcp, the /mcp endpoint) is almost always an agent.
+		// An external MCP client (syre mcp, the /mcp endpoint) is almost always an agent.
 		return store.Cause{Actor: store.ActorAgent, Source: "mcp", ActorID: a.User, Confidence: store.ConfidenceLikely}
 	}
 	return store.Cause{Actor: store.ActorUnknown, Source: a.Source, ActorID: a.User, Confidence: store.ConfidenceUnknown}
@@ -87,23 +87,23 @@ func isUserCause(c store.Cause) bool { return c.Actor == store.ActorUser }
 // own): holds refuse automatic actions on their scope.
 func isAutomatic(c store.Cause) bool { return c.Actor != store.ActorUser }
 
-// describeActor renders a cause as a short phrase: "the user (UI)", "the orchestrator".
+// describeActor renders a cause as a short phrase: "the user (UI)", "the commander".
 func describeActor(c store.Cause) string {
 	switch c.Actor {
 	case store.ActorUser:
 		switch c.Source {
 		case store.SourceUI:
-			return "the user via the Konsert UI"
+			return "the user via the Syre UI"
 		case store.SourceCLI:
-			return "the user via the konsert CLI"
+			return "the user via the syre CLI"
 		case store.SourceTerminal:
-			return "the user via a Konsert terminal"
+			return "the user via a Syre terminal"
 		case store.SourceSSH:
 			return "the user over SSH"
 		}
 		return "the user"
-	case store.ActorOrchestrator:
-		return "the orchestrator"
+	case store.ActorCommander:
+		return "the commander"
 	case store.ActorAgent:
 		if c.ActorID != "" {
 			return "agent " + c.ActorID
@@ -112,7 +112,7 @@ func describeActor(c store.Cause) string {
 	case store.ActorScheduler:
 		return "the scheduler"
 	case store.ActorSystem:
-		return "Konsert"
+		return "Syre"
 	}
 	return "an unknown actor"
 }
@@ -120,7 +120,7 @@ func describeActor(c store.Cause) string {
 // --- recording -------------------------------------------------------------------------
 
 // recordFleetEvent persists e, pushes it to browsers as fleet.update "fleet_event" and
-// hands notable events to delivery (orchestrator notifications and agent notes).
+// hands notable events to delivery (commander notifications and agent notes).
 func (h *Hub) recordFleetEvent(ctx context.Context, e store.FleetEvent) store.FleetEvent {
 	if h == nil || h.store == nil {
 		return e

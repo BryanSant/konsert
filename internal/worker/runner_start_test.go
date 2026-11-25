@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/gitutil"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/gitutil"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // missingBinaryDriver always fails to launch.
@@ -20,7 +20,7 @@ type missingBinaryDriver struct{ scriptlessDriver }
 
 func (missingBinaryDriver) Name() string { return "missing" }
 func (missingBinaryDriver) BuildCommand(drivers.LaunchOptions) drivers.LaunchSpec {
-	return drivers.LaunchSpec{Binary: filepath.Join(os.TempDir(), "konsert-definitely-missing-binary")}
+	return drivers.LaunchSpec{Binary: filepath.Join(os.TempDir(), "syre-definitely-missing-binary")}
 }
 
 // scriptlessDriver supplies no-op telemetry/summary methods.
@@ -113,7 +113,7 @@ func TestRunnerRemovesWorktreeOnLaunchFailure(t *testing.T) {
 	r := NewRunner(reg, false, nil, RunnerCallbacks{OnTaskStatus: rec.record}, nil)
 	const id = "t-1ve2p"
 	err := r.StartTask(context.Background(), protocol.TaskStartPayload{
-		TaskID: id, Agent: "missing", Workdir: repo, Branch: "konsert/launch-fail", UseWorktree: true,
+		TaskID: id, Agent: "missing", Workdir: repo, Branch: "syre/launch-fail", UseWorktree: true,
 	})
 	if err == nil {
 		t.Fatal("expected launch failure")
@@ -122,10 +122,10 @@ func TestRunnerRemovesWorktreeOnLaunchFailure(t *testing.T) {
 		t.Fatalf("expected one failed status, got %+v", got)
 	}
 	root, _ := gitutil.IsGitRepo(context.Background(), repo)
-	if _, statErr := os.Stat(filepath.Join(root, ".konsert-worktrees", id)); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(root, ".syre-worktrees", id)); !os.IsNotExist(statErr) {
 		t.Fatalf("worktree left behind after launch failure (stat err=%v)", statErr)
 	}
-	out, _ := exec.Command("git", "-C", repo, "branch", "--list", "konsert/launch-fail").Output()
+	out, _ := exec.Command("git", "-C", repo, "branch", "--list", "syre/launch-fail").Output()
 	if strings.TrimSpace(string(out)) != "" {
 		t.Fatalf("branch created for the task was left behind: %q", out)
 	}

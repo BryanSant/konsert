@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/install"
 )
 
 func mustWriteFile(t *testing.T, path, content string) {
@@ -38,7 +38,7 @@ func populatePerIdentityFiles(t *testing.T, stateDir, workerID string) []string 
 	return files
 }
 
-// populateSharedFiles creates all shared konsertd files (hooks, hook-events.jsonl,
+// populateSharedFiles creates all shared syred files (hooks, hook-events.jsonl,
 // orphaned spool, usage cache, shell-integration, and managed binary).
 func populateSharedFiles(t *testing.T, home, stateDir, managedBin string) {
 	t.Helper()
@@ -56,17 +56,17 @@ func populateSharedFiles(t *testing.T, home, stateDir, managedBin string) {
 	}
 }
 
-// Single identity: uninstall removes everything konsertd created (service, config, logs,
+// Single identity: uninstall removes everything syred created (service, config, logs,
 // identity file, per-identity state, shared files, hooks, managed binary, empty dirs)
-// while preserving non-Konsert entries in ~/.claude/settings.json.
+// while preserving non-Syre entries in ~/.claude/settings.json.
 func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
-	stateDir := filepath.Join(home, ".konsert")
-	cfgDir := filepath.Join(home, ".config", "konsert")
-	logDir := filepath.Join(home, "Library", "Logs", "konsert")
+	stateDir := filepath.Join(home, ".syre")
+	cfgDir := filepath.Join(home, ".config", "syre")
+	logDir := filepath.Join(home, "Library", "Logs", "syre")
 	unitDir := filepath.Join(home, "Library", "LaunchAgents")
-	managedBin := filepath.Join(home, ".local", "bin", "konsertd")
+	managedBin := filepath.Join(home, ".local", "bin", "syred")
 
 	a := &sharedAccount{
 		t:        t,
@@ -117,7 +117,7 @@ func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 		t.Fatalf("expected Found=true, rep=%+v", rep)
 	}
 
-	// Everything konsertd created must be gone.
+	// Everything syred created must be gone.
 	mustBeGone := append([]string{
 		cfgPath,
 		logPath,
@@ -136,7 +136,7 @@ func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 		cfgDir,
 		managedBin,
 		managedBin + ".old",
-		filepath.Join(home, ".gemini", "config", "skills", "konsert-telemetry", "SKILL.md"),
+		filepath.Join(home, ".gemini", "config", "skills", "syre-telemetry", "SKILL.md"),
 	}, perIDFiles...)
 	for _, p := range mustBeGone {
 		if fileExists(p) {
@@ -144,17 +144,17 @@ func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 		}
 	}
 
-	// ~/.claude/settings.json still exists with the user's setting and without Konsert hooks.
+	// ~/.claude/settings.json still exists with the user's setting and without Syre hooks.
 	raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
 	if err != nil {
 		t.Fatalf("claude settings.json missing: %v", err)
 	}
-	if !strings.Contains(string(raw), `"theme": "dark"`) || strings.Contains(string(raw), "konsertd") {
+	if !strings.Contains(string(raw), `"theme": "dark"`) || strings.Contains(string(raw), "syred") {
 		t.Errorf("claude settings.json unexpected: %s", raw)
 	}
 
 	lines := strings.Join(rep.Lines(), "\n")
-	if !strings.Contains(lines, "Removed the konsertd binary "+managedBin) {
+	if !strings.Contains(lines, "Removed the syred binary "+managedBin) {
 		t.Errorf("report missing binary removal:\n%s", lines)
 	}
 	if !strings.Contains(lines, "Removed "+stateDir) {
@@ -167,11 +167,11 @@ func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 func TestRemoveIdentitySharedHomeAndLastIdentity(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
-	stateDir := filepath.Join(home, ".konsert")
-	cfgDir := filepath.Join(home, ".config", "konsert")
-	logDir := filepath.Join(home, "Library", "Logs", "konsert")
+	stateDir := filepath.Join(home, ".syre")
+	cfgDir := filepath.Join(home, ".config", "syre")
+	logDir := filepath.Join(home, "Library", "Logs", "syre")
 	unitDir := filepath.Join(home, "Library", "LaunchAgents")
-	managedBin := filepath.Join(home, ".local", "bin", "konsertd")
+	managedBin := filepath.Join(home, ".local", "bin", "syred")
 
 	a := &sharedAccount{
 		t:        t,
@@ -259,18 +259,18 @@ func TestRemoveIdentitySharedHomeAndLastIdentity(t *testing.T) {
 	}
 	for _, p := range append([]string{
 		hostCfg, hostLog, managedBin, stateDir, logDir, cfgDir,
-		filepath.Join(home, ".gemini", "config", "skills", "konsert-telemetry", "SKILL.md"),
+		filepath.Join(home, ".gemini", "config", "skills", "syre-telemetry", "SKILL.md"),
 	}, hostFiles...) {
 		if fileExists(p) {
 			t.Errorf("last-identity leftover not removed: %s", p)
 		}
 	}
-	if !strings.Contains(strings.Join(rep2.Lines(), "\n"), "Removed the konsertd binary "+managedBin) {
+	if !strings.Contains(strings.Join(rep2.Lines(), "\n"), "Removed the syred binary "+managedBin) {
 		t.Errorf("last-identity report missing binary removal:\n%s", strings.Join(rep2.Lines(), "\n"))
 	}
 }
 
-// Foreign files and ~/.konsert/machine-id are never deleted, and non-empty directories
+// Foreign files and ~/.syre/machine-id are never deleted, and non-empty directories
 // containing them are kept with an explanation.
 func TestRemoveIdentityPreservesForeignFilesAndMachineID(t *testing.T) {
 	a := newSharedAccount(t)
@@ -308,14 +308,14 @@ func TestRemoveIdentityPreservesForeignFilesAndMachineID(t *testing.T) {
 	}
 }
 
-// Never delete the binary if it is not the one konsertd installed, or if another konsertd
+// Never delete the binary if it is not the one syred installed, or if another syred
 // process is still running.
 func TestRemoveIdentityBinarySafety(t *testing.T) {
 	t.Run("unmanaged binary is kept", func(t *testing.T) {
 		a := newSharedAccount(t)
 		id := a.identity("solo")
 		a.service("", "solo")
-		unmanaged := filepath.Join(t.TempDir(), "usr", "local", "bin", "konsertd")
+		unmanaged := filepath.Join(t.TempDir(), "usr", "local", "bin", "syred")
 		mustWriteFile(t, unmanaged, "homebrew binary")
 
 		u := a.uninstaller(false)
@@ -327,12 +327,12 @@ func TestRemoveIdentityBinarySafety(t *testing.T) {
 		if !fileExists(unmanaged) {
 			t.Fatalf("unmanaged binary was deleted: %s", unmanaged)
 		}
-		if !strings.Contains(strings.Join(rep.Kept, "\n"), "not installed by konsertd") {
+		if !strings.Contains(strings.Join(rep.Kept, "\n"), "not installed by syred") {
 			t.Errorf("expected kept reason for unmanaged binary, got %q", rep.Kept)
 		}
 	})
 
-	t.Run("managed binary kept when another konsertd process is running", func(t *testing.T) {
+	t.Run("managed binary kept when another syred process is running", func(t *testing.T) {
 		a := newSharedAccount(t)
 		id := a.identity("solo")
 		a.service("", "solo")
@@ -346,9 +346,9 @@ func TestRemoveIdentityBinarySafety(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !fileExists(managed) {
-			t.Fatalf("managed binary deleted while another konsertd process was running")
+			t.Fatalf("managed binary deleted while another syred process was running")
 		}
-		if !strings.Contains(strings.Join(rep.Kept, "\n"), "another konsertd process is still running") {
+		if !strings.Contains(strings.Join(rep.Kept, "\n"), "another syred process is still running") {
 			t.Errorf("expected kept reason for running process, got %q", rep.Kept)
 		}
 	})
@@ -359,8 +359,8 @@ func TestRemoveIdentityBinarySafety(t *testing.T) {
 		a.service("", "solo")
 		// Make managedBin a non-empty directory so os.Remove fails (simulating a
 		// Windows sharing violation on a running exe).
-		managedDir := filepath.Join(a.in.Env.Home, "AppData", "Local", "Programs", "konsertd")
-		managed := filepath.Join(managedDir, "konsertd.exe")
+		managedDir := filepath.Join(a.in.Env.Home, "AppData", "Local", "Programs", "syred")
+		managed := filepath.Join(managedDir, "syred.exe")
 		a.in.Env.ManagedBin = managed
 		mustWriteFile(t, filepath.Join(managed, "lock"), "busy")
 
@@ -385,17 +385,17 @@ func TestRemoveIdentityBinarySafety(t *testing.T) {
 
 func TestBuildWindowsDeleteCmdLine(t *testing.T) {
 	got, err := install.BuildWindowsDeleteCmdLine(
-		`C:\Users\Bryan Sant\AppData\Local\Programs\konsertd\konsertd.exe`,
-		`C:\Users\Bryan Sant\AppData\Local\Programs\konsertd`,
+		`C:\Users\Bryan Sant\AppData\Local\Programs\syred\syred.exe`,
+		`C:\Users\Bryan Sant\AppData\Local\Programs\syred`,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `cmd.exe /c ping -n 3 127.0.0.1 >nul & del /f /q "C:\Users\Bryan Sant\AppData\Local\Programs\konsertd\konsertd.exe" & rmdir "C:\Users\Bryan Sant\AppData\Local\Programs\konsertd" 2>nul`
+	want := `cmd.exe /c ping -n 3 127.0.0.1 >nul & del /f /q "C:\Users\Bryan Sant\AppData\Local\Programs\syred\syred.exe" & rmdir "C:\Users\Bryan Sant\AppData\Local\Programs\syred" 2>nul`
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
-	if _, err := install.BuildWindowsDeleteCmdLine(`C:\bad&path\konsertd.exe`, ""); err == nil {
+	if _, err := install.BuildWindowsDeleteCmdLine(`C:\bad&path\syred.exe`, ""); err == nil {
 		t.Error("expected unsafe path to be rejected")
 	}
 }

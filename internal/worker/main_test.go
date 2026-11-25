@@ -8,21 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/chat"
 )
 
-// TestMain points konsertd state (worker ID, machine ID, outbound spool) at a
-// throwaway directory so tests never write into the developer's ~/.konsert, and
+// TestMain points syred state (worker ID, machine ID, outbound spool) at a
+// throwaway directory so tests never write into the developer's ~/.syre, and
 // stubs machine-fact probes.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "konsert-test-state-")
+	dir, err := os.MkdirTemp("", "syre-test-state-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create test state dir:", err)
 		os.Exit(1)
 	}
-	os.Setenv("KONSERT_STATE_DIR", dir)
-	os.Setenv("KONSERT_ATTACHMENTS_DIR", dir+"/attachments")
+	os.Setenv("SYRE_STATE_DIR", dir)
+	os.Setenv("SYRE_ATTACHMENTS_DIR", dir+"/attachments")
 	// Daemons under test report stub facts instead of probing the host.
 	collectFacts = func(context.Context) protocol.MachineFacts {
 		return protocol.MachineFacts{OSName: runtime.GOOS, CPUCores: runtime.NumCPU(), CollectedAt: time.Now().UTC()}

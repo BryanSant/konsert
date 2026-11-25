@@ -10,32 +10,32 @@ import { ModalDialogComponent } from '../../shared/modal-dialog.component';
  * emergency number: comforting to see, rarely used. Resume needs no confirmation.
  */
 @Component({
-  selector: 'ks-mobile-pause',
+  selector: 'sy-mobile-pause',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, ModalDialogComponent],
   host: { class: 'block' },
   template: `
     @if (control.paused()) {
-      <button type="button" class="ks-btn w-full h-[44px] text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]" data-testid="mobile-resume" [disabled]="control.isBusy('fleet')" (click)="control.resumeEverything()">
+      <button type="button" class="sy-btn w-full h-[44px] text-[var(--sy-violet)] bg-[var(--sy-violet-soft)]" data-testid="mobile-resume" [disabled]="control.isBusy('fleet')" (click)="control.resumeEverything()">
         <app-icon name="play" [size]="12" />
         Resume everything
       </button>
     } @else {
-      <button type="button" class="w-full h-[44px] bg-transparent border-0 text-[12.5px] font-medium text-[var(--ks-text-muted)] cursor-pointer rounded-[var(--ks-radius-md)] ks-focusable" data-testid="mobile-pause" (click)="confirming.set(true)">
+      <button type="button" class="w-full h-[44px] bg-transparent border-0 text-[12.5px] font-medium text-[var(--sy-text-muted)] cursor-pointer rounded-[var(--sy-radius-md)] sy-focusable" data-testid="mobile-pause" (click)="confirming.set(true)">
         ❚❚ Emergency: pause everything
       </button>
     }
     @if (confirming()) {
-      <app-modal-dialog labelledBy="ks-mpause-title" describedBy="ks-mpause-body" panelClass="!fixed !inset-x-0 !bottom-0 w-full rounded-t-[22px] bg-[var(--ks-surface-2)] p-5 pb-7" (close)="confirming.set(false)">
+      <app-modal-dialog labelledBy="sy-mpause-title" describedBy="sy-mpause-body" panelClass="!fixed !inset-x-0 !bottom-0 w-full rounded-t-[22px] bg-[var(--sy-surface-2)] p-5 pb-7" (close)="confirming.set(false)">
         <div class="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden="true"></div>
-        <h2 id="ks-mpause-title" class="m-0 text-[16px] font-semibold text-[var(--ks-text)]">Pause everything?</h2>
-        <p id="ks-mpause-body" class="mt-1.5 mb-0 text-[13.5px] leading-relaxed text-[var(--ks-text-secondary)]">
+        <h2 id="sy-mpause-title" class="m-0 text-[16px] font-semibold text-[var(--sy-text)]">Pause everything?</h2>
+        <p id="sy-mpause-body" class="mt-1.5 mb-0 text-[13.5px] leading-relaxed text-[var(--sy-text-secondary)]">
           Suspends all agent work on {{ machines() }} and stops dispatching until you resume. Nothing is lost, and agents are told you paused them.
         </p>
         <div class="grid gap-2 mt-4">
-          <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-pause-confirm" (click)="confirm()">Pause everything</button>
-          <button type="button" class="ks-btn h-[44px] ks-btn-soft" data-testid="mobile-pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
+          <button type="button" class="sy-btn h-[44px] bg-[var(--sy-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-pause-confirm" (click)="confirm()">Pause everything</button>
+          <button type="button" class="sy-btn h-[44px] sy-btn-soft" data-testid="mobile-pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
         </div>
       </app-modal-dialog>
     }

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 const (

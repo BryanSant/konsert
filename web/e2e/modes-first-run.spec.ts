@@ -7,7 +7,7 @@ import { getFreePort, subscriptionOnlyEnv, waitFor } from './global-setup';
 
 /**
  * First run in the mode UI: a fresh hub (no machines) opens Command on the welcome, never a
- * blank screen; "Add this machine" uses the hub's auto-start (KONSERT_INSTALL_DRY_RUN keeps
+ * blank screen; "Add this machine" uses the hub's auto-start (SYRE_INSTALL_DRY_RUN keeps
  * it from registering a real service: the daemon runs as the hub's child and dies with it).
  * A phone gets the inbox with an Add a machine card. Each test has its own empty hub.
  */
@@ -22,19 +22,19 @@ const ADMIN = 'modes-first-run-admin';
 
 async function startHub(): Promise<Hub> {
   const repoRoot = path.resolve(__dirname, '..', '..');
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konsert-e2e-modes-firstrun-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'syre-e2e-modes-firstrun-'));
   const port = await getFreePort();
   const baseURL = `http://127.0.0.1:${port}`;
   const proc = spawn(
-    path.join(repoRoot, 'bin', 'konsert'),
-    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'konsert.db'), '--recovery-key', ADMIN],
+    path.join(repoRoot, 'bin', 'syre'),
+    ['serve', '--listen', `127.0.0.1:${port}`, '--db', path.join(tmpDir, 'syre.db'), '--recovery-key', ADMIN],
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: subscriptionOnlyEnv({
-        KONSERT_STATE_DIR: path.join(tmpDir, 'state'),
-        KONSERT_INSTALL_DRY_RUN: '1',
-        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+        SYRE_STATE_DIR: path.join(tmpDir, 'state'),
+        SYRE_INSTALL_DRY_RUN: '1',
+        SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),
     },
   );
@@ -77,12 +77,12 @@ test.describe('Mode UI first run', () => {
     await stopHub(hub);
   });
 
-  test('desktop: Command welcomes, adds this machine, then the orchestrator chat takes over', async ({ page, isMobile }) => {
+  test('desktop: Command welcomes, adds this machine, then the commander chat takes over', async ({ page, isMobile }) => {
     test.skip(isMobile, 'desktop first run');
     await login(page, hub);
     await expect(page).toHaveURL(/\/command$/);
     const welcome = page.getByTestId('first-run');
-    await expect(welcome.getByRole('heading', { name: 'Welcome to Konsert' })).toBeVisible();
+    await expect(welcome.getByRole('heading', { name: 'Welcome to Syre' })).toBeVisible();
     await expect(page.getByTestId('fleet-state')).toHaveText('FLEET: no machines yet');
     // The side panels explain what will appear there; the composer waits for a machine.
     await expect(page.getByTestId('live-work-empty')).toContainText('Every agent session on your machines');
@@ -92,7 +92,7 @@ test.describe('Mode UI first run', () => {
     // No Add Machine dialog pops up over the welcome.
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
-    await expect(page.getByTestId('first-run-local')).toHaveText(/Will start konsertd/);
+    await expect(page.getByTestId('first-run-local')).toHaveText(/Will start syred/);
     await page.getByTestId('first-run-add-local').click();
     await expect(page.getByTestId('first-run-online')).toContainText(`${os.hostname()} is online`, { timeout: 20_000 });
     await expect(page.getByTestId('first-run-composer')).toBeEnabled();
@@ -106,7 +106,7 @@ test.describe('Mode UI first run', () => {
     await expect(page.getByTestId('first-run')).toHaveCount(0);
 
     // The hub runs the daemon itself ("local" launch); setup is complete, so a reload goes
-    // straight to the orchestrator chat with no welcome and no Add Machine dialog.
+    // straight to the commander chat with no welcome and no Add Machine dialog.
     const fleet = await api<{ workers: Array<{ status: string; launch?: string }> }>(page, '/api/fleet');
     expect(fleet.workers).toHaveLength(1);
     expect(fleet.workers[0]).toMatchObject({ status: 'online', launch: 'local' });
@@ -129,7 +129,7 @@ test.describe('Mode UI first run', () => {
     await expect.poll(async () => (await api<{ needs_setup: boolean }>(page, '/api/setup')).needs_setup).toBe(false);
     await page.reload({ waitUntil: 'networkidle' });
     // Never a blank screen: with no machines Command still welcomes, and nothing pops up.
-    await expect(page.getByTestId('first-run').getByRole('heading', { name: 'Welcome to Konsert' })).toBeVisible();
+    await expect(page.getByTestId('first-run').getByRole('heading', { name: 'Welcome to Syre' })).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect((await api<{ workers: unknown[] }>(page, '/api/fleet')).workers).toHaveLength(0);
   });

@@ -1,5 +1,5 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
-import { ListeningPort, Worker } from '../core/models/konsert.models';
+import { ListeningPort, Worker } from '../core/models/syre.models';
 import { isVersionMismatch } from '../core/models/version';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
@@ -17,7 +17,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
   standalone: true,
   imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent],
   template: `
-    <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
+    <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-3 min-w-0">
@@ -94,7 +94,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
       <div class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]">
         <div class="min-w-0">
           <span class="text-[#86888f] mr-2">Worker ID</span>
-          <span class="font-mono-ide text-[#c8cad0] break-all" [ksTooltip]="worker().id">{{ worker().sid || worker().id }}</span>
+          <span class="font-mono-ide text-[#c8cad0] break-all" [syTooltip]="worker().id">{{ worker().sid || worker().id }}</span>
         </div>
         <button
           type="button"
@@ -112,7 +112,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
           <div class="flex items-center gap-2">
             <h4 id="machine-control-heading" class="text-[#86888f]">Control</h4>
             @if (worker().drained) {
-              <span class="rounded-full px-2 py-0.5 text-[10.5px] font-medium bg-[var(--ks-amber-soft)] text-[#e6b763]" data-testid="machine-drained">
+              <span class="rounded-full px-2 py-0.5 text-[10.5px] font-medium bg-[var(--sy-amber-soft)] text-[#e6b763]" data-testid="machine-drained">
                 Drained: no new work
               </span>
             }
@@ -120,35 +120,35 @@ import { MachineCredentialComponent } from './machine-credential.component';
           <div class="flex items-center gap-1 flex-wrap">
             <button
               type="button"
-              class="ks-btn ks-btn-sm"
+              class="sy-btn sy-btn-sm"
               data-testid="machine-drain"
               [attr.aria-pressed]="!!worker().drained"
               [disabled]="control.isBusy(worker().id)"
               (click)="control.setDrained(worker().id, !worker().drained)"
-              [ksTooltip]="worker().drained ? 'Accept new work again' : 'Finish current work and accept nothing new'"
+              [syTooltip]="worker().drained ? 'Accept new work again' : 'Finish current work and accept nothing new'"
             >
               <app-icon name="drain" [size]="11" />
               {{ worker().drained ? 'Undrain' : 'Drain' }}
             </button>
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="machine-suspend-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'suspend-all')" ksTooltip="Suspend every managed session on this machine">
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="machine-suspend-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'suspend-all')" syTooltip="Suspend every managed session on this machine">
               <app-icon name="pause" [size]="11" />
               Suspend all
             </button>
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="machine-resume-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'resume-all')" ksTooltip="Resume suspended sessions on this machine">
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="machine-resume-all" [disabled]="control.isBusy(worker().id)" (click)="control.workerBulk(worker().id, 'resume-all')" syTooltip="Resume suspended sessions on this machine">
               <app-icon name="play" [size]="11" />
               Resume all
             </button>
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" data-testid="machine-stop-all" [disabled]="control.isBusy(worker().id)" (click)="stopAll()" ksTooltip="Cancel every managed session on this machine">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="machine-stop-all" [disabled]="control.isBusy(worker().id)" (click)="stopAll()" syTooltip="Cancel every managed session on this machine">
               <app-icon name="stop" [size]="10" />
               Stop all
             </button>
           </div>
         </div>
-        <ks-holds-requests [workerId]="worker().id" />
-        <ks-your-actions [workerId]="worker().id" [limit]="8" />
+        <sy-holds-requests [workerId]="worker().id" />
+        <sy-your-actions [workerId]="worker().id" [limit]="8" />
       </section>
 
-      <!-- How the hub starts konsertd here, and the last attempt -->
+      <!-- How the hub starts syred here, and the last attempt -->
       @if (worker().launch; as launch) {
         <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px] space-y-1.5" data-testid="worker-launch">
           <div class="flex items-center justify-between gap-2">
@@ -159,15 +159,15 @@ import { MachineCredentialComponent } from './machine-credential.component';
             @if (worker().status !== 'online') {
               @if (worker().launch_state === 'starting') {
                 <span class="inline-flex items-center gap-1.5 text-[10.5px] text-[#c8cad0] shrink-0" data-testid="worker-launch-starting">
-                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[var(--ks-blue)] border-t-transparent ks-ring-spin"></span>
-                  Starting konsertd...
+                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[var(--sy-blue)] border-t-transparent sy-ring-spin"></span>
+                  Starting syred...
                 </span>
               } @else {
                 <button
                   type="button"
                   (click)="retryStart()"
-                  class="ks-btn ks-btn-sm shrink-0"
-                  [ksTooltip]="launch === 'ssh' ? 'Install and start konsertd over ssh again' : 'Start konsertd on this machine again'"
+                  class="sy-btn sy-btn-sm shrink-0"
+                  [syTooltip]="launch === 'ssh' ? 'Install and start syred over ssh again' : 'Start syred on this machine again'"
                   data-testid="worker-launch-retry"
                 >
                   <app-icon name="refresh" [size]="11" />
@@ -183,26 +183,26 @@ import { MachineCredentialComponent } from './machine-credential.component';
             <div class="text-[11px] text-[#e6b763] break-words" data-testid="worker-restart-state">{{ restartText() }}</div>
           }
           @if (worker().status !== 'online' && worker().launch_state === 'failed' && worker().launch_error) {
-            <div role="alert" class="rounded-md bg-[var(--ks-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-launch-error">
+            <div role="alert" class="rounded-md bg-[var(--sy-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-launch-error">
               {{ worker().launch_error }}
             </div>
           }
         </div>
       }
 
-      <!-- konsertd version row -->
+      <!-- syred version row -->
       <div
         class="flex items-center justify-between gap-2 rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]"
         data-testid="worker-version"
       >
         <div class="min-w-0">
-          <span class="text-[#86888f] mr-2">konsertd version</span>
+          <span class="text-[#86888f] mr-2">syred version</span>
           <span class="font-mono-ide text-[#c8cad0] break-all">{{ versionLabel() }}</span>
         </div>
         @if (versionMismatch()) {
           <span
             class="inline-flex items-center gap-1 rounded-full bg-[#d9a043]/15 px-2 py-0.5 text-[10.5px] font-medium text-[#e6b566] shrink-0"
-            [ksTooltip]="mismatchText()"
+            [syTooltip]="mismatchText()"
             data-testid="worker-version-mismatch"
           >
             Differs from hub {{ fleet.controllerVersion() }}
@@ -210,18 +210,18 @@ import { MachineCredentialComponent } from './machine-credential.component';
         }
       </div>
 
-      <!-- Outbound spool: what konsertd keeps for the hub until it is applied -->
+      <!-- Outbound spool: what syred keeps for the hub until it is applied -->
       @if (spoolLine(); as line) {
         <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px] space-y-1.5" data-testid="worker-spool">
           <div class="min-w-0">
-            <span class="text-[#86888f] mr-2" ksTooltip="konsertd keeps transcripts, task events, statuses, usage and vitals on disk until the hub applied them, so nothing is lost while the hub sleeps">Spool</span>
+            <span class="text-[#86888f] mr-2" syTooltip="syred keeps transcripts, task events, statuses, usage and vitals on disk until the hub applied them, so nothing is lost while the hub sleeps">Spool</span>
             <span class="font-mono-ide text-[#c8cad0] break-words">{{ line }}</span>
           </div>
           @if (worker().reconnecting_after_sleep) {
             <div class="text-[#c8cad0]" data-testid="worker-reconnecting">The hub just woke from sleep: reconnecting…</div>
           }
           @if (worker().spool?.full) {
-            <div role="alert" class="rounded-md bg-[var(--ks-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-spool-full">
+            <div role="alert" class="rounded-md bg-[var(--sy-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-spool-full">
               Spool full ({{ worker().spool?.full_reason }}): vitals and activity are no longer kept ({{ worker().spool?.dropped ?? 0 }} dropped). Transcripts, task events, statuses and questions still are.
             </div>
           }
@@ -257,7 +257,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
         <div class="rounded-lg bg-[#141518] p-3 space-y-1.5 text-[11.5px]" data-testid="machine-ports">
           <div class="flex items-center justify-between gap-2">
             <span class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Listening ports</span>
-            <span class="text-[10px] text-[#86888f]" [ksTooltip]="'Listed on the machine when Details opens, then every 5 minutes'">{{ portsNote() }}</span>
+            <span class="text-[10px] text-[#86888f]" [syTooltip]="'Listed on the machine when Details opens, then every 5 minutes'">{{ portsNote() }}</span>
           </div>
           <ul class="m-0 p-0 list-none flex flex-wrap gap-1.5 font-mono-ide">
             @for (p of ports()!; track p.port + (p.address ?? '')) {
@@ -267,7 +267,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
         </div>
       }
 
-      <!-- How konsertd reaches the hub; only an outbound machine has a credential -->
+      <!-- How syred reaches the hub; only an outbound machine has a credential -->
       <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px]" data-testid="worker-transport">
         <span class="text-[#86888f] mr-2">Transport</span>
         <span class="font-mono-ide text-[#c8cad0]">{{ transport() }}</span>
@@ -343,7 +343,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
               Are you sure you want to remove "{{ worker().name }}"?
             </div>
             <p class="text-[11.5px] text-[#e6b8b8]/85 leading-relaxed">
-              This uninstalls its <code class="font-mono-ide">konsertd</code> daemon (its service, and the agent hooks unless another konsertd on the same account still uses them) and removes its saved spaces and repo links. Task history is preserved. The result appears in the audit log.
+              This uninstalls its <code class="font-mono-ide">syred</code> daemon (its service, and the agent hooks unless another syred on the same account still uses them) and removes its saved spaces and repo links. Task history is preserved. The result appears in the audit log.
             </p>
           </div>
           @if (removeError()) {
@@ -354,7 +354,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
               type="button"
               (click)="confirmRemove.set(false)"
               [disabled]="removing()"
-              class="ks-btn ks-btn-sm ks-btn-soft"
+              class="sy-btn sy-btn-sm sy-btn-soft"
             >
               Cancel
             </button>
@@ -374,7 +374,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
           <button
             type="button"
             (click)="confirmRemove.set(true)"
-            class="ks-btn ks-btn-sm ks-btn-danger"
+            class="sy-btn sy-btn-sm sy-btn-danger"
           >
             <app-icon name="trash" [size]="12" />
             <span>Remove Machine</span>
@@ -385,7 +385,7 @@ import { MachineCredentialComponent } from './machine-credential.component';
               <button
                 type="button"
                 (click)="startTerminal.emit(worker())"
-                class="ks-btn ks-btn-sm ks-btn-soft"
+                class="sy-btn sy-btn-sm sy-btn-soft"
               >
                 <app-icon name="shell" [size]="12" />
                 <span>Terminal</span>
@@ -393,16 +393,16 @@ import { MachineCredentialComponent } from './machine-credential.component';
               <button
                 type="button"
                 (click)="startChat.emit(worker())"
-                class="ks-btn ks-btn-primary"
+                class="sy-btn sy-btn-primary"
               >
-                <app-icon name="orchestrator" [size]="12" />
+                <app-icon name="commander" [size]="12" />
                 <span>New Chat</span>
               </button>
             } @else {
               <button
                 type="button"
                 (click)="close.emit()"
-                class="ks-btn ks-btn-soft"
+                class="sy-btn sy-btn-soft"
               >
                 Close
               </button>
@@ -482,7 +482,7 @@ export class MachineDetailModalComponent {
 
   readonly mismatchText = computed(
     () =>
-      `konsertd version ${this.worker().version} differs from the hub version ${this.fleet.controllerVersion()}`,
+      `syred version ${this.worker().version} differs from the hub version ${this.fleet.controllerVersion()}`,
   );
 
   readonly toolEntries = computed(() => {
@@ -510,9 +510,9 @@ export class MachineDetailModalComponent {
   readonly transport = computed(() => transportLabel(this.worker()));
   readonly transportHint = computed(() => transportHint(this.worker()));
 
-  /** When a Windows machine's konsertd starts (S4U task, service or logon task). */
+  /** When a Windows machine's syred starts (S4U task, service or logon task). */
   readonly windowsStart = computed(() => windowsStartText(this.worker()));
-  /** The hub's restart (or re-dial) state of this machine's konsertd. */
+  /** The hub's restart (or re-dial) state of this machine's syred. */
   readonly restartText = computed(() => offlineText(this.worker(), Date.now()));
   readonly launchLabel = computed(() => {
     const w = this.worker();

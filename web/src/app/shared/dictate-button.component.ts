@@ -15,7 +15,7 @@ import { TooltipDirective } from './tooltip.directive';
  * new text as speech arrives. Hidden where the browser has no speech recognition.
  */
 @Component({
-  selector: 'ks-dictate-button',
+  selector: 'sy-dictate-button',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective],
@@ -23,17 +23,17 @@ import { TooltipDirective } from './tooltip.directive';
     @if (supported) {
       <button
         type="button"
-        class="ks-icon-btn"
+        class="sy-icon-btn"
         data-testid="dictate-button"
-        [class.ks-mic-recording]="dictating()"
+        [class.sy-mic-recording]="dictating()"
         [attr.aria-pressed]="dictating()"
         [attr.aria-label]="dictating() ? 'Stop dictation' : 'Dictate'"
-        [ksTooltip]="dictating() ? 'Stop dictation' : 'Dictate'"
+        [syTooltip]="dictating() ? 'Stop dictation' : 'Dictate'"
         (click)="toggle()"
       >
         <app-icon name="mic" [size]="15" />
       </button>
-      <span class="ks-sr-only" role="status" aria-live="polite">{{ dictating() ? 'Listening.' : error() }}</span>
+      <span class="sy-sr-only" role="status" aria-live="polite">{{ dictating() ? 'Listening.' : error() }}</span>
     }
   `,
 })

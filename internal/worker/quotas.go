@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // quotasFromCapabilities derives the legacy worker.quotas payload from the agent

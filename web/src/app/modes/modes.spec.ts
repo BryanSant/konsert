@@ -3,13 +3,13 @@ import { UrlSegment } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { modeMatcher } from '../app.routes';
 import { Hold, OverrideRequest, Veto, formatDuration } from '../core/models/control.models';
-import { ChatSession, Task, Worker } from '../core/models/konsert.models';
+import { ChatSession, Task, Worker } from '../core/models/syre.models';
 import { QuestionView } from '../core/models/question.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { ControlStore } from '../core/state/control.store';
 import { FleetStore } from '../core/state/fleet.store';
 import { NeedsYouStore, nextPendingKey, overrideScope, overrideTitle, vetoDetails, vetoEscalated } from '../core/state/needs-you.store';
-import { OrchestratorStore } from '../core/state/orchestrator.store';
+import { CommanderStore } from '../core/state/commander.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { WorkInputs, buildWorkItems, groupByProject, machineLoadLabel, occupiesSlot } from '../core/state/work-logic';
 import { WorkStore } from '../core/state/work.store';
@@ -50,7 +50,7 @@ const task = (id: string, status: Task['status'], over: Partial<Task> = {}): Tas
     prompt: `Do ${id}\n- first\n- second`,
     workdir: '/src/web',
     effective_dir: '',
-    origin: 'orchestrator',
+    origin: 'commander',
     created_at: new Date(NOW - 3600_000).toISOString(),
     started_at: new Date(NOW - 3000_000).toISOString(),
     ...over,
@@ -152,7 +152,7 @@ describe('work items (work-logic)', () => {
     );
     const by = Object.fromEntries(items.map((i) => [i.id, i]));
     expect(by['scratch']).toBeUndefined();
-    expect(by['orch']).toBeUndefined(); // the orchestrator conversation has its own tab
+    expect(by['orch']).toBeUndefined(); // the commander conversation has its own tab
     expect(by['q']).toMatchObject({ column: 'queued', control: 'QUEUED', live: true });
     expect(by['r']).toMatchObject({ column: 'running', control: 'ORCH', title: 'Do r', goal: 'Do r' });
     expect(by['w']).toMatchObject({ column: 'needs_you', control: 'ASKING' });
@@ -199,7 +199,7 @@ describe('work items (work-logic)', () => {
     expect(machineLoadLabel(worker(), 1).text).toBe('desk 1/2');
     expect(machineLoadLabel(worker(), 2)).toEqual({ text: 'desk FULL 2/2', tone: 'warn' });
     expect(machineLoadLabel(worker({ status: 'offline', last_seen_at: new Date(Date.now() - 240_000).toISOString() }), 0)).toMatchObject({ tone: 'stale' });
-    expect(occupiesSlot({ status: 'running', origin: 'orchestrator' })).toBe(true);
+    expect(occupiesSlot({ status: 'running', origin: 'commander' })).toBe(true);
     expect(occupiesSlot({ status: 'idle', origin: 'external' })).toBe(false);
   });
 });
@@ -285,7 +285,7 @@ describe('needs-you queue', () => {
       const control = TestBed.inject(ControlStore);
       TestBed.inject(FleetStore).upsertWorker(worker());
       TestBed.inject(QuestionsStore).apply(question('a'));
-      control.applyVeto(veto('waiting', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the orchestrator (chat c-o)' }));
+      control.applyVeto(veto('waiting', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the commander (chat c-o)' }));
       control.applyVeto(veto('late', { escalated_at: new Date().toISOString(), status: 'escalated' }));
       control.applyOverride(override('o1'));
       expect(store.entries().map((e) => e.key)).toEqual(['v:late', 'q:a', 'o:o1', 'v:waiting']);
@@ -295,7 +295,7 @@ describe('needs-you queue', () => {
       expect(waiting.tag).toBe('P3');
       expect(waiting.meta).toContain('waiting for the agent');
       expect(ov).toMatchObject({ kind: 'override', tag: 'P2', sid: 'o-o1', title: 'Allow 1 extra session on desk for 30m' });
-      expect(ov.meta).toContain('orchestrator');
+      expect(ov.meta).toContain('commander');
 
       // The agent acknowledges on its next turn: the hub's update removes it.
       control.applyVeto(veto('waiting', { acked_at: new Date().toISOString(), status: 'acknowledged' }));
@@ -383,13 +383,13 @@ describe('needs-you queue', () => {
     it('the veto card waits for the agent; only an escalated veto can be dismissed', async () => {
       const store = TestBed.inject(NeedsYouStore);
       const control = TestBed.inject(ControlStore);
-      control.applyVeto(veto('w', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the orchestrator (chat c-o)' }));
+      control.applyVeto(veto('w', { status: 'delivered', delivered_at: new Date().toISOString(), delivered_to: 'the commander (chat c-o)' }));
       store.open('v:w');
       const fixture = TestBed.createComponent(NeedsYouDialogComponent);
       fixture.detectChanges();
       const root = fixture.nativeElement as HTMLElement;
       expect(root.querySelector('[data-testid="veto-waiting"]')).toBeTruthy();
-      expect(root.querySelector('[data-testid="veto-steps"]')?.textContent).toContain('Told to the orchestrator (chat c-o)');
+      expect(root.querySelector('[data-testid="veto-steps"]')?.textContent).toContain('Told to the commander (chat c-o)');
       expect(root.querySelector('[data-testid="veto-dismiss"]')).toBeNull();
       expect(root.querySelector('[data-testid="veto-ack"]')).toBeNull();
 
@@ -465,7 +465,7 @@ describe('needs-you queue', () => {
       fleet.upsertWorker(worker());
       fleet.upsertTask(task('a', 'running'));
       fleet.upsertTask(task('b', 'queued'));
-      TestBed.inject(OrchestratorStore).sessions.set([chat('c', 'working')]);
+      TestBed.inject(CommanderStore).sessions.set([chat('c', 'working')]);
       const work = TestBed.inject(WorkStore);
       expect(work.counts()).toMatchObject({ working: 2, queued: 1, review: 0 });
       // Expedite lives on the hub: the call's (or a pushed) review moves the card.

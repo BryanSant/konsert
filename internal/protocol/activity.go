@@ -3,12 +3,12 @@ package protocol
 import "time"
 
 // Session activity: what an agent session is doing right now (thinking, running a tool,
-// writing its reply, waiting for the user, ...), for the live-work views. konsertd derives
+// writing its reply, waiting for the user, ...), for the live-work views. syred derives
 // it from the engine stream (chat sessions) or the agent's session log (PTY tasks); the hub
 // fills in what only it knows (queued, suspended) and what it learns from observed sessions.
 // See docs/design/activity.md.
 
-// MsgSessionActivity (worker->hub) carries one SessionActivity. konsertd rate-limits it
+// MsgSessionActivity (worker->hub) carries one SessionActivity. syred rate-limits it
 // per session (see internal/worker/activity); the hub fans it out to browsers as a
 // fleet.update of kind "activity".
 const MsgSessionActivity = "session.activity"
@@ -29,7 +29,7 @@ const (
 const (
 	ActivitySourceStream  = "stream"      // the engine's structured event stream (chat sessions)
 	ActivitySourceLog     = "session_log" // the agent's session log and PTY output (PTY tasks)
-	ActivitySourceHook    = "hook"        // agent hooks of a session started outside Konsert
+	ActivitySourceHook    = "hook"        // agent hooks of a session started outside Syre
 	ActivitySourcePassive = "passive"     // process/transcript inspection of an observed session
 	ActivitySourceHub     = "hub"         // derived by the hub from task/chat status
 )

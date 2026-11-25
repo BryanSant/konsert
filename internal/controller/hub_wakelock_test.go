@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 )
 
 func decodeWake(t *testing.T, env protocol.Envelope) protocol.HostWakeLockPayload {
@@ -164,7 +164,7 @@ func TestWakeLockREST(t *testing.T) {
 		_ = json.UnmarshalRead(resp.Body, &out)
 		return resp.StatusCode, out
 	}
-	jsonHdr := map[string]string{"Content-Type": "application/json", "X-Konsert-Request": "1"}
+	jsonHdr := map[string]string{"Content-Type": "application/json", "X-Syre-Request": "1"}
 
 	// CSRF guard: a form post never reaches the handler.
 	if code, _ := post("/api/wakelock", `enabled=true`, map[string]string{"Content-Type": "application/x-www-form-urlencoded"}); code != http.StatusUnsupportedMediaType {

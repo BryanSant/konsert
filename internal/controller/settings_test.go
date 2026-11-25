@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -81,7 +81,7 @@ func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
 		c.NoAuth = false
 		c.RecoveryKey = "admin-tok"
 		c.EnableMCPHTTP = true
-		c.Orchestrator.APIKey = "sk-original-secret"
+		c.Commander.APIKey = "sk-original-secret"
 	})
 
 	scoped := connectMCPHTTP(t, ts.URL, mintMCPCredential(t, ts.URL, "admin-tok"))
@@ -178,7 +178,7 @@ func TestRESTSettingsValidation(t *testing.T) {
 
 func TestInvalidSavedProviderIgnoredAtStartup(t *testing.T) {
 	ctx := context.Background()
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,22 +220,22 @@ func TestCreateChatSessionDuringSettingsUpdate(t *testing.T) {
 	wg.Wait()
 }
 
-func TestConfigProvidersMatchOrchestrator(t *testing.T) {
-	if !slices.Equal(config.SupportedProviders, orchestrator.SupportedProviders) {
-		t.Fatalf("config.SupportedProviders %v != orchestrator.SupportedProviders %v", config.SupportedProviders, orchestrator.SupportedProviders)
+func TestConfigProvidersMatchCommander(t *testing.T) {
+	if !slices.Equal(config.SupportedProviders, commander.SupportedProviders) {
+		t.Fatalf("config.SupportedProviders %v != commander.SupportedProviders %v", config.SupportedProviders, commander.SupportedProviders)
 	}
-	for _, p := range append(slices.Clone(orchestrator.SupportedProviders), "", "OpenAI", "antropic") {
-		if (config.ValidateProvider(p) == nil) != (orchestrator.ValidateProvider(p) == nil) {
-			t.Errorf("provider %q: config and orchestrator validation disagree", p)
+	for _, p := range append(slices.Clone(commander.SupportedProviders), "", "OpenAI", "antropic") {
+		if (config.ValidateProvider(p) == nil) != (commander.ValidateProvider(p) == nil) {
+			t.Errorf("provider %q: config and commander validation disagree", p)
 		}
 	}
 }
 
 func TestEffectiveModelHasNoBuiltInDefault(t *testing.T) {
-	if got := effectiveModel(config.OrchestratorConfig{Provider: "anthropic"}); got != "" {
+	if got := effectiveModel(config.CommanderConfig{Provider: "anthropic"}); got != "" {
 		t.Fatalf("got %q", got)
 	}
-	if got := effectiveModel(config.OrchestratorConfig{Provider: "openai", Model: "x"}); got != "x" {
+	if got := effectiveModel(config.CommanderConfig{Provider: "openai", Model: "x"}); got != "x" {
 		t.Fatalf("got %q", got)
 	}
 }

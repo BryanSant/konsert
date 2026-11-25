@@ -9,22 +9,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// orchestratorSetup connects an agent worker (slot limit maxConcurrent), opens a browser
-// and creates the orchestrator chat, idle after a first turn. finish ends a chat turn
+// commanderSetup connects an agent worker (slot limit maxConcurrent), opens a browser
+// and creates the commander chat, idle after a first turn. finish ends a chat turn
 // normally and waits until the hub has applied it.
-type orchestratorSetup struct {
+type commanderSetup struct {
 	cs     *chatServer
 	w, b   *fakeWorker
 	orch   store.ChatSession
 	finish func(chatID, turnID string)
 }
 
-func newOrchestratorSetup(t *testing.T, maxConcurrent int) orchestratorSetup {
+func newCommanderSetup(t *testing.T, maxConcurrent int) commanderSetup {
 	t.Helper()
 	old := deliveryDebounce
 	deliveryDebounce = 50 * time.Millisecond
@@ -44,19 +44,19 @@ func newOrchestratorSetup(t *testing.T, maxConcurrent int) orchestratorSetup {
 		w.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{ChatID: chatID, Seq: seq.Add(1), Kind: protocol.EventTurnEnd, StopReason: "end_turn", TurnID: turn})
 		waitFor(t, 3*time.Second, "turn end", func() bool { return mustSession(t, cs.st, chatID).Status == protocol.ChatStatusDone })
 	}
-	_, raw := cs.api(t, http.MethodPost, "/api/chats/orchestrator", nil)
+	_, raw := cs.api(t, http.MethodPost, "/api/chats/commander", nil)
 	var orch store.ChatSession
 	if err := json.Unmarshal(raw, &orch); err != nil || orch.ID == "" {
-		t.Fatalf("orchestrator chat: %v %s", err, raw)
+		t.Fatalf("commander chat: %v %s", err, raw)
 	}
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: orch.ID, Content: "keep the fleet busy"})
 	p1, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
 	finish(orch.ID, p1.TurnID)
-	return orchestratorSetup{cs: cs, w: w, b: b, orch: orch, finish: finish}
+	return commanderSetup{cs: cs, w: w, b: b, orch: orch, finish: finish}
 }
 
-// nextOrchestratorPrompt waits for the next prompt Konsert sends the orchestrator.
-func (o orchestratorSetup) nextOrchestratorPrompt(t *testing.T) protocol.AgentChatPrompt {
+// nextCommanderPrompt waits for the next prompt Syre sends the commander.
+func (o commanderSetup) nextCommanderPrompt(t *testing.T) protocol.AgentChatPrompt {
 	t.Helper()
 	env := expectWhere(t, o.w, protocol.MsgAgentChatPrompt, 5*time.Second, func(env protocol.Envelope) bool {
 		p, _ := protocol.DecodePayload[protocol.AgentChatPrompt](env)
@@ -89,20 +89,20 @@ func dispatchOn(t *testing.T, cs *chatServer, ctx context.Context, prompt string
 	return cs.svc.DispatchTask(ctx, DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: prompt, Mode: protocol.TaskModeOneshot})
 }
 
-// The orchestrator asks for a 2nd session on a one-slot machine; once the user approves,
-// the queued task is placed (enforced), the use is counted (measured), the orchestrator
-// is told, and when the override expires the limit is back and the orchestrator is told.
+// The commander asks for a 2nd session on a one-slot machine; once the user approves,
+// the queued task is placed (enforced), the use is counted (measured), the commander
+// is told, and when the override expires the limit is back and the commander is told.
 func TestOverrideSlotsRequestedEnforcedMeasuredAndExpired(t *testing.T) {
-	o := newOrchestratorSetup(t, 1)
+	o := newCommanderSetup(t, 1)
 	cs, w := o.cs, o.w
-	octx := orchestratorCtx(o.orch.ID)
+	octx := commanderCtx(o.orch.ID)
 	startTask(t, cs.svc, w, octx, "w1", "build the site", nil)
 	second, err := dispatchOn(t, cs, octx, "run the e2e suite")
 	if err != nil || second.Status != protocol.TaskStatusQueued {
 		t.Fatalf("second task on a full machine: %+v %v", second, err)
 	}
 
-	// request_override from the orchestrator's MCP endpoint returns at once.
+	// request_override from the commander's MCP endpoint returns at once.
 	open := decodeOpenFor(t, cs, o.orch)
 	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer "))
 	if err != nil {
@@ -155,20 +155,20 @@ func TestOverrideSlotsRequestedEnforcedMeasuredAndExpired(t *testing.T) {
 	if code, _ := cs.api(t, http.MethodPost, "/api/overrides/"+ov.SID+"/deny", nil); code != http.StatusConflict {
 		t.Fatalf("deciding twice: %d", code)
 	}
-	// The orchestrator is told the decision in a turn of its own.
-	p := o.nextOrchestratorPrompt(t)
+	// The commander is told the decision in a turn of its own.
+	p := o.nextCommanderPrompt(t)
 	if !strings.Contains(p.Text, "approved override "+ov.SID) || !strings.Contains(p.Text, "ok, just today") {
 		t.Fatalf("approval note: %q", p.Text)
 	}
 	o.finish(o.orch.ID, p.TurnID)
 
-	// It expires: the orchestrator hears it, with the usage, and the limit is back.
+	// It expires: the commander hears it, with the usage, and the limit is back.
 	cs.h.sweepControl(context.Background(), ov.ExpiresAt.Add(time.Second))
 	ov = mustOverride(t, cs.st, ov.ID)
 	if ov.Status != store.OverrideExpired || ov.EndedAt == nil || ov.UseCount != 1 {
 		t.Fatalf("expired override: %+v", ov)
 	}
-	p = o.nextOrchestratorPrompt(t)
+	p = o.nextCommanderPrompt(t)
 	if !strings.Contains(p.Text, "Override "+ov.SID) || !strings.Contains(p.Text, "expired") || !strings.Contains(p.Text, "used 1 time") {
 		t.Fatalf("expiry note: %q", p.Text)
 	}
@@ -190,7 +190,7 @@ func TestOverrideSlotsRequestedEnforcedMeasuredAndExpired(t *testing.T) {
 }
 
 // A hold override: denied (with a note, reported back) leaves the hold blocking;
-// approved lets the orchestrator through until it expires; the hold itself stays.
+// approved lets the commander through until it expires; the hold itself stays.
 func TestOverrideHoldDeniedThenApprovedAndExpired(t *testing.T) {
 	cs := newChatServer(t)
 	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
@@ -198,7 +198,7 @@ func TestOverrideHoldDeniedThenApprovedAndExpired(t *testing.T) {
 	if !ok {
 		t.Fatal("no hold")
 	}
-	octx := orchestratorCtx("orch")
+	octx := commanderCtx("orch")
 	if _, err := dispatchOn(t, cs, octx, "deploy"); err == nil || !strings.Contains(err.Error(), "on hold") {
 		t.Fatalf("dispatch on held machine: %v", err)
 	}
@@ -302,12 +302,12 @@ func TestOverrideLifts(t *testing.T) {
 	}
 }
 
-// A veto is delivered into the orchestrator's next turn; that turn ending normally is the
+// A veto is delivered into the commander's next turn; that turn ending normally is the
 // acknowledgement, and the veto resolves itself.
 func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
-	o := newOrchestratorSetup(t, 4)
+	o := newCommanderSetup(t, 4)
 	cs := o.cs
-	task := startTask(t, cs.svc, o.w, orchestratorCtx(o.orch.ID), "w1", "deploy to prod from the laptop", nil)
+	task := startTask(t, cs.svc, o.w, commanderCtx(o.orch.ID), "w1", "deploy to prod from the laptop", nil)
 	if code, raw := cs.api(t, http.MethodPost, "/api/tasks/"+task.SID+"/veto", map[string]string{"reason": "wrong_machine", "note": "use the build box"}); code != 200 {
 		t.Fatalf("veto: %d %s", code, raw)
 	}
@@ -319,10 +319,10 @@ func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
 	// The veto's cancel and hold are recorded first and may start a turn of their own before
 	// the veto event exists; the veto then rides in the next turn. Finish earlier turns until
 	// the prompt carrying the veto arrives.
-	p := o.nextOrchestratorPrompt(t)
+	p := o.nextCommanderPrompt(t)
 	for i := 0; i < 3 && !strings.Contains(p.Text, "vetoed"); i++ {
 		o.finish(o.orch.ID, p.TurnID)
-		p = o.nextOrchestratorPrompt(t)
+		p = o.nextCommanderPrompt(t)
 	}
 	if !strings.Contains(p.Text, "vetoed") || !strings.Contains(p.Text, "use the build box") {
 		t.Fatalf("veto note: %q", p.Text)
@@ -332,7 +332,7 @@ func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
 		t.Fatalf("delivered veto: %+v", v)
 	}
 	code, raw := cs.api(t, http.MethodGet, "/api/vetoes?open=1", nil)
-	if code != 200 || !strings.Contains(string(raw), `"status":"delivered"`) || !strings.Contains(string(raw), "the orchestrator (chat "+o.orch.SID+")") {
+	if code != 200 || !strings.Contains(string(raw), `"status":"delivered"`) || !strings.Contains(string(raw), "the commander (chat "+o.orch.SID+")") {
 		t.Fatalf("open vetoes: %d %s", code, raw)
 	}
 
@@ -361,10 +361,10 @@ func TestVetoAcknowledgedOnTheAgentsNextTurn(t *testing.T) {
 	}
 }
 
-// A veto the orchestrator can't take yet (mid-turn) escalates after the configured
+// A veto the commander can't take yet (mid-turn) escalates after the configured
 // deadline; a turn that ends in error is no acknowledgement; the user can dismiss it.
 func TestVetoEscalatesWhenNotAcknowledgedAndCanBeDismissed(t *testing.T) {
-	o := newOrchestratorSetup(t, 4)
+	o := newCommanderSetup(t, 4)
 	cs := o.cs
 	if code, raw := cs.api(t, http.MethodPut, "/api/settings", map[string]any{"veto_ack_minutes": 2}); code != 200 {
 		t.Fatalf("settings: %d %s", code, raw)
@@ -372,9 +372,9 @@ func TestVetoEscalatesWhenNotAcknowledgedAndCanBeDismissed(t *testing.T) {
 	if code, _ := cs.api(t, http.MethodPut, "/api/settings", map[string]any{"veto_ack_minutes": 0}); code != http.StatusBadRequest {
 		t.Fatalf("zero ack minutes accepted: %d", code)
 	}
-	// The orchestrator is busy with a turn of its own.
+	// The commander is busy with a turn of its own.
 	o.b.send(protocol.MsgChatSend, chatSendRequest{SessionID: o.orch.ID, Content: "plan the release"})
-	busy := o.nextOrchestratorPrompt(t)
+	busy := o.nextCommanderPrompt(t)
 	task := startTask(t, cs.svc, o.w, userCtx(), "w1", "rewrite the parser", nil)
 	if code, raw := cs.api(t, http.MethodPost, "/api/tasks/"+task.ID+"/veto", map[string]string{"reason": "wrong_approach"}); code != 200 {
 		t.Fatalf("veto: %d %s", code, raw)
@@ -423,7 +423,7 @@ func TestVetoEscalatesWhenNotAcknowledgedAndCanBeDismissed(t *testing.T) {
 	}
 }
 
-// With nobody to tell (no orchestrator, a task no chat dispatched) a veto is closed at
+// With nobody to tell (no commander, a task no chat dispatched) a veto is closed at
 // once instead of escalating.
 func TestVetoWithNoAgentToTellClosesAtOnce(t *testing.T) {
 	cs := newChatServer(t)

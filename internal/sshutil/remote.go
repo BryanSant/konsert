@@ -11,9 +11,9 @@ import (
 // get sh command lines; Windows hosts (whose OpenSSH lands in PowerShell or cmd.exe) get
 // `powershell -EncodedCommand`, which both shells run verbatim, with no quoting to get wrong.
 type remoteShell interface {
-	// findKonsertd prints "found:<path>" or "missing:<path to install to>", and
+	// findSyred prints "found:<path>" or "missing:<path to install to>", and
 	// "managed:<path>", where the hub installs (or updates) its own copy.
-	findKonsertd() string
+	findSyred() string
 	// fileHash prints the SHA-256 of path.
 	fileHash(path string) string
 	// prepareInstall creates the directory the binary is copied to.
@@ -22,10 +22,10 @@ type remoteShell interface {
 	scpPath(exePath string) string
 	// finishCopy moves the new copy into place (a running binary is replaced safely).
 	finishCopy(exePath string) string
-	// konsertd runs exe with args. With stdinLine, the first stdin line reaches
-	// konsertd's stdin (secrets and keys never go in argv). A failure's output goes to
+	// syred runs exe with args. With stdinLine, the first stdin line reaches
+	// syred's stdin (secrets and keys never go in argv). A failure's output goes to
 	// stderr, so it ends up in the returned error.
-	konsertd(exe string, args []string, stdinLine bool) string
+	syred(exe string, args []string, stdinLine bool) string
 }
 
 // shQuote quotes s for POSIX sh.
@@ -43,13 +43,13 @@ func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// posixShell targets Linux and macOS. konsertd is taken from PATH, else ~/.local/bin.
+// posixShell targets Linux and macOS. syred is taken from PATH, else ~/.local/bin.
 type posixShell struct{}
 
-const posixUserBin = "$HOME/.local/bin/konsertd"
+const posixUserBin = "$HOME/.local/bin/syred"
 
-func (posixShell) findKonsertd() string {
-	return `if P=$(command -v konsertd); then echo "found:$P"; elif [ -x "` + posixUserBin + `" ]; then echo "found:` + posixUserBin + `"; else echo "missing:` + posixUserBin + `"; fi; echo "managed:` + posixUserBin + `"`
+func (posixShell) findSyred() string {
+	return `if P=$(command -v syred); then echo "found:$P"; elif [ -x "` + posixUserBin + `" ]; then echo "found:` + posixUserBin + `"; else echo "missing:` + posixUserBin + `"; fi; echo "managed:` + posixUserBin + `"`
 }
 
 func (posixShell) fileHash(path string) string {
@@ -60,7 +60,7 @@ func (posixShell) fileHash(path string) string {
 func (posixShell) prepareInstall(string) string { return `mkdir -p "$HOME/.local/bin"` }
 
 // scpPath is relative to the home directory, where the managed copy lives.
-func (posixShell) scpPath(string) string { return "~/.local/bin/konsertd.new" }
+func (posixShell) scpPath(string) string { return "~/.local/bin/syred.new" }
 
 // finishCopy renames the new copy over the old one: a running daemon keeps its inode
 // (writing into a running binary would fail with ETXTBSY).
@@ -69,8 +69,8 @@ func (posixShell) finishCopy(exePath string) string {
 	return `chmod +x ` + shQuote(exePath+".new") + ` && mv -f ` + shQuote(exePath+".new") + ` ` + p
 }
 
-func (posixShell) konsertd(exe string, args []string, _ bool) string {
-	// exe is the absolute path findKonsertd printed (the shell expanded $HOME there).
+func (posixShell) syred(exe string, args []string, _ bool) string {
+	// exe is the absolute path findSyred printed (the shell expanded $HOME there).
 	words := append(make([]string, 0, len(args)+1), shQuote(exe))
 	for _, a := range args {
 		words = append(words, shQuote(a))
@@ -78,8 +78,8 @@ func (posixShell) konsertd(exe string, args []string, _ bool) string {
 	return strings.Join(words, " ")
 }
 
-// windowsShell targets Windows with OpenSSH. konsertd.exe lives in
-// %LOCALAPPDATA%\Programs\konsertd unless one is already on PATH.
+// windowsShell targets Windows with OpenSSH. syred.exe lives in
+// %LOCALAPPDATA%\Programs\syred unless one is already on PATH.
 type windowsShell struct{}
 
 // encodePS wraps a PowerShell script as a command line both cmd.exe and PowerShell run.
@@ -140,10 +140,10 @@ func parseWindowsProbe(out string) (arch string, ok bool) {
 	return strings.ToLower(lines[1]), true
 }
 
-func (windowsShell) findKonsertd() string {
-	return encodePS(`$p = Join-Path $env:LOCALAPPDATA 'Programs\konsertd\konsertd.exe'
+func (windowsShell) findSyred() string {
+	return encodePS(`$p = Join-Path $env:LOCALAPPDATA 'Programs\syred\syred.exe'
 if (Test-Path -LiteralPath $p) { "found:$p" }
-elseif ($c = Get-Command konsertd.exe -ErrorAction SilentlyContinue) { "found:" + $c.Source }
+elseif ($c = Get-Command syred.exe -ErrorAction SilentlyContinue) { "found:" + $c.Source }
 else { "missing:$p" }
 "managed:$p"`)
 }
@@ -176,11 +176,11 @@ if (Test-Path -LiteralPath $p) { Move-Item -LiteralPath $p -Destination "$p.old"
 Move-Item -LiteralPath "$p.new" -Destination $p -Force`)
 }
 
-func (windowsShell) konsertd(exe string, args []string, stdinLine bool) string {
+func (windowsShell) syred(exe string, args []string, stdinLine bool) string {
 	var b strings.Builder
 	pipe := ""
 	if stdinLine {
-		// The line is piped to konsertd's stdin, never put in argv.
+		// The line is piped to syred's stdin, never put in argv.
 		b.WriteString("$line = [Console]::In.ReadLine()\n")
 		pipe = "$line | "
 	}

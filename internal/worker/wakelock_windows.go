@@ -40,7 +40,7 @@ func setThreadExecutionState(flags uint32) (uint32, error) {
 // defaultWakeBackend on Windows uses SetThreadExecutionState(ES_CONTINUOUS |
 // ES_SYSTEM_REQUIRED). The state belongs to the calling thread, so it is set and cleared
 // on one goroutine locked to its OS thread for the lifetime of the lock. Windows drops the
-// request automatically if konsertd exits.
+// request automatically if syred exits.
 func defaultWakeBackend() wakeBackend {
 	return &execStateWakeBackend{setState: setThreadExecutionState}
 }

@@ -10,14 +10,14 @@ import (
 	"strings"
 )
 
-// LLM providers the orchestrator supports.
+// LLM providers the commander supports.
 const (
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
 	ProviderGemini    = "gemini"
 )
 
-// SupportedProviders lists the accepted orchestrator.provider values.
+// SupportedProviders lists the accepted commander.provider values.
 var SupportedProviders = []string{ProviderOpenAI, ProviderAnthropic, ProviderGemini}
 
 // SupportedIsolation lists the accepted worker isolation values.
@@ -45,7 +45,7 @@ func (c ControllerConfig) Validate() error {
 			errs = append(errs, err)
 		}
 	}
-	if err := c.Orchestrator.Validate(); err != nil {
+	if err := c.Commander.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 	if err := c.Forges.Validate(); err != nil {
@@ -71,28 +71,28 @@ func (f ForgesConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
-// Validate checks the orchestrator LLM settings: a known provider and, if set, a
+// Validate checks the commander LLM settings: a known provider and, if set, a
 // well-formed http(s) base URL. An unknown provider is rejected rather than silently
 // treated as OpenAI, which would send the configured key to api.openai.com.
-func (o OrchestratorConfig) Validate() error {
+func (o CommanderConfig) Validate() error {
 	var errs []error
 	if err := ValidateProvider(o.Provider); err != nil {
 		errs = append(errs, err)
 	}
 	if strings.TrimSpace(o.BaseURL) != "" {
-		if err := validateURL("orchestrator.base_url", o.BaseURL, "http", "https"); err != nil {
+		if err := validateURL("commander.base_url", o.BaseURL, "http", "https"); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if o.MaxTokens < 0 {
-		errs = append(errs, fmt.Errorf("orchestrator.max_tokens must be zero or positive, got %d", o.MaxTokens))
+		errs = append(errs, fmt.Errorf("commander.max_tokens must be zero or positive, got %d", o.MaxTokens))
 	}
 	return errors.Join(errs...)
 }
 
 // ValidateProvider reports whether p names a supported LLM provider (case-insensitive;
-// empty means openai). It mirrors orchestrator.ValidateProvider, which config cannot
-// import (orchestrator imports config); a controller test keeps the lists in sync.
+// empty means openai). It mirrors commander.ValidateProvider, which config cannot
+// import (commander imports config); a controller test keeps the lists in sync.
 func ValidateProvider(p string) error {
 	norm := strings.ToLower(strings.TrimSpace(p))
 	if norm == "" {
@@ -103,10 +103,10 @@ func ValidateProvider(p string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("orchestrator.provider %q is not supported (want one of %s)", p, strings.Join(SupportedProviders, ", "))
+	return fmt.Errorf("commander.provider %q is not supported (want one of %s)", p, strings.Join(SupportedProviders, ", "))
 }
 
-// Validate checks the worker config. Callers (konsertd) should invoke it after loading.
+// Validate checks the worker config. Callers (syred) should invoke it after loading.
 func (w WorkerConfig) Validate() error {
 	var errs []error
 	if strings.TrimSpace(w.ControllerURL) != "" {

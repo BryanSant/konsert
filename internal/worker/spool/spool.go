@@ -1,4 +1,4 @@
-// Package spool is konsertd's durable outbound log (KON-VZR9F, docs/design/spool.md).
+// Package spool is syred's durable outbound log (SYR-VZR9F, docs/design/spool.md).
 //
 // Every hub-bound message that matters is appended here before it is sent, with a
 // per-daemon sequence number. The log is a directory of append-only segment files; each

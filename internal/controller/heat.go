@@ -5,12 +5,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Machine heat (KON-RJ8P7): one smoothed 0..1 load score per machine and its dominant
-// cause, from the heartbeat metrics konsertd already sends. The raw score is the maximum
+// Machine heat (SYR-RJ8P7): one smoothed 0..1 load score per machine and its dominant
+// cause, from the heartbeat metrics syred already sends. The raw score is the maximum
 // of its components (each 0..1):
 //
 //   - cpu:   CPU% / 100, or load average / cores when that is higher (run-queue demand)

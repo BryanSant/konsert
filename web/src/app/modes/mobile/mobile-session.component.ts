@@ -21,101 +21,101 @@ import { NeedsYouStore } from '../../core/state/needs-you.store';
  * the controls (suspend, hold, veto) with big targets, and the receipts of what you did.
  */
 @Component({
-  selector: 'ks-mobile-session',
+  selector: 'sy-mobile-session',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent, ControlLabelComponent, ModalDialogComponent, NeedsYouItemComponent],
   host: { class: 'flex flex-col h-full min-h-0 overflow-y-auto' },
   template: `
     <div class="px-4 pt-4 pb-1">
-      <a routerLink="/inbox" class="ks-btn ks-btn-sm h-[44px] -ml-2 no-underline" data-testid="mobile-back">
+      <a routerLink="/inbox" class="sy-btn sy-btn-sm h-[44px] -ml-2 no-underline" data-testid="mobile-back">
         <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="12" /></span>
         Inbox
       </a>
     </div>
     @if (item(); as it) {
       <div class="px-4 flex items-center gap-2">
-        <ks-control-label [label]="it.control" />
+        <sy-control-label [label]="it.control" />
         <h1 class="m-0 text-[15px] font-semibold truncate">{{ it.sessionKind === 'terminal' ? 'terminal' : it.agent }} · {{ it.title }}</h1>
       </div>
-      <div class="px-4 pt-1 text-[12.5px] text-[var(--ks-text-secondary)]">{{ it.sid }} · {{ it.machine }} · started {{ since(it.createdAt) }} ago{{ it.origin === 'orchestrator' ? ' by the orchestrator' : '' }}</div>
+      <div class="px-4 pt-1 text-[12.5px] text-[var(--sy-text-secondary)]">{{ it.sid }} · {{ it.machine }} · started {{ since(it.createdAt) }} ago{{ it.origin === 'commander' ? ' by the commander' : '' }}</div>
 
       @if (entry(); as e) {
-        <div class="mx-4 mt-4" data-testid="mobile-session-needs-you"><ks-needs-you-item [entry]="e" /></div>
+        <div class="mx-4 mt-4" data-testid="mobile-session-needs-you"><sy-needs-you-item [entry]="e" /></div>
       }
 
       <dl class="mx-4 mt-4 grid grid-cols-[52px_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 text-[13px] leading-snug">
-        <dt class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">GOAL</dt>
+        <dt class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">GOAL</dt>
         <dd class="m-0">{{ it.goal }}</dd>
-        <dt class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">NOW</dt>
+        <dt class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">NOW</dt>
         <dd class="m-0" aria-live="polite">{{ it.now }}</dd>
         @if (cause()) {
-          <dt class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">WHY</dt>
+          <dt class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">WHY</dt>
           <dd class="m-0">{{ cause() }}</dd>
         }
       </dl>
 
       <div class="grid grid-cols-2 gap-2 px-4 pt-4" role="group" aria-label="Controls">
         @if (actions().resume) {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px] text-[var(--ks-violet)]" data-testid="mobile-resume-session" [disabled]="busy()" (click)="resume()">Resume</button>
+          <button type="button" class="sy-btn sy-btn-soft h-[44px] text-[var(--sy-violet)]" data-testid="mobile-resume-session" [disabled]="busy()" (click)="resume()">Resume</button>
         } @else {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-suspend" [disabled]="busy() || !actions().suspend" (click)="suspend()">Suspend</button>
+          <button type="button" class="sy-btn sy-btn-soft h-[44px]" data-testid="mobile-suspend" [disabled]="busy() || !actions().suspend" (click)="suspend()">Suspend</button>
         }
         @if (it.hold; as h) {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px] text-[#e6b763]" data-testid="mobile-release" [disabled]="control.isBusy(h.id)" (click)="control.releaseHold(h)">Release hold</button>
+          <button type="button" class="sy-btn sy-btn-soft h-[44px] text-[#e6b763]" data-testid="mobile-release" [disabled]="control.isBusy(h.id)" (click)="control.releaseHold(h)">Release hold</button>
         } @else {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-hold" [disabled]="busy() || !it.live" (click)="control.holdSession(it.kind, it.id)">Hold</button>
+          <button type="button" class="sy-btn sy-btn-soft h-[44px]" data-testid="mobile-hold" [disabled]="busy() || !it.live" (click)="control.holdSession(it.kind, it.id)">Hold</button>
         }
-        <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red-soft)] text-[#f3a3a3]" data-testid="mobile-veto" [disabled]="busy() || !(actions().veto || it.column === 'review')" (click)="vetoing.set(true)">Veto…</button>
+        <button type="button" class="sy-btn h-[44px] bg-[var(--sy-red-soft)] text-[#f3a3a3]" data-testid="mobile-veto" [disabled]="busy() || !(actions().veto || it.column === 'review')" (click)="vetoing.set(true)">Veto…</button>
         @if (it.column === 'review') {
-          <button type="button" class="ks-btn ks-btn-soft h-[44px]" data-testid="mobile-approve" [disabled]="approving()" (click)="approve()">Approve</button>
+          <button type="button" class="sy-btn sy-btn-soft h-[44px]" data-testid="mobile-approve" [disabled]="approving()" (click)="approve()">Approve</button>
         } @else {
-          <a class="ks-btn ks-btn-soft h-[44px] no-underline" [routerLink]="['/command', it.sid]">Open full view</a>
+          <a class="sy-btn sy-btn-soft h-[44px] no-underline" [routerLink]="['/command', it.sid]">Open full view</a>
         }
       </div>
       @if (reviewNote()) {
-        <p class="mx-4 mt-2 mb-0 text-[12.5px] text-[var(--ks-text-secondary)]" role="status" data-testid="mobile-review-note">{{ reviewNote() }}</p>
+        <p class="mx-4 mt-2 mb-0 text-[12.5px] text-[var(--sy-text-secondary)]" role="status" data-testid="mobile-review-note">{{ reviewNote() }}</p>
       }
 
       @if (it.kind === 'chat' && it.chat) {
         <form class="mx-4 mt-4 flex gap-2" (submit)="$event.preventDefault(); reply()">
-          <label class="ks-sr-only" for="ks-mobile-reply">Reply to {{ it.agent }}</label>
-          <input id="ks-mobile-reply" class="ks-field flex-1 h-[44px]" placeholder="Reply…" data-testid="mobile-reply" [value]="draft()" (input)="draft.set($any($event.target).value)" />
-          <button type="submit" class="ks-btn ks-btn-primary h-[44px]" [disabled]="!draft().trim()">Send</button>
+          <label class="sy-sr-only" for="sy-mobile-reply">Reply to {{ it.agent }}</label>
+          <input id="sy-mobile-reply" class="sy-field flex-1 h-[44px]" placeholder="Reply…" data-testid="mobile-reply" [value]="draft()" (input)="draft.set($any($event.target).value)" />
+          <button type="submit" class="sy-btn sy-btn-primary h-[44px]" [disabled]="!draft().trim()">Send</button>
         </form>
       }
 
-      <h2 class="px-4 pt-5 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Receipts</h2>
+      <h2 class="px-4 pt-5 mb-1 text-[12px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Receipts</h2>
       <ul class="m-0 px-4 pb-6 list-none space-y-1.5" data-testid="mobile-receipts">
         @for (e of receipts(); track e.id) {
           <li class="flex gap-2.5 text-[13px]">
             <span class="text-[#8fcb9b]" aria-hidden="true">✓</span>
-            <time class="font-mono-ide text-[11.5px] text-[var(--ks-text-muted)] shrink-0" [attr.datetime]="e.created_at">{{ when(e.created_at) }}</time>
+            <time class="font-mono-ide text-[11.5px] text-[var(--sy-text-muted)] shrink-0" [attr.datetime]="e.created_at">{{ when(e.created_at) }}</time>
             <span class="break-words">{{ e.summary }}</span>
           </li>
         } @empty {
-          <li class="text-[13px] text-[var(--ks-text-muted)]">Nothing you did here yet.</li>
+          <li class="text-[13px] text-[var(--sy-text-muted)]">Nothing you did here yet.</li>
         }
       </ul>
 
       @if (vetoing()) {
-        <app-modal-dialog labelledBy="ks-mveto-title" panelClass="!fixed !inset-x-0 !bottom-0 w-full rounded-t-[22px] bg-[var(--ks-surface-2)] p-5 pb-7" (close)="vetoing.set(false)">
+        <app-modal-dialog labelledBy="sy-mveto-title" panelClass="!fixed !inset-x-0 !bottom-0 w-full rounded-t-[22px] bg-[var(--sy-surface-2)] p-5 pb-7" (close)="vetoing.set(false)">
           <div class="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden="true"></div>
-          <h2 id="ks-mveto-title" class="m-0 text-[16px] font-semibold">Veto: why?</h2>
-          <p class="mt-1 mb-3 text-[13px] text-[var(--ks-text-secondary)]">It stops, and the orchestrator remembers not to retry it the same way.</p>
+          <h2 id="sy-mveto-title" class="m-0 text-[16px] font-semibold">Veto: why?</h2>
+          <p class="mt-1 mb-3 text-[13px] text-[var(--sy-text-secondary)]">It stops, and the commander remembers not to retry it the same way.</p>
           <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Veto reason">
             @for (r of reasons; track r.id) {
-              <button type="button" role="radio" class="ks-btn ks-btn-soft h-[44px]" [attr.aria-checked]="reason() === r.id" [class.!bg-[var(--ks-red-soft)]]="reason() === r.id" (click)="reason.set(r.id)">{{ r.label }}</button>
+              <button type="button" role="radio" class="sy-btn sy-btn-soft h-[44px]" [attr.aria-checked]="reason() === r.id" [class.!bg-[var(--sy-red-soft)]]="reason() === r.id" (click)="reason.set(r.id)">{{ r.label }}</button>
             }
           </div>
           <div class="grid gap-2 mt-4">
-            <button type="button" class="ks-btn h-[44px] bg-[var(--ks-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-veto-confirm" [disabled]="!reason()" (click)="veto()">Veto</button>
-            <button type="button" class="ks-btn ks-btn-soft h-[44px]" autofocus (click)="vetoing.set(false)">Cancel</button>
+            <button type="button" class="sy-btn h-[44px] bg-[var(--sy-red)] !text-[#1e0b0b] font-semibold" data-testid="mobile-veto-confirm" [disabled]="!reason()" (click)="veto()">Veto</button>
+            <button type="button" class="sy-btn sy-btn-soft h-[44px]" autofocus (click)="vetoing.set(false)">Cancel</button>
           </div>
         </app-modal-dialog>
       }
     } @else {
-      <p class="px-4 pt-4 text-[13px] text-[var(--ks-text-secondary)]">No session {{ sid() }} here (it may have been removed).</p>
+      <p class="px-4 pt-4 text-[13px] text-[var(--sy-text-secondary)]">No session {{ sid() }} here (it may have been removed).</p>
     }
   `,
 })

@@ -15,12 +15,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/gitutil"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/chat"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
-	"github.com/BryanSant/konsert/internal/worker/proctree"
-	"github.com/BryanSant/konsert/internal/worker/shellint"
+	"github.com/BryanSant/syre/internal/gitutil"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/proctree"
+	"github.com/BryanSant/syre/internal/worker/shellint"
 )
 
 // RunnerCallbacks delivers worker task events, status updates, and PTY frames back to the daemon transport.
@@ -28,7 +28,7 @@ type RunnerCallbacks struct {
 	OnTaskStatus func(payload protocol.TaskStatusPayload)
 	OnTaskEvent  func(payload protocol.TaskEventPayload)
 	OnPtyFrame   func(frameType byte, taskID string, data []byte)
-	// OnOperatorCommand reports a command the user ran in a Konsert terminal (shell
+	// OnOperatorCommand reports a command the user ran in a Syre terminal (shell
 	// integration): once when it starts and once when it ends.
 	OnOperatorCommand func(payload protocol.OperatorCommandPayload)
 }
@@ -42,14 +42,14 @@ type runningTask struct {
 	pty          PtyProcess
 	ring         *RingBuffer
 	// scroll keeps the terminal output on disk for a redraw after the task ended or
-	// konsertd restarted (nil without a scrollback directory).
+	// syred restarted (nil without a scrollback directory).
 	scroll       *scrollback
 	streamActive atomic.Bool
 	cancelFunc   context.CancelFunc
 	// deadline is the task timeout; it does not run while the task is suspended.
 	deadline *taskDeadline
 
-	// Shell integration (Konsert terminals): marks are parsed out of the PTY stream.
+	// Shell integration (Syre terminals): marks are parsed out of the PTY stream.
 	shellParser  *shellint.Parser
 	shellTracker *shellint.Tracker
 
@@ -93,7 +93,7 @@ func (r *Runner) SetScrollbackDir(dir string) {
 	go pruneScrollback(dir, scrollbackKeep)
 }
 
-// CommandHistory returns the in-memory history of commands run in Konsert terminals
+// CommandHistory returns the in-memory history of commands run in Syre terminals
 // (full, unredacted text; expires after shellint.HistoryTTL; never written to disk).
 func (r *Runner) CommandHistory() *shellint.History { return r.commands }
 
@@ -304,7 +304,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	}
 
 	if !r.AgentAllowed(req.Agent) {
-		r.failTask(req.TaskID, "", "worker is in sandboxed mode and refuses the unrestricted shell driver (start konsertd with --sandbox-allow-shell to opt in)")
+		r.failTask(req.TaskID, "", "worker is in sandboxed mode and refuses the unrestricted shell driver (start syred with --sandbox-allow-shell to opt in)")
 		return fmt.Errorf("sandboxed worker refuses shell task %s", req.TaskID)
 	}
 
@@ -394,7 +394,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		acctEnv = chat.EnvList(acct)
 	}
 
-	// Konsert terminals (interactive shell tasks) get shell integration so the daemon
+	// Syre terminals (interactive shell tasks) get shell integration so the daemon
 	// learns each command the user runs. Failing to prepare it only loses the events.
 	var integ *shellint.Integration
 	if req.Agent == drivers.ShellDriverName && req.Mode != protocol.TaskModeOneshot {
@@ -678,7 +678,7 @@ func (r *Runner) pumpPtyOutput(rt *runningTask, lineCh chan<- string) {
 		if n > 0 {
 			var chunk []byte
 			if rt.shellParser != nil {
-				// Strips Konsert-private marks; the result never aliases buf.
+				// Strips Syre-private marks; the result never aliases buf.
 				var marks []shellint.Mark
 				chunk, marks = rt.shellParser.Feed(buf[:n])
 				rt.shellTracker.Handle(marks)
@@ -778,7 +778,7 @@ func (r *Runner) SubscribePty(taskID string) bool {
 	dir := r.scrollDir
 	r.mu.Unlock()
 	if !ok {
-		// An ended task (or one from before a konsertd restart): redraw its terminal
+		// An ended task (or one from before a syred restart): redraw its terminal
 		// from the on-disk scrollback.
 		snap := readScrollback(dir, taskID, DefaultRingBufferSize)
 		if len(snap) == 0 {

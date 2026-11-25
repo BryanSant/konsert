@@ -9,7 +9,7 @@ import "time"
 //   - grok, agy, copilot, cursor: Agent Client Protocol (ACP) over stdio (persistent)
 //   - codex: `codex app-server` JSON-RPC (persistent)
 //
-// konsertd owns one engine process per chat session, normalizes everything the CLI emits
+// syred owns one engine process per chat session, normalizes everything the CLI emits
 // into AgentChatEvent, and routes elicitations (permission requests, questions) to the
 // user. See docs/design/agent-chat.md.
 
@@ -46,10 +46,10 @@ type AgentChatOpen struct {
 	// AgentSessionID resumes the CLI's own session (claude session_id, ACP sessionId,
 	// codex thread id) when the engine process was restarted.
 	AgentSessionID string `json:"agent_session_id,omitempty"`
-	// SystemPrompt is appended to the agent's own system prompt (e.g. orchestrator role).
+	// SystemPrompt is appended to the agent's own system prompt (e.g. commander role).
 	SystemPrompt string `json:"system_prompt,omitempty"`
-	// MCPServers are extra MCP servers exposed to the agent (e.g. Konsert fleet tools and
-	// ask_user, served by the hub with a per-chat bearer token and relayed by konsertd).
+	// MCPServers are extra MCP servers exposed to the agent (e.g. Syre fleet tools and
+	// ask_user, served by the hub with a per-chat bearer token and relayed by syred).
 	MCPServers []AgentMCPServer `json:"mcp_servers,omitempty"`
 	// ForkFrom marks a fork: when AgentSessionID is empty it starts this chat as a fork of another
 	// session of the same account: a copy of that conversation that runs independently
@@ -62,7 +62,7 @@ type AgentChatOpen struct {
 type AgentMCPServer struct {
 	Name string `json:"name"`
 	// URL is the server's URL. With Relay it is a path on the hub (MCPChatPathPrefix +
-	// chat id) that konsertd rewrites to its loopback relay before the agent sees it.
+	// chat id) that syred rewrites to its loopback relay before the agent sees it.
 	URL     string            `json:"url"`
 	Relay   bool              `json:"relay,omitzero"`
 	Headers map[string]string `json:"headers,omitempty"` // e.g. Authorization; never logged
@@ -373,7 +373,7 @@ type AgentApprovalMode struct {
 	Risk int    `json:"risk"`
 	Icon string `json:"icon,omitempty"` // hand, edit, shield-check, shield-alert, eye
 	// Disabled, when set, explains why the mode can't be used on this worker (e.g.
-	// konsertd runs with --sandbox, which refuses full-access modes).
+	// syred runs with --sandbox, which refuses full-access modes).
 	Disabled string `json:"disabled,omitempty"`
 }
 
@@ -381,4 +381,4 @@ type AgentApprovalMode struct {
 const SandboxMaxRisk = 3
 
 // SandboxDisabledReason is the AgentApprovalMode.Disabled text on sandboxed workers.
-const SandboxDisabledReason = "This machine runs konsertd in sandbox mode, which refuses full-access modes."
+const SandboxDisabledReason = "This machine runs syred in sandbox mode, which refuses full-access modes."

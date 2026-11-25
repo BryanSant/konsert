@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 const codexAccountOK = `{"account":{"type":"chatgpt","email":"user@example.com","planType":"pro","workspaceName":null},"userId":null,"requiresOpenaiAuth":true}`
@@ -227,10 +227,10 @@ func TestCodexTurnWithApproval(t *testing.T) {
 		}
 	}
 	s, rec := openCodex(t, e, protocol.AgentChatOpen{Cwd: "/work", ApprovalMode: "untrusted", Model: "gpt-6.2-astra", Effort: "high",
-		SystemPrompt: "Be brief.", MCPServers: []protocol.AgentMCPServer{{Name: "konsert", URL: "http://hub/mcp", Headers: map[string]string{"Authorization": "Bearer x"}}}})
+		SystemPrompt: "Be brief.", MCPServers: []protocol.AgentMCPServer{{Name: "syre", URL: "http://hub/mcp", Headers: map[string]string{"Authorization": "Bearer x"}}}})
 	ts := f.lastCall("thread/start")["params"].(map[string]any)
 	if ts["approvalPolicy"] != "untrusted" || ts["sandbox"] != "workspace-write" || ts["developerInstructions"] != "Be brief." ||
-		ts["config"].(map[string]any)["mcp_servers"].(map[string]any)["konsert"].(map[string]any)["url"] != "http://hub/mcp" {
+		ts["config"].(map[string]any)["mcp_servers"].(map[string]any)["syre"].(map[string]any)["url"] != "http://hub/mcp" {
 		t.Fatalf("thread/start = %v", ts)
 	}
 	if err := s.Prompt(context.Background(), protocol.AgentChatPrompt{TurnID: "t1", Text: "list files"}); err != nil {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
@@ -138,7 +138,7 @@ func TestRunnerMockLifecycleSubscribeAndCancel(t *testing.T) {
 	}
 	select {
 	case snap := <-snapCh:
-		if !strings.Contains(string(snap), "konsert-mock") && !strings.Contains(string(snap), "[MOCK:") {
+		if !strings.Contains(string(snap), "syre-mock") && !strings.Contains(string(snap), "[MOCK:") {
 			t.Fatalf("unexpected snapshot content: %q", string(snap))
 		}
 	case <-time.After(3 * time.Second):

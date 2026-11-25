@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// Claude Code settings editing (KON-MFHK0). ~/.claude/settings.json belongs to the user:
-// Konsert never re-encodes it. Installing or removing the Konsert hook entries edits the
+// Claude Code settings editing (SYR-MFHK0). ~/.claude/settings.json belongs to the user:
+// Syre never re-encodes it. Installing or removing the Syre hook entries edits the
 // JSON text in place (only our array elements, or the members that hold nothing but
 // them, are inserted or cut), in the file's own indentation, separators and line
 // endings, so the user's key order and formatting survive and removing our entries gives
@@ -24,14 +24,14 @@ import (
 // any change a timestamped backup is taken next to the file and only our last
 // claudeSettingsBackups backups are kept.
 
-// claudeHookEvents are the Claude Code hook events Konsert installs, in install order.
+// claudeHookEvents are the Claude Code hook events Syre installs, in install order.
 var claudeHookEvents = []string{"PreToolUse", "PostToolUse", "Notification", "Stop"}
 
-// konsertHookMarker identifies Konsert-managed hook entries (quoted or unquoted binary path).
-const konsertHookMarker = " hook-event --agent claude --event "
+// syreHookMarker identifies Syre-managed hook entries (quoted or unquoted binary path).
+const syreHookMarker = " hook-event --agent claude --event "
 
-// claudeSettingsBackupInfix names our backups: settings.json.konsert-bak-YYYYMMDD-HHMMSS.
-const claudeSettingsBackupInfix = ".konsert-bak-"
+// claudeSettingsBackupInfix names our backups: settings.json.syre-bak-YYYYMMDD-HHMMSS.
+const claudeSettingsBackupInfix = ".syre-bak-"
 
 // claudeSettingsBackups is how many of our backups are kept per file.
 const claudeSettingsBackups = 3
@@ -49,20 +49,20 @@ type claudeHookEntry struct {
 	Hooks   []claudeHookCommand `json:"hooks"`
 }
 
-// konsertHookEntry is the entry Konsert installs for event.
-func konsertHookEntry(konsertdBin, event string) claudeHookEntry {
-	cmd := fmt.Sprintf("%s hook-event --agent claude --event %s", shellQuote(konsertdBin), event)
+// syreHookEntry is the entry Syre installs for event.
+func syreHookEntry(syredBin, event string) claudeHookEntry {
+	cmd := fmt.Sprintf("%s hook-event --agent claude --event %s", shellQuote(syredBin), event)
 	return claudeHookEntry{Matcher: "*", Hooks: []claudeHookCommand{{Type: "command", Command: cmd}}}
 }
 
-// installClaudeHooks adds the Konsert hook entries to ~/.claude/settings.json (replacing
+// installClaudeHooks adds the Syre hook entries to ~/.claude/settings.json (replacing
 // stale ones from an older install). It reports whether the file changed.
-func installClaudeHooks(homeDir, konsertdBin string) error {
-	_, err := editClaudeSettingsFile(filepath.Join(homeDir, ".claude", "settings.json"), konsertdBin, true)
+func installClaudeHooks(homeDir, syredBin string) error {
+	_, err := editClaudeSettingsFile(filepath.Join(homeDir, ".claude", "settings.json"), syredBin, true)
 	return err
 }
 
-// removeClaudeHooks takes the Konsert hook entries out of ~/.claude/settings.json.
+// removeClaudeHooks takes the Syre hook entries out of ~/.claude/settings.json.
 func removeClaudeHooks(homeDir string) (bool, error) {
 	return editClaudeSettingsFile(filepath.Join(homeDir, ".claude", "settings.json"), "", false)
 }
@@ -70,7 +70,7 @@ func removeClaudeHooks(homeDir string) (bool, error) {
 // editClaudeSettingsFile installs (or removes) our entries in the file at path, with a
 // backup before any change. A missing file is created on install and left alone on
 // removal.
-func editClaudeSettingsFile(path, konsertdBin string, install bool) (bool, error) {
+func editClaudeSettingsFile(path, syredBin string, install bool) (bool, error) {
 	// settings.json may be a symlink (a second Claude config dir sharing it): edit the
 	// file it points to, so the rename below never replaces the link.
 	if real, err := filepath.EvalSymlinks(path); err == nil {
@@ -86,7 +86,7 @@ func editClaudeSettingsFile(path, konsertdBin string, install bool) (bool, error
 	}
 	var out []byte
 	if install {
-		out, err = installClaudeHookText(orig, konsertdBin)
+		out, err = installClaudeHookText(orig, syredBin)
 	} else {
 		out, err = removeClaudeHookText(orig)
 	}
@@ -112,7 +112,7 @@ func editClaudeSettingsFile(path, konsertdBin string, install bool) (bool, error
 	return true, writeFileAtomic(path, out, mode)
 }
 
-// backupClaudeSettings writes orig to path.konsert-bak-<timestamp> and keeps only our
+// backupClaudeSettings writes orig to path.syre-bak-<timestamp> and keeps only our
 // last claudeSettingsBackups backups.
 func backupClaudeSettings(path string, orig []byte, mode os.FileMode) error {
 	base := path + claudeSettingsBackupInfix + settingsNow().Format("20060102-150405")
@@ -220,10 +220,10 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 
 // --- text edits ----------------------------------------------------------------------
 
-// installClaudeHookText returns raw with the Konsert entries installed: stale Konsert
-// entries (another binary path, an event Konsert no longer uses, duplicates) are cut,
+// installClaudeHookText returns raw with the Syre entries installed: stale Syre
+// entries (another binary path, an event Syre no longer uses, duplicates) are cut,
 // missing ones appended. raw is returned unchanged when everything is in place.
-func installClaudeHookText(raw []byte, konsertdBin string) ([]byte, error) {
+func installClaudeHookText(raw []byte, syredBin string) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = []byte("{}\n")
 	}
@@ -238,20 +238,20 @@ func installClaudeHookText(raw []byte, konsertdBin string) ([]byte, error) {
 		f := newJSONFormat(raw, doc)
 		hooks := doc.member("hooks")
 		if hooks == nil {
-			obj := renderHooksObject(konsertdBin)
+			obj := renderHooksObject(syredBin)
 			raw = f.insertMember(raw, doc, "hooks", func(prefix string) []byte { return f.reindent(obj, prefix) })
 			continue
 		}
 		if hooks.kind != '{' {
 			return nil, errors.New(`"hooks" is not a JSON object`)
 		}
-		if next, ok := cutStaleKonsertEntry(raw, f, doc, hooks, konsertdBin); ok {
+		if next, ok := cutStaleSyreEntry(raw, f, doc, hooks, syredBin); ok {
 			raw = next
 			continue
 		}
 		edited := false
 		for _, ev := range claudeHookEvents {
-			want := konsertHookEntry(konsertdBin, ev)
+			want := syreHookEntry(syredBin, ev)
 			arr := hooks.member(ev)
 			if arr == nil {
 				val := mustJSON([]claudeHookEntry{want})
@@ -276,7 +276,7 @@ func installClaudeHookText(raw []byte, konsertdBin string) ([]byte, error) {
 	return nil, errors.New("too many edits")
 }
 
-// removeClaudeHookText returns raw without any Konsert entry. An event array (and the
+// removeClaudeHookText returns raw without any Syre entry. An event array (and the
 // hooks object) left empty by the removal goes too, which is how install added them.
 func removeClaudeHookText(raw []byte) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
@@ -295,7 +295,7 @@ func removeClaudeHookText(raw []byte) ([]byte, error) {
 			return raw, nil
 		}
 		f := newJSONFormat(raw, doc)
-		next, ok := cutKonsertEntry(raw, f, doc, hooks, func(string, *jsonSpan) bool { return true })
+		next, ok := cutSyreEntry(raw, f, doc, hooks, func(string, *jsonSpan) bool { return true })
 		if !ok {
 			return raw, nil
 		}
@@ -304,30 +304,30 @@ func removeClaudeHookText(raw []byte) ([]byte, error) {
 	return nil, errors.New("too many edits")
 }
 
-// cutStaleKonsertEntry cuts one Konsert entry that install would not leave in place.
-func cutStaleKonsertEntry(raw []byte, f jsonFormat, doc, hooks *jsonSpan, konsertdBin string) ([]byte, bool) {
-	return cutKonsertEntry(raw, f, doc, hooks, func(ev string, n *jsonSpan) bool {
-		if !slices.Contains(claudeHookEvents, ev) || !isEntry(raw, n, konsertHookEntry(konsertdBin, ev)) {
+// cutStaleSyreEntry cuts one Syre entry that install would not leave in place.
+func cutStaleSyreEntry(raw []byte, f jsonFormat, doc, hooks *jsonSpan, syredBin string) ([]byte, bool) {
+	return cutSyreEntry(raw, f, doc, hooks, func(ev string, n *jsonSpan) bool {
+		if !slices.Contains(claudeHookEvents, ev) || !isEntry(raw, n, syreHookEntry(syredBin, ev)) {
 			return true
 		}
 		// A duplicate of the wanted entry: keep the first.
 		arr := hooks.member(ev)
-		first := slices.IndexFunc(arr.kids, func(k *jsonSpan) bool { return isEntry(raw, k, konsertHookEntry(konsertdBin, ev)) })
+		first := slices.IndexFunc(arr.kids, func(k *jsonSpan) bool { return isEntry(raw, k, syreHookEntry(syredBin, ev)) })
 		return arr.kids[first] != n
 	})
 }
 
-// cutKonsertEntry cuts the first Konsert entry for which cut says so. When it is the
+// cutSyreEntry cuts the first Syre entry for which cut says so. When it is the
 // last element of its array, the array's member goes (and the hooks member when that
 // was its last member).
-func cutKonsertEntry(raw []byte, f jsonFormat, doc, hooks *jsonSpan, cut func(ev string, n *jsonSpan) bool) ([]byte, bool) {
+func cutSyreEntry(raw []byte, f jsonFormat, doc, hooks *jsonSpan, cut func(ev string, n *jsonSpan) bool) ([]byte, bool) {
 	for mi, ev := range hooks.keys {
 		arr := hooks.kids[mi]
 		if arr.kind != '[' {
 			continue
 		}
 		for i, n := range arr.kids {
-			if !bytes.Contains(raw[n.start:n.end], []byte(konsertHookMarker)) || !cut(ev, n) {
+			if !bytes.Contains(raw[n.start:n.end], []byte(syreHookMarker)) || !cut(ev, n) {
 				continue
 			}
 			if len(arr.kids) > 1 {
@@ -363,7 +363,7 @@ func mustJSON(v any) jsontext.Value {
 }
 
 // renderHooksObject is {"PreToolUse": [entry], ...} in claudeHookEvents order.
-func renderHooksObject(konsertdBin string) jsontext.Value {
+func renderHooksObject(syredBin string) jsontext.Value {
 	var b bytes.Buffer
 	b.WriteByte('{')
 	for i, ev := range claudeHookEvents {
@@ -372,7 +372,7 @@ func renderHooksObject(konsertdBin string) jsontext.Value {
 		}
 		b.Write(mustJSON(ev))
 		b.WriteByte(':')
-		b.Write(mustJSON([]claudeHookEntry{konsertHookEntry(konsertdBin, ev)}))
+		b.Write(mustJSON([]claudeHookEntry{syreHookEntry(syredBin, ev)}))
 	}
 	b.WriteByte('}')
 	return b.Bytes()

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { FleetEvent, actorLabel, sourceLabel } from '../../core/models/control.models';
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
-import { OrchestratorStore } from '../../core/state/orchestrator.store';
+import { CommanderStore } from '../../core/state/commander.store';
 import { SessionNavService } from '../../core/services/session-nav.service';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { shortWhen } from './pause-everything.component';
@@ -17,57 +17,57 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 /**
- * "Your actions": what the user did (UI, CLI, Konsert terminals) and how agents and Konsert
+ * "Your actions": what the user did (UI, CLI, Syre terminals) and how agents and Syre
  * responded (holds placed, requests resolved, vetoes remembered, agents notified).
  */
 @Component({
-  selector: 'ks-your-actions',
+  selector: 'sy-your-actions',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TooltipDirective],
   host: { class: 'block' },
   template: `
-    <section aria-labelledby="ks-your-actions-heading" data-testid="your-actions">
+    <section aria-labelledby="sy-your-actions-heading" data-testid="your-actions">
       <h3
-        id="ks-your-actions-heading"
-        class="text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)] mb-1.5"
+        id="sy-your-actions-heading"
+        class="text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)] mb-1.5"
       >
         Your actions
       </h3>
       @if (events().length === 0) {
-        <p class="text-[11.5px] text-[var(--ks-text-muted)]">
+        <p class="text-[11.5px] text-[var(--sy-text-muted)]">
           Nothing yet. Interventions and how agents responded show up here.
         </p>
       }
       <ol class="space-y-1">
         @for (ev of events(); track ev.id) {
           <li
-            class="flex gap-2 rounded-[var(--ks-radius-sm)] px-1.5 py-1.5 hover:bg-white/[0.03] text-[11.5px]"
+            class="flex gap-2 rounded-[var(--sy-radius-sm)] px-1.5 py-1.5 hover:bg-white/[0.03] text-[11.5px]"
             [attr.data-event]="ev.id"
             [attr.data-kind]="ev.kind"
           >
             <time
-              class="font-mono-ide text-[10px] text-[var(--ks-text-muted)] w-[38px] shrink-0 pt-0.5"
+              class="font-mono-ide text-[10px] text-[var(--sy-text-muted)] w-[38px] shrink-0 pt-0.5"
               [attr.datetime]="ev.created_at"
-              [ksTooltip]="fullTime(ev.created_at)"
+              [syTooltip]="fullTime(ev.created_at)"
             >
               {{ when(ev.created_at) }}
             </time>
             <div class="flex-1 min-w-0">
               <div
                 class="break-words"
-                [class.text-[var(--ks-text)]]="ev.cause.actor === 'user'"
-                [class.text-[var(--ks-text-secondary)]]="ev.cause.actor !== 'user'"
+                [class.text-[var(--sy-text)]]="ev.cause.actor === 'user'"
+                [class.text-[var(--sy-text-secondary)]]="ev.cause.actor !== 'user'"
               >
                 {{ ev.summary || ev.action || ev.kind }}
               </div>
               <div
-                class="flex flex-wrap items-center gap-x-1.5 text-[10px] text-[var(--ks-text-muted)] mt-0.5"
+                class="flex flex-wrap items-center gap-x-1.5 text-[10px] text-[var(--sy-text-muted)] mt-0.5"
               >
-                <span class="rounded px-1 bg-[var(--ks-raised)]">{{ kindLabel(ev) }}</span>
+                <span class="rounded px-1 bg-[var(--sy-raised)]">{{ kindLabel(ev) }}</span>
                 <span>{{ actorText(ev) }}</span>
                 @if (ev.cause.confidence && ev.cause.confidence !== 'certain') {
-                  <span [ksTooltip]="'Attribution confidence: ' + ev.cause.confidence"
+                  <span [syTooltip]="'Attribution confidence: ' + ev.cause.confidence"
                     >· {{ ev.cause.confidence }}</span
                   >
                 }
@@ -102,7 +102,7 @@ const KIND_LABELS: Record<string, string> = {
       @if (control.eventsCursor() && !workerId()) {
         <button
           type="button"
-          class="ks-btn ks-btn-sm w-full mt-2"
+          class="sy-btn sy-btn-sm w-full mt-2"
           (click)="control.loadOlderEvents()"
         >
           Load older
@@ -119,7 +119,7 @@ export class YourActionsComponent {
   readonly control = inject(ControlStore);
   private readonly fleet = inject(FleetStore);
   private readonly nav = inject(SessionNavService);
-  private readonly orch = inject(OrchestratorStore);
+  private readonly orch = inject(CommanderStore);
 
   readonly events = computed(() => {
     const wid = this.workerId();

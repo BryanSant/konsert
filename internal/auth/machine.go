@@ -11,12 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// Machine credentials (KON-RK9YD). Each konsertd holds its own credential, a bearer
-// string "kmc_<credential id>_<secret>": the id names the hub's machine_credentials row
+// Machine credentials (SYR-RK9YD). Each syred holds its own credential, a bearer
+// string "smc_<credential id>_<secret>": the id names the hub's machine_credentials row
 // and the secret is 32 random bytes (base64url). The hub stores only the hex SHA-256 of
 // the secret and compares hashes in constant time.
 
-const machineCredPrefix = "kmc_"
+const machineCredPrefix = "smc_"
 
 // MachineSecret is a newly generated machine credential secret.
 type MachineSecret struct {
@@ -42,7 +42,7 @@ func MachineSecretHash(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// FormatMachineCredential builds the bearer string konsertd presents.
+// FormatMachineCredential builds the bearer string syred presents.
 func FormatMachineCredential(credID, secret string) string {
 	return machineCredPrefix + credID + "_" + secret
 }
@@ -125,6 +125,6 @@ func NormalizeJoinCode(in string) (string, bool) {
 
 // JoinCodeHash is the hex SHA-256 the hub stores for a normalized join code.
 func JoinCodeHash(normalized string) string {
-	sum := sha256.Sum256([]byte("konsert-join:" + normalized))
+	sum := sha256.Sum256([]byte("syre-join:" + normalized))
 	return hex.EncodeToString(sum[:])
 }

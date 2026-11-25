@@ -8,7 +8,7 @@ import { IconComponent } from '../../shared/icon.component';
  * opens the Needs-you dialog on it.
  */
 @Component({
-  selector: 'ks-needs-you-item',
+  selector: 'sy-needs-you-item',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
@@ -17,8 +17,8 @@ import { IconComponent } from '../../shared/icon.component';
     @let e = entry();
     <button
       type="button"
-      class="ks-ny-item"
-      [class.ks-ny-dim]="!e.pending"
+      class="sy-ny-item"
+      [class.sy-ny-dim]="!e.pending"
       [attr.data-needs-you]="e.key"
       [attr.data-kind]="e.kind"
       [attr.data-question]="e.kind === 'question' ? e.sid : null"
@@ -29,16 +29,16 @@ import { IconComponent } from '../../shared/icon.component';
       [attr.aria-label]="label()"
       (click)="store.open(e.key)"
     >
-      <span class="ks-ny-tag" [attr.data-tag]="e.tag" aria-hidden="true">{{ e.tag }}</span>
+      <span class="sy-ny-tag" [attr.data-tag]="e.tag" aria-hidden="true">{{ e.tag }}</span>
       <span class="flex-1 min-w-0">
-        <span class="block line-clamp-2 text-[var(--ks-text)]">{{ e.title }}</span>
-        <span class="block truncate text-[11.5px] text-[var(--ks-text-muted)] mt-0.5">{{ e.meta }}</span>
+        <span class="block line-clamp-2 text-[var(--sy-text)]">{{ e.title }}</span>
+        <span class="block truncate text-[11.5px] text-[var(--sy-text-muted)] mt-0.5">{{ e.meta }}</span>
       </span>
-      <span class="shrink-0 text-[var(--ks-text-muted)]" aria-hidden="true"><app-icon name="chevron-right" [size]="13" /></span>
+      <span class="shrink-0 text-[var(--sy-text-muted)]" aria-hidden="true"><app-icon name="chevron-right" [size]="13" /></span>
     </button>
   `,
   styles: `
-    .ks-ny-item {
+    .sy-ny-item {
       display: flex;
       align-items: flex-start;
       gap: 10px;
@@ -46,27 +46,27 @@ import { IconComponent } from '../../shared/icon.component';
       min-height: 44px;
       padding: 9px 10px;
       border: 0;
-      border-radius: var(--ks-radius-md);
-      background: var(--ks-surface-2);
+      border-radius: var(--sy-radius-md);
+      background: var(--sy-surface-2);
       color: inherit;
       font: inherit;
       font-size: 12.5px;
       line-height: 1.4;
       text-align: left;
       cursor: pointer;
-      transition: background-color var(--ks-dur-fast) var(--ks-ease-out);
+      transition: background-color var(--sy-dur-fast) var(--sy-ease-out);
     }
-    .ks-ny-item:hover {
-      background: var(--ks-surface-3);
+    .sy-ny-item:hover {
+      background: var(--sy-surface-3);
     }
-    .ks-ny-item:focus-visible {
+    .sy-ny-item:focus-visible {
       outline: none;
-      box-shadow: var(--ks-focus-ring);
+      box-shadow: var(--sy-focus-ring);
     }
-    .ks-ny-dim {
+    .sy-ny-dim {
       opacity: 0.6;
     }
-    .ks-ny-tag {
+    .sy-ny-tag {
       flex-shrink: 0;
       margin-top: 1px;
       padding: 1px 6px;
@@ -77,16 +77,16 @@ import { IconComponent } from '../../shared/icon.component';
       background: rgba(224, 168, 76, 0.18);
       color: #e9c27f;
     }
-    .ks-ny-tag[data-tag='P1'] {
-      background: var(--ks-red);
+    .sy-ny-tag[data-tag='P1'] {
+      background: var(--sy-red);
       color: #1e0b0b;
     }
-    .ks-ny-tag[data-tag='P3'] {
-      background: var(--ks-raised-strong);
-      color: var(--ks-text-secondary);
+    .sy-ny-tag[data-tag='P3'] {
+      background: var(--sy-raised-strong);
+      color: var(--sy-text-secondary);
     }
     @media (prefers-reduced-motion: reduce) {
-      .ks-ny-item {
+      .sy-ny-item {
         transition: none;
       }
     }

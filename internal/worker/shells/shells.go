@@ -1,4 +1,4 @@
-// Package shells counts the shell processes under each agent session konsertd hosts
+// Package shells counts the shell processes under each agent session syred hosts
 // (chat engines and PTY tasks), from the process tree rather than the agent's event
 // stream, so background shells (claude's run_in_background, codex background terminals)
 // count for as long as they run, even after the tool call returned and after the session
@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/activity"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/activity"
 )
 
 // Proc is one process of a snapshot.

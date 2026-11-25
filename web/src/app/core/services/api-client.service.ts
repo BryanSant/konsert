@@ -33,7 +33,7 @@ import {
   WakeLockStatus,
   Workspace,
   Worktree,
-} from '../models/konsert.models';
+} from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -84,7 +84,7 @@ export class ApiError extends Error {
  * cross-site form posts / simple requests, so the hub can treat its presence as a
  * CSRF signal alongside Origin / Sec-Fetch-Site checks.
  */
-export const KONSERT_REQUEST_HEADER = 'X-Konsert-Request';
+export const SYRE_REQUEST_HEADER = 'X-Syre-Request';
 
 /** Paths whose 401 means "bad credentials" rather than "session expired". */
 const AUTH_EXEMPT_PATHS = ['/api/auth/login', '/api/auth/pair'];
@@ -171,7 +171,7 @@ export class ApiClientService {
   ): Promise<Response> {
     const method = (init.method ?? 'GET').toUpperCase();
     const headers = new Headers(init.headers);
-    headers.set(KONSERT_REQUEST_HEADER, '1');
+    headers.set(SYRE_REQUEST_HEADER, '1');
     let body = init.body;
     if (opts.json !== false) {
       if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
@@ -300,7 +300,7 @@ export class ApiClientService {
   }
 
   /**
-   * Fleet shell cleanup: kill shells of a task or chat (konsertd terminates each one's
+   * Fleet shell cleanup: kill shells of a task or chat (syred terminates each one's
    * process tree), or ask its agent to stop them. No shells listed: all of them.
    */
   shellAction(
@@ -320,12 +320,12 @@ export class ApiClientService {
     return this.request(`/api/${kind === 'task' ? 'tasks' : 'chats'}/${encodeURIComponent(id)}/shells/keep`, { method: 'POST', body: '{}' });
   }
 
-  /** Open "shells left running" reminders (KON-DCEZV). */
+  /** Open "shells left running" reminders (SYR-DCEZV). */
   listShellReminders(): Promise<{ reminders: ShellReminder[] }> {
     return this.request('/api/shells/reminders');
   }
 
-  /** What Konsert does about shells left running: global mode, idle period, per-project modes. */
+  /** What Syre does about shells left running: global mode, idle period, per-project modes. */
   getShellPolicy(): Promise<ShellPolicySettings> {
     return this.request('/api/settings/shells');
   }
@@ -409,7 +409,7 @@ export class ApiClientService {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/resume`, { method: 'POST' });
   }
 
-  /** Cancels the task and records why, so the orchestrator does not simply retry it. */
+  /** Cancels the task and records why, so the commander does not simply retry it. */
   vetoTask(taskId: string, reason: VetoReason, note?: string): Promise<TaskActionResult> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/veto`, {
       method: 'POST',
@@ -583,7 +583,7 @@ export class ApiClientService {
     return this.request('/api/chat/sessions');
   }
 
-  createChatSession(title = 'Orchestrator Session'): Promise<ChatSession> {
+  createChatSession(title = 'Commander Session'): Promise<ChatSession> {
     return this.request('/api/chat/sessions', {
       method: 'POST',
       body: JSON.stringify({ title }),
@@ -733,7 +733,7 @@ export class ApiClientService {
     return this.request(`/api/fs/list?${sp.toString()}`);
   }
 
-  /** First-run state and the hub's own machine (konsertd found / running). */
+  /** First-run state and the hub's own machine (syred found / running). */
   getSetup(): Promise<SetupStatus> {
     return this.request('/api/setup');
   }
@@ -743,12 +743,12 @@ export class ApiClientService {
     return this.request('/api/setup/dismiss', { method: 'POST' });
   }
 
-  /** Adds the hub's machine: attaches a running konsertd or starts one. */
+  /** Adds the hub's machine: attaches a running syred or starts one. */
   addLocalWorker(): Promise<AddLocalWorkerResult> {
     return this.request('/api/workers/local', { method: 'POST' });
   }
 
-  /** Creates a short-lived join code for `konsertd join` (Add machine → Manual). */
+  /** Creates a short-lived join code for `syred join` (Add machine → Manual). */
   createJoinCode(): Promise<JoinCode> {
     return this.request('/api/machines/join-codes', { method: 'POST' });
   }
@@ -780,7 +780,7 @@ export class ApiClientService {
     });
   }
 
-  /** Retries starting a hub-managed machine's konsertd. */
+  /** Retries starting a hub-managed machine's syred. */
   startWorker(workerId: string): Promise<{ worker_id: string; state: string }> {
     return this.request(`/api/workers/${encodeURIComponent(workerId)}/start`, { method: 'POST' });
   }
@@ -790,7 +790,7 @@ export class ApiClientService {
   }
 
   /**
-   * Bootstraps konsertd on an SSH target. Progress is streamed as server-sent events
+   * Bootstraps syred on an SSH target. Progress is streamed as server-sent events
    * (`stage` frames, then a terminal `done` frame carrying the result); every frame is
    * passed to `opts.onEvent`, so new interactive steps (e.g. host-key confirmation) can
    * be handled by the caller without changing this method. Falls back to a plain JSON
@@ -910,7 +910,7 @@ export class ApiClientService {
     return this.request(`/api/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  // --- Forges (KON-QHGWZ / KON-CK7S2) ---
+  // --- Forges (SYR-QHGWZ / SYR-CK7S2) ---
 
   listForges(): Promise<{ forges: ForgeHost[] }> {
     return this.request('/api/forges');
@@ -961,9 +961,9 @@ export function friendlyErrorMessage(res: Response, serverMsg: string): string {
         : 'Too many attempts, try again shortly.';
     }
     case 403:
-      return `The hub rejected this request as cross-site (${serverMsg}). Reload Konsert from the hub's own address and try again.`;
+      return `The hub rejected this request as cross-site (${serverMsg}). Reload Syre from the hub's own address and try again.`;
     case 415:
-      return `The hub rejected the request format (${serverMsg}). Reload Konsert to pick up the latest version.`;
+      return `The hub rejected the request format (${serverMsg}). Reload Syre to pick up the latest version.`;
     case 413:
       return serverMsg.startsWith('HTTP ') ? 'That upload is too large for the hub.' : `Too large: ${serverMsg}.`;
     default:

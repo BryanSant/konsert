@@ -5,10 +5,10 @@ import { expect, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Settings → Forges (KON-CK7S2): reach Forges via ⌘K, detect and add a self-hosted Forgejo
+ * Settings → Forges (SYR-CK7S2): reach Forges via ⌘K, detect and add a self-hosted Forgejo
  * instance from a fake HTTP server, paste a token (masked, never echoed back), verify
  * "token you pasted", remove the stored token with confirmation, and verify "not connected".
- * Set KONSERT_SHOTS_DIR to capture 1440px and 390px screenshots.
+ * Set SYRE_SHOTS_DIR to capture 1440px and 390px screenshots.
  */
 
 interface E2EEnv {
@@ -58,7 +58,7 @@ function startFakeForgejo(): Promise<{ url: string; host: string; close: () => P
 }
 
 async function shot(page: Page, name: string): Promise<void> {
-  const dir = process.env['KONSERT_SHOTS_DIR'];
+  const dir = process.env['SYRE_SHOTS_DIR'];
   if (!dir) return;
   fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, name) });

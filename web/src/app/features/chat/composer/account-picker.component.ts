@@ -37,19 +37,19 @@ function capitalize(s: string): string {
 
 /** Account chip ("Claude 2" + usage ring) and its picker menu. */
 @Component({
-  selector: 'ks-account-picker',
+  selector: 'sy-account-picker',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PopoverComponent, PopoverTriggerDirective, ChipTriggerComponent, IconComponent, TooltipDirective, UsageRingComponent],
   template: `
-    <ks-popover label="Agent account" placement="top-start" panelClass="w-[320px] max-h-[360px] overflow-y-auto" [(open)]="open">
+    <sy-popover label="Agent account" placement="top-start" panelClass="w-[320px] max-h-[360px] overflow-y-auto" [(open)]="open">
       <button
-        ksChip
-        ksPopoverTrigger
+        syChip
+        syPopoverTrigger
         data-testid="account-chip"
         [tone]="chipTone()"
         [disabled]="disabled()"
-        [ksTooltip]="chipTooltip()"
+        [syTooltip]="chipTooltip()"
       >
         @if (current(); as a) {
           <app-icon [name]="a.agent" [size]="13" />
@@ -57,7 +57,7 @@ function capitalize(s: string): string {
           @if (health() === 'logged_out') {
             <span class="font-semibold">Re-login</span>
           } @else if (percent() !== null) {
-            <ks-usage-ring [percent]="percent()!" [tone]="health()" [size]="13" />
+            <sy-usage-ring [percent]="percent()!" [tone]="health()" [size]="13" />
             @if (health() === 'exhausted') {
               <span class="text-[#f3a5a5] font-medium">Out</span>
             } @else if (health() === 'warning') {
@@ -65,14 +65,14 @@ function capitalize(s: string): string {
             }
           }
         } @else {
-          <app-icon name="orchestrator" [size]="13" />
+          <app-icon name="commander" [size]="13" />
           <span>No agent</span>
         }
-        <span class="ks-sr-only">{{ srState() }}</span>
+        <span class="sy-sr-only">{{ srState() }}</span>
       </button>
 
       @if (accounts().length === 0) {
-        <div class="px-3 py-3 text-[12px] text-[var(--ks-text-muted)]">
+        <div class="px-3 py-3 text-[12px] text-[var(--sy-text-muted)]">
           No agent accounts reported by this machine yet. Install and sign in to an agent CLI, then refresh.
         </div>
       }
@@ -81,7 +81,7 @@ function capitalize(s: string): string {
         <button
           type="button"
           role="menuitemradio"
-          class="ks-menu-item items-center"
+          class="sy-menu-item items-center"
           [attr.aria-checked]="a.id === selectedId()"
           [attr.aria-disabled]="a.chat_supported === false ? 'true' : null"
           [attr.data-account]="a.id"
@@ -89,14 +89,14 @@ function capitalize(s: string): string {
         >
           <app-icon [name]="a.agent" [size]="15" />
           <span class="flex-1 min-w-0">
-            <span class="ks-menu-label flex items-center gap-1.5">
+            <span class="sy-menu-label flex items-center gap-1.5">
               <span class="truncate">{{ a.label }}</span>
               @if (a.plan) {
-                <span class="text-[10.5px] font-normal text-[var(--ks-text-muted)]">{{ a.plan }}</span>
+                <span class="text-[10.5px] font-normal text-[var(--sy-text-muted)]">{{ a.plan }}</span>
               }
             </span>
             <span
-              class="ks-menu-desc block truncate"
+              class="sy-menu-desc block truncate"
               [class.!text-[#f3a5a5]]="h === 'logged_out' || h === 'exhausted'"
               [class.!text-[#f0c27a]]="h === 'warning'"
             >
@@ -104,21 +104,21 @@ function capitalize(s: string): string {
             </span>
           </span>
           @if (pctOf(a) !== null && h !== 'logged_out') {
-            <ks-usage-ring [percent]="pctOf(a)!" [tone]="h" [size]="15" />
+            <sy-usage-ring [percent]="pctOf(a)!" [tone]="h" [size]="15" />
           }
-          <span class="w-3.5 shrink-0 text-[var(--ks-text)]">
+          <span class="w-3.5 shrink-0 text-[var(--sy-text)]">
             @if (a.id === selectedId()) {
               <app-icon name="check" [size]="14" />
             }
           </span>
         </button>
       }
-      <div class="ks-menu-sep"></div>
-      <button type="button" role="menuitem" class="ks-menu-item items-center" (click)="refresh.emit()">
+      <div class="sy-menu-sep"></div>
+      <button type="button" role="menuitem" class="sy-menu-item items-center" (click)="refresh.emit()">
         <app-icon name="refresh" [size]="14" />
-        <span class="ks-menu-desc !text-[var(--ks-text-secondary)]">Refresh login and usage</span>
+        <span class="sy-menu-desc !text-[var(--sy-text-secondary)]">Refresh login and usage</span>
       </button>
-    </ks-popover>
+    </sy-popover>
   `,
 })
 export class AccountPickerComponent {

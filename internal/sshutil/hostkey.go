@@ -215,7 +215,7 @@ func describeHostKeys(keys []HostKey) string {
 
 // writeTempKnownHosts writes line to a private temporary known_hosts file.
 func writeTempKnownHosts(line string) (path string, cleanup func(), err error) {
-	dir, err := os.MkdirTemp("", "konsert-known-hosts-")
+	dir, err := os.MkdirTemp("", "syre-known-hosts-")
 	if err != nil {
 		return "", nil, err
 	}

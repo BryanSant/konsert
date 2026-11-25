@@ -117,12 +117,12 @@
       "name": "Gemini 4 Hydrogen (Low)"
      },
      {
-      "modelId": "gemini-pro-orchestrator-neon",
-      "name": "Orchestrator (Neon)"
+      "modelId": "gemini-pro-commander-neon",
+      "name": "Commander (Neon)"
      },
      {
-      "modelId": "gemini-pro-orchestrator-g1-pro",
-      "name": "Orchestrator (Argon)"
+      "modelId": "gemini-pro-commander-g1-pro",
+      "name": "Commander (Argon)"
      },
      {
       "modelId": "gemini-3.8-flash-high",
@@ -213,12 +213,12 @@
        "name": "Gemini 4 Hydrogen"
       },
       {
-       "value": "gemini-pro-orchestrator-neon",
-       "name": "Orchestrator (Neon)"
+       "value": "gemini-pro-commander-neon",
+       "name": "Commander (Neon)"
       },
       {
-       "value": "gemini-pro-orchestrator-g1-pro",
-       "name": "Orchestrator (Argon)"
+       "value": "gemini-pro-commander-g1-pro",
+       "name": "Commander (Argon)"
       },
       {
        "value": "gemini-3.8-flash",

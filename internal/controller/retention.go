@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// History retention (KON-CSCWP; docs/design/retention.md). A pass walks the store's
+// History retention (SYR-CSCWP; docs/design/retention.md). A pass walks the store's
 // compaction steps (tasks, chats, fleet timeline, usage) in small batches, each one
 // short transaction of at most retentionBatch rows, sleeping retentionPause between
 // batches so other writers (the hub has a single SQLite connection) get in. Then it

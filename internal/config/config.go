@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ControllerConfig holds configuration for the central konsert hub.
+// ControllerConfig holds configuration for the central syre hub.
 type ControllerConfig struct {
 	// ListenAddr is the HTTP listen address. Empty means DefaultListenAddr(NoAuth):
 	// all interfaces when auth is on, loopback only with --no-auth.
@@ -20,28 +20,28 @@ type ControllerConfig struct {
 	// and never prints it. People sign in by pairing devices instead.
 	RecoveryKey string `yaml:"recovery_key"`
 	// TokensFile is where the generated recovery key is persisted
-	// (0600). Empty means "konsert-tokens.yaml" next to DBPath.
+	// (0600). Empty means "syre-tokens.yaml" next to DBPath.
 	TokensFile string `yaml:"tokens_file"`
 	// RecoveryKeyInTokensFile is set when the recovery key came from (or was generated
 	// into) TokensFile, so rotating it can rewrite the file.
 	RecoveryKeyInTokensFile bool `yaml:"-"`
 	// SecretKeyFile holds the master key that encrypts secrets (the LLM API key) in the
-	// database. Empty means "konsert-secret.key" next to DBPath. KONSERT_SECRET_KEY
+	// database. Empty means "syre-secret.key" next to DBPath. SYRE_SECRET_KEY
 	// (base64 of 32 bytes) supplies the key directly instead.
 	SecretKeyFile         string `yaml:"secret_key_file"`
 	NoAuth                bool   `yaml:"no_auth"`
 	TrustTailscaleHeaders bool   `yaml:"trust_tailscale_headers"`
 	EnableMCPHTTP         bool   `yaml:"enable_mcp_http"`
 	// PublicURL is the externally reachable base URL of this controller (e.g.
-	// https://konsert.example.ts.net). It is the URL join links and `konsertd join` commands
+	// https://syre.example.ts.net). It is the URL join links and `syred join` commands
 	// point at and is always an allowed browser origin.
 	PublicURL string `yaml:"public_url"`
 	// AllowedOrigins lists extra browser origins (e.g. "http://localhost:4200" or a
 	// host pattern such as "*.example.ts.net") permitted to call the REST API and open
 	// /ws/client. The request's own Host is always allowed.
-	AllowedOrigins []string           `yaml:"allowed_origins"`
-	Orchestrator   OrchestratorConfig `yaml:"orchestrator"`
-	Forges         ForgesConfig       `yaml:"forges"`
+	AllowedOrigins []string        `yaml:"allowed_origins"`
+	Commander      CommanderConfig `yaml:"commander"`
+	Forges         ForgesConfig    `yaml:"forges"`
 }
 
 // ForgesConfig configures forge host overrides and OAuth device-flow client IDs.
@@ -67,8 +67,8 @@ func DefaultListenAddr(noAuth bool) string {
 	return ":" + DefaultPort
 }
 
-// OrchestratorConfig configures the built-in Orchestrator Chat LLM backend.
-type OrchestratorConfig struct {
+// CommanderConfig configures the built-in Commander Chat LLM backend.
+type CommanderConfig struct {
 	Provider    string `yaml:"provider"`     // "openai", "anthropic", "gemini"
 	BaseURL     string `yaml:"base_url"`     // Optional custom OpenAI-compatible / proxy URL
 	APIKey      string `yaml:"api_key"`      // Or read from env
@@ -78,11 +78,11 @@ type OrchestratorConfig struct {
 	MaxTokens int `yaml:"max_tokens"`
 }
 
-// WorkerConfig holds configuration for the konsertd worker daemon.
+// WorkerConfig holds configuration for the syred worker daemon.
 type WorkerConfig struct {
 	// ControllerURL is the hub's /ws/worker URL for a machine that connects outbound
-	// (joined with a code). Empty: konsertd serves the hub on its local socket instead,
-	// which the hub reaches directly or over SSH (KON-K1B60).
+	// (joined with a code). Empty: syred serves the hub on its local socket instead,
+	// which the hub reaches directly or over SSH (SYR-K1B60).
 	ControllerURL    string            `yaml:"controller_url"`
 	WorkerID         string            `yaml:"worker_id"`
 	Name             string            `yaml:"name"`
@@ -101,12 +101,12 @@ type WorkerConfig struct {
 	// is unreachable (docs/design/spool.md).
 	Spool SpoolConfig `yaml:"spool"`
 
-	// Credential is this machine's own hub credential (KON-RK9YD). It is never part of
-	// the YAML config: konsertd keeps it in its state directory (worker.LoadCredential),
-	// next to its identity, and `konsertd join` or the hub puts it there.
+	// Credential is this machine's own hub credential (SYR-RK9YD). It is never part of
+	// the YAML config: syred keeps it in its state directory (worker.LoadCredential),
+	// next to its identity, and `syred join` or the hub puts it there.
 	Credential string `yaml:"-"`
 
-	// StateDir overrides konsertd's state directory ($KONSERT_STATE_DIR / ~/.konsert)
+	// StateDir overrides syred's state directory ($SYRE_STATE_DIR / ~/.syre)
 	// for this daemon (spool, scrollback, link status, credential, worker id). Tests set
 	// it to isolate daemons run in the same process.
 	StateDir string `yaml:"-"`
@@ -125,7 +125,7 @@ type SpoolConfig struct {
 	MaxAgeDays int `yaml:"max_age_days"`
 }
 
-// AgentAccountConfig is one extra agent account in konsertd's YAML config:
+// AgentAccountConfig is one extra agent account in syred's YAML config:
 //
 //	accounts:
 //	  - id: claude2
@@ -147,9 +147,9 @@ type AgentAccountConfig struct {
 // DefaultControllerConfig returns sensible MVP defaults.
 func DefaultControllerConfig() ControllerConfig {
 	return ControllerConfig{
-		DBPath:        "konsert.db",
+		DBPath:        "syre.db",
 		EnableMCPHTTP: true,
-		Orchestrator: OrchestratorConfig{
+		Commander: CommanderConfig{
 			Provider: "openai",
 		},
 	}
@@ -198,65 +198,65 @@ func LoadControllerConfig(path string) (ControllerConfig, error) {
 }
 
 func applyControllerEnv(cfg *ControllerConfig) {
-	if v := os.Getenv("KONSERT_LISTEN_ADDR"); v != "" {
+	if v := os.Getenv("SYRE_LISTEN_ADDR"); v != "" {
 		cfg.ListenAddr = v
 	}
-	if v := os.Getenv("KONSERT_DB_PATH"); v != "" {
+	if v := os.Getenv("SYRE_DB_PATH"); v != "" {
 		cfg.DBPath = v
 	}
-	if v := os.Getenv("KONSERT_RECOVERY_KEY"); v != "" {
+	if v := os.Getenv("SYRE_RECOVERY_KEY"); v != "" {
 		cfg.RecoveryKey = v
 	}
-	if v := os.Getenv("KONSERT_TOKENS_FILE"); v != "" {
+	if v := os.Getenv("SYRE_TOKENS_FILE"); v != "" {
 		cfg.TokensFile = v
 	}
-	if v := os.Getenv("KONSERT_SECRET_KEY_FILE"); v != "" {
+	if v := os.Getenv("SYRE_SECRET_KEY_FILE"); v != "" {
 		cfg.SecretKeyFile = v
 	}
-	if v := os.Getenv("KONSERT_PUBLIC_URL"); v != "" {
+	if v := os.Getenv("SYRE_PUBLIC_URL"); v != "" {
 		cfg.PublicURL = v
 	}
-	if v := os.Getenv("KONSERT_ALLOWED_ORIGINS"); v != "" {
+	if v := os.Getenv("SYRE_ALLOWED_ORIGINS"); v != "" {
 		cfg.AllowedOrigins = SplitList(v)
 	}
-	if v := os.Getenv("KONSERT_LLM_PROVIDER"); v != "" {
-		cfg.Orchestrator.Provider = v
+	if v := os.Getenv("SYRE_LLM_PROVIDER"); v != "" {
+		cfg.Commander.Provider = v
 	}
-	if v := os.Getenv("KONSERT_LLM_BASE_URL"); v != "" {
-		cfg.Orchestrator.BaseURL = v
+	if v := os.Getenv("SYRE_LLM_BASE_URL"); v != "" {
+		cfg.Commander.BaseURL = v
 	}
-	if v := os.Getenv("KONSERT_LLM_API_KEY"); v != "" {
-		cfg.Orchestrator.APIKey = v
+	if v := os.Getenv("SYRE_LLM_API_KEY"); v != "" {
+		cfg.Commander.APIKey = v
 	}
-	if v := os.Getenv("KONSERT_LLM_MODEL"); v != "" {
-		cfg.Orchestrator.Model = v
+	if v := os.Getenv("SYRE_LLM_MODEL"); v != "" {
+		cfg.Commander.Model = v
 	}
-	if v := os.Getenv("KONSERT_LLM_MAX_TOKENS"); v != "" {
+	if v := os.Getenv("SYRE_LLM_MAX_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			cfg.Orchestrator.MaxTokens = n
+			cfg.Commander.MaxTokens = n
 		} else {
-			cfg.Orchestrator.MaxTokens = -1 // rejected by Validate
+			cfg.Commander.MaxTokens = -1 // rejected by Validate
 		}
 	}
-	if v := os.Getenv("KONSERT_GITHUB_CLIENT_ID"); v != "" {
+	if v := os.Getenv("SYRE_GITHUB_CLIENT_ID"); v != "" {
 		cfg.Forges.GitHubClientID = strings.TrimSpace(v)
 	}
-	if v := os.Getenv("KONSERT_GITLAB_CLIENT_ID"); v != "" {
+	if v := os.Getenv("SYRE_GITLAB_CLIENT_ID"); v != "" {
 		cfg.Forges.GitLabClientID = strings.TrimSpace(v)
 	}
-	// Fallback provider-specific API keys if KONSERT_LLM_API_KEY is unset.
-	if cfg.Orchestrator.APIKey == "" {
-		switch strings.ToLower(cfg.Orchestrator.Provider) {
+	// Fallback provider-specific API keys if SYRE_LLM_API_KEY is unset.
+	if cfg.Commander.APIKey == "" {
+		switch strings.ToLower(cfg.Commander.Provider) {
 		case "anthropic":
-			cfg.Orchestrator.APIKey = os.Getenv("ANTHROPIC_API_KEY")
+			cfg.Commander.APIKey = os.Getenv("ANTHROPIC_API_KEY")
 		case "gemini":
 			if v := os.Getenv("GEMINI_API_KEY"); v != "" {
-				cfg.Orchestrator.APIKey = v
+				cfg.Commander.APIKey = v
 			} else {
-				cfg.Orchestrator.APIKey = os.Getenv("GOOGLE_API_KEY")
+				cfg.Commander.APIKey = os.Getenv("GOOGLE_API_KEY")
 			}
 		default:
-			cfg.Orchestrator.APIKey = os.Getenv("OPENAI_API_KEY")
+			cfg.Commander.APIKey = os.Getenv("OPENAI_API_KEY")
 		}
 	}
 }
@@ -284,28 +284,28 @@ func LoadWorkerConfig(path string) (WorkerConfig, error) {
 }
 
 func applyWorkerEnv(cfg *WorkerConfig) {
-	if v := os.Getenv("KONSERT_CONTROLLER_URL"); v != "" {
+	if v := os.Getenv("SYRE_CONTROLLER_URL"); v != "" {
 		cfg.ControllerURL = v
 	}
-	if v := os.Getenv("KONSERT_WORKER_ID"); v != "" {
+	if v := os.Getenv("SYRE_WORKER_ID"); v != "" {
 		cfg.WorkerID = v
 	}
-	if v := os.Getenv("KONSERT_WORKER_NAME"); v != "" {
+	if v := os.Getenv("SYRE_WORKER_NAME"); v != "" {
 		cfg.Name = v
 	}
-	if v := os.Getenv("KONSERT_HOST_GROUP"); v != "" {
+	if v := os.Getenv("SYRE_HOST_GROUP"); v != "" {
 		cfg.HostGroup = v
 	}
-	if v := os.Getenv("KONSERT_ISOLATION"); v != "" {
+	if v := os.Getenv("SYRE_ISOLATION"); v != "" {
 		cfg.Isolation = v
 	}
-	if v := os.Getenv("KONSERT_ALLOWED_ROOTS"); v != "" {
+	if v := os.Getenv("SYRE_ALLOWED_ROOTS"); v != "" {
 		cfg.AllowedRoots = SplitList(v)
 	}
-	if v := strings.ToLower(os.Getenv("KONSERT_SANDBOX")); v == "1" || v == "true" {
+	if v := strings.ToLower(os.Getenv("SYRE_SANDBOX")); v == "1" || v == "true" {
 		cfg.Sandbox = true
 	}
-	if v := strings.ToLower(os.Getenv("KONSERT_ENABLE_MOCK_DRIVER")); v == "1" || v == "true" {
+	if v := strings.ToLower(os.Getenv("SYRE_ENABLE_MOCK_DRIVER")); v == "1" || v == "true" {
 		cfg.EnableMockDriver = true
 	}
 }

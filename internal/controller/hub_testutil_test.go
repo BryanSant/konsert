@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/mcprelay"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/mcprelay"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/coder/websocket"
 )
 
@@ -71,7 +71,7 @@ func (th *testHub) wsURL(path string) string {
 	return "ws" + strings.TrimPrefix(th.ts.URL, "http") + path
 }
 
-// fakeWorker is a minimal konsertd stand-in speaking the worker protocol.
+// fakeWorker is a minimal syred stand-in speaking the worker protocol.
 type fakeWorker struct {
 	t      *testing.T
 	conn   *websocket.Conn
@@ -301,7 +301,7 @@ func mustTask(t *testing.T, st store.Store, id string) store.Task {
 }
 
 // mcpURL is the URL an agent on this fake worker uses for a relayed MCP server: the
-// worker's own loopback relay, which carries requests over this connection as konsertd
+// worker's own loopback relay, which carries requests over this connection as syred
 // does.
 func (fw *fakeWorker) mcpURL(srv protocol.AgentMCPServer) string {
 	fw.t.Helper()

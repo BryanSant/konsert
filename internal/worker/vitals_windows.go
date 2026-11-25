@@ -5,7 +5,7 @@ package worker
 import (
 	"unsafe"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 	"golang.org/x/sys/windows"
 )
 

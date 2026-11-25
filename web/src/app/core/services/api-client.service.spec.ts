@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiClientService, ApiError, KONSERT_REQUEST_HEADER } from './api-client.service';
+import { ApiClientService, ApiError, SYRE_REQUEST_HEADER } from './api-client.service';
 import { AuthService, SESSION_EXPIRED_MESSAGE } from './auth.service';
 
 type FetchArgs = [string, RequestInit];
@@ -39,7 +39,7 @@ describe('ApiClientService', () => {
     expect(url).toBe('/api/fleet');
     expect(init.credentials).toBe('same-origin');
     expect(headers.get('Content-Type')).toBe('application/json');
-    expect(headers.get(KONSERT_REQUEST_HEADER)).toBe('1');
+    expect(headers.get(SYRE_REQUEST_HEADER)).toBe('1');
   });
 
   it('gives bodiless POSTs a JSON body and keeps the JSON content type', async () => {
@@ -71,7 +71,7 @@ describe('ApiClientService', () => {
     const { init, headers } = lastCall();
     expect(init.method).toBe('DELETE');
     expect(headers.get('Content-Type')).toBe('application/json');
-    expect(headers.get(KONSERT_REQUEST_HEADER)).toBe('1');
+    expect(headers.get(SYRE_REQUEST_HEADER)).toBe('1');
   });
 
   it('uploads attachments as multipart without forcing a JSON content type', async () => {
@@ -82,7 +82,7 @@ describe('ApiClientService', () => {
     const { init, headers } = lastCall();
     expect(init.body).toBeInstanceOf(FormData);
     expect(headers.has('Content-Type')).toBe(false);
-    expect(headers.get(KONSERT_REQUEST_HEADER)).toBe('1');
+    expect(headers.get(SYRE_REQUEST_HEADER)).toBe('1');
   });
 
   it('maps error bodies to ApiError with the status code', async () => {

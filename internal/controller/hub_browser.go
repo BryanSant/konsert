@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -138,7 +138,7 @@ type chatSubscribePayload struct {
 // maxChatTurnsPerSession bounds the running plus waiting turns for one session.
 const maxChatTurnsPerSession = 4
 
-// chatSession serializes orchestrator turns for one chat session.
+// chatSession serializes commander turns for one chat session.
 type chatSession struct {
 	sem  chan struct{} // capacity 1: held by the running turn
 	refs int           // running + waiting turns; guarded by Hub.mu
@@ -150,11 +150,11 @@ func (h *Hub) subscribeChat(c *browserClient, sessionID string) {
 	c.mu.Unlock()
 }
 
-// startChatTurn runs one orchestrator turn on a tracked goroutine. The turn's
+// startChatTurn runs one commander turn on a tracked goroutine. The turn's
 // context ends when the client disconnects, the hub shuts down, or
 // ChatTurnTimeout elapses. Turns of the same session run one at a time, in
 // arrival order; past maxChatTurnsPerSession the request is rejected.
-func (h *Hub) startChatTurn(c *browserClient, orch *orchestrator.Service, p protocol.ChatSendPayload) {
+func (h *Hub) startChatTurn(c *browserClient, orch *commander.Service, p protocol.ChatSendPayload) {
 	h.mu.Lock()
 	cs := h.chatSessions[p.SessionID]
 	if cs == nil {
@@ -200,7 +200,7 @@ func (h *Hub) startChatTurn(c *browserClient, orch *orchestrator.Service, p prot
 			return
 		}
 
-		err := orch.HandleUserMessage(turnCtx, p.SessionID, p.Content, orchestrator.StreamCallbacks{
+		err := orch.HandleUserMessage(turnCtx, p.SessionID, p.Content, commander.StreamCallbacks{
 			OnDelta: func(sid, delta string) {
 				h.sendChatEvent(sid, protocol.MsgChatDelta, protocol.ChatDeltaPayload{SessionID: sid, Delta: delta})
 			},
@@ -220,7 +220,7 @@ func (h *Hub) startChatTurn(c *browserClient, orch *orchestrator.Service, p prot
 		if err != nil && errors.Is(turnCtx.Err(), context.DeadlineExceeded) {
 			h.sendChatEvent(p.SessionID, protocol.MsgChatError, protocol.ChatErrorPayload{
 				SessionID: p.SessionID,
-				Error:     "orchestrator turn timed out",
+				Error:     "commander turn timed out",
 			})
 		}
 	})

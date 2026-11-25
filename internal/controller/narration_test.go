@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestSetNarrationHeadlineAndNow(t *testing.T) {
@@ -15,33 +15,33 @@ func TestSetNarrationHeadlineAndNow(t *testing.T) {
 	th.h.kaShowFn = func(_ context.Context, id string) ([]byte, error) {
 		return []byte(`{"id":"` + id + `","title":"Questions and steering","status":"in_progress"}`), nil
 	}
-	proj := store.Project{WorkspaceID: store.DefaultWorkspaceID, Name: "Konsert"}
+	proj := store.Project{WorkspaceID: store.DefaultWorkspaceID, Name: "Syre"}
 	if err := th.st.CreateProject(ctx, proj); err != nil {
 		t.Fatal(err)
 	}
 	projects, _ := th.st.ListProjects(ctx, "")
 	var p store.Project
 	for _, x := range projects {
-		if x.Name == "Konsert" {
+		if x.Name == "Syre" {
 			p = x
 		}
 	}
 	res, err := th.svc.DispatchTask(ctx, DispatchRequest{Agent: "mock", RepoPath: "/repo", ProjectID: p.SID,
-		Title: "Questions card on mobile", Prompt: "Implement KON-2Q0CH on mobile"})
+		Title: "Questions card on mobile", Prompt: "Implement SYR-2Q0CH on mobile"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The ticket is detected and its title resolved in the background.
 	waitFor(t, 3*time.Second, "ticket title", func() bool {
 		tk := mustTask(t, th.st, res.TaskID)
-		return tk.TicketID == "KON-2Q0CH" && tk.TicketTitle == "Questions and steering"
+		return tk.TicketID == "SYR-2Q0CH" && tk.TicketTitle == "Questions and steering"
 	})
 	if tk := mustTask(t, th.st, res.TaskID); tk.Title != "Questions card on mobile" {
 		t.Fatalf("title %q", tk.Title)
 	}
 
 	// Headline by project name, now line by task sid.
-	out, err := th.svc.SetNarration(ctx, SetNarrationInput{Project: "konsert", Headline: "  Ship the questions\nqueue to mobile ", Task: res.TaskSID, Now: "Porting the card"})
+	out, err := th.svc.SetNarration(ctx, SetNarrationInput{Project: "syre", Headline: "  Ship the questions\nqueue to mobile ", Task: res.TaskSID, Now: "Porting the card"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSetNarrationHeadlineAndNow(t *testing.T) {
 		{Headline: "no project"},
 		{Project: "nope", Headline: "x"},
 		{Task: "t-zzzzzzzz", Now: "x"},
-		{Project: "konsert", Headline: strings.Repeat("x", maxHeadline+1)},
+		{Project: "syre", Headline: strings.Repeat("x", maxHeadline+1)},
 		{Task: res.TaskID, Now: strings.Repeat("x", maxNarration+1)},
 	} {
 		if _, err := th.svc.SetNarration(ctx, bad); err == nil {
@@ -77,7 +77,7 @@ func TestSetNarrationHeadlineAndNow(t *testing.T) {
 }
 
 func TestDetectTicket(t *testing.T) {
-	if got := detectTicket("", "fix KON-2Q0CH and KON-AAAAA"); got != "KON-2Q0CH" {
+	if got := detectTicket("", "fix SYR-2Q0CH and SYR-AAAAA"); got != "SYR-2Q0CH" {
 		t.Fatalf("got %q", got)
 	}
 	if got := detectTicket("no ticket here"); got != "" {

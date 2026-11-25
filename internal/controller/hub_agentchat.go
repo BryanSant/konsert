@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Agent chat, hub side (docs/design/agent-chat.md).
@@ -36,7 +36,7 @@ import (
 // worker-assigned seq only for de-duplication; hub-generated events (the user's
 // message, ask_user questions, refusals, "connection lost") take the next hub seq
 // like any other event. One sequence per chat therefore never collides, survives a
-// konsertd restart that resets the worker's counter, and is what
+// syred restart that resets the worker's counter, and is what
 // GET /api/chats/{id}/events?after_seq= pages on.
 const (
 	msgChatRespond = "chat.respond"
@@ -46,15 +46,15 @@ const (
 	// eventUserMessage is a hub-generated AgentChatEvent kind recording the user's
 	// prompt (Text, TurnID) in the transcript.
 	eventUserMessage = "user_message"
-	// eventKonsertNote is a hub-generated AgentChatEvent kind recording the note about
+	// eventSyreNote is a hub-generated AgentChatEvent kind recording the note about
 	// fleet events (user actions, holds, requests) prepended to the agent's prompt.
-	eventKonsertNote = "konsert_note"
+	eventSyreNote = "syre_note"
 
 	// defaultAskUserTimeout bounds how long ask_user waits for the user.
 	defaultAskUserTimeout = 30 * time.Minute
 
-	// orchestratorChatSetting stores the default orchestrator chat's ID.
-	orchestratorChatSetting = "orchestrator_chat_id"
+	// commanderChatSetting stores the default commander chat's ID.
+	commanderChatSetting = "commander_chat_id"
 )
 
 // chatSendRequest is the browser chat.send payload (protocol.ChatSendPayload plus attachments).
@@ -240,7 +240,7 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 			h.recordChatTransition(ctx, cs, before.Status, *transition)
 		}
 		if cs.FleetTools && chatIdle(cs.Status) {
-			// The orchestrator finished a turn: tell it what happened meanwhile.
+			// The commander finished a turn: tell it what happened meanwhile.
 			h.scheduleDelivery()
 		}
 		if chatIdle(cs.Status) && !chatIdle(before.Status) {
@@ -368,7 +368,7 @@ func (h *Hub) onAgentCapabilities(ctx context.Context, wc *workerConn, env proto
 	}
 	views, _ := h.agentAccountViews(ctx, wc.id)
 	// The PWA applies account updates per worker: without worker_id it dropped them, so
-	// login/usage changes only showed after a reload (KON-PYG35).
+	// login/usage changes only showed after a reload (SYR-PYG35).
 	h.broadcastJSON(protocol.MsgFleetUpdate, protocol.FleetUpdatePayload{Kind: "agent_accounts", WorkerID: wc.id, Accounts: views})
 }
 
@@ -576,7 +576,7 @@ func bestAccountTiered(accts []protocol.AgentAccount) (protocol.AgentAccount, bo
 }
 
 // defaultAgentTarget picks the worker and account for a new chat (and the default
-// orchestrator): the hub's own machine if a connected worker runs there and has a
+// commander): the hub's own machine if a connected worker runs there and has a
 // usable chat account; otherwise the first connected worker with a logged-in
 // claude; then the first with any logged-in chat-capable account; then any
 // chat-capable account whose login state is unknown.
@@ -796,10 +796,10 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 		Effort:         cs.Effort,
 		ApprovalMode:   cs.ApprovalMode,
 		AgentSessionID: cs.AgentSessionID,
-		SystemPrompt:   orchestrator.AgentSystemPrompt(cs.FleetTools),
+		SystemPrompt:   commander.AgentSystemPrompt(cs.FleetTools),
 	}
 	if cs.QuestionID != "" {
-		// A side-conversation answerer: no Konsert tools (it must not ask the user or act
+		// A side-conversation answerer: no Syre tools (it must not ask the user or act
 		// on the fleet), its own read-only instructions, and — for a fork — the asking
 		// session to copy until it has a session of its own.
 		open.SystemPrompt = sideConversationSystemPrompt
@@ -812,7 +812,7 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 		}
 		return open, nil
 	}
-	// The chat's MCP tools are relayed by konsertd over its link (KON-DTN92): the agent
+	// The chat's MCP tools are relayed by syred over its link (SYR-DTN92): the agent
 	// never needs a network path to the hub. The bearer token only reaches this chat's
 	// tools, and only through the link of the machine the chat runs on.
 	tok, err := h.ensureChatToken(ctx, cs.ID)
@@ -820,7 +820,7 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 		return open, err
 	}
 	open.MCPServers = []protocol.AgentMCPServer{{
-		Name:               "konsert",
+		Name:               "syre",
 		URL:                protocol.MCPChatPathPrefix + cs.ID,
 		Relay:              true,
 		Headers:            map[string]string{"Authorization": "Bearer " + tok},
@@ -854,7 +854,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		if cs.WorkerID == "" || cs.Agent == "" {
 			e := protocol.AgentChatError{
 				Kind:    protocol.ErrKindNotFound,
-				Message: "No connected worker has a logged-in agent that supports chat. Start konsertd on a machine where an agent CLI (claude, codex, grok, ...) is installed and signed in.",
+				Message: "No connected worker has a logged-in agent that supports chat. Start syred on a machine where an agent CLI (claude, codex, grok, ...) is installed and signed in.",
 			}
 			h.hubError(ctx, cs.ID, e)
 			return errors.New(e.Message)
@@ -876,7 +876,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 	if wc == nil {
 		e := protocol.AgentChatError{
 			Kind:      protocol.ErrKindOther,
-			Message:   fmt.Sprintf("Worker %s is not connected. Start konsertd there or move this chat to another worker.", h.workerLabel(ctx, cs.WorkerID)),
+			Message:   fmt.Sprintf("Worker %s is not connected. Start syred there or move this chat to another worker.", h.workerLabel(ctx, cs.WorkerID)),
 			Retryable: true,
 		}
 		h.hubError(ctx, cs.ID, e)
@@ -936,16 +936,16 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		exhausted.TurnID = turnID
 		h.emitChatEvent(ctx, cs.ID, *exhausted, emitOpts{})
 	}
-	// Tell the agent what the user (or Konsert) did since its last turn that concerns it.
+	// Tell the agent what the user (or Syre) did since its last turn that concerns it.
 	text := req.Content
 	if note := h.noteForPrompt(ctx, cs.ID, turnID); note != "" {
-		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
+		h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventSyreNote, TurnID: turnID, Text: note}, emitOpts{})
 		text = note + "\n\n" + text
 	}
 	// Answers to questions the agent stopped waiting for go with its next prompt.
 	if cs.QuestionID == "" && !strings.HasPrefix(req.Content, eventNotePrefix+" Answer to your earlier question") && !strings.HasPrefix(req.Content, eventNotePrefix+" Correction to your question") {
 		if note := h.takeAnswerNotes(ctx, cs.ID); note != "" {
-			h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventKonsertNote, TurnID: turnID, Text: note}, emitOpts{})
+			h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventSyreNote, TurnID: turnID, Text: note}, emitOpts{})
 			text = note + "\n\n" + text
 		}
 	}
@@ -961,7 +961,7 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 
 // handleChatSend routes chat.send by the session's backend. Agent sessions go to
 // their worker; API-backend (and unknown, auto-created) sessions run the API-key
-// orchestrator.
+// commander.
 func (h *Hub) handleChatSend(ctx context.Context, c *browserClient, env protocol.Envelope) {
 	p, err := protocol.DecodePayload[chatSendRequest](env)
 	if err != nil || p.SessionID == "" || strings.TrimSpace(p.Content) == "" {
@@ -978,7 +978,7 @@ func (h *Hub) handleChatSend(ctx context.Context, c *browserClient, env protocol
 	if orch == nil {
 		h.sendBrowserJSON(c, protocol.MsgChatError, protocol.ChatErrorPayload{
 			SessionID: p.SessionID,
-			Error:     "orchestrator service not initialized",
+			Error:     "commander service not initialized",
 		})
 		return
 	}

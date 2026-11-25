@@ -3,11 +3,11 @@
 package worker
 
 import (
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 	"golang.org/x/sys/windows"
 )
 
-// collectStartMode says how this konsertd was started, from its own token (KON-224K5),
+// collectStartMode says how this syred was started, from its own token (SYR-224K5),
 // so the hub can tell whether it comes back with nobody signed in.
 func collectStartMode(f *protocol.MachineFacts) {
 	member := func(sid string) bool {

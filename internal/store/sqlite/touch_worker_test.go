@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // A heartbeat racing a fleet removal must not resurrect the deleted worker row.

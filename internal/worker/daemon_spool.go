@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/spool"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
-// Durable outbound spool wiring (KON-VZR9F, docs/design/spool.md). sendJSON appends
+// Durable outbound spool wiring (SYR-VZR9F, docs/design/spool.md). sendJSON appends
 // spooled message types to d.spool; each connection's writer streams the spool from where
 // the hub's worker.spool.resume says it stopped, so replayed and live records go out in
 // one ordered stream.
@@ -387,7 +387,7 @@ func (d *Daemon) kickHeartbeat() {
 }
 
 // spoolStatusLoop reports the spool's state to the hub (worker.spool.status, not
-// spooled) and to `konsertd status`: every 2 s while replaying, otherwise every 30 s or
+// spooled) and to `syred status`: every 2 s while replaying, otherwise every 30 s or
 // when something changed, until ctx (the connection) ends.
 func (d *Daemon) spoolStatusLoop(ctx context.Context, sc *spoolConn) {
 	if d.spool == nil {
@@ -428,7 +428,7 @@ func (d *Daemon) spoolStatusLoop(ctx context.Context, sc *spoolConn) {
 	}
 }
 
-// spoolDisconnectedLoop keeps `konsertd status` current while no hub is connected.
+// spoolDisconnectedLoop keeps `syred status` current while no hub is connected.
 func (d *Daemon) spoolDisconnectedLoop(ctx context.Context) {
 	if d.spool == nil {
 		return

@@ -145,7 +145,7 @@ func (d *DeviceFlowClient) Start(ctx context.Context, host string, kind Kind) (D
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 
 	resp, err := d.httpClient().Do(req)
 	if err != nil {
@@ -232,7 +232,7 @@ func (d *DeviceFlowClient) Poll(ctx context.Context, host string, kind Kind, dev
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 
 	resp, err := d.httpClient().Do(req)
 	if err != nil {

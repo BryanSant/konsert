@@ -1,9 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatSession, StorageResponse, Task } from '../core/models/konsert.models';
+import { ChatSession, StorageResponse, Task } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
-import { OrchestratorStore } from '../core/state/orchestrator.store';
+import { CommanderStore } from '../core/state/commander.store';
 import { KeepToggleComponent } from '../features/control/keep-toggle.component';
 import { compactedNote } from '../features/chat/transcript/chat-transcript.component';
 import { StorageSettingsComponent, formatBytes } from './storage-settings.component';
@@ -13,7 +13,7 @@ function storage(over: Partial<StorageResponse> = {}): StorageResponse {
   const b = { Min: 7, Max: 365 };
   return {
     stats: {
-      path: '/var/lib/konsert/konsert.db',
+      path: '/var/lib/syre/syre.db',
       file_bytes: 50 * 1024 * 1024,
       wal_bytes: 4 * 1024 * 1024,
       free_bytes: 1024 * 1024,
@@ -124,7 +124,7 @@ describe('KeepToggleComponent', () => {
   it('pins a chat and applies the result', async () => {
     const setKeep = vi.fn(async (_k: string, id: string, keep: boolean) => ({ chat: { id, keep } as ChatSession }));
     TestBed.configureTestingModule({ providers: [{ provide: ApiClientService, useValue: { setKeep } }] });
-    const orch = TestBed.inject(OrchestratorStore);
+    const orch = TestBed.inject(CommanderStore);
     orch.sessions.set([{ id: 'c1', sid: 'c-1', title: 'x', provider: 'p', model: 'm', created_at: '', updated_at: '' }]);
     const fixture = TestBed.createComponent(KeepToggleComponent);
     fixture.componentRef.setInput('kind', 'chat');

@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/coder/websocket"
 )
 
@@ -87,13 +87,13 @@ type launchTest struct {
 	bootstrap []sshutil.BootstrapOptions
 	bootRes   func(sshutil.BootstrapOptions) sshutil.BootstrapResult
 
-	// daemons are the fake konsertds the hub can attach to, by worker id.
+	// daemons are the fake syreds the hub can attach to, by worker id.
 	daemons *fakeDaemons
 }
 
 func newLaunchTest(t *testing.T) *launchTest {
 	t.Helper()
-	st, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func newLaunchTest(t *testing.T) *launchTest {
 	lt := &launchTest{srv: srv, st: st, runner: &fakeRunner{id: localID}}
 	l := srv.launch
 	l.runner = lt.runner
-	l.findKonsertd = func() string { return "/opt/konsert/bin/konsertd" }
+	l.findSyred = func() string { return "/opt/syre/bin/syred" }
 	l.hostname = func() string { return "hubhost" }
 	l.connectTimeout = 2 * time.Second
 	l.startChild = func(context.Context, string, []string, string) error {
@@ -144,7 +144,7 @@ func (lt *launchTest) bootstraps() []sshutil.BootstrapOptions {
 	return slices.Clone(lt.bootstrap)
 }
 
-// dial connects to /ws/worker as a fake konsertd (over loopback, like httptest) and
+// dial connects to /ws/worker as a fake syred (over loopback, like httptest) and
 // keeps the connection open until the test ends. Safe to call from any goroutine.
 func (lt *launchTest) dial(t *testing.T, info protocol.WorkerInfo) error {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -203,12 +203,12 @@ func TestSetupStatus(t *testing.T) {
 	lt := newLaunchTest(t)
 	code, body := lt.do(t, http.MethodGet, "/api/setup")
 	local, _ := body["local"].(map[string]any)
-	if code != 200 || body["needs_setup"] != true || local["hostname"] != "hubhost" || local["konsertd_found"] != true ||
-		local["worker_id"] != localID || local["connected"] != false || local["konsertd_path"] != "/opt/konsert/bin/konsertd" {
+	if code != 200 || body["needs_setup"] != true || local["hostname"] != "hubhost" || local["syred_found"] != true ||
+		local["worker_id"] != localID || local["connected"] != false || local["syred_path"] != "/opt/syre/bin/syred" {
 		t.Fatalf("fresh hub: %d %v", code, body)
 	}
-	if got := lt.runner.calls[0]; strings.Join(got, " ") != "/opt/konsert/bin/konsertd id --name hubhost" {
-		t.Fatalf("konsertd id invocation = %q", got)
+	if got := lt.runner.calls[0]; strings.Join(got, " ") != "/opt/syre/bin/syred id --name hubhost" {
+		t.Fatalf("syred id invocation = %q", got)
 	}
 
 	// Dismissing the first-run dialog is persisted by the hub.
@@ -219,13 +219,13 @@ func TestSetupStatus(t *testing.T) {
 		t.Fatalf("after dismiss: %v", body)
 	}
 
-	// No konsertd: setup says how to fix it.
+	// No syred: setup says how to fix it.
 	lt2 := newLaunchTest(t)
-	lt2.srv.launch.findKonsertd = func() string { return "" }
+	lt2.srv.launch.findSyred = func() string { return "" }
 	_, body = lt2.do(t, http.MethodGet, "/api/setup")
 	local, _ = body["local"].(map[string]any)
-	if local["konsertd_found"] != false || !strings.Contains(local["fix"].(string), "PATH") || len(lt2.runner.calls) != 0 {
-		t.Fatalf("no konsertd: %v", body)
+	if local["syred_found"] != false || !strings.Contains(local["fix"].(string), "PATH") || len(lt2.runner.calls) != 0 {
+		t.Fatalf("no syred: %v", body)
 	}
 
 	// A machine row (any daemon that connected) means the hub is set up.
@@ -262,7 +262,7 @@ func TestAddLocalAttachesRunningDaemonWithoutInstall(t *testing.T) {
 	}
 }
 
-func TestAddLocalStartsKonsertdInstall(t *testing.T) {
+func TestAddLocalStartsSyredInstall(t *testing.T) {
 	lt := newLaunchTest(t)
 	lt.runner.installFn = func([]string) error {
 		// The installed daemon comes up on its socket; the hub attaches.
@@ -279,7 +279,7 @@ func TestAddLocalStartsKonsertdInstall(t *testing.T) {
 		return w.LaunchState == store.LaunchStateNone && w.LaunchAt != nil
 	})
 	calls, stdins := lt.runner.installCalls()
-	want := []string{"/opt/konsert/bin/konsertd", "install", "--name", "hubhost"}
+	want := []string{"/opt/syre/bin/syred", "install", "--name", "hubhost"}
 	if len(calls) != 1 || !slices.Equal(calls[0], want) || stdins[0] != "" {
 		t.Fatalf("install calls = %q stdin %q, want %q and no stdin", calls, stdins, want)
 	}
@@ -345,7 +345,7 @@ func TestAddLocalDryRunNeverRegistersAService(t *testing.T) {
 	if len(calls) != 1 || calls[0][len(calls[0])-1] != "--dry-run" {
 		t.Fatalf("dry run must pass --dry-run to install: %q", calls)
 	}
-	if strings.Join(child, " ") != "/opt/konsert/bin/konsertd run --name hubhost" || childStdin != "" {
+	if strings.Join(child, " ") != "/opt/syre/bin/syred run --name hubhost" || childStdin != "" {
 		t.Fatalf("child = %q stdin %q", child, childStdin)
 	}
 }
@@ -444,7 +444,7 @@ func TestSSHBootstrapRecordsLaunch(t *testing.T) {
 	}
 	// The key lives next to the database, private; its comment names the hub.
 	keyPath := lt.srv.hubKeyPath()
-	if filepath.Base(keyPath) != HubKeyFileName || !strings.HasSuffix(boots[0].HubKey.PublicKey, "konsert-hub:"+boots[0].HubKey.HubID) {
+	if filepath.Base(keyPath) != HubKeyFileName || !strings.HasSuffix(boots[0].HubKey.PublicKey, "syre-hub:"+boots[0].HubKey.HubID) {
 		t.Fatalf("hub key %s %q", keyPath, boots[0].HubKey.PublicKey)
 	}
 	if creds, _ := lt.st.ListMachineCredentials(context.Background(), remoteID); len(creds) != 0 {

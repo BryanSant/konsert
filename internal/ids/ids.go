@@ -1,11 +1,11 @@
-// Package ids mints Konsert's identifiers.
+// Package ids mints Syre's identifiers.
 //
 // Every entity record (task, chat, machine, project, repo, space, workspace, worktree) has
 // two identifiers:
 //
 //   - id: a UUIDv7 (UUID). It is the primary key, every foreign key holds one, and the
 //     hub<->worker protocol and the web app's internal state use it. UUIDv7s are
-//     time-ordered, so they sort by creation and index well. A machine's id is konsertd's
+//     time-ordered, so they sort by creation and index well. A machine's id is syred's
 //     own persistent UUID. Protocol request/turn IDs and agent session IDs are UUIDv7s too.
 //   - sid: a short, typed, ka-style ID shown to users and accepted in API paths next to the
 //     id: a one- or two-letter kind prefix plus random lower-case Crockford base32, so the
@@ -48,7 +48,7 @@ const (
 	Device Kind = "dv"
 	// PairingCode is a one-time sign-in code (pairing link or CLI device-code login).
 	PairingCode Kind = "pc"
-	// MachineCredential is a konsertd's own credential (KON-RK9YD).
+	// MachineCredential is a syred's own credential (SYR-RK9YD).
 	MachineCredential Kind = "mc"
 )
 

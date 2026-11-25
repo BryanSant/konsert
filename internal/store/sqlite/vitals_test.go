@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func openVitalsStore(t *testing.T, workers ...string) (*SQLiteStore, string) {
 	t.Helper()
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "konsert.db")
+	path := filepath.Join(t.TempDir(), "syre.db")
 	st, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

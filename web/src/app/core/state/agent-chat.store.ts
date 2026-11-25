@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AgentChatCreateRequest, AgentChatEvent, ChatStatus } from '../models/agent-chat.models';
-import { ChatSession } from '../models/konsert.models';
+import { ChatSession } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 import { ChatControlFrame, ChatTransportService } from '../services/chat-transport.service';
 import {
@@ -16,7 +16,7 @@ import {
   removePendingUser,
   unmarkAnswering,
 } from './chat-transcript';
-import { CHAT_NOT_CONNECTED_ERROR, OrchestratorStore, isAgentChat } from './orchestrator.store';
+import { CHAT_NOT_CONNECTED_ERROR, CommanderStore, isAgentChat } from './commander.store';
 
 let turnCounter = 0;
 export function newTurnId(): string {
@@ -35,7 +35,7 @@ export { isAgentChat };
 export class AgentChatStore {
   private readonly api = inject(ApiClientService);
   private readonly transport = inject(ChatTransportService);
-  private readonly orch = inject(OrchestratorStore);
+  private readonly orch = inject(CommanderStore);
 
   readonly transcripts = signal<Record<string, TranscriptState>>({});
   readonly error = signal('');

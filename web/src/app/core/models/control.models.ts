@@ -3,10 +3,10 @@
  * Pause everything. Mirrors internal/store/control.go.
  */
 
-export type ActorKind = 'user' | 'orchestrator' | 'agent' | 'scheduler' | 'system' | 'unknown';
+export type ActorKind = 'user' | 'commander' | 'agent' | 'scheduler' | 'system' | 'unknown';
 export type Confidence = 'certain' | 'high' | 'likely' | 'unknown';
 
-/** Who caused a state change, through which path, and how sure Konsert is. */
+/** Who caused a state change, through which path, and how sure Syre is. */
 export interface Cause {
   actor: ActorKind | string;
   /** ui, cli, terminal, ssh for users; mcp, worker, reaper, ... for others. */
@@ -98,14 +98,14 @@ export type OverrideScope = 'machine_slots' | 'hold' | 'session' | 'machine';
 export type OverrideStatus = 'pending' | 'approved' | 'denied' | 'expired';
 
 /**
- * A time-boxed exception an orchestrator asked for (break-glass): extra slots on a machine,
+ * A time-boxed exception a commander asked for (break-glass): extra slots on a machine,
  * or holds lifted for a while. Enforced once approved until `expires_at`; `use_count`
  * measures whether it was actually used.
  */
 export interface OverrideRequest {
   id: string;
   sid: string;
-  /** The requesting orchestrator chat. */
+  /** The requesting commander chat. */
   chat_id?: string;
   scope_kind: OverrideScope | string;
   worker_id?: string;
@@ -115,7 +115,7 @@ export interface OverrideRequest {
   extra_slots?: number;
   duration_seconds: number;
   reason: string;
-  /** What approving allows, in Konsert's words. */
+  /** What approving allows, in Syre's words. */
   consequences: string;
   status: OverrideStatus | string;
   created_at: string;
@@ -154,7 +154,7 @@ export interface Veto {
   status: VetoStatus | string;
   /** When it escalates if still unacknowledged. */
   ack_deadline: string;
-  /** "the orchestrator (chat c-…)" */
+  /** "the commander (chat c-…)" */
   delivered_to?: string;
   acked_by?: string;
 }
@@ -213,32 +213,32 @@ export interface WorkerControlResult {
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  ui: 'the Konsert UI',
+  ui: 'the Syre UI',
   cli: 'the CLI',
-  terminal: 'a Konsert terminal',
+  terminal: 'a Syre terminal',
   ssh: 'SSH',
   mcp: 'MCP',
 };
 
-/** Who did it, from the viewer's perspective ("You", "The orchestrator", ...). */
+/** Who did it, from the viewer's perspective ("You", "The commander", ...). */
 export function actorLabel(c: Cause | undefined | null): string {
   switch (c?.actor) {
     case 'user':
       return 'You';
-    case 'orchestrator':
-      return 'The orchestrator';
+    case 'commander':
+      return 'The commander';
     case 'agent':
       return 'An agent';
     case 'scheduler':
       return 'The scheduler';
     case 'system':
-      return 'Konsert';
+      return 'Syre';
     default:
       return 'Unknown';
   }
 }
 
-/** "via the Konsert UI" etc.; empty when the source is unknown. */
+/** "via the Syre UI" etc.; empty when the source is unknown. */
 export function sourceLabel(c: Cause | undefined | null): string {
   const s = c?.source;
   if (!s) return '';
@@ -270,7 +270,7 @@ function statusVerb(status: string): string {
   }
 }
 
-/** One line such as "Canceled by you via the Konsert UI" (empty without a cause). */
+/** One line such as "Canceled by you via the Syre UI" (empty without a cause). */
 export function causeLine(status: string, c: Cause | undefined | null): string {
   if (!c?.actor) return '';
   const who =
@@ -301,7 +301,7 @@ export function mergeFleetEvents(
 
 /**
  * Whether an event belongs in the "Your actions" timeline: anything the user caused, plus
- * how agents and Konsert responded (holds, requests, vetoes, notices). Routine status
+ * how agents and Syre responded (holds, requests, vetoes, notices). Routine status
  * transitions of agents are left out.
  */
 export function isTimelineEvent(ev: FleetEvent): boolean {

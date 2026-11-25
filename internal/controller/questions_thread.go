@@ -10,22 +10,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Side conversations ("Ask about this", PRD §5.8b). The user asks clarifying questions
 // before answering. The answerer is a read-only fork of the asking agent's session on the
 // same machine and account (same conversation context), or — when the agent can't fork —
-// the orchestrator's agent with a context pack. Either way it runs as a hidden agent
+// the commander's agent with a context pack. Either way it runs as a hidden agent
 // chat through the normal chat machinery. The asking session stays blocked and
 // undisturbed. The answerer can propose an answer ("DRAFT ANSWER: …"), and when the user
 // answers it writes the summary delivered with the answer. The hidden chat is discarded
 // once the question is answered or cancelled.
 
 // sideConversationSystemPrompt is the answerer's standing instruction.
-const sideConversationSystemPrompt = `You are answering a side conversation in Konsert. The user is deciding how to answer a question an agent asked and wants to understand it first.
+const sideConversationSystemPrompt = `You are answering a side conversation in Syre. The user is deciding how to answer a question an agent asked and wants to understand it first.
 Explain plainly and concretely: what things are (name tickets, PRs and files with their titles), why the decision matters now, what each option leads to, and why the recommendation was made.
 You are read-only: you may read files and run read-only commands to answer, but never change anything and never act on the decision yourself.
 Keep answers short (a few sentences or bullets). When you can propose an answer, end with one line exactly like:
@@ -52,7 +52,7 @@ func (h *Hub) threadHasUserMessages(ctx context.Context, questionID string) bool
 }
 
 // askAboutQuestion sends the user's message to the question's side conversation,
-// starting it (fork or orchestrator) on the first message.
+// starting it (fork or commander) on the first message.
 func (h *Hub) askAboutQuestion(ctx context.Context, id, text string) (store.Question, error) {
 	ctx = context.WithoutCancel(ctx)
 	text = strings.TrimSpace(text)
@@ -103,7 +103,7 @@ func (h *Hub) askAboutQuestion(ctx context.Context, id, text string) (store.Ques
 }
 
 // newThreadChat creates the hidden answerer chat: a fork of the asking session when its
-// agent can fork, else the orchestrator's agent. Caller holds h.questions.mu.
+// agent can fork, else the commander's agent. Caller holds h.questions.mu.
 func (h *Hub) newThreadChat(ctx context.Context, q store.Question) (store.ChatSession, *store.QuestionThread, error) {
 	asker, err := h.store.GetChatSession(ctx, q.ChatID)
 	if err != nil {
@@ -112,7 +112,7 @@ func (h *Hub) newThreadChat(ctx context.Context, q store.Question) (store.ChatSe
 	if ok, why := h.canFork(ctx, asker); ok {
 		return h.createThreadChat(ctx, q, asker, store.AnswererFork, "")
 	} else {
-		return h.createThreadChat(ctx, q, asker, store.AnswererOrchestrator, why)
+		return h.createThreadChat(ctx, q, asker, store.AnswererCommander, why)
 	}
 }
 
@@ -156,8 +156,8 @@ func (h *Hub) createThreadChat(ctx context.Context, q store.Question, asker stor
 		cs.WorkerID, cs.Agent, cs.AccountID = asker.WorkerID, asker.Agent, asker.AccountID
 		cs.Model, cs.Effort, cs.Cwd = asker.Model, asker.Effort, asker.Cwd
 	} else {
-		// The orchestrator's agent (its chat's target), else the default agent.
-		if orch, ok := h.orchestratorChat(ctx); ok && orch.ID != asker.ID {
+		// The commander's agent (its chat's target), else the default agent.
+		if orch, ok := h.commanderChat(ctx); ok && orch.ID != asker.ID {
 			cs.WorkerID, cs.Agent, cs.AccountID, cs.Model = orch.WorkerID, orch.Agent, orch.AccountID, orch.Model
 		} else if asker.FleetTools {
 			cs.WorkerID, cs.Agent, cs.AccountID, cs.Model = asker.WorkerID, asker.Agent, asker.AccountID, asker.Model
@@ -184,15 +184,15 @@ func (h *Hub) createThreadChat(ctx context.Context, q store.Question, asker stor
 	}, nil
 }
 
-// orchestratorChat returns the default orchestrator chat, if one exists.
-func (h *Hub) orchestratorChat(ctx context.Context) (store.ChatSession, bool) {
+// commanderChat returns the default commander chat, if one exists.
+func (h *Hub) commanderChat(ctx context.Context) (store.ChatSession, bool) {
 	saved, _ := h.store.GetAllSettings(ctx)
-	if id := saved[orchestratorChatSetting]; id != "" {
+	if id := saved[commanderChatSetting]; id != "" {
 		if cs, err := h.store.GetChatSession(ctx, id); err == nil && cs.Backend == store.ChatBackendAgent && cs.FleetTools {
 			return cs, true
 		}
 	}
-	for _, cs := range h.orchestratorChats(ctx) {
+	for _, cs := range h.commanderChats(ctx) {
 		return cs, true
 	}
 	return store.ChatSession{}, false
@@ -206,10 +206,10 @@ func (h *Hub) threadPrompt(ctx context.Context, q store.Question, text string, f
 	}
 	var b strings.Builder
 	if q.Thread != nil && q.Thread.Answerer == store.AnswererFork {
-		b.WriteString("[Konsert side conversation] You are a read-only copy of this session. The original session is paused, waiting for the user's answer to the question you asked (below). The user asks about it before answering: answer from your context, and don't change anything.\n\n")
+		b.WriteString("[Syre side conversation] You are a read-only copy of this session. The original session is paused, waiting for the user's answer to the question you asked (below). The user asks about it before answering: answer from your context, and don't change anything.\n\n")
 		b.WriteString(questionText(q))
 	} else {
-		b.WriteString("[Konsert side conversation] An agent asked the user the question below and can't answer follow-up questions itself, so you answer for it from this context pack. Don't change anything.\n\n")
+		b.WriteString("[Syre side conversation] An agent asked the user the question below and can't answer follow-up questions itself, so you answer for it from this context pack. Don't change anything.\n\n")
 		b.WriteString(questionText(q))
 		b.WriteString("\n\n")
 		b.WriteString(h.contextPack(ctx, q))
@@ -218,7 +218,7 @@ func (h *Hub) threadPrompt(ctx context.Context, q store.Question, text string, f
 	return b.String()
 }
 
-// contextPack describes the asking session for the orchestrator fallback: who asked,
+// contextPack describes the asking session for the commander fallback: who asked,
 // where, its goal, a recent transcript excerpt and the files it touched.
 func (h *Hub) contextPack(ctx context.Context, q store.Question) string {
 	cs, err := h.store.GetChatSession(ctx, q.ChatID)
@@ -293,7 +293,7 @@ type threadMsg struct{ id, text string }
 
 // onThreadChatEvent follows a hidden answerer chat: collects its reply, records it in
 // the side conversation when the turn ends (or hands it to a summary waiter), and falls
-// back to the orchestrator if a fork can't start. Runs under the hidden chat's lock.
+// back to the commander if a fork can't start. Runs under the hidden chat's lock.
 func (h *Hub) onThreadChatEvent(ctx context.Context, cs store.ChatSession, ev protocol.AgentChatEvent) {
 	switch ev.Kind {
 	case protocol.EventMessage:
@@ -338,13 +338,13 @@ func (h *Hub) onThreadChatEvent(ctx context.Context, cs store.ChatSession, ev pr
 		}
 		failed := ev.Kind == protocol.EventError && text == ""
 		if failed && q.Thread.Answerer == store.AnswererFork && !h.hasAnswererMessage(ctx, q.ID) && q.Pending() {
-			// The fork couldn't start (or answer): let the orchestrator answer instead.
+			// The fork couldn't start (or answer): let the commander answer instead.
 			reason := "the fork failed"
 			if ev.Error != nil {
 				reason = "the fork failed: " + oneLine(ev.Error.Message, 200)
 			}
 			h.questions.mu.Unlock()
-			h.goBackground(func(bctx context.Context) { h.fallbackToOrchestrator(bctx, q.ID, reason) })
+			h.goBackground(func(bctx context.Context) { h.fallbackToCommander(bctx, q.ID, reason) })
 			return
 		}
 		display, draft := parseDraft(text, q)
@@ -393,9 +393,9 @@ func (h *Hub) threadFailed(ctx context.Context, id, why string) {
 	}
 }
 
-// fallbackToOrchestrator replaces a failed fork with the orchestrator and re-asks the
+// fallbackToCommander replaces a failed fork with the commander and re-asks the
 // user's messages so far.
-func (h *Hub) fallbackToOrchestrator(ctx context.Context, id, reason string) {
+func (h *Hub) fallbackToCommander(ctx context.Context, id, reason string) {
 	h.questions.mu.Lock()
 	q, err := h.store.GetQuestion(ctx, id)
 	if err != nil || !q.Pending() || q.Thread == nil {
@@ -408,7 +408,7 @@ func (h *Hub) fallbackToOrchestrator(ctx context.Context, id, reason string) {
 		return
 	}
 	oldChat := q.Thread.ChatID
-	cs, thread, err := h.createThreadChat(ctx, q, asker, store.AnswererOrchestrator, capitalize(reason)+"; the orchestrator answers instead.")
+	cs, thread, err := h.createThreadChat(ctx, q, asker, store.AnswererCommander, capitalize(reason)+"; the commander answers instead.")
 	if err != nil {
 		h.questions.mu.Unlock()
 		h.threadFailed(ctx, id, reason+"; "+err.Error())
@@ -491,7 +491,7 @@ func (h *Hub) threadSummary(ctx context.Context, q store.Question) string {
 	h.questions.init()
 	h.questions.summaryWaiters[cs.ID] = w
 	h.questions.mu.Unlock()
-	prompt := fmt.Sprintf("[Konsert] The user has now answered the original question with %s. Write the note the original agent will receive with the answer: "+
+	prompt := fmt.Sprintf("[Syre] The user has now answered the original question with %s. Write the note the original agent will receive with the answer: "+
 		"one or two sentences, in the form \"The user asked <what they asked>; after learning <the key fact>, chose <the answer> because <their reason, if given or implied>.\" "+
 		"Reply with only that note.", answerChoiceText(q.Answer))
 	if err := h.sendAgentChat(ctx, cs, chatSendRequest{SessionID: cs.ID, Content: prompt}); err != nil {

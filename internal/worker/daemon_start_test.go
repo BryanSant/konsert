@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // task.start used to run synchronously on the WebSocket read loop, so a slow `git worktree

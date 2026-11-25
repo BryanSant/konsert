@@ -1,17 +1,17 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Task } from '../models/konsert.models';
-import { OrchestratorStore } from '../state/orchestrator.store';
+import { Task } from '../models/syre.models';
+import { CommanderStore } from '../state/commander.store';
 
 /**
  * Opening a session from anywhere (a notification, the audit log, Your actions, a dialog):
- * every session is a tab in Command at /command/<sid>; orchestrator conversations open in
- * Command's pinned orchestrator tab.
+ * every session is a tab in Command at /command/<sid>; commander conversations open in
+ * Command's pinned commander tab.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionNavService {
   private readonly router = inject(Router);
-  private readonly orch = inject(OrchestratorStore);
+  private readonly orch = inject(CommanderStore);
 
   openTask(task: Pick<Task, 'sid'>): void {
     if (task.sid) void this.router.navigate(['/command', task.sid]);

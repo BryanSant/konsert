@@ -13,7 +13,7 @@ func TestRedact(t *testing.T) {
 		{"git commit -m 'fix: things' --author='A <a@b.c>'", "git commit -m 'fix: things' --author='A <a@b.c>'"},
 		{"git checkout 3f786850e387550fdab836ed7e6dc881de23001b", "git checkout 3f786850e387550fdab836ed7e6dc881de23001b"},
 		{"docker run -p 8080:80 nginx", "docker run -p 8080:80 nginx"},
-		{"cd ~/src/konsert && make build", "cd ~/src/konsert && make build"},
+		{"cd ~/src/syre && make build", "cd ~/src/syre && make build"},
 		{"kubectl logs 0190d1f2-7c3a-7b4e-9f00-1a2b3c4d5e6f", "kubectl logs 0190d1f2-7c3a-7b4e-9f00-1a2b3c4d5e6f"},
 		{"echo $GITHUB_TOKEN", "echo $GITHUB_TOKEN"},
 		{"docker login --password-stdin -u me", "docker login --password-stdin -u me"},

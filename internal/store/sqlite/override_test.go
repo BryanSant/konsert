@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestOverrideLifecycle(t *testing.T) {

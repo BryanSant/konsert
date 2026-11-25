@@ -13,15 +13,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/secrets"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/secrets"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/worker"
 	"github.com/coder/websocket"
 )
 
@@ -33,7 +33,7 @@ type Server struct {
 	auth    *auth.Manager
 	hub     *Hub
 	service *FleetService
-	orch    *orchestrator.Service
+	orch    *commander.Service
 	logger  *slog.Logger
 	mux     *http.ServeMux
 	handler http.Handler
@@ -55,11 +55,11 @@ type Server struct {
 	inflight       inflightTracker
 	// secrets encrypts the LLM API key before it is stored in the database.
 	secrets *secrets.Box
-	// orchChatMu serializes creation of the default orchestrator chat.
+	// orchChatMu serializes creation of the default commander chat.
 	orchChatMu sync.Mutex
 	// boundAddr is the address the HTTP server listens on (SetListenAddr; guarded by cfgMu).
 	boundAddr string
-	// launch starts konsertd on the hub's machine and on SSH hosts (launch.go).
+	// launch starts syred on the hub's machine and on SSH hosts (launch.go).
 	launch *launcher
 	// machines holds machine-credential state (machine_auth.go).
 	machines *machineAuth
@@ -73,7 +73,7 @@ type Server struct {
 	forges *forgeManager
 }
 
-// NewServer creates a fully wired Konsert controller HTTP handler.
+// NewServer creates a fully wired Syre controller HTTP handler.
 func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger, version string) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -86,12 +86,12 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	if saved, err := st.GetAllSettings(context.Background()); err == nil {
 		idleDays = deviceIdleDays(saved)
 		migratePlaintextSecrets(st, box, saved, logger)
-		merged := cfg.Orchestrator
-		applySavedOrchestratorSettings(&merged, saved, box, logger)
-		if err := validateOrchestratorConfig(merged); err != nil {
-			logger.Error("ignoring invalid saved orchestrator settings; using startup config", "err", err)
+		merged := cfg.Commander
+		applySavedCommanderSettings(&merged, saved, box, logger)
+		if err := validateCommanderConfig(merged); err != nil {
+			logger.Error("ignoring invalid saved commander settings; using startup config", "err", err)
 		} else {
-			cfg.Orchestrator = merged
+			cfg.Commander = merged
 		}
 	}
 	authMgr := auth.NewManager(auth.Options{
@@ -103,9 +103,9 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	})
 	hub := NewHub(st, logger)
 	svc := NewFleetService(st, hub)
-	orch := orchestrator.NewService(cfg.Orchestrator, st, svc)
-	orch.SetMaxTokens(cfg.Orchestrator.MaxTokens)
-	hub.SetOrchestrator(orch)
+	orch := commander.NewService(cfg.Commander, st, svc)
+	orch.SetMaxTokens(cfg.Commander.MaxTokens)
+	hub.SetCommander(orch)
 	hub.SetDeliveryService(svc)
 
 	s := &Server{
@@ -138,16 +138,16 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	hub.version = version
 	hub.chatFleetBackend = serverControlPlane{FleetService: svc, srv: s, admin: false}
 	hub.chatMCP = s.serveRelayedChatMCP
-	// Delivery modes (KON-H50YW) open and merge PRs/MRs through the forge adapters (KON-QHGWZ).
+	// Delivery modes (SYR-H50YW) open and merge PRs/MRs through the forge adapters (SYR-QHGWZ).
 	hub.SetForge(s.forges.resolver)
 	s.registerRoutes()
 	s.handler = s.guard(s.mux)
 	return s
 }
 
-func (s *Server) Hub() *Hub                           { return s.hub }
-func (s *Server) Service() *FleetService              { return s.service }
-func (s *Server) Orchestrator() *orchestrator.Service { return s.orch }
+func (s *Server) Hub() *Hub                     { return s.hub }
+func (s *Server) Service() *FleetService        { return s.service }
+func (s *Server) Commander() *commander.Service { return s.orch }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.inflight.add()
@@ -197,9 +197,9 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/setup", s.requireBrowserAuth(s.handleGetSetup))
 	s.mux.Handle("POST /api/setup/dismiss", s.requireBrowserAuth(s.handleDismissSetup))
 	s.registerWakeLockRoutes()
-	s.mux.Handle("GET /api/orchestrator/memory", s.requireBrowserAuth(s.handleListMemory))
-	s.mux.Handle("POST /api/orchestrator/memory", s.requireBrowserAuth(s.handleUpsertMemory))
-	s.mux.Handle("DELETE /api/orchestrator/memory", s.requireBrowserAuth(s.handleDeleteMemory))
+	s.mux.Handle("GET /api/commander/memory", s.requireBrowserAuth(s.handleListMemory))
+	s.mux.Handle("POST /api/commander/memory", s.requireBrowserAuth(s.handleUpsertMemory))
+	s.mux.Handle("DELETE /api/commander/memory", s.requireBrowserAuth(s.handleDeleteMemory))
 	s.mux.Handle("GET /api/fs/list", s.requireBrowserAuth(s.handleFSList))
 	s.mux.Handle("GET /api/ssh/hosts", s.requireBrowserAuth(s.handleSSHHosts))
 	s.mux.Handle("POST /api/ssh/bootstrap", s.requireBrowserAuth(s.handleSSHBootstrap))
@@ -253,7 +253,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/tasks/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Task, s.handleShellAction("task", "ask"))))
 	s.mux.Handle("POST /api/chats/{id}/shells/kill", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "kill"))))
 	s.mux.Handle("POST /api/chats/{id}/shells/ask", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleShellAction("chat", "ask"))))
-	// Shells left running by finished sessions (KON-DCEZV): reminders, Keep running, policy.
+	// Shells left running by finished sessions (SYR-DCEZV): reminders, Keep running, policy.
 	s.mux.Handle("POST /api/tasks/{id}/shells/keep", s.requireBrowserAuth(s.byRef(ids.Task, s.handleKeepShells("task"))))
 	s.mux.Handle("POST /api/chats/{id}/shells/keep", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleKeepShells("chat"))))
 	s.mux.Handle("GET /api/shells/reminders", s.requireBrowserAuth(s.handleListShellReminders))
@@ -293,7 +293,7 @@ func (s *Server) registerRoutes() {
 	// Questions (PRD §5.8b): the fleet-wide queue, side conversations, delegation.
 	s.registerQuestionRoutes()
 
-	// Orchestrator Chat & Attachments REST API
+	// Commander Chat & Attachments REST API
 	s.mux.Handle("GET /api/chat/sessions", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chat/sessions", s.requireBrowserAuth(s.handleCreateChatSession))
 	s.mux.Handle("PATCH /api/chat/sessions/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleRenameChatSession)))
@@ -302,7 +302,7 @@ func (s *Server) registerRoutes() {
 	// Agent chat (subscription-backed; see hub_agentchat.go).
 	s.mux.Handle("GET /api/chats", s.requireBrowserAuth(s.handleListChatSessions))
 	s.mux.Handle("POST /api/chats", s.requireBrowserAuth(s.handleCreateChatSession))
-	s.mux.Handle("POST /api/chats/orchestrator", s.requireBrowserAuth(s.handleEnsureOrchestratorChat))
+	s.mux.Handle("POST /api/chats/commander", s.requireBrowserAuth(s.handleEnsureCommanderChat))
 	s.mux.Handle("GET /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleGetChat)))
 	s.mux.Handle("PATCH /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleRenameChatSession)))
 	s.mux.Handle("DELETE /api/chats/{id}", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleDeleteChatSession)))
@@ -373,8 +373,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		id, ok = auth.Identity{}, false
 	}
 	s.cfgMu.RLock()
-	prov := s.cfg.Orchestrator.Provider
-	model := effectiveModel(s.cfg.Orchestrator)
+	prov := s.cfg.Commander.Provider
+	model := effectiveModel(s.cfg.Commander)
 	s.cfgMu.RUnlock()
 	resp := map[string]any{
 		"authenticated": ok,
@@ -527,7 +527,7 @@ func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {
 	if getErr == nil && wk.Launch == store.LaunchManual {
 		creds = s.removedCreds(r.Context(), id)
 	}
-	// The close code (4001) makes a connected konsertd uninstall itself and stop; the
+	// The close code (4001) makes a connected syred uninstall itself and stop; the
 	// attach loop ends with the record. The hub uninstalls it as well (below).
 	s.hub.DisconnectWorker(id)
 	s.attach.stop(id)
@@ -649,7 +649,7 @@ func (s *Server) handleSSHBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The hub attaches over SSH with its own key, which bootstrap allows (restricted to
-	// `konsertd attach`): no machine credential.
+	// `syred attach`): no machine credential.
 	grant, err := s.hubKeyGrant(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -706,7 +706,7 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, usage)
 }
 
-func applySavedOrchestratorSettings(orch *config.OrchestratorConfig, saved map[string]string, box *secrets.Box, logger *slog.Logger) {
+func applySavedCommanderSettings(orch *config.CommanderConfig, saved map[string]string, box *secrets.Box, logger *slog.Logger) {
 	if v := strings.TrimSpace(saved["llm_provider"]); v != "" {
 		orch.Provider = v
 	}
@@ -746,21 +746,21 @@ type settingsResponse struct {
 	// DeviceIdleDays is how long a signed-in device may go unused before it must pair
 	// again (sliding expiry).
 	DeviceIdleDays int `json:"device_idle_days"`
-	// Global delivery defaults (KON-H50YW).
+	// Global delivery defaults (SYR-H50YW).
 	DefaultDeliveryMode string `json:"default_delivery_mode"`
 	DefaultMergeStyle   string `json:"default_merge_style"`
-	// OrchestratorBackend is "agent": the orchestrator is an agent chat on a
+	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
-	OrchestratorBackend string `json:"orchestrator_backend"`
-	APIKeyRequired      bool   `json:"api_key_required"`
-	OrchestratorChatID  string `json:"orchestrator_chat_id,omitempty"`
+	CommanderBackend string `json:"commander_backend"`
+	APIKeyRequired   bool   `json:"api_key_required"`
+	CommanderChatID  string `json:"commander_chat_id,omitempty"`
 }
 
 func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 	saved, _ := s.store.GetAllSettings(ctx)
 	s.cfgMu.RLock()
-	orch := s.cfg.Orchestrator
+	orch := s.cfg.Commander
 	s.cfgMu.RUnlock()
 
 	perm := saved["default_permission_mode"]
@@ -792,8 +792,8 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		DeviceIdleDays:        deviceIdleDays(saved),
 		DefaultDeliveryMode:   saved[deliveryModeSetting],
 		DefaultMergeStyle:     firstNonEmpty(saved[mergeStyleSetting], store.MergeStyleSquash),
-		OrchestratorBackend:   store.ChatBackendAgent,
-		OrchestratorChatID:    saved[orchestratorChatSetting],
+		CommanderBackend:      store.ChatBackendAgent,
+		CommanderChatID:       saved[commanderChatSetting],
 	}
 }
 
@@ -1251,7 +1251,7 @@ func (s *Server) handleWorkerWS(w http.ResponseWriter, r *http.Request) {
 		rec := *bound.removed
 		s.forgetRemoval(r.Context(), rec.WorkerID)
 		s.auditUninstall(withAuditActor(r.Context(), "system", ""), rec, true,
-			"konsertd on "+machineLabel(rec)+" reconnected after its removal and was told to uninstall itself (close code 4001)", "")
+			"syred on "+machineLabel(rec)+" reconnected after its removal and was told to uninstall itself (close code 4001)", "")
 		_ = conn.Close(websocket.StatusCode(protocol.WSCloseWorkerRemoved), "worker removed from fleet")
 		return
 	}

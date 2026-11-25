@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -21,8 +21,8 @@ func userCtx() context.Context {
 	return withAuditActor(context.Background(), "tester", auditSourceREST)
 }
 
-func orchestratorCtx(chatID string) context.Context {
-	ctx := withAuditActor(context.Background(), "orchestrator", auditSourceOrchestrator)
+func commanderCtx(chatID string) context.Context {
+	ctx := withAuditActor(context.Background(), "commander", auditSourceCommander)
 	if chatID != "" {
 		ctx = withChatOrigin(ctx, chatID, true)
 	}
@@ -143,13 +143,13 @@ func TestCauseRecordedOnEveryTaskTransition(t *testing.T) {
 	}
 
 	// An agent task that finishes by itself: the agent did it.
-	t2 := startTask(t, th.svc, w, orchestratorCtx("orch-1"), "w1", "do it", nil)
+	t2 := startTask(t, th.svc, w, commanderCtx("orch-1"), "w1", "do it", nil)
 	code := 0
 	w.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: t2.ID, Status: protocol.TaskStatusCompleted, ExitCode: &code})
 	waitFor(t, 3*time.Second, "completed", func() bool { return mustTask(t, th.st, t2.ID).Status == protocol.TaskStatusCompleted })
 	evs = taskEvents(t, th.st, t2.ID)
-	if evs[0].Cause.Actor != store.ActorOrchestrator || evs[0].Cause.ActorID != "orch-1" || evs[0].ChatID != "orch-1" {
-		t.Fatalf("orchestrator dispatch cause: %+v", evs[0])
+	if evs[0].Cause.Actor != store.ActorCommander || evs[0].Cause.ActorID != "orch-1" || evs[0].ChatID != "orch-1" {
+		t.Fatalf("commander dispatch cause: %+v", evs[0])
 	}
 	if last := evs[len(evs)-1]; last.Cause.Actor != store.ActorAgent || last.ToStatus != protocol.TaskStatusCompleted {
 		t.Fatalf("completion cause: %+v", last)
@@ -190,7 +190,7 @@ func TestCauseRecordedOnEveryTaskTransition(t *testing.T) {
 func TestSuspendResumeTaskPlacesAndReleasesHold(t *testing.T) {
 	th := newTestHub(t)
 	w := th.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
-	task := startTask(t, th.svc, w, orchestratorCtx("orch-1"), "w1", "work", nil)
+	task := startTask(t, th.svc, w, commanderCtx("orch-1"), "w1", "work", nil)
 
 	res, err := th.h.SuspendTask(userCtx(), task.ID)
 	if err != nil || res.Status != protocol.TaskStatusSuspended {
@@ -210,9 +210,9 @@ func TestSuspendResumeTaskPlacesAndReleasesHold(t *testing.T) {
 	if len(holds) != 1 || holds[0].ScopeKind != store.HoldScopeSession || holds[0].TaskID != task.ID {
 		t.Fatalf("holds after suspend: %+v", holds)
 	}
-	// The orchestrator may not steer a session the user suspended.
-	if _, err := th.svc.SteerTask(orchestratorCtx("orch-1"), task.ID, "keep going", true); err == nil || !strings.Contains(err.Error(), "suspended") {
-		t.Fatalf("orchestrator steer of a suspended task: %v", err)
+	// The commander may not steer a session the user suspended.
+	if _, err := th.svc.SteerTask(commanderCtx("orch-1"), task.ID, "keep going", true); err == nil || !strings.Contains(err.Error(), "suspended") {
+		t.Fatalf("commander steer of a suspended task: %v", err)
 	}
 
 	if _, err := th.h.ResumeTask(userCtx(), task.ID); err != nil {
@@ -228,7 +228,7 @@ func TestSuspendResumeTaskPlacesAndReleasesHold(t *testing.T) {
 	if hs := activeHolds(t, th.st); len(hs) != 0 {
 		t.Fatalf("resume left holds: %+v", hs)
 	}
-	if _, err := th.svc.SteerTask(orchestratorCtx("orch-1"), task.ID, "keep going", true); err != nil {
+	if _, err := th.svc.SteerTask(commanderCtx("orch-1"), task.ID, "keep going", true); err != nil {
 		t.Fatalf("steer after resume: %v", err)
 	}
 }
@@ -327,8 +327,8 @@ func TestDrainAndPauseBlockDispatchAndSurviveRestart(t *testing.T) {
 		tk := mustTask(t, th.st, res.TaskID)
 		return tk.Status == protocol.TaskStatusSuspended && tk.SuspendedBy == store.SuspendedByPause
 	})
-	if _, err := th.svc.DispatchTask(orchestratorCtx("orch"), DispatchRequest{Agent: "mock", RepoPath: "/tmp", Prompt: "more"}); err == nil || !strings.Contains(err.Error(), "paused") {
-		t.Fatalf("orchestrator dispatch while paused: %v", err)
+	if _, err := th.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{Agent: "mock", RepoPath: "/tmp", Prompt: "more"}); err == nil || !strings.Contains(err.Error(), "paused") {
+		t.Fatalf("commander dispatch while paused: %v", err)
 	}
 	// Queued work stays queued while paused.
 	queued := store.Task{Agent: "mock", Workdir: "/tmp", Prompt: "q", Status: protocol.TaskStatusQueued}
@@ -379,7 +379,7 @@ func TestHoldsRefuseAutomaticActionsUntilReleased(t *testing.T) {
 	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
 	term := startTask(t, cs.svc, w, userCtx(), "w1", "", func(r *DispatchRequest) { r.SessionKind, r.Mode = "terminal", protocol.TaskModeInteractive })
 
-	// The user stops nginx in a Konsert terminal, unrequested: nginx on box is held.
+	// The user stops nginx in a Syre terminal, unrequested: nginx on box is held.
 	w.send(protocol.MsgOperatorCommand, operatorCmd(term.ID, "sudo systemctl stop nginx", 0))
 	waitFor(t, 3*time.Second, "hold", func() bool { return len(activeHolds(t, cs.st)) == 1 })
 	hd := activeHolds(t, cs.st)[0]
@@ -388,20 +388,20 @@ func TestHoldsRefuseAutomaticActionsUntilReleased(t *testing.T) {
 		t.Fatalf("hold: %+v", hd)
 	}
 
-	// The orchestrator may not touch nginx there...
-	_, err := cs.svc.DispatchTask(orchestratorCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "restart nginx and check the logs"})
+	// The commander may not touch nginx there...
+	_, err := cs.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "restart nginx and check the logs"})
 	if err == nil || !strings.Contains(err.Error(), "on hold") || !strings.Contains(err.Error(), "ask the user") || !strings.Contains(err.Error(), hd.SID) {
-		t.Fatalf("orchestrator dispatch on held resource: %v", err)
+		t.Fatalf("commander dispatch on held resource: %v", err)
 	}
 	// ...but unrelated work is fine, and the user can do anything.
-	if _, err := cs.svc.DispatchTask(orchestratorCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "run the unit tests"}); err != nil {
+	if _, err := cs.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "run the unit tests"}); err != nil {
 		t.Fatalf("unrelated dispatch refused: %v", err)
 	}
 	if _, err := cs.svc.DispatchTask(userCtx(), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "restart nginx"}); err != nil {
 		t.Fatalf("user dispatch refused: %v", err)
 	}
 	// No automatic restart of work on the machine while held.
-	orphan := startTask(t, cs.svc, w, orchestratorCtx("orch"), "w1", "serve", func(r *DispatchRequest) { r.OrphanPolicy = protocol.OrphanPolicyRequeue })
+	orphan := startTask(t, cs.svc, w, commanderCtx("orch"), "w1", "serve", func(r *DispatchRequest) { r.OrphanPolicy = protocol.OrphanPolicyRequeue })
 	if cs.h.requeueOrphan(context.Background(), mustTask(t, cs.st, orphan.ID), "requeued") {
 		t.Fatal("orphan requeued despite the hold")
 	}
@@ -409,7 +409,7 @@ func TestHoldsRefuseAutomaticActionsUntilReleased(t *testing.T) {
 		t.Fatalf("held orphan: %+v %+v", tk, tk.Cause)
 	}
 	// Fan-out skips the held machine.
-	fo, err := cs.svc.FanOutFleet(orchestratorCtx("orch"), FanOutRequest{Kind: "agent_sweep", Agent: "mock", Prompt: "reload nginx"})
+	fo, err := cs.svc.FanOutFleet(commanderCtx("orch"), FanOutRequest{Kind: "agent_sweep", Agent: "mock", Prompt: "reload nginx"})
 	if err != nil || len(fo.DispatchedTaskIDs) != 0 || len(fo.Machines) != 1 || fo.Machines[0].Status != "held" {
 		t.Fatalf("fan-out on held machine: %+v %v", fo, err)
 	}
@@ -419,7 +419,7 @@ func TestHoldsRefuseAutomaticActionsUntilReleased(t *testing.T) {
 	if code != 200 || !strings.Contains(string(raw), `"released_at"`) {
 		t.Fatalf("release: %d %s", code, raw)
 	}
-	if _, err := cs.svc.DispatchTask(orchestratorCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "restart nginx"}); err != nil {
+	if _, err := cs.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w1"}, Agent: "mock", RepoPath: "/tmp", Prompt: "restart nginx"}); err != nil {
 		t.Fatalf("dispatch after release: %v", err)
 	}
 	evs, _ := cs.st.ListFleetEvents(context.Background(), store.FleetEventFilter{Kind: store.EventKindHold})
@@ -446,7 +446,7 @@ func TestHoldsRefuseAutomaticActionsUntilReleased(t *testing.T) {
 func TestTakeControlHoldsSession(t *testing.T) {
 	cs := newChatServer(t)
 	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
-	task := startTask(t, cs.svc, w, orchestratorCtx("orch"), "w1", "x", nil)
+	task := startTask(t, cs.svc, w, commanderCtx("orch"), "w1", "x", nil)
 	code, raw := cs.api(t, http.MethodPost, "/api/tasks/"+task.SID+"/control", map[string]bool{"enabled": true})
 	var resp struct {
 		HoldID string `json:"hold_id"`
@@ -455,8 +455,8 @@ func TestTakeControlHoldsSession(t *testing.T) {
 	if code != 200 || resp.HoldID == "" {
 		t.Fatalf("take control: %d %s", code, raw)
 	}
-	if _, err := cs.svc.SteerTask(orchestratorCtx("orch"), task.ID, "ls", true); err == nil || !strings.Contains(err.Error(), "on hold") {
-		t.Fatalf("orchestrator steer while the user has control: %v", err)
+	if _, err := cs.svc.SteerTask(commanderCtx("orch"), task.ID, "ls", true); err == nil || !strings.Contains(err.Error(), "on hold") {
+		t.Fatalf("commander steer while the user has control: %v", err)
 	}
 	cs.api(t, http.MethodPost, "/api/tasks/"+task.ID+"/control", map[string]bool{"enabled": false})
 	if hs := activeHolds(t, cs.st); len(hs) != 0 {
@@ -467,7 +467,7 @@ func TestTakeControlHoldsSession(t *testing.T) {
 func TestCreateHoldFromTheUI(t *testing.T) {
 	cs := newChatServer(t)
 	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
-	task := startTask(t, cs.svc, w, orchestratorCtx("orch"), "w1", "x", nil)
+	task := startTask(t, cs.svc, w, commanderCtx("orch"), "w1", "x", nil)
 
 	code, raw := cs.api(t, http.MethodPost, "/api/holds", map[string]string{"task_id": task.SID, "note": "let me look first"})
 	var hd store.Hold
@@ -475,8 +475,8 @@ func TestCreateHoldFromTheUI(t *testing.T) {
 	if code != 200 || hd.ID == "" || hd.ScopeKind != store.HoldScopeSession || hd.TaskID != task.ID || !strings.Contains(hd.Summary, "let me look first") {
 		t.Fatalf("hold task: %d %s", code, raw)
 	}
-	if _, err := cs.svc.SteerTask(orchestratorCtx("orch"), task.ID, "ls", true); err == nil || !strings.Contains(err.Error(), "on hold") {
-		t.Fatalf("orchestrator steer on a held task: %v", err)
+	if _, err := cs.svc.SteerTask(commanderCtx("orch"), task.ID, "ls", true); err == nil || !strings.Contains(err.Error(), "on hold") {
+		t.Fatalf("commander steer on a held task: %v", err)
 	}
 	// Holding it again reuses the active hold.
 	_, raw = cs.api(t, http.MethodPost, "/api/holds", map[string]string{"task_id": task.ID})
@@ -511,10 +511,10 @@ func TestCreateHoldFromTheUI(t *testing.T) {
 
 // --- veto --------------------------------------------------------------------------------------
 
-func TestVetoCancelsAndIsRememberedForTheOrchestrator(t *testing.T) {
+func TestVetoCancelsAndIsRememberedForTheCommander(t *testing.T) {
 	cs := newChatServer(t)
 	w := cs.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
-	task := startTask(t, cs.svc, w, orchestratorCtx("orch"), "w1", "deploy to prod from the laptop", nil)
+	task := startTask(t, cs.svc, w, commanderCtx("orch"), "w1", "deploy to prod from the laptop", nil)
 	code, raw := cs.api(t, http.MethodPost, "/api/tasks/"+task.SID+"/veto", map[string]string{"reason": "wrong_machine", "note": "use the linux build box"})
 	if code != 200 {
 		t.Fatalf("veto: %d %s", code, raw)
@@ -634,7 +634,7 @@ func TestAnalyzeCommand(t *testing.T) {
 	}
 }
 
-// An agent asks the user to restart nginx; the user does it in a Konsert terminal: the
+// An agent asks the user to restart nginx; the user does it in a Syre terminal: the
 // request is resolved (no hold) and the agent's tool call returns so it continues.
 func TestRequestUserActionResolvedByTerminalCommand(t *testing.T) {
 	cs := newChatServer(t)
@@ -732,9 +732,9 @@ func TestRequestUserActionResolvedByTerminalCommand(t *testing.T) {
 	}
 }
 
-// User actions reach the orchestrator (a turn starts when its work is affected and it
+// User actions reach the commander (a turn starts when its work is affected and it
 // is idle) and, as a note before their next prompt, other agent chats on the machine.
-func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
+func TestEventDeliveryToCommanderAndNextTurnNote(t *testing.T) {
 	old := deliveryDebounce
 	deliveryDebounce = 100 * time.Millisecond
 	t.Cleanup(func() { deliveryDebounce = old })
@@ -747,14 +747,14 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 		waitFor(t, 3*time.Second, "turn end", func() bool { return mustSession(t, cs.st, chatID).Status == protocol.ChatStatusDone })
 	}
 
-	// The orchestrator chat, idle after a first turn, with work it dispatched on box.
-	_, raw := cs.api(t, http.MethodPost, "/api/chats/orchestrator", nil)
+	// The commander chat, idle after a first turn, with work it dispatched on box.
+	_, raw := cs.api(t, http.MethodPost, "/api/chats/commander", nil)
 	var orch store.ChatSession
 	_ = json.Unmarshal(raw, &orch)
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: orch.ID, Content: "deploy the site"})
 	p1, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
 	finishTurn(orch.ID, p1.TurnID)
-	startTask(t, cs.svc, w, orchestratorCtx(orch.ID), "w1", "serve the site with nginx", nil)
+	startTask(t, cs.svc, w, commanderCtx(orch.ID), "w1", "serve the site with nginx", nil)
 	// Another agent chat on the same machine, idle.
 	chat := cs.createChat(t, map[string]any{"title": "worker chat"})
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat.ID, Content: "tail the logs"})
@@ -767,18 +767,18 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 	}
 	finishTurn(chat.ID, p2.TurnID)
 
-	// The user stops nginx in a Konsert terminal on box.
+	// The user stops nginx in a Syre terminal on box.
 	term := startTask(t, cs.svc, w, userCtx(), "w1", "", func(r *DispatchRequest) { r.SessionKind, r.Mode = "terminal", protocol.TaskModeInteractive })
 	w.send(protocol.MsgOperatorCommand, operatorCmd(term.ID, "sudo systemctl stop nginx", 0))
 
-	// (a) The orchestrator gets a turn with a concise system note.
+	// (a) The commander gets a turn with a concise system note.
 	env := expectWhere(t, w, protocol.MsgAgentChatPrompt, 5*time.Second, func(env protocol.Envelope) bool {
 		p, _ := protocol.DecodePayload[protocol.AgentChatPrompt](env)
 		return p.ChatID == orch.ID
 	})
 	op, _ := protocol.DecodePayload[protocol.AgentChatPrompt](env)
 	if !strings.HasPrefix(op.Text, eventNotePrefix) || !strings.Contains(op.Text, "nginx") || !strings.Contains(op.Text, "Hold") || !strings.Contains(op.Text, "ask") {
-		t.Fatalf("orchestrator note: %q", op.Text)
+		t.Fatalf("commander note: %q", op.Text)
 	}
 	notices, _ := cs.st.ListFleetEvents(context.Background(), store.FleetEventFilter{Kind: store.EventKindNotice})
 	if len(notices) != 1 || notices[0].ChatID != orch.ID {
@@ -787,13 +787,13 @@ func TestEventDeliveryToOrchestratorAndNextTurnNote(t *testing.T) {
 	finishTurn(orch.ID, op.TurnID)
 	// No second turn for the same events.
 	if extra := w.drain(protocol.MsgAgentChatPrompt, 400*time.Millisecond); len(extra) != 0 {
-		t.Fatalf("orchestrator notified twice: %d", len(extra))
+		t.Fatalf("commander notified twice: %d", len(extra))
 	}
-	// The user acting on the orchestrator chat itself never starts a turn there.
+	// The user acting on the commander chat itself never starts a turn there.
 	cs.api(t, http.MethodPost, "/api/chats/"+orch.ID+"/suspend", nil)
 	cs.api(t, http.MethodPost, "/api/chats/"+orch.ID+"/resume", nil)
 	if extra := w.drain(protocol.MsgAgentChatPrompt, 400*time.Millisecond); len(extra) != 0 {
-		t.Fatalf("orchestrator got a turn for the user's action on itself: %d", len(extra))
+		t.Fatalf("commander got a turn for the user's action on itself: %d", len(extra))
 	}
 
 	// (b) The other chat on box is told before its next prompt (once).

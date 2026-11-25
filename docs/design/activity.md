@@ -1,7 +1,7 @@
 # Live work data: session activity, machine heat, project narration (design)
 
-Status: active (pre-alpha). Tickets: KON-NAYVC (activity), KON-RJ8P7 (heat), KON-H5BXK
-(narration), KON-ZAY87 (shells and sub-agents), KON-G8WA3 (vitals heartbeat, link liveness), KON-WY5F2 (machine history retention), under the UI rebuild KON-88NN9. This is the data layer only; the Work, Command
+Status: active (pre-alpha). Tickets: SYR-NAYVC (activity), SYR-RJ8P7 (heat), SYR-H5BXK
+(narration), SYR-ZAY87 (shells and sub-agents), SYR-G8WA3 (vitals heartbeat, link liveness), SYR-WY5F2 (machine history retention), under the UI rebuild SYR-88NN9. This is the data layer only; the Work, Command
 and Fleet modes render it.
 
 ## Session activity
@@ -13,7 +13,7 @@ What each session is doing right now, as one of eight states:
 | `thinking` | the model reasons, or a turn waits on the model (prompt sent, a tool result returned) | `label` for engine notes ("codex is retrying") |
 | `working` | a tool call is running | `tool` (name), `label` (the call's title, e.g. "Run: go test ./...") |
 | `speaking` | the model streams its reply | `tokens_per_sec` (estimated: streamed characters / 4 over the last 2 s) |
-| `asking` | waiting for the user: a permission prompt, a question, Konsert's `ask_user` / `request_user_action` | `label` (the question) |
+| `asking` | waiting for the user: a permission prompt, a question, Syre's `ask_user` / `request_user_action` | `label` (the question) |
 | `blocked` | can't continue on its own: suspended, paused by Pause everything | `label` |
 | `queued` | accepted but not running: no machine yet, starting on one, the engine is launching | `label` |
 | `done` | the turn or task ended normally (also: cancelled, the engine came up idle) | `label` ("Cancelled", "Ready") |
@@ -36,7 +36,7 @@ flags” asks: Allow Write: docs/flags.md?").
 
 ### Readable now lines (`summary`)
 
-`label` is the raw tool line ("Bash: cd /private/var/tmp/konsert-live/… && python -m pytest
+`label` is the raw tool line ("Bash: cd /private/var/tmp/syre-live/… && python -m pytest
 -q"); when tool calls run at once (three parallel Reads) the worker joins their labels with
 ` · `. For a `working` activity the hub adds `summary`, a short line made by
 `internal/nowline` (the only summariser; the web app shows `summary` and keeps `label` as the
@@ -77,7 +77,7 @@ hub: task status (queued/suspended/final), observed        │                  
   complete message → thinking; elicitation → asking until resolved; status `starting` →
   queued, `suspended` → blocked, `working` after the turn starts → thinking; `turn_end` →
   done (stop reason `error` → error); `EventError` → error.
-* **PTY tasks** (`internal/worker/activity/task.go`): from the driver telemetry konsertd already
+* **PTY tasks** (`internal/worker/activity/task.go`): from the driver telemetry syred already
   collects (session log tail every ~600 ms, PTY lines) and the task status. Always `coarse`.
 * **Hub** (`internal/controller/activity.go`): queued/assigned → queued, suspended → blocked
   ("Paused (Pause everything)" when Pause everything did it), final statuses → done/error,
@@ -89,7 +89,7 @@ hub: task status (queued/suspended/final), observed        │                  
 
 ### Shells and sub-agents
 
-**Shells come from processes, not events** (`internal/worker/shells`). konsertd knows each
+**Shells come from processes, not events** (`internal/worker/shells`). syred knows each
 hosted session's agent process: chat engines (`chat.Manager.ProcessIDs`, every real engine's
 session implements `ProcessID`) and PTY agent tasks (`Runner.SessionPIDs`; scratch terminals
 are not agent sessions). Every second (`DefaultShellInterval`) it takes **one process-table
@@ -114,11 +114,11 @@ identified by pid + start time, so a reused pid is never mistaken for it.
 **Dangling shells**: a shell that is no longer under the agent (the session ended, the agent
 let go of it) but still runs keeps being tracked and reported for its session (`dangling:
 true`) until it exits; then one last report with zero, and the session is forgotten. The
-publisher doesn't prune a finished session while it has shells, and the hub keeps konsertd's
+publisher doesn't prune a finished session while it has shells, and the hub keeps syred's
 shells when it derives a state itself (a task's final status).
 
-**Shells left running (KON-DCEZV).** Killing someone's dev server on its own is
-destructive, so what Konsert does about shells a session left running when it ended (a
+**Shells left running (SYR-DCEZV).** Killing someone's dev server on its own is
+destructive, so what Syre does about shells a session left running when it ended (a
 task finished, a chat turn ended) is a policy: Settings → Shells left running sets a
 global mode and idle period (`shell_policy_mode`, `shell_policy_idle_minutes`, default
 `remind` and 30 minutes) and a mode per project (`shell_policy_project:<id>`; a chat's
@@ -127,7 +127,7 @@ project is the repo its cwd is in). `GET/PUT /api/settings/shells`.
 | Mode | What happens |
 |---|---|
 | Remind me (default) | After the session has been idle for the idle period with shells left, one Needs-you item per session: "2 shells left running by *title*" with **Kill all**, **Ask agent to clean up** (only while the agent can still be asked) and **Keep running**, which snoozes it for a day (`POST /api/{tasks,chats}/{id}/shells/keep`). |
-| Ask the agent | A minute after the session ended with shells left, Konsert sends the agent one follow-up asking it to stop what it started (the same message as Fleet's Ask), once per set of shells, so an agent that says it still needs them isn't asked again. Not while the user is in control (a session hold); an ended task or a suspended session can't be asked. Shells still running after the idle period get the reminder. |
+| Ask the agent | A minute after the session ended with shells left, Syre sends the agent one follow-up asking it to stop what it started (the same message as Fleet's Ask), once per set of shells, so an agent that says it still needs them isn't asked again. Not while the user is in control (a session hold); an ended task or a suspended session can't be asked. Shells still running after the idle period get the reminder. |
 | Stop after idle | Shells of a session idle for the idle period are killed, audit-logged (`session.shell_kill`, "after 30 minutes idle (Stop after idle)", cause `shell_policy`) and on the timeline. Never when the task or chat is pinned with Keep or held: then it reminds, saying why. |
 
 "Idle" is the session's (how long since it ended), not the shell's: a dev server's shell
@@ -136,7 +136,7 @@ about. The hub checks every 30 seconds (`shellPolicyTick`, injectable clock). Re
 reach browsers as fleet.update kind `shell_reminder` (`resolved: true` when gone) and are
 listed at `GET /api/shells/reminders`; they go when the shells exit, the session runs
 again, or the user acts. The state is in memory like the activity it watches: after a hub
-restart konsertd re-reports the shells, the idle period starts again and snoozes are
+restart syred re-reports the shells, the idle period starts again and snoozes are
 forgotten.
 
 Commands are cleaned for people: the script of `sh -c …` / `bash -lc …` / `pwsh -Command`
@@ -169,7 +169,7 @@ expose no sub-agent signal: they report none.
 **Cleanup** (Fleet): `POST /api/tasks/{id}/shells/kill`, `POST /api/chats/{id}/shells/kill`
 with `{"shells": [{"pid", "started_at"}]}` (no list: all of them). The hub checks each shell
 is in the session's current `shell_list` and sends `session.shell.kill` to the hosting
-konsertd, which kills only processes it still attributes to that session with the same
+syred, which kills only processes it still attributes to that session with the same
 start time, each with its whole tree (SIGTERM, SIGKILL after 2 s for survivors; Windows
 TerminateProcess). `POST …/shells/ask` asks the agent instead: typed into a running PTY
 task (steer), sent as a follow-up message to an idle chat, queued for a chat mid-turn and
@@ -178,7 +178,7 @@ are audited (`session.shell_kill`, `session.shell_ask`) and recorded in the flee
 
 ### Rate limiting
 
-`activity.Publisher` (one per konsertd) publishes per session:
+`activity.Publisher` (one per syred) publishes per session:
 
 * **debounce 300 ms** for transient states (thinking, working, speaking): a tool that ends and
   the next one that starts 50 ms later never shows the "thinking" in between;
@@ -212,7 +212,7 @@ mapping (unit-tested with fake engines) and should be confirmed live when those 
 | grok, agy, copilot, cursor chat (ACP) | ✓ `agent_thought_chunk` when the agent streams thoughts (agent-dependent); otherwise waiting on the model | ✓ `tool_call` / `tool_call_update` with status; label = the agent's title | ✓ `agent_message_chunk` | ✓ `session/request_permission`, `ask_user` (name or title match) | ✓ | ✓ | ✓ stop reason, errors | ✓ process tree | ✗ no signal in ACP | Tool names come from `_meta`; ask_user is also matched by title. |
 | mock chat | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ (in-process) | ✓ prompt `subagents` | Prompt `activity` walks thinking → working → speaking → done with 1.2 s per state; `subagents` runs two sub-agents, one asks a permission; `ask`/`permission` → asking; suspend → blocked; `crash`/`fail auth` → error. |
 | PTY tasks (all drivers) | coarse: after start, after a tool, on usage records | coarse: tool_call / file_edit telemetry (claude, grok, copilot, cursor session logs; codex/agy PTY lines) | ✗ (session logs hold whole messages) | coarse: trust/permission prompts in the PTY | ✓ suspend, Pause everything | ✓ (hub) | ✓ exit status | ✓ process tree (mock: `BG_SHELL=<secs>`) | ✗ | `coarse: true`, `source: session_log`. |
-| Observed claude (hooks installed) | coarse: PostToolUse, prompt submit | coarse: PreToolUse with the tool and its command/file | ✗ | coarse: Notification | ✗ | ✗ | coarse: Stop → done | ✗ | ✗ | `konsertd hook-event` reads the hook JSON on stdin (session, cwd, tool). |
+| Observed claude (hooks installed) | coarse: PostToolUse, prompt submit | coarse: PreToolUse with the tool and its command/file | ✗ | coarse: Notification | ✗ | ✗ | coarse: Stop → done | ✗ | ✗ | `syred hook-event` reads the hook JSON on stdin (session, cwd, tool). |
 | Observed sessions without hooks | ✗ | coarse: process seen busy (no tool) | ✗ | ✗ | ✗ | ✗ | coarse: process gone → done | ✗ | ✗ | Process scan every 12 s; `source: passive`. |
 
 ### Web store
@@ -242,9 +242,9 @@ immediately** (`full: true`, cause `slots`). Levels: **cool < 0.4, warm 0.4–0.
 Exposed as `Worker.heat` (`score`, `raw`, `level`, `cause`, `components`, `full`, `updated_at`)
 in worker updates and `GET /api/fleet`, and as `FleetStore.heatByWorker` (online workers only).
 
-### Vitals heartbeat (KON-G8WA3)
+### Vitals heartbeat (SYR-G8WA3)
 
-konsertd's heartbeat carries only vitals it can read without a subprocess, in well under a
+syred's heartbeat carries only vitals it can read without a subprocess, in well under a
 millisecond (`internal/worker/vitals_<os>.go`; `BenchmarkVitalsSample`):
 
 | OS | CPU % | Load | Memory / swap |
@@ -254,7 +254,7 @@ millisecond (`internal/worker/vitals_<os>.go`; `BenchmarkVitalsSample`):
 | Windows | `GetSystemTimes` busy share since the previous sample | none | `GlobalMemoryStatusEx` (page file beyond RAM as swap) |
 
 No process count. While sessions run (a PTY task or an agent chat turn) a heartbeat goes out
-every 10 s: it feeds heat and doubles as liveness. When idle, konsertd sends one whenever the
+every 10 s: it feeds heat and doubles as liveness. When idle, syred sends one whenever the
 link has been quiet for 15 s (the liveness keepalive, below), and at least every minute.
 Out of the heartbeat:
 
@@ -265,18 +265,18 @@ Out of the heartbeat:
   falling back to the last list the machine sent, `fresh: false`).
 * **Disk free** is a machine fact (refreshed every 5 minutes).
 
-### Link liveness (KON-G8WA3)
+### Link liveness (SYR-G8WA3)
 
 `internal/linkwatch`, on every transport (outbound, ssh, local):
 
 * Each side notes when it last sent and received anything. A side that has **sent nothing for
-  15 s** sends a keepalive (the hub a WebSocket ping, konsertd a vitals heartbeat); regular
+  15 s** sends a keepalive (the hub a WebSocket ping, syred a vitals heartbeat); regular
   traffic suppresses them. A side that has **received nothing for 45 s** (data, ping or pong)
-  calls the link dead, checked every 3 s. konsertd redials (outbound) or waits for the hub to
+  calls the link dead, checked every 3 s. syred redials (outbound) or waits for the hub to
   attach again (ssh/local); the hub drops the connection and **marks the machine offline at
   once**. Its tasks are left alone for the rest of `StaleWorkerTimeout` (150 s): sessions live
   in the daemon and are re-adopted from `worker.hello`; if it has not come back by then, the
-  orphan policies apply as before. Nothing konsertd produces meanwhile is lost: transcripts,
+  orphan policies apply as before. Nothing syred produces meanwhile is lost: transcripts,
   task events, statuses, usage, reports and vitals are spooled to disk and replayed in order on
   the next connection, and the hub applies each record once ([spool.md](spool.md)).
 * **Hub wake grace**: when the hub itself wakes from sleep (a clock jump past 30 s), the
@@ -287,22 +287,22 @@ Out of the heartbeat:
 * **Wake and network changes**: a watcher ticks every 5 s; a tick more than 10 s late by the
   wall or the monotonic clock (the machine slept) or a change in the machine's routable
   addresses (IPv4, and IPv6 /64 prefixes so privacy-address rotation does not count) drops the
-  link and redials at once with the backoff reset. konsertd does this for its outbound link,
+  link and redials at once with the backoff reset. syred does this for its outbound link,
   the hub for its ssh/local attach loops.
 * Backoff 1 → 2 → 4 → 8 → 16 → 30 s (cap) with up to 25 % jitter, forever; reset after a link
-  that lasted more than 10 s. Removed (4001) uninstalls konsertd (service, key grant, and hooks if it was the account's
-  last konsertd) and stops it; no credential exits; a revoked
+  that lasted more than 10 s. Removed (4001) uninstalls syred (service, key grant, and hooks if it was the account's
+  last syred) and stops it; no credential exits; a revoked
   credential retries at the cap, re-reading the saved one.
 * Logs: the first failure of an outage, then at most one "still disconnected after …: N
   attempts, last error: …" a minute, then one "reconnected to the hub after …" line.
-* `konsertd status` shows the link: state (connected, disconnected, waiting for the hub),
+* `syred status` shows the link: state (connected, disconnected, waiting for the hub),
   transport, since when, the last error and the next attempt, and the outbound spool: size,
   records not yet acknowledged, oldest unsent record, replay progress, `SPOOL FULL`. The running daemon keeps
   `<state dir>/run/<worker id>.link.json` (0600) current and `status` reads it (a file rather
   than a socket query: outbound daemons have no socket, and a stopped daemon's last state is
   still shown, marked not running).
 
-### Machine history and retention (KON-WY5F2)
+### Machine history and retention (SYR-WY5F2)
 
 For the Fleet heat strips (12h / 24h / 3d / 1w) and future vitals views the hub keeps every
 machine's vitals and heat in three tiers (`internal/controller/heat_history.go`,
@@ -352,31 +352,31 @@ tooltip of the "Heat over the last" label and is repeated in Settings → Machin
 
 ## Project narration
 
-* **Orchestrator**: the `set_narration` MCP tool (orchestrator chats, `konsert mcp`, and the
+* **Commander**: the `set_narration` MCP tool (commander chats, `syre mcp`, and the
   API-key backend) sets a project's `headline` (its current goal, ≤ 140 chars) and/or a task's
   one-line `now` (≤ 120 chars). `dispatch_task` takes a short `title`. The standing prompt
-  (`orchestrator.NarrationPrompt`) says to update headlines when a plan starts or changes, not on
+  (`commander.NarrationPrompt`) says to update headlines when a plan starts or changes, not on
   every step, and to add a task's `now` only when its purpose isn't clear from its title.
 * **Facts**: tasks record a `ticket_id` detected in their title or prompt; the hub resolves its
   title with `ka show` in the background (`ticket_title`).
 * **Fallbacks** (`web/src/app/core/state/activity-logic.ts`), so nothing is blank:
   * task title: `title` → ticket id + title → the prompt's first line → agent + sid;
-  * task now: orchestrator `narration` → the live line (tool label while working, the question
+  * task now: commander `narration` → the live line (tool label while working, the question
     while asking, the error) → the task title;
   * chat now: the live line → chat title → "<agent> chat";
-  * project headline: orchestrator `headline` → "Needs you: …" / "Working on …" (the most
+  * project headline: commander `headline` → "Needs you: …" / "Working on …" (the most
     pressing item, ticket title preferred) → counts ("2 queued · 3 done") → project name.
 * **Grouping** (`WorkStore.projectGroups`): tasks by `project_id`; tasks in the default project,
   observed sessions and chats are placed by their directory when it falls under a project's repo
   on the same machine (longest match); everything else is under **Other work**. Scratch
-  terminals, shells and the orchestrator chat itself are not work items. Each group has counts
+  terminals, shells and the commander chat itself are not work items. Each group has counts
   `running` / `queued` / `needs_you` / `blocked` / `done` (+ `failed`): the bucket comes from the
   activity (asking → needs you, blocked, queued, done/error → done, else running), and a final
   task status always counts as done. Groups needing the user come first; Other work is last.
 
 ## How the views show it
 
-The signed-off design (KON-K2GAD) renders all three with one **spinner**
+The signed-off design (SYR-K2GAD) renders all three with one **spinner**
 (`web/src/app/shared/activity-spinner.component.ts`, logic in `spinner-logic.ts`): the avatar
 fill is the machine (its initials on a slowly drifting gradient by heat, cool blue/teal →
 amber → red, hot drifts faster), the ring around it is the activity.
@@ -394,7 +394,7 @@ amber → red, hot drifts faster), the ring around it is the activity.
 | error | `error` | red, "!" badge |
 | waiting | `working` with `waiting` (the parent only waits on sub-agents) | plain grey ring; the sub-agent dots carry the motion |
 
-Shells and sub-agents ride on the same spinner (KON-ZAY87): a **shell badge** `❯N` at the
+Shells and sub-agents ride on the same spinner (SYR-ZAY87): a **shell badge** `❯N` at the
 avatar's bottom-left (its outline pulses while any shell is busy, still when idle), and up to
 **four sub-agent dots orbiting the ring** (one turn per 9 s) in their own state colours
 (violet breathing = thinking, white blinking = working, green = speaking, amber = asking),
@@ -409,7 +409,7 @@ running keeps its card (and its Command line) until they exit. Command's live-wo
 use the compact badges and mention the counts ("3 shells · 2 sub-agents", "done 3m ago · 1
 shell left running").
 
-Observed sessions (`coarse` and started outside Konsert) draw the ring at half strength. A
+Observed sessions (`coarse` and started outside Syre) draw the ring at half strength. A
 second machine peeks out behind the first (the component supports it; no task reports a
 second machine yet). The hover tooltip and the accessible name say the activity word, the
 machine(s), heat % and cause; every caller also shows a text label, never colour alone.
@@ -417,7 +417,7 @@ machine(s), heat % and cause; every caller also shows a text label, never colour
 agent's mark in the centre instead of initials, since the row is the machine.
 
 Used in Command's Live work (the project story, `modes/command/live-work-logic.ts`: project
-name, orchestrator headline marked ✦, progress bar done today / running / needs you /
+name, commander headline marked ✦, progress bar done today / running / needs you /
 queued, "N in flight on M machines · K queued", in-flight lines, the queue collapsed, done
 lines fading out over 5 minutes; Other work holds observed sessions and your terminals),
 Fleet's machine rows and session cards, Wall tile headers, Work cards, the session strip,

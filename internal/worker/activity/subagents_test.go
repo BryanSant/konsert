@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func sub(parent string, ev protocol.AgentChatEvent) protocol.AgentChatEvent {

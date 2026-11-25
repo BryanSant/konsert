@@ -19,9 +19,9 @@ const (
 // ResolveScratchDir returns the OS-appropriate, per-user scratch directory for chat file
 // attachments (the shared /var/tmp would let another user pre-create the directory and have
 // pruning delete their files, or read ours):
-//   - macOS:   /private/var/tmp/konsert-attachments-<uid> (falls back to os.TempDir())
-//   - Linux:   /var/tmp/konsert-attachments-<uid> (falls back to os.TempDir())
-//   - Windows: %TEMP%\konsert-attachments (%TEMP% is already per-user)
+//   - macOS:   /private/var/tmp/syre-attachments-<uid> (falls back to os.TempDir())
+//   - Linux:   /var/tmp/syre-attachments-<uid> (falls back to os.TempDir())
+//   - Windows: %TEMP%\syre-attachments (%TEMP% is already per-user)
 func ResolveScratchDir(goos string) string {
 	if goos == "" {
 		goos = runtime.GOOS
@@ -32,9 +32,9 @@ func ResolveScratchDir(goos string) string {
 	case "linux":
 		return "/var/tmp/" + scratchDirName()
 	case "windows":
-		return filepath.Join(os.TempDir(), "konsert-attachments")
+		return filepath.Join(os.TempDir(), "syre-attachments")
 	default:
-		return filepath.Join(os.TempDir(), "konsert-attachments")
+		return filepath.Join(os.TempDir(), "syre-attachments")
 	}
 }
 
@@ -184,9 +184,9 @@ func checkPrivateDir(dir string) error {
 }
 
 // AttachmentsDirEnv overrides the attachments directory (tests, side-by-side daemons).
-const AttachmentsDirEnv = "KONSERT_ATTACHMENTS_DIR"
+const AttachmentsDirEnv = "SYRE_ATTACHMENTS_DIR"
 
-// attachmentsDir is $KONSERT_ATTACHMENTS_DIR, else the per-OS scratch directory.
+// attachmentsDir is $SYRE_ATTACHMENTS_DIR, else the per-OS scratch directory.
 func attachmentsDir() string {
 	if v := strings.TrimSpace(os.Getenv(AttachmentsDirEnv)); v != "" {
 		return v

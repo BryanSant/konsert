@@ -11,7 +11,7 @@ export const WALL_LAYOUTS: ReadonlyArray<{ id: WallLayout; label: string; cols: 
 
 /** Pins beyond this still work, but the Wall says it is getting hard to watch. */
 export const WALL_SOFT_CAP = 24;
-const KEY = 'konsert.wall.v1';
+const KEY = 'syre.wall.v1';
 
 interface Persisted {
   pinned: string[];

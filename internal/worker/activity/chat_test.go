@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 type step struct {
@@ -85,9 +85,9 @@ func TestChatAskingBlockedAndErrors(t *testing.T) {
 		{ev: status(protocol.ChatStatusNeedsYou), state: protocol.ActivityAsking},
 		{ev: protocol.AgentChatEvent{Kind: protocol.EventElicitationOK, Elicitation: el}, state: protocol.ActivityWorking, tool: "Bash"},
 		{ev: tool("t1", "Bash", "", "completed"), state: protocol.ActivityThinking},
-		// Konsert's ask_user MCP tool: the agent waits for the user.
-		{ev: tool("t2", "mcp__konsert__ask_user", "", "running"), state: protocol.ActivityAsking, tool: "mcp__konsert__ask_user"},
-		{ev: tool("t2", "mcp__konsert__ask_user", "", "completed"), state: protocol.ActivityThinking},
+		// Syre's ask_user MCP tool: the agent waits for the user.
+		{ev: tool("t2", "mcp__syre__ask_user", "", "running"), state: protocol.ActivityAsking, tool: "mcp__syre__ask_user"},
+		{ev: tool("t2", "mcp__syre__ask_user", "", "completed"), state: protocol.ActivityThinking},
 		{ev: protocol.AgentChatEvent{Kind: protocol.EventError, Error: &protocol.AgentChatError{Kind: protocol.ErrKindUsageLimit, Message: "5-hour limit reached"}},
 			state: protocol.ActivityError, label: "5-hour limit reached"},
 		{ev: status(protocol.ChatStatusWorking), state: protocol.ActivityThinking},
@@ -134,12 +134,12 @@ func TestChatLabelIsOneShortLine(t *testing.T) {
 }
 
 func TestIsUserTool(t *testing.T) {
-	for _, n := range []string{"ask_user", "mcp__konsert__ask_user", "konsert.request_user_action", "konsert/ask_user"} {
+	for _, n := range []string{"ask_user", "mcp__syre__ask_user", "syre.request_user_action", "syre/ask_user"} {
 		if !IsUserTool(n) {
 			t.Errorf("%s should wait for the user", n)
 		}
 	}
-	for _, n := range []string{"Bash", "task_user_asked", "mcp__konsert__fleet_status"} {
+	for _, n := range []string{"Bash", "task_user_asked", "mcp__syre__fleet_status"} {
 		if IsUserTool(n) {
 			t.Errorf("%s should not wait for the user", n)
 		}

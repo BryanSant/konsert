@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuditEvent, AuditListResponse, AuditQuery, Task, Worker } from '../core/models/konsert.models';
+import { AuditEvent, AuditListResponse, AuditQuery, Task, Worker } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuditStore } from '../core/state/audit.store';
 import { FleetStore } from '../core/state/fleet.store';
@@ -38,7 +38,7 @@ describe('AuditLogComponent', () => {
       { id: 'w1', name: 'alpha', status: 'online' } as Worker,
       { id: 'w2', name: 'beta', status: 'online' } as Worker,
     ]);
-    fleet.upsertTask({ id: 't1', worker_id: 'w1', agent: 'claude', status: 'running', workdir: '/src/konsert', created_at: '' } as Task);
+    fleet.upsertTask({ id: 't1', worker_id: 'w1', agent: 'claude', status: 'running', workdir: '/src/syre', created_at: '' } as Task);
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -76,7 +76,7 @@ describe('AuditLogComponent', () => {
     expect(first.textContent).toContain('alpha');
     expect(first.querySelector('time')?.getAttribute('datetime')).toBe(ev(2).created_at);
     const taskBtn = first.querySelector('button') as HTMLButtonElement;
-    expect(taskBtn.getAttribute('aria-label')).toBe('Open task konsert · t1');
+    expect(taskBtn.getAttribute('aria-label')).toBe('Open task syre · t1');
     expect(second.textContent).toContain('Settings change');
     expect(second.textContent).toContain('fleet');
     expect(root.querySelector('[role="status"]')?.textContent).toContain('2 events');

@@ -2,7 +2,7 @@
 
 package worker
 
-import "github.com/BryanSant/konsert/internal/protocol"
+import "github.com/BryanSant/syre/internal/protocol"
 
 // vitalsSampler reports nothing on platforms without a fork-free reader.
 type vitalsSampler struct{}

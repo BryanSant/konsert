@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // retentionNow is the fixed clock of the retention tests.
@@ -283,7 +283,7 @@ func usageTotals(t *testing.T, st *SQLiteStore) (in, out, req int64) {
 
 func TestCompactUsageRollupIsExactAndIdempotentAcrossRestarts(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "konsert.db")
+	path := filepath.Join(t.TempDir(), "syre.db")
 	st, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +423,7 @@ func TestIncrementalVacuumShrinksFile(t *testing.T) {
 }
 
 // TestStorageStatsSplitsConversationsFromSessionDetail: agent-chat transcript events
-// (the kinds compaction keeps) count as conversations with the orchestrator transcripts;
+// (the kinds compaction keeps) count as conversations with the commander transcripts;
 // tool calls and other streamed events are session detail. The split follows content
 // length, rows are exact.
 func TestStorageStatsSplitsConversationsFromSessionDetail(t *testing.T) {

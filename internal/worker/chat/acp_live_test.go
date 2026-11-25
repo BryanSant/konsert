@@ -1,8 +1,8 @@
 package chat
 
-// Live tests against the real, logged-in agent CLIs. Opt in with KONSERT_LIVE_ACP=1;
-// KONSERT_LIVE_ACP_AGENTS=grok,agy limits the agents. Each agent gets ONE tiny prompt;
-// KONSERT_LIVE_ACP_ELICIT=<agent> additionally runs one permission round trip.
+// Live tests against the real, logged-in agent CLIs. Opt in with SYRE_LIVE_ACP=1;
+// SYRE_LIVE_ACP_AGENTS=grok,agy limits the agents. Each agent gets ONE tiny prompt;
+// SYRE_LIVE_ACP_ELICIT=<agent> additionally runs one permission round trip.
 // These use the real home directory only through the CLIs themselves and remove the
 // session files they create.
 
@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func liveAgents(t *testing.T) []string {
-	if os.Getenv("KONSERT_LIVE_ACP") != "1" {
-		t.Skip("set KONSERT_LIVE_ACP=1 to run live ACP tests")
+	if os.Getenv("SYRE_LIVE_ACP") != "1" {
+		t.Skip("set SYRE_LIVE_ACP=1 to run live ACP tests")
 	}
-	if v := os.Getenv("KONSERT_LIVE_ACP_AGENTS"); v != "" {
+	if v := os.Getenv("SYRE_LIVE_ACP_AGENTS"); v != "" {
 		return strings.Split(v, ",")
 	}
 	return ACPAgents()
@@ -35,8 +35,8 @@ func liveAccount(t *testing.T, agent string) Account {
 		t.Skipf("%s not installed", agent)
 	}
 	acct := Account{ID: agent, Agent: agent, Label: acpAdapters[agent].Label, Binary: bin, IsDefault: true}
-	// KONSERT_LIVE_ACP_ENV="K=V,K2=V2" adds account env (experiments).
-	if v := os.Getenv("KONSERT_LIVE_ACP_ENV"); v != "" {
+	// SYRE_LIVE_ACP_ENV="K=V,K2=V2" adds account env (experiments).
+	if v := os.Getenv("SYRE_LIVE_ACP_ENV"); v != "" {
 		acct.Env = map[string]string{}
 		for _, kv := range strings.Split(v, ",") {
 			if k, val, ok := strings.Cut(kv, "="); ok {
@@ -136,15 +136,15 @@ func TestLiveACPPrompt(t *testing.T) {
 
 func TestLiveACPElicitation(t *testing.T) {
 	liveAgents(t)
-	agent := os.Getenv("KONSERT_LIVE_ACP_ELICIT")
+	agent := os.Getenv("SYRE_LIVE_ACP_ELICIT")
 	if agent == "" {
-		t.Skip("set KONSERT_LIVE_ACP_ELICIT=<agent> to run the permission round trip")
+		t.Skip("set SYRE_LIVE_ACP_ELICIT=<agent> to run the permission round trip")
 	}
 	acct := liveAccount(t, agent)
 	dir := acpLiveScratch(t, agent)
 	eng, _ := NewACPEngine(agent)
 	rec := newRecorder()
-	s, err := eng.Open(context.Background(), acct, protocol.AgentChatOpen{ChatID: "live", Agent: agent, Cwd: dir, ApprovalMode: os.Getenv("KONSERT_LIVE_ACP_MODE")}, rec.emit)
+	s, err := eng.Open(context.Background(), acct, protocol.AgentChatOpen{ChatID: "live", Agent: agent, Cwd: dir, ApprovalMode: os.Getenv("SYRE_LIVE_ACP_MODE")}, rec.emit)
 	if err != nil {
 		logEvents(t, rec.all())
 		t.Fatalf("Open: %v", err)

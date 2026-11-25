@@ -14,29 +14,29 @@ import (
 )
 
 const (
-	pub  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl konsert-hub:hub1"
-	pub2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBKqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl konsert-hub:hub1"
+	pub  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl syre-hub:hub1"
+	pub2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBKqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl syre-hub:hub1"
 	idA  = "01890a5d-ac96-774b-bcce-b302099a8057"
 	idB  = "01890a5d-ac96-774b-bcce-b302099a8058"
 )
 
 func entry(id string) Entry {
-	return Entry{HubID: "hub1", PublicKey: pub, Exe: "/home/me/.local/bin/konsertd", GOOS: "linux", WorkerID: id}
+	return Entry{HubID: "hub1", PublicKey: pub, Exe: "/home/me/.local/bin/syred", GOOS: "linux", WorkerID: id}
 }
 
 func TestLineIsRestrictedToAttach(t *testing.T) {
 	got := Line(entry(idA), []string{idA})
-	want := `command="/home/me/.local/bin/konsertd attach --allow=` + idA + `",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl konsert-hub:hub1`
+	want := `command="/home/me/.local/bin/syred attach --allow=` + idA + `",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl syre-hub:hub1`
 	if got != want {
 		t.Fatalf("line =\n%s\nwant\n%s", got, want)
 	}
-	win := Entry{HubID: "hub1", PublicKey: pub, Exe: `C:\Users\Jo Doe\AppData\Local\Programs\konsertd\konsertd.exe`, GOOS: "windows", WorkerID: idA}
-	if l := Line(win, []string{idA}); !strings.HasPrefix(l, `command="\"C:\Users\Jo Doe\AppData\Local\Programs\konsertd\konsertd.exe\" attach --allow=`+idA+`",no-pty`) {
+	win := Entry{HubID: "hub1", PublicKey: pub, Exe: `C:\Users\Jo Doe\AppData\Local\Programs\syred\syred.exe`, GOOS: "windows", WorkerID: idA}
+	if l := Line(win, []string{idA}); !strings.HasPrefix(l, `command="\"C:\Users\Jo Doe\AppData\Local\Programs\syred\syred.exe\" attach --allow=`+idA+`",no-pty`) {
 		t.Fatalf("windows line with a space = %s", l)
 	}
 	posix := entry(idA)
-	posix.Exe = "/opt/my apps/konsertd"
-	if l := Line(posix, []string{idA}); !strings.HasPrefix(l, `command="'/opt/my apps/konsertd' attach`) {
+	posix.Exe = "/opt/my apps/syred"
+	if l := Line(posix, []string{idA}); !strings.HasPrefix(l, `command="'/opt/my apps/syred' attach`) {
 		t.Fatalf("posix line with a space = %s", l)
 	}
 }
@@ -47,7 +47,7 @@ func TestAddIsIdempotentAndKeepsOtherLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(once, orig) || strings.Count(once, Marker("hub1")) != 1 || !strings.HasSuffix(once, "konsert-hub:hub1\r\n") {
+	if !strings.HasPrefix(once, orig) || strings.Count(once, Marker("hub1")) != 1 || !strings.HasSuffix(once, "syre-hub:hub1\r\n") {
 		t.Fatalf("after add (CRLF kept):\n%q", once)
 	}
 	twice, _ := Add(once, entry(idA))
@@ -72,7 +72,7 @@ func TestAddIsIdempotentAndKeepsOtherLines(t *testing.T) {
 	// Another hub's line is not ours.
 	other := Entry{HubID: "hub2", PublicKey: pub, Exe: "/k", GOOS: "linux", WorkerID: idA}
 	two, _ := Add(both, other)
-	if strings.Count(two, "konsert-hub:") != 2 {
+	if strings.Count(two, "syre-hub:") != 2 {
 		t.Fatalf("two hubs:\n%s", two)
 	}
 }
@@ -143,7 +143,7 @@ func TestRemoveDropsOnlyOurGrant(t *testing.T) {
 		t.Fatalf("empty worker id drops the whole line: %q", all)
 	}
 	// A user line that merely mentions the marker mid-line is not ours.
-	tricky := "ssh-ed25519 AAAAuser konsert-hub:hub1 is my note\n"
+	tricky := "ssh-ed25519 AAAAuser syre-hub:hub1 is my note\n"
 	if _, changed := Remove(tricky, "hub1", ""); changed {
 		t.Fatal("only lines whose comment is the marker are managed")
 	}
@@ -174,12 +174,12 @@ func TestAuthorizedKeysPath(t *testing.T) {
 }
 
 func TestGenerateWritesOpenSSHKeys(t *testing.T) {
-	priv, pubLine, err := Generate("konsert-hub:x")
+	priv, pubLine, err := Generate("syre-hub:x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := strings.Fields(pubLine)
-	if len(f) != 3 || f[0] != "ssh-ed25519" || f[2] != "konsert-hub:x" {
+	if len(f) != 3 || f[0] != "ssh-ed25519" || f[2] != "syre-hub:x" {
 		t.Fatalf("public key %q", pubLine)
 	}
 	blob, _ := base64.StdEncoding.DecodeString(f[1])
@@ -208,11 +208,11 @@ func TestGenerateWritesOpenSSHKeys(t *testing.T) {
 
 func TestLoadOrCreateKeepsTheKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hubkey")
-	p1, err := LoadOrCreate(path, "konsert-hub:x")
+	p1, err := LoadOrCreate(path, "syre-hub:x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := LoadOrCreate(path, "konsert-hub:x")
+	p2, err := LoadOrCreate(path, "syre-hub:x")
 	if err != nil || p1 != p2 {
 		t.Fatalf("second load: %q vs %q (%v)", p1, p2, err)
 	}

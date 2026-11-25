@@ -7,16 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// DefaultWakeLockGrace is how long konsertd keeps a host wake lock after losing its hub
+// DefaultWakeLockGrace is how long syred keeps a host wake lock after losing its hub
 // connection. Reconnect backoff tops out at 30 s, so a short hub restart or network blip
 // keeps the host awake, while a hub that is gone for good stops pinning the host.
 const DefaultWakeLockGrace = 3 * time.Minute
 
 // defaultWakeReason is used when the hub sends an empty reason.
-const defaultWakeReason = "Konsert Keep Awake"
+const defaultWakeReason = "Syre Keep Awake"
 
 // wakeHolder is one held OS inhibitor.
 type wakeHolder interface {
@@ -90,7 +90,7 @@ func (m *WakeLockManager) Set(enabled bool, reason string) protocol.HostWakeLock
 	return m.release("")
 }
 
-// Shutdown releases any held lock and refuses later enables. konsertd calls it on exit.
+// Shutdown releases any held lock and refuses later enables. syred calls it on exit.
 func (m *WakeLockManager) Shutdown() {
 	m.mu.Lock()
 	m.closed = true
@@ -274,7 +274,7 @@ func wakeStateEqual(a, b protocol.HostWakeLockState) bool {
 // failure is a permission problem, a weaker one. Method reports which one is held.
 //
 // On Linux, logind lets any session block idle, but blocking sleep from a non-console
-// session (SSH, a systemd user service) needs polkit's auth_admin. konsertd usually runs
+// session (SSH, a systemd user service) needs polkit's auth_admin. syred usually runs
 // that way, so it falls back to an idle-only inhibitor rather than failing outright.
 type fallbackWakeBackend struct {
 	primary, fallback wakeBackend

@@ -1,12 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SetupStatus } from '../models/konsert.models';
+import { SetupStatus } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 import { SetupStore } from './setup.store';
 
 const firstRun: SetupStatus = {
   needs_setup: true,
-  local: { hostname: 'studio', konsertd_found: true, worker_id: 'w-1', connected: false, added: false },
+  local: { hostname: 'studio', syred_found: true, worker_id: 'w-1', connected: false, added: false },
 };
 
 describe('SetupStore (first-run Add Machine)', () => {

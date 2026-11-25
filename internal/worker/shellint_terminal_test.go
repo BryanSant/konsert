@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
-// terminalHarness runs a real Konsert terminal (shell task) and records what the
+// terminalHarness runs a real Syre terminal (shell task) and records what the
 // browser would see and the operator-command events.
 type terminalHarness struct {
 	t      *testing.T
@@ -217,10 +217,10 @@ func TestShellIntegrationUnixShells(t *testing.T) {
 	for _, c := range cases {
 		t.Run(strings.ReplaceAll(c.name, "/", "_"), func(t *testing.T) {
 			// The user's startup files must still run (and keep running first).
-			rc := "export KONSERT_TEST_RC=sourced\nPS1='$ '\nPROMPT_COMMAND='KONSERT_TEST_PC=1'\n"
+			rc := "export SYRE_TEST_RC=sourced\nPS1='$ '\nPROMPT_COMMAND='SYRE_TEST_PC=1'\n"
 			fakeHome(t, map[string]string{
-				".zshrc":        "export KONSERT_TEST_RC=sourced\nPS1='$ '\n",
-				".zshenv":       "export KONSERT_TEST_ENV=1\n",
+				".zshrc":        "export SYRE_TEST_RC=sourced\nPS1='$ '\n",
+				".zshenv":       "export SYRE_TEST_ENV=1\n",
 				".bash_profile": rc,
 			})
 			t.Setenv("SHELL", c.bin)
@@ -245,7 +245,7 @@ func TestShellIntegrationUnixShells(t *testing.T) {
 			if start.Command != "sh -c 'exit 7'" || exitOf(t, end) != 7 {
 				t.Fatalf("exit 7: %+v / %+v", start, end)
 			}
-			start, end = h.run(`test "$KONSERT_TEST_RC" = sourced && test -z "$KONSERT_SHELL_NONCE" && test -z "${ZDOTDIR-}"`)
+			start, end = h.run(`test "$SYRE_TEST_RC" = sourced && test -z "$SYRE_SHELL_NONCE" && test -z "${ZDOTDIR-}"`)
 			if exitOf(t, end) != 0 {
 				t.Fatalf("user startup file not sourced, nonce leaked to the environment, or ZDOTDIR not restored: %+v", end)
 			}
@@ -280,7 +280,7 @@ func TestShellIntegrationUnixShells(t *testing.T) {
 				t.Fatalf("empty line produced events: %+v", evs[len(before):])
 			}
 
-			// Konsert-private marks never reach the browser; standard OSC 133 does.
+			// Syre-private marks never reach the browser; standard OSC 133 does.
 			s, _ := h.snapshot()
 			if strings.Contains(s, "633;") {
 				t.Fatalf("browser stream contains OSC 633: %q", tail(s, 800))
@@ -361,7 +361,7 @@ func TestShellIntegrationPowerShell(t *testing.T) {
 // unicodeInput reports whether the shell is expected to receive any typed character.
 // Windows PowerShell 5.1 decodes console input through the legacy code page (e.g. 437 on
 // CI runners) and drops characters it can't represent, such as U+2713, before our hooks
-// ever see the line; pwsh 7 reads UTF-16 input. Konsert reports what the shell received.
+// ever see the line; pwsh 7 reads UTF-16 input. Syre reports what the shell received.
 func testPowerShellTerminal(t *testing.T, unicodeInput bool) {
 	workdir := t.TempDir()
 	// The terminal's start-up command (not typed, so not reported) keeps the test's
@@ -385,8 +385,8 @@ func testPowerShellTerminal(t *testing.T, unicodeInput bool) {
 	if exitOf(t, end) != 7 {
 		t.Fatalf("repeated native exit code: %+v", end)
 	}
-	start, end = h.run("$env:FOO_TOKEN = 'hunter2'; if ($env:KONSERT_SHELL_NONCE) { exit 9 }")
-	if start.Command != "$env:FOO_TOKEN = …; if ($env:KONSERT_SHELL_NONCE) { exit 9 }" || exitOf(t, end) != 0 {
+	start, end = h.run("$env:FOO_TOKEN = 'hunter2'; if ($env:SYRE_SHELL_NONCE) { exit 9 }")
+	if start.Command != "$env:FOO_TOKEN = …; if ($env:SYRE_SHELL_NONCE) { exit 9 }" || exitOf(t, end) != 0 {
 		t.Fatalf("redaction / nonce: %+v / %+v", start, end)
 	}
 	if err := os.Mkdir(filepath.Join(workdir, "sub"), 0o700); err != nil {

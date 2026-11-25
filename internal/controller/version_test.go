@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 func TestVersionMismatch(t *testing.T) {
@@ -37,14 +37,14 @@ func TestVersionMismatch(t *testing.T) {
 	}
 }
 
-// TestWorkerVersionFlowsToFleetAPI runs a real konsertd daemon against a real
+// TestWorkerVersionFlowsToFleetAPI runs a real syred daemon against a real
 // Server and checks that the version from worker.hello reaches GET /api/fleet
 // (and survives the heartbeat/facts re-broadcast paths via the store).
 func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

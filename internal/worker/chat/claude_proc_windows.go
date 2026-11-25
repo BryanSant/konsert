@@ -8,7 +8,7 @@ import (
 )
 
 // ccSetProcGroup gives the child its own process group so console signals aimed at
-// konsertd do not reach it.
+// syred do not reach it.
 func ccSetProcGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 }

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // MockAgent is the agent name of the in-process mock engine (--enable-mock-driver).
@@ -40,7 +40,7 @@ type agentInfo struct {
 	Relogin string
 }
 
-// knownAgents lists the agent CLIs konsertd discovers accounts for.
+// knownAgents lists the agent CLIs syred discovers accounts for.
 var knownAgents = []agentInfo{
 	{Agent: "claude", Binary: "claude", Label: "Claude",
 		ConfigEnv: []string{"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"},
@@ -69,7 +69,7 @@ func lookupAgent(agent string) (agentInfo, bool) {
 	return agentInfo{}, false
 }
 
-// KnownAgents returns the driver names konsertd discovers accounts for.
+// KnownAgents returns the driver names syred discovers accounts for.
 func KnownAgents() []string {
 	out := make([]string, 0, len(knownAgents))
 	for _, a := range knownAgents {
@@ -185,7 +185,7 @@ func (r *AccountRegistry) Load() {
 	if r.opts.EnableMock {
 		add(AccountEntry{Account: Account{ID: "mock", Agent: MockAgent, Label: "Mock", IsDefault: true}, Source: "mock"})
 		add(AccountEntry{Account: Account{ID: "mock2", Agent: MockAgent, Label: "Mock 2",
-			Env: map[string]string{"KONSERT_MOCK_ACCOUNT": "mock2"}}, Source: "mock"})
+			Env: map[string]string{"SYRE_MOCK_ACCOUNT": "mock2"}}, Source: "mock"})
 	}
 
 	// 2. YAML extras (they win over imported wrappers with the same ID).

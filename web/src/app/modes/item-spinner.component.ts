@@ -9,14 +9,14 @@ import { SPINNER_LABEL_COLORS } from '../shared/spinner-logic';
  * Work cards, Wall tile headers. `wordless` drops the word where the line already says it.
  */
 @Component({
-  selector: 'ks-item-spinner',
+  selector: 'sy-item-spinner',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ActivitySpinnerComponent],
   host: { class: 'inline-flex items-center gap-1.5 min-w-0' },
   template: `
     @if (sp(); as s) {
-      <ks-spinner [state]="s.state" [machines]="s.machines" [coarse]="s.coarse" [tps]="s.tps" [size]="size()" [detail]="s.detail ?? null" />
+      <sy-spinner [state]="s.state" [machines]="s.machines" [coarse]="s.coarse" [tps]="s.tps" [size]="size()" [detail]="s.detail ?? null" />
       @if (!wordless()) {
         <span class="truncate text-[11.5px]" [style.color]="color()" data-testid="activity-word">{{ s.word }}</span>
       }

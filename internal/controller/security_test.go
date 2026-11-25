@@ -14,15 +14,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/coder/websocket"
 )
 
 func newSecurityTestServer(t *testing.T, mutate func(*config.ControllerConfig)) (*Server, *httptest.Server) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,10 +209,10 @@ func TestCSRFProtectionOnStateChangingAPI(t *testing.T) {
 
 func TestCSRFAllowsConfiguredOrigins(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
-		c.PublicURL = "https://konsert.example.ts.net"
+		c.PublicURL = "https://syre.example.ts.net"
 		c.AllowedOrigins = []string{"http://localhost:4200"}
 	})
-	for _, origin := range []string{"https://konsert.example.ts.net", "http://localhost:4200"} {
+	for _, origin := range []string{"https://syre.example.ts.net", "http://localhost:4200"} {
 		resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", strings.NewReader(`{"name":"x"}`),
 			map[string]string{"Content-Type": "application/json", "Origin": origin, "Sec-Fetch-Site": "cross-site"})
 		if resp.StatusCode != http.StatusCreated {

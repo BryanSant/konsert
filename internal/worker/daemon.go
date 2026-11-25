@@ -18,20 +18,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/gitutil"
-	"github.com/BryanSant/konsert/internal/linkwatch"
-	"github.com/BryanSant/konsert/internal/mcprelay"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/activity"
-	"github.com/BryanSant/konsert/internal/worker/chat"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
-	"github.com/BryanSant/konsert/internal/worker/shells"
-	"github.com/BryanSant/konsert/internal/worker/spool"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/gitutil"
+	"github.com/BryanSant/syre/internal/linkwatch"
+	"github.com/BryanSant/syre/internal/mcprelay"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/activity"
+	"github.com/BryanSant/syre/internal/worker/chat"
+	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/shells"
+	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
-// Daemon connects outbound to konsert, handles reconnects with exponential backoff,
+// Daemon connects outbound to syre, handles reconnects with exponential backoff,
 // sends heartbeats, and bridges controller commands to Runner.
 type Daemon struct {
 	// cfg is fixed after NewDaemon except cfg.Credential, which credMu guards (a
@@ -55,7 +55,7 @@ type Daemon struct {
 	factsMu   sync.Mutex
 	lastFacts *protocol.MachineFacts
 
-	// version is konsertd's build version, reported as WorkerInfo.Version.
+	// version is syred's build version, reported as WorkerInfo.Version.
 	version string
 
 	// spool keeps every hub-bound message that matters on disk until the hub applied it
@@ -111,7 +111,7 @@ type Daemon struct {
 	LinkDead   time.Duration
 	WatchEvery time.Duration
 	WatchAddrs func() (string, error)
-	// link keeps the link state for `konsertd status` and keeps reconnect logs quiet.
+	// link keeps the link state for `syred status` and keeps reconnect logs quiet.
 	link *linkTracker
 	// WakeLockGrace is how long a host wake lock outlives a lost hub connection
 	// (DefaultWakeLockGrace when zero).
@@ -218,7 +218,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 
 	d.runner.SetScrollbackDir(scrollbackDir(d.stateDir(), cfg.WorkerID))
 
-	// Anything descending from konsertd itself (PTY tasks, chat engines and their helpers)
+	// Anything descending from syred itself (PTY tasks, chat engines and their helpers)
 	// is managed, not an external session.
 	self := os.Getpid()
 	isManaged := func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) }
@@ -266,7 +266,7 @@ func (d *Daemon) SetAllowSandboxShell(allow bool) {
 	d.runner.SetAllowSandboxShell(allow)
 }
 
-// SetVersion records konsertd's build version for worker.hello. Call before Run.
+// SetVersion records syred's build version for worker.hello. Call before Run.
 func (d *Daemon) SetVersion(v string) {
 	d.version = v
 }
@@ -295,7 +295,7 @@ func (d *Daemon) Runner() *Runner {
 
 // ErrCredentialRequired is returned by Run when the hub requires a machine credential and
 // none is saved: retrying cannot succeed until the machine joins.
-var ErrCredentialRequired = errors.New("no machine credential: run `konsertd join <hub-url> <code>`")
+var ErrCredentialRequired = errors.New("no machine credential: run `syred join <hub-url> <code>`")
 
 // authError reports that the hub refused the WebSocket upgrade (HTTP 401/403).
 type authError struct {
@@ -325,7 +325,7 @@ func (d *Daemon) credential() string {
 	return d.cfg.Credential
 }
 
-// reloadCredential re-reads the saved credential (another process, such as `konsertd
+// reloadCredential re-reads the saved credential (another process, such as `syred
 // join`, may have replaced it) and reports whether it changed.
 func (d *Daemon) reloadCredential() bool {
 	cred, err := LoadCredential("", d.cfg.WorkerID)
@@ -432,9 +432,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case websocket.StatusCode(protocol.WSCloseTryAgainLater):
 			err = errors.New("the hub asked to retry later (another live connection uses this identity)")
 		case websocket.StatusCode(protocol.WSCloseCredentialRevoked):
-			// Retry slowly: `konsertd join` (or the hub, over SSH) saves a new credential,
+			// Retry slowly: `syred join` (or the hub, over SSH) saves a new credential,
 			// which the next attempt picks up.
-			err = errors.New("credential revoked by the hub; re-join: konsertd join")
+			err = errors.New("credential revoked by the hub; re-join: syred join")
 			if !d.reloadCredential() {
 				backoff = maxBackoff
 			}
@@ -452,7 +452,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// A revoked or replaced credential: keep retrying at the slowest backoff,
 			// re-reading the saved credential (a re-join or re-provision replaces it).
 			if aerr.credSet && !d.reloadCredential() {
-				err = errors.New(aerr.Error() + "; re-join: konsertd join")
+				err = errors.New(aerr.Error() + "; re-join: syred join")
 				backoff = maxBackoff
 			}
 		}
@@ -515,7 +515,7 @@ func (d *Daemon) connectAndServe(daemonCtx, connCtx context.Context) error {
 	return d.serveConn(daemonCtx, connCtx, conn, linkPeer{transport: "outbound", addr: d.cfg.ControllerURL}, lv)
 }
 
-// linkPeer describes the other end of a hub link (for logs and `konsertd status`).
+// linkPeer describes the other end of a hub link (for logs and `syred status`).
 type linkPeer struct {
 	transport string // outbound, ssh or local
 	addr      string
@@ -994,7 +994,7 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: vErr.Error()})
 				return
 			}
-			if err := gitutil.CleanupKonsertWorktree(ctx, dir); err != nil {
+			if err := gitutil.CleanupSyreWorktree(ctx, dir); err != nil {
 				d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: false, Error: err.Error()})
 				return
 			}
@@ -1079,7 +1079,7 @@ func (d *Daemon) handleWorktreeScan(req protocol.WorktreeScanRequest) protocol.W
 		Matches:  []protocol.WorktreeScanMatch{},
 	}
 
-	// Bounded depth-3 walk (skips heavy vendor dirs) to find .konsert-worktrees/* or query-matching temp worktrees.
+	// Bounded depth-3 walk (skips heavy vendor dirs) to find .syre-worktrees/* or query-matching temp worktrees.
 	maxDepth := 3
 	baseDepth := strings.Count(filepath.Clean(validRoot), string(filepath.Separator))
 	_ = filepath.WalkDir(validRoot, func(path string, entry os.DirEntry, walkErr error) error {
@@ -1093,7 +1093,7 @@ func (d *Daemon) handleWorktreeScan(req protocol.WorktreeScanRequest) protocol.W
 			}
 		}
 		depth := strings.Count(filepath.Clean(path), string(filepath.Separator)) - baseDepth
-		if name == ".konsert-worktrees" {
+		if name == ".syre-worktrees" {
 			children, _ := os.ReadDir(path)
 			repoRoot := filepath.Dir(path)
 			for _, ch := range children {
@@ -1108,7 +1108,7 @@ func (d *Daemon) handleWorktreeScan(req protocol.WorktreeScanRequest) protocol.W
 					Path:      wtPath,
 					RepoRoot:  repoRoot,
 					Branch:    ch.Name(),
-					Kind:      "konsert_worktree",
+					Kind:      "syre_worktree",
 					Removable: true,
 				})
 			}

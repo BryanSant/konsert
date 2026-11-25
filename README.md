@@ -1,18 +1,18 @@
-# Konsert (`konsert.dev`)
+# Syre (`syre.dev`)
 
 **Single-binary, self-hosted distributed agent control plane.**
 
-Konsert cleanly decouples **LLM orchestration** from **human observability** across physical hosts, VMs, and Podman/Docker containers:
+Syre cleanly decouples **LLM coordination** from **human observability** across physical hosts, VMs, and Podman/Docker containers:
 
-- **Orchestrators** (Konsert's built-in Orchestrator Chat or external LLMs via MCP stdio / Streamable HTTP) inspect capacity, dispatch parallel tasks, steer running agents, and retrieve concise structured completion payloads (exit code, git diff stats, final summary)—**never ingesting raw PTY stdout**.
-- **Humans** get an IDE-style Angular 22 Zoneless Signals PWA embedded directly in the `konsert` binary (`//go:embed`) with live on-demand `@xterm/xterm` terminals (Read-Only by default, explicit **Take Control / Interactive** toggle), structured telemetry drawers, and responsive mobile support.
+- **Commanders** (Syre's built-in Commander Chat or external LLMs via MCP stdio / Streamable HTTP) inspect capacity, dispatch parallel tasks, steer running agents, and retrieve concise structured completion payloads (exit code, git diff stats, final summary)—**never ingesting raw PTY stdout**.
+- **Humans** get an IDE-style Angular 22 Zoneless Signals PWA embedded directly in the `syre` binary (`//go:embed`) with live on-demand `@xterm/xterm` terminals (Read-Only by default, explicit **Take Control / Interactive** toggle), structured telemetry drawers, and responsive mobile support.
 
 ---
 
 ## Architecture
 
-- **`konsert` (Central Controller / Hub):** Serves the embedded Angular 22 PWA, REST API, Browser WebSocket (`/ws/client`), Worker WebSocket (`/ws/worker`), MCP Server (stdio & Streamable HTTP `/mcp`), and built-in Orchestrator Chat (OpenAI-compatible, Anthropic, Gemini) backed by SQLite WAL (`modernc.org/sqlite` behind a swappable `store.Store` interface).
-- **`konsertd` (Cross-Platform Worker Daemon):** Runs on Linux, macOS, Windows (ConPTY + Job Objects), and Podman/Docker containers using **outbound-only** WebSockets. Supports pluggable `AgentDriver` plugins (`claude`, `agy`, `grok`, `mock`), 512 KB local PTY ring buffers (zero idle network traffic), git worktree isolation, and **Full-Access ("YOLO") execution by default** with opt-in sandboxing (`--sandbox`, `--allowed-roots`).
+- **`syre` (Central Controller / Hub):** Serves the embedded Angular 22 PWA, REST API, Browser WebSocket (`/ws/client`), Worker WebSocket (`/ws/worker`), MCP Server (stdio & Streamable HTTP `/mcp`), and built-in Commander Chat (OpenAI-compatible, Anthropic, Gemini) backed by SQLite WAL (`modernc.org/sqlite` behind a swappable `store.Store` interface).
+- **`syred` (Cross-Platform Worker Daemon):** Runs on Linux, macOS, Windows (ConPTY + Job Objects), and Podman/Docker containers using **outbound-only** WebSockets. Supports pluggable `AgentDriver` plugins (`claude`, `agy`, `grok`, `mock`), 512 KB local PTY ring buffers (zero idle network traffic), git worktree isolation, and **Full-Access ("YOLO") execution by default** with opt-in sandboxing (`--sandbox`, `--allowed-roots`).
 
 ---
 
@@ -28,10 +28,10 @@ Or run in development without authentication on localhost:
 
 ```bash
 # Terminal 1: Start central controller
-go run ./cmd/konsert serve --no-auth
+go run ./cmd/syre serve --no-auth
 
 # Terminal 2: Start worker daemon with built-in mock driver
-go run ./cmd/konsertd run --enable-mock-driver --controller ws://127.0.0.1:8420/ws/worker
+go run ./cmd/syred run --enable-mock-driver --controller ws://127.0.0.1:8420/ws/worker
 ```
 
 Open `http://127.0.0.1:8420` in your browser.
@@ -39,7 +39,7 @@ Open `http://127.0.0.1:8420` in your browser.
 ### 2. Verify Worker Node Capabilities
 
 ```bash
-./bin/konsertd doctor --enable-mock-driver
+./bin/syred doctor --enable-mock-driver
 ```
 
 ### 3. Production Authentication & Security
@@ -48,10 +48,10 @@ Start the controller with auth on (the default; or `--trust-tailscale-headers` b
 Tailscale Serve):
 
 ```bash
-./bin/konsert serve \
+./bin/syre serve \
   --listen :8420 \
-  --db /var/lib/konsert/konsert.db \
-  --public-url https://konsert.tailnet.ts.net
+  --db /var/lib/syre/syre.db \
+  --public-url https://syre.tailnet.ts.net
 ```
 
 Nobody copies a token to sign in. The hub prints one line, plus a QR code in a terminal:
@@ -63,7 +63,7 @@ Sign in: http://desk:8420/pair/7KQ2-M9TX (10 min)
 Open it in a browser or scan it with your phone. Each browser, phone, CLI and MCP client
 gets its own credential, listed in **Settings → Devices** (rename, revoke). A device stays
 signed in while it is used at least every 90 days (a setting). For another link run
-`konsert pair` on the hub, or use **Add a device** in a signed-in browser. See
+`syre pair` on the hub, or use **Add a device** in a signed-in browser. See
 [docs/deploy.md](docs/deploy.md#1-signing-in) for the CLI, MCP clients and the recovery key.
 
 Add machines from the PWA (**Add machine**). The hub's own machine and hosts in your
@@ -71,16 +71,16 @@ Add machines from the PWA (**Add machine**). The hub's own machine and hosts in 
 **Add machine → Manual** shows a single command to run on it, for example
 
 ```bash
-konsertd join https://konsert.tailnet.ts.net ABCD-EFGH
+syred join https://syre.tailnet.ts.net ABCD-EFGH
 ```
 
-The code works once, for 15 minutes. `konsertd join` trades it for the machine's own
-credential (kept in `~/.konsert`, readable only by you) and installs konsertd to start at
+The code works once, for 15 minutes. `syred join` trades it for the machine's own
+credential (kept in `~/.syre`, readable only by you) and installs syred to start at
 login; add run flags as needed (`--sandbox --allowed-roots /home/dev/repos`,
 `--host-group fedora-main`, `--max-concurrent 4`) or `--foreground` to run it in the
 terminal. Nobody copies a token: each machine has its own credential, which
 **Fleet → Details → Revoke credential** cuts off immediately, and
-`konsert token rotate machines` (or **Settings → Security**) revokes for every machine
+`syre token rotate machines` (or **Settings → Security**) revokes for every machine
 that joined by hand.
 
 ### 4. MCP Integration
@@ -88,31 +88,31 @@ that joined by hand.
 - **Streamable HTTP:** In the web app, **Settings → Connect an MCP client** creates a
   credential for `/mcp` and shows ready-to-paste config (a `claude mcp add --transport http …`
   command and a JSON snippet).
-- **Stdio Bridge:** Configure your local desktop/CLI orchestrator to run `konsert mcp`. On the
-  hub's machine it needs nothing else; elsewhere run `konsert login https://hub:8420` once.
+- **Stdio Bridge:** Configure your local desktop/CLI commander to run `syre mcp`. On the
+  hub's machine it needs nothing else; elsewhere run `syre login https://hub:8420` once.
 
 Available MCP tools: `fleet_status`, `dispatch_task`, `list_tasks`, `get_task_result`, `steer_task`, `cancel_task`.
 
-### 5. Built-in Orchestrator Chat Configuration
+### 5. Built-in Commander Chat Configuration
 
-Set environment variables (or `orchestrator:` in controller YAML):
+Set environment variables (or `commander:` in controller YAML):
 
 ```bash
 # OpenAI / OpenRouter / xAI / Ollama / vLLM
-export KONSERT_LLM_PROVIDER=openai
-export KONSERT_LLM_MODEL=gpt-4o
-export KONSERT_LLM_API_KEY=...
+export SYRE_LLM_PROVIDER=openai
+export SYRE_LLM_MODEL=gpt-4o
+export SYRE_LLM_API_KEY=...
 # Optional for OpenRouter / Ollama / vLLM:
-# export KONSERT_LLM_BASE_URL=http://127.0.0.1:11434/v1
+# export SYRE_LLM_BASE_URL=http://127.0.0.1:11434/v1
 
 # Or Anthropic:
-# export KONSERT_LLM_PROVIDER=anthropic
-# export KONSERT_LLM_MODEL=claude-sonnet-4-20250514
+# export SYRE_LLM_PROVIDER=anthropic
+# export SYRE_LLM_MODEL=claude-sonnet-4-20250514
 # export ANTHROPIC_API_KEY=...
 
 # Or Google Gemini:
-# export KONSERT_LLM_PROVIDER=gemini
-# export KONSERT_LLM_MODEL=gemini-2.5-pro
+# export SYRE_LLM_PROVIDER=gemini
+# export SYRE_LLM_MODEL=gemini-2.5-pro
 # export GEMINI_API_KEY=...
 ```
 
@@ -123,9 +123,9 @@ export KONSERT_LLM_API_KEY=...
 See **[docs/deploy.md](docs/deploy.md)** for a full production guide: HTTPS via Tailscale Serve (or Caddy/Nginx), the controller as a systemd service, and workers under systemd, launchd, Podman Quadlet and Windows.
 
 Service templates are provided under `deploy/`:
-- `deploy/systemd/konsert.service` & `deploy/systemd/konsertd.service`
-- `deploy/quadlet/konsertd.container` (Podman Quadlet)
-- `deploy/launchd/dev.konsert.konsertd.plist` (macOS launchd)
+- `deploy/systemd/syre.service` & `deploy/systemd/syred.service`
+- `deploy/quadlet/syred.container` (Podman Quadlet)
+- `deploy/launchd/dev.syre.syred.plist` (macOS launchd)
 
 ## Releasing
 

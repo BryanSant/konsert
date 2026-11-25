@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func openControlStore(t *testing.T) *SQLiteStore {
@@ -100,7 +100,7 @@ func TestTaskCauseSuspendAndParentChat(t *testing.T) {
 	ctx := context.Background()
 	st := openControlStore(t)
 	task := store.Task{ID: ids.UUID(), Agent: "mock", Workdir: "/tmp", Prompt: "x", Status: protocol.TaskStatusRunning,
-		Cause: &store.Cause{Actor: store.ActorOrchestrator, Confidence: store.ConfidenceCertain}, ParentChatID: "c1"}
+		Cause: &store.Cause{Actor: store.ActorCommander, Confidence: store.ConfidenceCertain}, ParentChatID: "c1"}
 	if err := st.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Reference enrichment (PRD §5.8b): ka ticket ids, PR numbers, file paths and Konsert
+// Reference enrichment (PRD §5.8b): ka ticket ids, PR numbers, file paths and Syre
 // sids in a question become cards (title, status, short excerpt). Resolution runs after
 // the question is shown and never delays it; results are cached briefly.
 
@@ -30,11 +30,11 @@ type refCacheEntry struct {
 }
 
 var (
-	// ka ids: an upper-case project prefix and five Crockford base32 characters (KON-2Q0CH).
+	// ka ids: an upper-case project prefix and five Crockford base32 characters (SYR-2Q0CH).
 	ticketRe = regexp.MustCompile(`\b([A-Z][A-Z0-9]{1,9}-[0-9A-HJKMNP-TV-Z]{5})\b`)
 	// PR numbers: "#123", "PR 123", "PR #123", "pull request 123".
 	prRe = regexp.MustCompile(`(?i)(?:\bPR\s*#?|\bpull request\s*#?|(?:^|[\s(])#)(\d{1,6})\b`)
-	// Konsert sids: t-, c-, m-, q-, h-, rq-, ... followed by 5-12 lower-case Crockford chars.
+	// Syre sids: t-, c-, m-, q-, h-, rq-, ... followed by 5-12 lower-case Crockford chars.
 	sidRe = regexp.MustCompile(`\b((?:t|c|m|p|r|s|ws|wt|h|rq|q)-[0-9a-hjkmnp-tv-z]{5,12})\b`)
 	// File paths: something/with/slashes.ext or name.ext with a known code extension.
 	fileRe = regexp.MustCompile("(?:^|[\\s`'\"(])((?:\\.{0,2}/)?(?:[\\w.@-]+/)+[\\w.@-]+\\.[A-Za-z0-9]{1,8}|[\\w-]+\\.(?:go|ts|tsx|js|py|rs|md|sql|yaml|yml|json|toml|css|html|sh))(?::\\d+)?\\b")

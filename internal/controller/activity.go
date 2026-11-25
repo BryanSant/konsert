@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/nowline"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/nowline"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Session activity (KON-NAYVC): konsertd derives it from engine streams and session logs
+// Session activity (SYR-NAYVC): syred derives it from engine streams and session logs
 // and sends session.activity at a bounded rate; the hub keeps the latest per session in
 // memory, fills in what only it knows (queued, suspended, observed sessions, hub-side
 // errors), and fans it out to every browser as fleet.update kind "activity". The
@@ -86,7 +86,7 @@ func (h *Hub) setActivity(a protocol.SessionActivity) {
 			return // an older report (a re-send after reconnect)
 		}
 		if a.Source == protocol.ActivitySourceHub {
-			// The hub knows the session's state, not its processes: shells konsertd
+			// The hub knows the session's state, not its processes: shells syred
 			// reported keep showing (they may outlive the session).
 			a.Shells, a.ShellsBusy, a.ShellList = prev.Shells, prev.ShellsBusy, prev.ShellList
 		}

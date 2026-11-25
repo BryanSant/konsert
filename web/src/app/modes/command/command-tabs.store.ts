@@ -1,9 +1,9 @@
 import { Injectable, effect, signal } from '@angular/core';
 
-export const COMMAND_TABS_KEY = 'konsert.command.tabs.v1';
+export const COMMAND_TABS_KEY = 'syre.command.tabs.v1';
 
 /**
- * The session tabs open next to the pinned Orchestrator tab in Command, by work item id
+ * The session tabs open next to the pinned Commander tab in Command, by work item id
  * (task or chat). Which one is active comes from the URL (/command/<sid>); this only
  * remembers what is open, across reloads.
  */
@@ -25,7 +25,7 @@ export class CommandTabsStore {
     if (!this.ids().includes(id)) this.ids.update((l) => [...l, id]);
   }
 
-  /** Closes a tab; returns the id that should become active (a neighbour), or '' for the orchestrator. */
+  /** Closes a tab; returns the id that should become active (a neighbour), or '' for the commander. */
   close(id: string): string {
     const list = this.ids();
     const i = list.indexOf(id);

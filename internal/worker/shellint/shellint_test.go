@@ -14,7 +14,7 @@ func TestPrepareWritesScriptsIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"zsh/.zshenv", "zsh/.zprofile", "zsh/.zshrc", "zsh/.zlogin", "zsh/konsert.zsh", "konsert.bash", "konsert.ps1"} {
+	for _, f := range []string{"zsh/.zshenv", "zsh/.zprofile", "zsh/.zshrc", "zsh/.zlogin", "zsh/syre.zsh", "syre.bash", "syre.ps1"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
 			t.Errorf("missing %s: %v", f, err)
 		}
@@ -39,7 +39,7 @@ func TestIntegrationCommand(t *testing.T) {
 	}
 
 	args, env, ok = in.Command("/usr/bin/bash", "")
-	if !ok || !slices.Equal(args, []string{"--init-file", filepath.Join("/d", "konsert.bash"), "-i"}) || !hasEnv(env, loginEnv+"=1") {
+	if !ok || !slices.Equal(args, []string{"--init-file", filepath.Join("/d", "syre.bash"), "-i"}) || !hasEnv(env, loginEnv+"=1") {
 		t.Fatalf("bash: %v %v %v", args, env, ok)
 	}
 	args, _, _ = in.Command("/usr/bin/bash", "codex login")

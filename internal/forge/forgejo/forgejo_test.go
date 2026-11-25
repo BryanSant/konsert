@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
+	"github.com/BryanSant/syre/internal/forge"
 )
 
 func TestForgejoClient(t *testing.T) {

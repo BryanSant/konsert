@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func TestResolveCwd(t *testing.T) {
@@ -24,7 +24,7 @@ func TestResolveCwd(t *testing.T) {
 			t.Errorf("ResolveCwd(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	// Seen live: the orchestrator chat (cwd "~") failed with "claude is not installed".
+	// Seen live: the commander chat (cwd "~") failed with "claude is not installed".
 	if _, err := ResolveCwd(filepath.Join(home, "missing")); err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("missing dir error = %v", err)
 	}
@@ -40,9 +40,9 @@ func TestChdirFailureIsNotNotInstalled(t *testing.T) {
 	}
 }
 
-// Chat engine processes carry the managed-task marker so konsertd's global agent hooks
+// Chat engine processes carry the managed-task marker so syred's global agent hooks
 // don't report them as separate external sessions (seen live: the Agents roster filled
-// with konsertd's own chat processes).
+// with syred's own chat processes).
 func TestManagedMarkerDoesNotMutateAccount(t *testing.T) {
 	orig := Account{ID: "claude", Env: map[string]string{"CLAUDE_CONFIG_DIR": "/x"}}
 	got := withManagedMarker(orig, "chat-1")

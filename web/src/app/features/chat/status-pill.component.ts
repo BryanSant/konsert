@@ -10,27 +10,27 @@ interface PillLook {
 export function statusLook(status: ChatStatus | string): PillLook {
   switch (status) {
     case 'starting':
-      return { label: 'Starting', cls: 'text-[#a9c9f7] bg-[var(--ks-blue-soft)]', dot: 'pulse' };
+      return { label: 'Starting', cls: 'text-[#a9c9f7] bg-[var(--sy-blue-soft)]', dot: 'pulse' };
     case 'working':
-      return { label: 'Working', cls: 'text-[#a9c9f7] bg-[var(--ks-blue-soft)]', dot: 'spin' };
+      return { label: 'Working', cls: 'text-[#a9c9f7] bg-[var(--sy-blue-soft)]', dot: 'spin' };
     case 'needs_you':
-      return { label: 'Needs you', cls: 'text-[#f0c27a] bg-[var(--ks-amber-soft)]', dot: 'pulse' };
+      return { label: 'Needs you', cls: 'text-[#f0c27a] bg-[var(--sy-amber-soft)]', dot: 'pulse' };
     case 'done':
-      return { label: 'Done', cls: 'text-[#9fd8ab] bg-[var(--ks-green-soft)]', dot: 'solid' };
+      return { label: 'Done', cls: 'text-[#9fd8ab] bg-[var(--sy-green-soft)]', dot: 'solid' };
     case 'failed':
-      return { label: 'Failed', cls: 'text-[#f3a5a5] bg-[var(--ks-red-soft)]', dot: 'solid' };
+      return { label: 'Failed', cls: 'text-[#f3a5a5] bg-[var(--sy-red-soft)]', dot: 'solid' };
     case 'cancelled':
-      return { label: 'Cancelled', cls: 'text-[#b4b6be] bg-[var(--ks-raised)]', dot: 'hollow' };
+      return { label: 'Cancelled', cls: 'text-[#b4b6be] bg-[var(--sy-raised)]', dot: 'hollow' };
     case 'suspended':
-      return { label: 'Suspended', cls: 'text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]', dot: 'pause' };
+      return { label: 'Suspended', cls: 'text-[var(--sy-violet)] bg-[var(--sy-violet-soft)]', dot: 'pause' };
     default:
-      return { label: 'Ready', cls: 'text-[#b4b6be] bg-[var(--ks-raised)]', dot: 'hollow' };
+      return { label: 'Ready', cls: 'text-[#b4b6be] bg-[var(--sy-raised)]', dot: 'hollow' };
   }
 }
 
 /** Chat status pill: starting, working (+ latest tool), needs you, done, failed, cancelled. */
 @Component({
-  selector: 'ks-status-pill',
+  selector: 'sy-status-pill',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'inline-flex min-w-0' },
@@ -48,10 +48,10 @@ export function statusLook(status: ChatStatus | string): PillLook {
     >
       @switch (look().dot) {
         @case ('spin') {
-          <span class="ks-spinner shrink-0" style="width: 9px; height: 9px" aria-hidden="true"></span>
+          <span class="sy-spinner shrink-0" style="width: 9px; height: 9px" aria-hidden="true"></span>
         }
         @case ('pulse') {
-          <span class="h-1.5 w-1.5 rounded-full bg-current ks-pulse shrink-0" aria-hidden="true"></span>
+          <span class="h-1.5 w-1.5 rounded-full bg-current sy-pulse shrink-0" aria-hidden="true"></span>
         }
         @case ('solid') {
           <span class="h-1.5 w-1.5 rounded-full bg-current shrink-0" aria-hidden="true"></span>

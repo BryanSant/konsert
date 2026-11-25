@@ -211,7 +211,7 @@ export interface AgentApprovalMode {
   /** hand, edit, shield-check, shield-alert, eye */
   icon?: string;
   /**
-   * When non-empty, the mode can't be used on this worker and this is why (e.g. konsertd
+   * When non-empty, the mode can't be used on this worker and this is why (e.g. syred
    * runs with --sandbox, which refuses full-access modes).
    */
   disabled?: string;

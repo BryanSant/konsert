@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_WORKER_ID, claude2Account, claudeAccount, codexLoggedOut, cursorAccount } from '../../testing/agent-chat.fixtures';
-import { Worker } from '../core/models/konsert.models';
+import { Worker } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
@@ -61,7 +61,7 @@ describe('SessionDispatchModalComponent (shared composer)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     TestBed.resetTestingModule();
-    document.querySelectorAll('.ks-tooltip').forEach((n) => n.remove());
+    document.querySelectorAll('.sy-tooltip').forEach((n) => n.remove());
   });
 
   async function setup(req: SessionDispatchRequest = { kind: 'chat', worker: worker(FIXTURE_WORKER_ID, 'studio') }) {
