@@ -404,6 +404,10 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM worker_spool WHERE worker_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_credentials WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -886,7 +890,7 @@ func (s *SQLiteStore) AppendEvent(ctx context.Context, e store.TaskEvent) (int64
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now().UTC()
 	}
-	res, err := s.db.ExecContext(ctx, `
+	res, err := s.guardedExec(ctx, `
 		INSERT INTO task_events (task_id, kind, message, meta_json, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, e.TaskID, e.Kind, e.Message, e.MetaJSON, formatTime(e.CreatedAt))
@@ -1150,7 +1154,7 @@ func (s *SQLiteStore) RecordUsage(ctx context.Context, u store.UsageEvent) error
 	if u.CreatedAt.IsZero() {
 		u.CreatedAt = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.guardedExec(ctx, `
 		INSERT INTO usage_events (provider, model, account_id, input_tokens, output_tokens, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, u.Provider, u.Model, u.AccountID, u.InputTokens, u.OutputTokens, formatTime(u.CreatedAt))

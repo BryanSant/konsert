@@ -9,7 +9,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { offlineText, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
+import { offlineText, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -209,6 +209,24 @@ import { MachineCredentialComponent } from './machine-credential.component';
           </span>
         }
       </div>
+
+      <!-- Outbound spool: what konsertd keeps for the hub until it is applied -->
+      @if (spoolLine(); as line) {
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11px] space-y-1.5" data-testid="worker-spool">
+          <div class="min-w-0">
+            <span class="text-[#86888f] mr-2" ksTooltip="konsertd keeps transcripts, task events, statuses, usage and vitals on disk until the hub applied them, so nothing is lost while the hub sleeps">Spool</span>
+            <span class="font-mono-ide text-[#c8cad0] break-words">{{ line }}</span>
+          </div>
+          @if (worker().reconnecting_after_sleep) {
+            <div class="text-[#c8cad0]" data-testid="worker-reconnecting">The hub just woke from sleep: reconnecting…</div>
+          }
+          @if (worker().spool?.full) {
+            <div role="alert" class="rounded-md bg-[var(--ks-red-soft)] px-2.5 py-1.5 text-[11px] text-[#f09595] break-words" data-testid="worker-spool-full">
+              Spool full ({{ worker().spool?.full_reason }}): vitals and activity are no longer kept ({{ worker().spool?.dropped ?? 0 }} dropped). Transcripts, task events, statuses and questions still are.
+            </div>
+          }
+        </div>
+      }
 
       <!-- Live Telemetry Metrics -->
       @if (worker().metrics; as m) {
@@ -456,6 +474,7 @@ export class MachineDetailModalComponent {
 
   /** The reported version, or "unknown" when the worker sent none. */
   readonly versionLabel = computed(() => this.worker().version?.trim() || 'unknown');
+  readonly spoolLine = computed(() => spoolSummary(this.worker(), Date.now()));
 
   readonly versionMismatch = computed(() =>
     isVersionMismatch(this.fleet.controllerVersion(), this.worker().version),

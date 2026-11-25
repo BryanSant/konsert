@@ -47,6 +47,7 @@ func startLocalDaemonWith(t *testing.T, setup func(*Daemon)) (*Daemon, string, c
 		t.Skip("AF_UNIX tests run on POSIX")
 	}
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(StateDirEnv, t.TempDir())
 	cfg := config.WorkerConfig{WorkerID: localTestID, Name: "local", EnableMockDriver: true, Tags: map[string]string{}}
 	d := NewDaemon(cfg, drivers.DefaultRegistry, nil)
 	d.HeartbeatInterval = time.Hour
@@ -108,6 +109,9 @@ func attachLocal(t *testing.T, path, hubID string) *hubConn {
 				continue
 			}
 			if env, err := protocol.DecodeEnvelope(data); err == nil {
+				if env.Type == protocol.MsgWorkerHello {
+					resumeSpool(c, env)
+				}
 				select {
 				case conn.msgs <- env:
 				default:
@@ -349,5 +353,17 @@ func TestAttachBridgesStdio(t *testing.T) {
 	}
 	if err := Attach(context.Background(), path+".missing", strings.NewReader(""), io.Discard); err == nil || !strings.Contains(err.Error(), "not running") {
 		t.Fatalf("missing socket: %v", err)
+	}
+}
+
+// resumeSpool answers worker.hello like the hub: resume the spool from the start (a
+// test hub applies everything it is sent).
+func resumeSpool(c *websocket.Conn, env protocol.Envelope) {
+	hello, err := protocol.DecodePayload[protocol.WorkerHelloPayload](env)
+	if err != nil || hello.Spool == nil {
+		return
+	}
+	if raw, err := protocol.NewEnvelope(protocol.MsgWorkerSpoolResume, "", protocol.SpoolResume{Epoch: hello.Spool.Epoch}); err == nil {
+		_ = c.Write(context.Background(), websocket.MessageText, raw)
 	}
 }

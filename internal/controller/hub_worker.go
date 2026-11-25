@@ -167,6 +167,11 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		}(prevConn)
 	}
 
+	// The daemon's spool: tell it where to resume (hub_spool.go). A machine that
+	// re-attached ends its wake grace (hub_wake.go).
+	h.startSpool(ctx, connCtx, wc, hello)
+	h.sleepWake.attach(wc.id)
+
 	// Re-adopt in-flight tasks reported by worker.hello (controller restart resilience),
 	// but never take over a task the store assigns to a different worker.
 	readopted := 0
@@ -238,8 +243,12 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	helloView.Facts = hello.Worker.Facts
 	h.broadcastFleetUpdate("worker", helloView)
 
-	// Agent chats that were working on this worker lost their turn with the old connection.
-	h.failInterruptedChats(ctx, wc)
+	// Agent chats that were working on this worker lost their turn with the old
+	// connection, unless it still runs there. With a replay pending, that waits until
+	// every spooled event is in (finishReplay).
+	if wc.replayDone.Load() {
+		h.failInterruptedChats(ctx, wc)
+	}
 
 	// Drain any queued tasks that can now run on this worker.
 	h.kickScheduler()
@@ -258,6 +267,9 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 			}
 		}()
 	}, func() {
+		// On a hub wake every link looks dead at once: note the wake first, while this
+		// machine still counts as linked (hub_wake.go).
+		h.checkWake(time.Now())
 		dead.Store(true)
 		cancel()
 	})
@@ -296,12 +308,13 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 			if decErr != nil {
 				continue
 			}
-			h.handleWorkerMessage(ctx, wc, env)
+			h.handleWorkerEnvelope(ctx, wc, env)
 		}
 	}
 
 	// Disconnect cleanup: remove active conn, keep DB status until reaper marks offline
 	// OR if no active tasks, mark offline promptly while preserving restart re-adoption window.
+	h.checkWake(time.Now())
 	h.mu.Lock()
 	current := h.workers[wModel.ID] == wc
 	if current {
@@ -341,6 +354,10 @@ func (h *Hub) markLinkDead(workerID string) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		// After a hub wake, the machine gets the grace to re-attach first.
+		if h.inWakeGrace(workerID) {
+			h.sleepWake.wait(ctx, workerID)
 		}
 		h.mu.RLock()
 		_, back := h.workers[workerID]
@@ -445,6 +462,12 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 	if err != nil {
 		return
 	}
+	// A heartbeat replayed from the daemon's spool only carries history: its vitals are
+	// stored at their own time; its task list and load are stale.
+	if (!p.At.IsZero() && time.Since(p.At) > lateVitalsAfter) || (env.Seq != 0 && env.Seq <= wc.helloLastSeq && !wc.replayDone.Load()) {
+		h.storeLateVitals(ctx, wc, p, env.Seq)
+		return
+	}
 	wc.mu.Lock()
 	prev := wc.activeTasks
 	wc.activeTasks = make(map[string]bool, len(p.ActiveTaskIDs))
@@ -488,7 +511,7 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		if f := decodeWorkerFacts(w.FactsJSON); f != nil {
 			cores = f.CPUCores
 		}
-		h.updateHeat(wc.id, metrics, cores, len(p.ActiveTaskIDs), w.MaxConcurrent, time.Now())
+		h.updateHeat(wc.id, metrics, cores, len(p.ActiveTaskIDs), w.MaxConcurrent, time.Now(), env.Seq)
 		h.broadcastFleetUpdate("worker", toWorkerView(w, len(p.ActiveTaskIDs), p.Metrics))
 	}
 }

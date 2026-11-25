@@ -27,6 +27,7 @@ import (
 	"github.com/BryanSant/konsert/internal/worker/chat"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/BryanSant/konsert/internal/worker/shells"
+	"github.com/BryanSant/konsert/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
@@ -57,8 +58,13 @@ type Daemon struct {
 	// version is konsertd's build version, reported as WorkerInfo.Version.
 	version string
 
-	// outbox keeps final task statuses until written to a hub connection (persisted).
-	outbox *statusOutbox
+	// spool keeps every hub-bound message that matters on disk until the hub applied it
+	// (daemon_spool.go); nil when it could not be opened.
+	spool         *spool.Spool
+	spoolWarnOnce sync.Once
+	spoolKick     chan struct{} // report the spool status now
+	// hbKick asks the heartbeat loop for a heartbeat now (a quiet link, a new connection).
+	hbKick chan struct{}
 
 	// helloAt is when worker.hello was last written on a connection (zero if the last
 	// attempt never got that far). Only touched by the Run goroutine.
@@ -94,9 +100,6 @@ type Daemon struct {
 	caps       *chat.Capabilities
 	capRefresh chan struct{} // re-probe and send capabilities
 	capPush    chan struct{} // send cached capabilities (chat usage changed)
-	// chatPending buffers chat events while disconnected (guarded by sendMu).
-	chatPending    []outboundMsg
-	chatDropWarned bool
 
 	// CapabilitiesInterval overrides DefaultCapabilitiesInterval (tests).
 	CapabilitiesInterval time.Duration
@@ -166,7 +169,8 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		cfg:               cfg,
 		registry:          registry,
 		logger:            logger,
-		outbox:            newStatusOutbox(outboxPath(defaultStateDir(), cfg.WorkerID), logger),
+		spoolKick:         make(chan struct{}, 1),
+		hbKick:            make(chan struct{}, 1),
 		HeartbeatInterval: 10 * time.Second,
 		FactsInterval:     5 * time.Minute,
 		metrics:           newMetricsSampler(),
@@ -176,6 +180,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	if strings.TrimSpace(cfg.ControllerURL) == "" {
 		transport = "local socket"
 	}
+	d.spool = d.openSpool(cfg)
 	d.link = newLinkTracker(logger, LinkStatusPath(defaultStateDir(), cfg.WorkerID), cfg.WorkerID, cfg.Name, transport)
 
 	d.activity = activity.NewPublisher(activity.PublisherOptions{}, func(a protocol.SessionActivity) {
@@ -189,12 +194,8 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			d.taskActMu.Lock()
 			d.taskActivity.Status(p)
 			d.taskActMu.Unlock()
-			if protocol.IsTerminalTaskStatus(p.Status) {
-				// Final statuses go through the persistent outbox so they survive a
-				// disconnect and are re-sent after the next worker.hello.
-				d.outbox.add(p)
-				return
-			}
+			// Statuses are spooled (final ones fsynced at once): they survive a
+			// disconnect and a daemon restart.
 			d.sendJSON(protocol.MsgTaskStatus, p)
 		},
 		OnTaskEvent: func(p protocol.TaskEventPayload) {
@@ -216,6 +217,8 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			d.enqueue(outboundMsg{msgType: websocket.MessageBinary, data: frame, droppable: frameType == protocol.FramePtyData})
 		},
 	}, logger)
+
+	d.runner.SetScrollbackDir(scrollbackDir(defaultStateDir(), cfg.WorkerID))
 
 	// Anything descending from konsertd itself (PTY tasks, chat engines and their helpers)
 	// is managed, not an external session.
@@ -246,6 +249,10 @@ func (d *Daemon) shutdown() {
 	d.shutdownChat()
 	d.runner.ShutdownAll()
 	d.wake.Shutdown()
+	if d.spool != nil {
+		// After the chats and tasks stopped: their last events are kept.
+		_ = d.spool.Close()
+	}
 }
 
 // SetAllowSandboxShell opts a --sandbox worker in to the unrestricted shell driver.
@@ -350,6 +357,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.shutdown()
 		return nil
 	}
+	// Vitals are sampled (and spooled) whether or not a hub is connected.
+	go d.heartbeatLoop(ctx, d.hbKick, linkwatch.New(d.linkConfig(), nil).Config().QuietAfter*4)
+	go d.spoolDisconnectedLoop(ctx)
 	if strings.TrimSpace(d.cfg.ControllerURL) == "" {
 		return d.runLocal(ctx)
 	}
@@ -519,8 +529,11 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	defer connCancel()
 
 	queues := newConnQueues()
-	// Chat events buffered while disconnected are queued now and written after hello.
-	d.attachQueues(queues)
+	d.sendMu.Lock()
+	d.queues = queues
+	d.sendMu.Unlock()
+	// The connection's position in the spool, set by the hub's worker.spool.resume.
+	sc := newSpoolConn()
 
 	defer func() {
 		d.sendMu.Lock()
@@ -556,6 +569,11 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 			Hostname:       osHostname(),
 		},
 		ActiveTasks: d.runner.ActiveTasks(),
+		ActiveChats: d.activeChats(),
+	}
+	if d.spool != nil {
+		first, last := d.spool.Bounds()
+		hello.Spool = &protocol.SpoolHello{Epoch: d.spool.Epoch(), FirstSeq: first, LastSeq: last}
 	}
 	helloBytes, err := protocol.NewEnvelope(protocol.MsgWorkerHello, "", hello)
 	if err != nil {
@@ -584,10 +602,10 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		"active_tasks", len(hello.ActiveTasks),
 	)
 
-	// Writer goroutine. It starts after worker.hello has been written, so pending final
-	// statuses from the outbox are always delivered after hello.
+	// Writer goroutine. It starts after worker.hello has been written; spooled records
+	// follow once the hub said where to resume.
 	go func() {
-		if err := d.writeLoop(connCtx, queues, func(msg outboundMsg) error {
+		if err := d.writeLoop(connCtx, queues, sc, func(msg outboundMsg) error {
 			wCtx, wCancel := context.WithTimeout(connCtx, 10*time.Second)
 			defer wCancel()
 			if err := conn.Write(wCtx, msg.msgType, msg.data); err != nil {
@@ -604,14 +622,15 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	// Liveness: when this side has been quiet, the heartbeat goroutine sends a vitals
 	// heartbeat (the hub pings when it is quiet, so a live hub is always heard from);
 	// when nothing arrived for LinkDead, the link is dead.
-	hbKick := make(chan struct{}, 1)
 	var dead atomic.Bool
-	go lv.Monitor(connCtx, func() {
+	kickHeartbeat := func() {
 		select {
-		case hbKick <- struct{}{}:
+		case d.hbKick <- struct{}{}:
 		default:
 		}
-	}, func() {
+	}
+	kickHeartbeat() // the hub learns the active tasks and vitals right after hello
+	go lv.Monitor(connCtx, kickHeartbeat, func() {
 		dead.Store(true)
 		connCancel()
 	})
@@ -626,7 +645,7 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 		}()
 	}
 
-	go d.heartbeatLoop(connCtx, hbKick, lv.Config().QuietAfter*4)
+	go d.spoolStatusLoop(connCtx, sc)
 
 	// Agent capabilities (and the legacy worker.quotas derived from them).
 	go d.capabilitiesLoop(connCtx)
@@ -701,6 +720,9 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 				d.logger.Warn("invalid json frame from controller", "err", decErr)
 				continue
 			}
+			if d.handleSpoolMessage(sc, env) {
+				continue
+			}
 			d.handleControlMessage(ctx, env)
 		}
 	}
@@ -726,6 +748,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 			ActiveTaskIDs: ids,
 			LoadAvg:       m.LoadAvg,
 			Metrics:       m,
+			At:            now.UTC(),
 		})
 		lastIDs, lastAt = ids, now
 	}
@@ -1179,15 +1202,21 @@ func (d *Daemon) sendJSON(msgType string, payload any) {
 func (d *Daemon) sendJSONWithID(msgType, id string, payload any) {
 	raw, err := protocol.NewEnvelope(msgType, id, payload)
 	if err != nil {
+		d.logger.Warn("dropping message: encode failed", "type", msgType, "err", err)
 		return
+	}
+	if id == "" {
+		if class, key, ok := spoolClass(msgType, payload); ok && d.spoolMessage(class, key, raw) {
+			return
+		}
 	}
 	d.enqueue(outboundMsg{msgType: websocket.MessageText, data: raw})
 }
 
 // enqueue hands msg to the current connection's queues. It never blocks. While
-// disconnected, messages are discarded: final task statuses do not pass through here (they
-// live in the outbox), live state is re-sent in worker.hello, and request results are
-// meaningless on a new connection.
+// disconnected, messages are discarded: everything that matters goes through the spool
+// instead (sendJSONWithID), live state is re-sent after worker.hello, and request results
+// are meaningless on a new connection.
 func (d *Daemon) enqueue(msg outboundMsg) {
 	d.sendMu.RLock()
 	q := d.queues
@@ -1198,9 +1227,11 @@ func (d *Daemon) enqueue(msg outboundMsg) {
 	q.push(msg)
 }
 
-// writeLoop drains queues in priority order until ctx ends or write fails:
-// control messages first, then pending outbox statuses, then live PTY data.
-func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outboundMsg) error) error {
+// writeLoop drains the connection in priority order until ctx ends or write fails:
+// control messages first, then spooled records (once the hub resumed the connection, in
+// seq order: the replay, then live records), then live PTY data.
+func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, sc *spoolConn, write func(outboundMsg) error) error {
+	var changed <-chan struct{}
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -1211,18 +1242,13 @@ func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outbou
 			}
 			continue
 		}
-		if entries := d.outbox.pending(); len(entries) > 0 {
-			for _, e := range entries {
-				raw, err := protocol.NewEnvelope(protocol.MsgTaskStatus, "", e.Status)
-				if err != nil {
-					d.outbox.remove(e.Seq)
-					continue
-				}
-				if err := write(outboundMsg{msgType: websocket.MessageText, data: raw}); err != nil {
-					return err
-				}
-				d.outbox.remove(e.Seq)
-			}
+		if d.spool != nil {
+			// Take the change signal before reading, so an append in between wakes us.
+			changed = d.spool.Changed()
+		}
+		if more, err := d.writeSpool(sc, write); err != nil {
+			return err
+		} else if more {
 			continue
 		}
 		select {
@@ -1233,11 +1259,16 @@ func (d *Daemon) writeLoop(ctx context.Context, q *connQueues, write func(outbou
 			continue
 		default:
 		}
+		resumed := sc.resumed
+		if cursor, _, _, _ := sc.position(); cursor != 0 {
+			resumed = nil
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-q.signal:
-		case <-d.outbox.signal:
+		case <-changed:
+		case <-resumed:
 		case msg := <-q.pty:
 			if err := write(msg); err != nil {
 				return err

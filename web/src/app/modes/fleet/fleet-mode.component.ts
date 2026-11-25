@@ -32,6 +32,7 @@ import {
   shellChip,
   shellRows,
   shortAge,
+  spoolNote,
   stripTicks,
   subagentChip,
   subagentText,
@@ -267,7 +268,12 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
                   @for (f of slots(r.free); track $index) {
                     <li class="ks-extra ks-extra-free">free slot</li>
                   }
-                  @if (r.w.status !== 'online') {
+                  @if (spoolNote(r.w); as note) {
+                    <li class="ks-extra" [class.ks-extra-alert]="r.w.spool?.full" data-testid="machine-spool">{{ note }}</li>
+                  }
+                  @if (r.w.reconnecting_after_sleep) {
+                    <li class="ks-extra" data-testid="machine-reconnecting">reconnecting after sleep…</li>
+                  } @else if (r.w.status !== 'online') {
                     <li class="ks-extra">{{ offlineText(r.w) }}</li>
                   } @else if (!r.sessions.length && !r.free && !r.load) {
                     <li class="ks-extra">nothing running</li>
@@ -508,6 +514,10 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     }
+    .ks-extra-alert {
+      color: #f09595;
+      background: var(--ks-red-soft);
+    }
     .ks-extra-next {
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(224, 168, 76, 0.4);
@@ -547,6 +557,7 @@ const WAKE_REASON = 'Keep Awake from the Konsert dashboard';
       box-shadow: inset 0 0 0 1px var(--ks-blue);
     }
     .ks-badge[data-badge='OFFLINE'],
+    .ks-badge[data-badge='RECONNECTING'],
     .ks-badge[data-badge='STARTING'] {
       background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0 4px, transparent 4px 8px);
     }
@@ -746,6 +757,10 @@ export class FleetModeComponent {
   readonly transportLabel = transportLabel;
   readonly transportHint = transportHint;
   readonly transportIcon = transportIcon;
+
+  spoolNote(w: Worker): string | undefined {
+    return spoolNote(w, Date.now());
+  }
 
   offlineText(w: Worker): string {
     return offlineText(w, this.clock());

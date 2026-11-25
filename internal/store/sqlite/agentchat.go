@@ -29,6 +29,9 @@ func (s *SQLiteStore) AppendChatEvent(ctx context.Context, e store.ChatEvent) (b
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := spoolGuard(ctx, tx); err != nil {
+		return false, err
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO chat_events (chat_id, seq, turn_id, kind, json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)

@@ -75,6 +75,15 @@ func (t *restartTracker) holdUntil(at time.Time) {
 	t.enableAt = at
 }
 
+// holdAtLeast keeps restarts back until at least t (a hub wake: daemons re-attach first).
+func (t *restartTracker) holdAtLeast(at time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if at.After(t.enableAt) {
+		t.enableAt = at
+	}
+}
+
 // attached ends id's outage; it reports whether there was one (its view changes).
 func (t *restartTracker) attached(id string) bool {
 	t.mu.Lock()

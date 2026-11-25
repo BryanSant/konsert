@@ -310,13 +310,13 @@ func (u *Uninstaller) removeHooksIfLast(rep *UninstallReport, workerID string, e
 	}
 }
 
-// identityState is the per-identity state removal deletes: the credential, link status
-// and status outbox. The worker-id file stays, so the machine keeps its identity if it
+// identityState is the per-identity state removal deletes: the credential, link status,
+// outbound spool and terminal scrollback. The worker-id file stays, so the machine keeps its identity if it
 // is added again.
 func (u *Uninstaller) identityState(workerID string) []string {
 	dir := u.stateDir()
 	var out []string
-	for _, p := range []string{CredentialPath(dir, workerID), LinkStatusPath(dir, workerID), outboxPath(dir, workerID)} {
+	for _, p := range []string{CredentialPath(dir, workerID), LinkStatusPath(dir, workerID), spoolDir(dir, workerID), scrollbackDir(dir, workerID)} {
 		if p != "" {
 			out = append(out, p)
 		}
@@ -379,6 +379,9 @@ func serviceKind() string {
 }
 
 func removeIfExists(p string) (bool, error) {
+	if st, err := os.Lstat(p); err == nil && st.IsDir() {
+		return true, os.RemoveAll(p)
+	}
 	err := os.Remove(p)
 	if err == nil {
 		return true, nil

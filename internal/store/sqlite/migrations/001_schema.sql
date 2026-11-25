@@ -308,6 +308,17 @@ CREATE TABLE machine_vitals_rollup (
 ) WITHOUT ROWID;
 CREATE INDEX idx_machine_vitals_rollup_t ON machine_vitals_rollup(period, t);
 
+-- Each machine's durable outbound spool as the hub applied it (KON-VZR9F,
+-- docs/design/spool.md): applied_seq is the highest daemon seq of epoch the hub applied.
+-- Records that append (chat events, task events, usage, vitals) advance it in the same
+-- transaction, so a replay after a hub crash never applies them twice.
+CREATE TABLE worker_spool (
+    worker_id   TEXT PRIMARY KEY REFERENCES workers(id) ON DELETE CASCADE,
+    epoch       TEXT NOT NULL DEFAULT '',
+    applied_seq INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL
+) WITHOUT ROWID;
+
 -- Per-call token usage, kept 30 days (retention_usage_days); older calls are folded into
 -- usage_daily.
 CREATE TABLE usage_events (

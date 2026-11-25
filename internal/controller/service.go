@@ -69,6 +69,12 @@ type WorkerStatusView struct {
 	// Drained machines finish their current work and accept nothing new.
 	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
+	// Spool is the machine's outbound spool as it last reported it (size, oldest unsent
+	// record, replay progress, full); nil before its first report.
+	Spool *protocol.SpoolStatus `json:"spool,omitzero"`
+	// ReconnectingAfterSleep is set while the hub, just woken from sleep, waits for this
+	// machine to re-attach (hub_wake.go).
+	ReconnectingAfterSleep bool `json:"reconnecting_after_sleep,omitzero"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -141,6 +147,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
 		view.Status = st
 		view.WakeLock = s.hub.workerWakeLockView(w.ID)
+		s.hub.decorateSpool(&view)
 		view.Restart = s.hub.workerRestartView(w.ID)
 		if st == "online" {
 			view.Heat = s.hub.workerHeat(w.ID)

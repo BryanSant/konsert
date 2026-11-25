@@ -12,7 +12,7 @@ import (
 	"github.com/BryanSant/konsert/internal/worker/chat"
 )
 
-// TestMain points konsertd state (worker ID, machine ID, status outbox) at a
+// TestMain points konsertd state (worker ID, machine ID, outbound spool) at a
 // throwaway directory so tests never write into the developer's ~/.konsert, and
 // stubs machine-fact probes.
 func TestMain(m *testing.M) {

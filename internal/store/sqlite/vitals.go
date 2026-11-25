@@ -24,6 +24,26 @@ func (s *SQLiteStore) UpsertVitals(ctx context.Context, samples []store.VitalsSa
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := spoolGuard(ctx, tx); err != nil {
+		return err
+	}
+	if err := upsertRawVitals(ctx, tx, samples); err != nil {
+		return err
+	}
+	// The spooled heartbeats folded into these samples are applied with them.
+	for _, v := range samples {
+		if _, err := advanceSpool(ctx, tx, v.WorkerID, v.SpoolSeq); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// upsertRawVitals merges samples into the raw tier inside tx.
+func upsertRawVitals(ctx context.Context, tx *sql.Tx, samples []store.VitalsSample) error {
+	if len(samples) == 0 {
+		return nil
+	}
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO machine_vitals (worker_id, t, n, cpu, load, mem, mem_total, swap, gpu_n, gpu, heat, heat_max, cause)
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workers WHERE id = ?)
@@ -59,7 +79,7 @@ func (s *SQLiteStore) UpsertVitals(ctx context.Context, samples []store.VitalsSa
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // ListVitals returns every machine's raw samples in [since, until), oldest first.

@@ -116,6 +116,32 @@ export interface Worker {
   drained_at?: string;
   /** Smoothed load score; absent while offline or before the first heartbeat. */
   heat?: WorkerHeat;
+  /** The machine's outbound spool as it last reported it; absent before the first report. */
+  spool?: WorkerSpool;
+  /** The hub just woke from sleep and waits for this machine to re-attach. */
+  reconnecting_after_sleep?: boolean;
+}
+
+/**
+ * konsertd keeps everything that matters for the hub on disk until the hub applied it
+ * (docs/design/spool.md): its size, oldest unsent record and the replay after an outage.
+ */
+export interface WorkerSpool {
+  bytes: number;
+  budget_bytes: number;
+  /** Records not yet acknowledged by the hub. */
+  records: number;
+  oldest_unsent_at?: string;
+  last_seq: number;
+  acked_seq: number;
+  replaying?: boolean;
+  replay_sent?: number;
+  replay_total?: number;
+  /** Over budget after compaction: vitals and activity are no longer kept. */
+  full?: boolean;
+  full_reason?: string;
+  dropped?: number;
+  error?: string;
 }
 
 export type WorkerLaunch = 'local' | 'ssh';

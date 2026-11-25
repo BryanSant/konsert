@@ -26,7 +26,14 @@ type fakeHub struct {
 	// pingEvery, when set, makes the hub ping every connection that often (as the real
 	// hub does when it is quiet).
 	pingEvery atomic.Int64 // nanoseconds
-	stop      chan struct{}
+	// noResume: the hub never answers worker.hello's spool section (spooled messages are
+	// then never sent).
+	noResume atomic.Bool
+	// applied is the highest spool seq received (the resume point of the next connection,
+	// as the real hub tracks it); resumeFrom, when set, overrides it once.
+	applied    atomic.Uint64
+	resumeFrom atomic.Int64
+	stop       chan struct{}
 }
 
 // hubConn is one accepted worker connection with its decoded text envelopes.
@@ -39,6 +46,7 @@ type hubConn struct {
 func newFakeHub(t *testing.T) *fakeHub {
 	t.Helper()
 	h := &fakeHub{conns: make(chan *hubConn, 8), stop: make(chan struct{})}
+	h.resumeFrom.Store(-1)
 	h.srv = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.reject.Load() {
 			http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -88,6 +96,17 @@ func newFakeHub(t *testing.T) *fakeHub {
 				continue
 			}
 			if env, err := protocol.DecodeEnvelope(data); err == nil {
+				if env.Type == protocol.MsgWorkerHello && !h.noResume.Load() {
+					h.resume(c, env)
+				}
+				if env.Seq != 0 {
+					for {
+						cur := h.applied.Load()
+						if env.Seq <= cur || h.applied.CompareAndSwap(cur, env.Seq) {
+							break
+						}
+					}
+				}
 				select {
 				case hc.msgs <- env:
 				default:
@@ -102,6 +121,22 @@ func newFakeHub(t *testing.T) *fakeHub {
 		h.srv.Close()
 	})
 	return h
+}
+
+// resume answers worker.hello's spool section like the real hub.
+func (h *fakeHub) resume(c *websocket.Conn, env protocol.Envelope) {
+	hello, err := protocol.DecodePayload[protocol.WorkerHelloPayload](env)
+	if err != nil || hello.Spool == nil {
+		return
+	}
+	applied := h.applied.Load()
+	if from := h.resumeFrom.Swap(-1); from >= 0 {
+		applied = uint64(from)
+	}
+	raw, err := protocol.NewEnvelope(protocol.MsgWorkerSpoolResume, "", protocol.SpoolResume{Epoch: hello.Spool.Epoch, AppliedSeq: applied})
+	if err == nil {
+		_ = c.Write(context.Background(), websocket.MessageText, raw)
+	}
 }
 
 func (h *fakeHub) wsURL() string {
@@ -161,6 +196,8 @@ func startTestDaemon(t *testing.T, hub *fakeHub, mutate func(*config.WorkerConfi
 func startTestDaemonWith(t *testing.T, hub *fakeHub, mutate func(*config.WorkerConfig), prepare func(*Daemon)) (*Daemon, context.CancelFunc) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
+	// A private state directory: each test daemon has its own spool.
+	t.Setenv(StateDirEnv, t.TempDir())
 	cfg := config.WorkerConfig{
 		ControllerURL:    hub.wsURL(),
 		WorkerID:         "test-worker",

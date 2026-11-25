@@ -85,10 +85,27 @@ type WorkerConfig struct {
 	// top of each installed CLI's default account. See docs/design/agent-chat.md.
 	Accounts []AgentAccountConfig `yaml:"accounts"`
 
+	// Spool bounds the durable outbound spool that keeps hub-bound messages while the hub
+	// is unreachable (docs/design/spool.md).
+	Spool SpoolConfig `yaml:"spool"`
+
 	// Credential is this machine's own hub credential (KON-RK9YD). It is never part of
 	// the YAML config: konsertd keeps it in its state directory (worker.LoadCredential),
 	// next to its identity, and `konsertd join` or the hub puts it there.
 	Credential string `yaml:"-"`
+}
+
+// SpoolConfig is the outbound spool's budget:
+//
+//	spool:
+//	  max_mb: 256        # default 256
+//	  max_age_days: 14   # default 14
+//
+// Over budget, vitals are compacted first, then activity; transcripts, task events,
+// statuses and questions are never dropped (the spool reports itself full instead).
+type SpoolConfig struct {
+	MaxMB      int `yaml:"max_mb"`
+	MaxAgeDays int `yaml:"max_age_days"`
 }
 
 // AgentAccountConfig is one extra agent account in konsertd's YAML config:

@@ -12,7 +12,6 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker/chat"
-	"github.com/coder/websocket"
 )
 
 // Agent chat wiring: hub messages → chat.Manager; events and capabilities → hub as
@@ -24,9 +23,6 @@ const DefaultCapabilitiesInterval = 10 * time.Minute
 // DisableAgentDiscoveryEnv=1 limits agent accounts to configured and mock ones and skips
 // CLI status commands (for tests that run a real daemon).
 const DisableAgentDiscoveryEnv = "KONSERT_DISABLE_AGENT_DISCOVERY"
-
-// maxPendingChatEvents bounds chat events buffered while disconnected from the hub.
-const maxPendingChatEvents = 10000
 
 // newAccountRegistry and chatStatusChecker are replaced by tests so they never run the
 // developer's real agent CLIs or read their home directory.
@@ -146,44 +142,24 @@ func (d *Daemon) onChatRateLimit(accountID string, rl protocol.AgentRateLimit) {
 	}
 }
 
-// sendChatEvent queues an event as a control message. While disconnected, events are
-// buffered (bounded) and flushed after the next worker.hello, so a reconnect does not cut
-// a streaming reply.
+// sendChatEvent spools a chat event (daemon_spool.go): it reaches the hub in order after
+// a disconnect, a hub sleep or a daemon restart.
 func (d *Daemon) sendChatEvent(ev protocol.AgentChatEvent) {
-	raw, err := protocol.NewEnvelope(protocol.MsgAgentChatEvent, "", ev)
-	if err != nil {
-		d.logger.Warn("dropping agent chat event: encode failed", "chat_id", ev.ChatID, "err", err)
-		return
-	}
-	msg := outboundMsg{msgType: websocket.MessageText, data: raw}
-	d.sendMu.Lock()
-	defer d.sendMu.Unlock()
-	if d.queues != nil {
-		d.queues.push(msg)
-		return
-	}
-	if len(d.chatPending) >= maxPendingChatEvents {
-		d.chatPending[0] = outboundMsg{}
-		d.chatPending = d.chatPending[1:]
-		if !d.chatDropWarned {
-			d.chatDropWarned = true
-			d.logger.Warn("agent chat events dropped while disconnected from the hub", "kept", maxPendingChatEvents)
-		}
-	}
-	d.chatPending = append(d.chatPending, msg)
+	d.sendJSON(protocol.MsgAgentChatEvent, ev)
 }
 
-// attachQueues installs the connection's queues and moves buffered chat events into them
-// (under sendMu, so event order is preserved).
-func (d *Daemon) attachQueues(q *connQueues) {
-	d.sendMu.Lock()
-	d.queues = q
-	for _, m := range d.chatPending {
-		q.push(m)
+// activeChats lists the chats open on this daemon for worker.hello.
+func (d *Daemon) activeChats() []protocol.ActiveChatInfo {
+	if d.chat == nil {
+		return nil
 	}
-	d.chatPending = nil
-	d.chatDropWarned = false
-	d.sendMu.Unlock()
+	var out []protocol.ActiveChatInfo
+	for _, c := range d.chat.Chats() {
+		if c.Open || c.TurnActive {
+			out = append(out, protocol.ActiveChatInfo{ChatID: c.ChatID, TurnActive: c.TurnActive, LastSeq: c.LastSeq})
+		}
+	}
+	return out
 }
 
 func (d *Daemon) sendCapabilities(rep protocol.AgentCapabilitiesReport) {

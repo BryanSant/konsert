@@ -386,6 +386,9 @@ func (h *Hub) failInterruptedChats(ctx context.Context, wc *workerConn) {
 		default:
 			continue
 		}
+		if wc.activeChats[cs.ID] {
+			continue // the turn still runs on the daemon; its events arrive from the spool
+		}
 		rt := h.chatRT(cs.ID)
 		rt.mu.Lock()
 		hubAsk := len(rt.asks) > 0

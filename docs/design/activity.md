@@ -188,7 +188,9 @@ are audited (`session.shell_kill`, `session.shell_ask`) and recorded in the flee
   changes still shows about once a second), **output-rate-only updates at most once a second**;
 * the latest activity always wins (a held-back change is replaced, never queued); a task's final
   state is flushed at once; the last state of each session is re-sent after a reconnect (the hub
-  keeps activity in memory only);
+  keeps activity in memory only). Activity goes through the outbound spool with the session as
+  collapse key: after an outage the hub gets each session's latest state, not every tick
+  ([spool.md](spool.md));
 * **shell and sub-agent changes** are debounced like a transient state (out 300 ms after the
   change, within 1 s under a stream of changes): the poller hands each session's shells to
   `Publisher.SetShells`, which republishes the session's latest activity with them, so a count
@@ -274,7 +276,14 @@ Out of the heartbeat:
   attach again (ssh/local); the hub drops the connection and **marks the machine offline at
   once**. Its tasks are left alone for the rest of `StaleWorkerTimeout` (150 s): sessions live
   in the daemon and are re-adopted from `worker.hello`; if it has not come back by then, the
-  orphan policies apply as before.
+  orphan policies apply as before. Nothing konsertd produces meanwhile is lost: transcripts,
+  task events, statuses, usage, reports and vitals are spooled to disk and replayed in order on
+  the next connection, and the hub applies each record once ([spool.md](spool.md)).
+* **Hub wake grace**: when the hub itself wakes from sleep (a clock jump past 30 s), the
+  stale-machine reaper, lost-task checks and dead-link orphan policies wait 2 minutes, or until
+  each machine that was linked re-attaches, before treating anything as lost; override expiry
+  and veto escalation still run on time. Fleet shows those machines as "reconnecting after
+  sleep…" ([spool.md](spool.md#hub-wake-grace)).
 * **Wake and network changes**: a watcher ticks every 5 s; a tick more than 10 s late by the
   wall or the monotonic clock (the machine slept) or a change in the machine's routable
   addresses (IPv4, and IPv6 /64 prefixes so privacy-address rotation does not count) drops the
@@ -287,7 +296,8 @@ Out of the heartbeat:
 * Logs: the first failure of an outage, then at most one "still disconnected after …: N
   attempts, last error: …" a minute, then one "reconnected to the hub after …" line.
 * `konsertd status` shows the link: state (connected, disconnected, waiting for the hub),
-  transport, since when, the last error and the next attempt. The running daemon keeps
+  transport, since when, the last error and the next attempt, and the outbound spool: size,
+  records not yet acknowledged, oldest unsent record, replay progress, `SPOOL FULL`. The running daemon keeps
   `<state dir>/run/<worker id>.link.json` (0600) current and `status` reads it (a file rather
   than a socket query: outbound daemons have no socket, and a stopped daemon's last state is
   still shown, marked not running).

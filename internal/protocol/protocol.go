@@ -121,6 +121,9 @@ const (
 
 // Envelope is the JSON text frame wrapper used on both /ws/worker and /ws/client.
 type Envelope struct {
+	// Seq is the daemon's spool sequence number of a spooled worker → hub message (0:
+	// not spooled). See spool.go.
+	Seq     uint64         `json:"seq,omitzero"`
 	Type    string         `json:"type"`
 	ID      string         `json:"id,omitempty"`
 	TS      time.Time      `json:"ts"`
@@ -242,6 +245,11 @@ type ActiveTaskInfo struct {
 type WorkerHelloPayload struct {
 	Worker      WorkerInfo       `json:"worker"`
 	ActiveTasks []ActiveTaskInfo `json:"active_tasks,omitempty"`
+	// ActiveChats are the agent chats open on the daemon.
+	ActiveChats []ActiveChatInfo `json:"active_chats,omitempty"`
+	// Spool describes the daemon's durable outbound spool; the hub answers with
+	// worker.spool.resume (nil: the daemon does not spool).
+	Spool *SpoolHello `json:"spool,omitzero"`
 }
 
 type ListeningPort struct {
@@ -279,6 +287,12 @@ type WorkerHeartbeatPayload struct {
 	ActiveTaskIDs []string       `json:"active_task_ids"`
 	LoadAvg       float64        `json:"load_avg,omitzero"`
 	Metrics       *WorkerMetrics `json:"metrics,omitzero"`
+	// At is when the vitals were sampled: a heartbeat replayed from the spool after an
+	// outage is stored at its original time.
+	At time.Time `json:"at,omitzero"`
+	// Samples is how many heartbeats Metrics averages (0 or 1: one). The spool compacts
+	// old vitals into 1-minute and 1-hour means when it runs out of room.
+	Samples int `json:"samples,omitzero"`
 }
 
 type SubscriptionQuota struct {
