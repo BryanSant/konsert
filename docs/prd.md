@@ -19,19 +19,22 @@ People who use coding agents seriously end up with agent work scattered across m
 
 Syre is a self-hosted control plane that answers those questions and acts on the answers.
 
-## 2. Purpose: two pillars
+## 2. Purpose: three pillars
 
 1. **Total visibility.** Every agent session on every connected machine is known: who started it (Syre or the user directly), which agent and account, what it's doing, which processes belong to it, what resources it uses. Load that isn't agent work is known too, so it can't be blamed on an agent or ignored.
 2. **Intelligent scheduling.** Work goes to the machine best able to finish it. Hard requirements (OS, tools, SDKs, logins, hardware) are always honoured. Placement improves as Syre learns the size and shape of each kind of work, and work migrates to a better machine when it outgrows its current one.
+3. **Autonomous, token-efficient execution (Autopilot).** A backlog of tickets runs to completion with deterministic Go handling everything rule-based (queuing, leases, DAG unblocking, worktrees, verification, retries, timed policies) and models woken only for judgment (decomposition, ambiguity, policy translation). See [design/autopilot.md](design/autopilot.md).
 
-Visibility comes first: scheduling without it over- or under-commits machines.
+Autopilot is built first because it creates the attempt history that placement learns from; visibility follows.
 
 ## 3. Principles
 
+- **Tokens are the scarce resource.** State lives in Syre, never in the commander's context. Pass by reference and return by digest: workers read files themselves and daemons compress results at the edge. Run everything rule-based in deterministic Go first, and wake models only for judgment. Push state changes to the commander instead of polling.
 - **Hub-and-spoke control, direct data when it's cheaper.** The hub (`syre`) commands; daemons (`syred`) connect outbound, wait passively for work and report what they see. Daemons never command each other. Bulk data that must move between machines (a repo bundle for migration) goes, in order of preference: through a git remote both can reach; directly daemon-to-daemon over SSH with fleet-managed keys, arranged by the hub, when the machines can reach each other (e.g. over Tailscale); relayed through the hub as a last resort. A laptop on hotel Wi-Fi shouldn't sit in the middle of a transfer between two desktops.
+- **Hub and spoke only, no agent-to-agent channels.** Agents never talk to each other or to external trackers directly; all control passes through the hub. Hub-daemon traffic stays JSON over WebSocket (zero LLM tokens).
 - **Bring your own subscriptions.** Agents run on the user's logged-in CLI subscriptions; API keys are optional. Subscription limits are a fleet resource the scheduler must respect.
-- **Facts and memory in Syre, judgment in the commander, guardrails in Syre.** Syre collects facts, keeps history and enforces operator policy. The commander agent makes placement and migration judgments through MCP, with that history at hand so restarts and context limits don't erase what was learned. Syre also works without a commander: a built-in deterministic scheduler places work by rules.
-- **Two tiers of control, hard by default.** *Operator policy* (caps, reservations, allowed work) is hard: neither the scheduler nor the commander can exceed it in normal operation. Agents forgetting established rules is the common failure, so rules are enforced by Syre, not remembered by the agent. *Placement* (which eligible machine) is soft: the scheduler proposes, the commander may override within policy.
+- **Facts, backlog and memory in Syre, judgment in the commander, guardrails in Syre.** Syre owns the backlog, collects facts, keeps history and enforces operator policy. The commander agent makes decomposition, placement and migration judgments through MCP, with that state at hand so restarts and context limits don't erase what was learned. Syre also works without a commander: a built-in deterministic scheduler places work by rules.
+- **Two tiers of control, hard by default.** *Operator policy* (caps, reservations, allowed work) is hard: neither the scheduler nor the commander can loosen it in normal operation. Agents forgetting established rules is the common failure, so rules are enforced by Syre, not remembered by the agent. By default, the commander may apply tightening directives (pause, throttle, drain, disable a provider, timed) on the user's behalf, configurable via `commander_policy_writes` (`tighten` | `confirm` | `none`); loosening operator policy still requires `request_override` and approval. *Placement* (which eligible machine) is soft: the scheduler proposes, the commander may override within policy.
 - **Break glass, measured.** Rarely, breaking a rule is right (an all-hands CVE fix). The commander may request a time-boxed override of named rules with a justification; by default the user approves it, and the operator can allow commander self-approval. Every block and every override is recorded with the commander's stated intent, so we can measure how often the rules got in the way and refine them.
 - **Heavy data stays at the edge; transcripts are ephemeral.** Daemons keep raw terminal output, transcripts and per-process samples locally and send them only when someone looks (as with today's on-demand PTY streaming). Transcripts are fetched lazily when a user explicitly opens one, cached briefly for scrolling (default 30 minutes), then flushed; the source can always be streamed again. The hub keeps session metadata, status, summaries, aggregates and outcome history, not transcripts: they're useful while the work is live, rarely afterwards, and keeping them is a privacy risk with little value.
 - **Same user, own data.** The daemon runs as the same user as the agents and reads that user's agent data to provide visibility. That's not a privacy boundary, but data still leaves the machine only as needed (see edge principle) and access to the hub is authenticated.
@@ -84,11 +87,19 @@ A *session* is one agent conversation or run. Every session has an origin: **man
 
 ### 5.4 Work model and classification
 
+See [design/work.md](design/work.md) for the full schema and sync design.
+
 - **[have]** Tasks with agent, model, account, approval mode, effort, repo/worktree, prompt, and a selector (worker, name, host group, OS, virtualization, required tool versions, required auth, min RAM, min free disk, tags).
-- **[gap]** *Work key*: a stable identity for "the same kind of work" across runs (project + repo + branch/worktree + optional kind such as `build`, `test`, `ml-train`, `review`). History, profiles and placement rules attach to work keys.
+- **[partial]** Read-only `ka` enrichment of ticket titles and acceptance items.
+- **[gap]** Hierarchy: `Project > Initiative > Epic > Ticket` following the `ka` data model (IDs, kinds, acceptance items, comments, questions). Rollups are computed, never stored. Ad-hoc tasks without a ticket remain allowed under a project.
+- **[gap]** Repo registry (per project, keyed by remote URL, with defaults for verify command, delivery mode and merge style) and per-ticket repo bindings (`1..n`), with one worktree provisioned per binding under a ticket workdir.
+- **[gap]** `blocked_by` DAG (cycles rejected) and ticket statuses (`backlog`, `ready`, `running`, `needs_you`, `review`, `done`, `failed`, `canceled`). A ticket is dispatchable when `ready`, all blockers are `done` (or `review` under optimistic chaining), at least one repo binding exists, and no hold applies.
+- **[gap]** Atomic ticket leases (one ticket per lease, renewed on daemon heartbeat, orphan policy on expiry, attributed lease breaking by user or commander).
+- **[gap]** Tracker sync adapters on a common interface: `ka` first (two-way via embedded `ka` library), then GitHub Projects, GitLab issues, Jira, Linear and Obsidian. Field ownership resolves conflicts; projects with no external tracker use Syre's tables directly.
+- **[gap]** *Work key*: a stable identity for "the same kind of work" across runs, derived from project + epic/ticket + repo + kind (e.g. `build`, `test`, `ml-train`, `review`). History, profiles and placement rules attach to work keys.
 - **[gap]** *Requirements* (hard): OS, architecture, tools and SDKs with versions, GPU, logins/accounts, minimum resources. Declared by the dispatcher or inherited from the work key's profile.
 - **[gap]** *Work profile* (learned): duration, peak memory, CPU-seconds, disk, success rate, common failure categories, per machine class. Starts unknown; updated from outcomes.
-- **[gap]** Outcome record per attempt: machine, account, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, disk full, missing tool, agent error, cancelled), resource peaks, tokens and cost where known, git result.
+- **[gap]** Outcome record per attempt (the attempts from [design/autopilot.md](design/autopilot.md)): machine, account, agent, model, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, rate limit, disk full, missing tool, verify, agent error, canceled), verify result, resource peaks, tokens and cost where known, git result.
 
 ### 5.5 Scheduling and placement
 
@@ -118,16 +129,17 @@ A *session* is one agent conversation or run. Every session has an origin: **man
   - **macOS:** no cgroups; scheduling priority (`taskpolicy`/nice) plus monitoring with enforced kill on sustained over-limit memory.
   - **Optional container tier:** rootless Podman per session or per project, for Linux workloads that need hard isolation or reproducible toolchains. Requires mounting the agent's login state; not available for agents whose logins live in a macOS keychain.
 - **[gap]** Observed sessions can't be capped; they're counted against headroom instead.
-- **[gap]** Policy is read-only over MCP. Changes happen in the UI or CLI and are audited.
+- **[gap]** Policy directives over MCP: the commander may apply tightening directives (pause, throttle, drain, disable a provider, timed) immediately by default, attributed with a receipt and one-click undo, configurable via `commander_policy_writes` (`tighten` | `confirm` | `none`). Loosening operator policy still requires `request_override` and approval. Policy edits remain available in the UI and CLI and are audited.
 - **[gap]** Break glass: `request_override` (rules, scope, duration, justification) → user approval by default (approval card + notification), or commander self-approval if the operator enabled it. Overrides expire automatically. Blocks and overrides are logged with intent and surfaced in a report ("rules that blocked work this week, and whether an override followed").
 - **[gap]** Container awareness: Syre detects Podman/Docker and can run a project's work in a container when configured, but basic resource protection never requires one.
 
 ### 5.8 Commander integration
 
-- **[have]** The commander runs as an agent chat on a subscription, with per-chat MCP fleet tools: fleet status, machine facts, dispatch, list/get/steer/cancel tasks, fan-out, git and directory inspection, memory, taxonomy.
-- **[gap]** Scheduling tools: fleet snapshot with headroom, running sessions (managed and observed), quotas and policies; explain placement (dry run); work profiles and history per work key; task attempts and failure categories; set/clear placement rules; requeue or migrate a task to a machine or class.
+- **[have]** The commander runs as an agent chat on a subscription, with 28 per-chat MCP fleet tools today: fleet status, machine facts, dispatch, list/get/steer/cancel tasks, fan-out, git and directory inspection, memory, taxonomy.
+- **[gap]** Consolidate the 28 tools into the lean ~10-tool MCP surface with flat schemas and budgeted size (see [design/autopilot.md](design/autopilot.md)).
+- **[gap]** Scheduling capabilities exposed through the lean surface rather than adding many new tools: `fleet_status` (headroom, managed and observed sessions, quotas, policies), `inspect` (explain placement, work profiles, attempts, failure categories), `set_policy` (directives and placement rules), `manage_work` (requeue/migrate), `control`, and `request_override`.
 - **[gap]** A shipped *Syre scheduler skill* for commander agents: how to read the snapshot, when to trust the built-in scheduler, how to respond to failure categories, when to migrate, and how to record learned rules. Syre owns the facts and memory; the skill owns the playbook.
-- **[gap]** Notifications to the commander when work it dispatched fails, stalls, needs input or completes, so it can react without polling.
+- **[gap]** Notifications to the commander via the board pulse (see [design/autopilot.md](design/autopilot.md)), pushed on actionable transitions so it reacts without polling.
 
 ### 5.8a Human control and attribution
 
@@ -153,6 +165,21 @@ Users mostly answer questions agents are unsure about, not do complex steering. 
 - **[have]** *Let the commander decide* for low-stakes questions, with a reversible receipt of what it chose and why; optional per-category rules.
 - **[have]** The whole flow (queue, question, side conversation, answer) works on a phone.
 
+### 5.8c Autopilot
+
+See [design/autopilot.md](design/autopilot.md).
+
+- **[have]** Pause everything stays the emergency control that also suspends running work, distinct from Autopilot Play/Pause.
+- **[gap]** Dispatch packet: hub compiles a compact ticket packet (target 150-300 tokens) with repos, objective, acceptance items, upstream contracts and verify command; workers read files themselves.
+- **[gap]** Post-run digest and artifacts: `syred` extracts a compact digest (target 100-250 tokens) with git summary, verify result, interface digest and followups; full diffs, logs and transcripts stay on the daemon and are fetched capped through `inspect`.
+- **[gap]** Verification gate and self-repair: `syred` runs `verify_cmd` on completion and feeds compact failure output back into the same worker session up to `retry_limit` at zero commander token cost.
+- **[gap]** Cross-agent review: when `cross_review` is enabled, passing work is reviewed by a different agent or model against acceptance items; requested changes loop back to the author session.
+- **[gap]** Board pulse: debounced push to the commander (and MCP notification/resource for external commanders) only on actionable transitions, replacing polling.
+- **[gap]** Play/Pause loop: per-project or global Autopilot dispatches ready tickets in priority order, batches `needs_decomposition` items to the commander, triages followups (auto-creating in-scope tickets when `expand_scope` is on), and stops when the project is idle.
+- **[gap]** Policy directives: typed, timed, attributed directives (`machine.pause`, `machine.throttle`, `machine.drain`, `provider.disable`, `autopilot.pause`) with the tighten/loosen rule (`commander_policy_writes`) and automatic `provider.disable` on daemon-reported usage limits.
+- **[gap]** Lean ~10-tool MCP surface with flat schemas replacing the 28-tool surface for both built-in and external commanders.
+- **[gap]** Token budgets enforced as CI tests (packet, digest, pulse, full tool schema, 20-machine `fleet_status`).
+
 ### 5.9 Fleet transfer channel
 
 - **[gap]** The hub manages a fleet SSH identity per daemon (keypair generated on the machine; public key registered with the hub; private key never leaves the machine). For a transfer, the hub tells the receiver to accept one specific key for one transfer and tells the sender where to connect; authorized keys are restricted to a single syred receive command, scoped and short-lived.
@@ -162,10 +189,11 @@ Users mostly answer questions agents are unsure about, not do complex steering. 
 ### 5.10 Human interface (PWA)
 
 - **[have]** Fleet tree, chats with agents, terminal tabs, telemetry, usage footer, approval/model/effort pickers, first-run setup, mobile layout.
+- **[have]** Deep links using sids (`/<sid>` short links and `/<mode>/<sid>`).
+- **[gap]** Work board on tickets with Play/Pause, directive badges on machines, and ticket detail with attempts and digests.
 - **[gap]** Activity view of *all* sessions (managed and observed) per machine with their resource use, plus "other load".
 - **[gap]** Machine detail: capacity vs headroom, policy, envelopes, recent history.
 - **[gap]** Placement explanations on tasks; work-key profile and history pages; migration timeline.
-- **[gap]** Deep links using sids (`/tasks/t-xxxxx`, `/machines/m-xxxxx`, `/chats/c-xxxxx`).
 
 ## 6. Non-functional requirements
 
@@ -178,7 +206,10 @@ Users mostly answer questions agents are unsure about, not do complex steering. 
 ## 7. Non-goals (pre-1.0)
 
 - Daemons commanding each other, or any peer-to-peer channel other than hub-arranged SSH data transfers.
+- Agent-to-agent protocols or direct agent-to-agent channels.
 - Live migration of running processes.
 - Multi-tenant SaaS, RBAC beyond a single operator or trusted team.
 - Preemption of running work.
 - Kubernetes or Nomad integration.
+
+Deferred (not non-goals): batch leases (a daemon checking out an epic or chain to run offline).

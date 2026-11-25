@@ -2,7 +2,7 @@
 
 This document is the engineering blueprint for **Syre** as specified in [prd.md](./prd.md).
 
-> **Status (2026-11-23).** Sections 1–7 are the original MVP blueprint. Phases 1–4 are built, but the code has moved on: subscription-first agent chat ([design/agent-chat.md](./design/agent-chat.md)), UUIDv7 `id` + short `sid` on every record, a single squashed schema (`internal/store/sqlite/migrations/001_schema.sql`), `encoding/json/v2`, hub-managed daemons. Where sections 1–7 disagree with the code, the code wins. **Section 8 is the forward roadmap** for the two pillars in the PRD: total visibility and intelligent scheduling.
+> **Status (2026-11-25).** Sections 1–7 are the original MVP blueprint. Phases 1–4 are built, but the code has moved on: subscription-first agent chat ([design/agent-chat.md](./design/agent-chat.md)), UUIDv7 `id` + short `sid` on every record, a single squashed schema (`internal/store/sqlite/migrations/001_schema.sql`), `encoding/json/v2`, hub-managed daemons. Where sections 1–7 disagree with the code, the code wins. **Section 8 is the forward roadmap** for the three pillars in the PRD: Autopilot, total visibility, and intelligent scheduling.
 
 ---
 
@@ -98,6 +98,8 @@ syre/
 ---
 
 ## 3. Data Model & SQLite Schema
+
+> **Taxonomy replacement ([design/work.md](./design/work.md), [design/autopilot.md](./design/autopilot.md)).** The Space / Workspace / Repo / Worktree taxonomy is replaced (no migration pre-1.0). The old `spaces`, `workspaces`, and taxonomy `repos`/`worktrees` tables go away (per-machine checkouts and worktrees become daemon-reported facts). In Phases A1–A6, the hub SQLite schema adds: `projects`, `repos` (per-project repo registry), `tickets`, `ticket_edges` (`blocked_by` DAG), `leases`, `attempts`, `artifacts` (index of daemon-held artifacts), `directives`, and `external_refs`. The MVP SQL below is kept for historical reference.
 
 ### 3.1 Swappable Storage Interface (`internal/store/store.go`)
 
@@ -441,6 +443,8 @@ Matches `worker_selector` against online workers where `active_tasks < max_concu
 2. Rank matching workers by lowest utilization ratio (`active_tasks / max_concurrent`), tie-breaking by most recent heartbeat.
 3. If no worker currently has capacity, leave task in `queued` and re-evaluate whenever a task completes or a worker connects.
 
+Under Autopilot (Phases A1–A7), the scheduler extends this loop to claim dispatchable tickets from the `blocked_by` DAG with atomic SQLite leases, enforce active policy directives (pause, throttle, drain, provider disable), and push debounced board pulses to the Commander on actionable transitions rather than having the Commander poll or block on `GetTaskResult`.
+
 ### 6.3 REST & WebSocket Endpoints (`internal/controller/api.go`)
 - `GET /api/health` — Public health check.
 - `POST /api/auth/login` / `POST /api/auth/logout` / `GET /api/auth/me` — Session auth.
@@ -480,9 +484,61 @@ Matches `worker_selector` against online workers where `active_tasks < max_concu
 
 ---
 
-## 8. Roadmap: Visibility and Scheduling
+## 8. Roadmap: Autopilot, Visibility and Scheduling
 
-Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler and MCP; PWA; telemetry and packaging) are done, as are the subscription-first chat work and first-run setup. The phases below close the gaps marked **[gap]** in the PRD. They are ordered by dependency: scheduling decisions need visibility data, migration needs attempts and history, and the commander skill needs the tools from every earlier phase. Each phase is one `ka` epic.
+Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler and MCP; PWA; telemetry and packaging) are done, as are the subscription-first chat work, first-run setup, and questions/steering. Autopilot (Phases A1–A7) is built first because it creates the attempt history that placement learns from; visibility and scheduling (Phases 5–11) follow. Each phase is one `ka` epic.
+
+### Phase A1: Work model (tickets, repo registry, leases, DAG; Work board on tickets)
+
+- Hub SQLite schema for `projects`, `repos` (per-project repo registry keyed by remote URL with verify/delivery/merge defaults), `tickets` (ka hierarchy `Project > Initiative > Epic > Ticket`, acceptance items, comments, questions, hints, autonomy settings, statuses), `ticket_edges` (`blocked_by` DAG with cycle rejection), and `leases`.
+- Remove `Space` and `Workspace` taxonomy tables (pre-1.0, no migration); keep ad-hoc tasks allowed under a project without a lease or DAG.
+- Atomic SQLite lease claim in the scheduler (`status=running`, TTL default 10m), lease renewal on daemon heartbeat, orphan policy on expiry, and attributed lease breaking by user or Commander.
+- Per-ticket repo bindings (`1..n`) with one worktree provisioned per binding under `<workdir root>/<ticket sid>/<repo name>`, cleaned up on `done` delivery or after failed retention.
+- Agent-facing work tools served by local `syred` over the per-chat MCP relay (`ticket_get`, `ticket_check`, `ticket_comment`, `ticket_followup`, plus existing `ask_user` and `request_user_action`), scoped strictly to the session's own ticket.
+- PWA Work board reading tickets (and ad-hoc tasks) with columns mapped from status categories, Initiative/Epic + Expedite swimlanes, and cards showing lease, attempt count, last digest line and blockers.
+
+### Phase A2: Tracker sync (adapter interface; ka adapter via embedded ka library; ka-side engine extraction to pkg/ and external lease authority)
+
+- Common `Tracker` adapter interface (`Kind`, `Pull`, `Push`, `Capabilities`) and `external_refs` table linking Syre tickets to external tracker items.
+- Conflict resolution by field ownership (human-owned fields take tracker values, Syre-owned runtime fields take Syre's, `blocked_by` merges as a set) plus per-adapter capability mappings, interval/webhook pulls (default 30s) and debounced pushes.
+- `ka`-side prerequisite: extract `internal/engine` (index, query, operations, sync, merge driver) into `pkg/`, and add `authority: <external system>` claims to the ka Store Spec so `ka` clients display Syre leases read-only instead of competing for them.
+- `ka` adapter in the hub embedding ka's engine as a library so `syre` acts as one more replica of the ka store; projects with no tracker continue using Syre's tables directly.
+
+### Phase A3: Packets, digests and artifacts (incl. attempts, failure classifier for tasks, test-output parsers, inspect, capping inspect_git_status)
+
+- Dispatch packet compiler on the hub (target 150–300 tokens) combining ticket objective, acceptance items, repo bindings, `verify_cmd`, tool list, and `contracts` pulled from `interface_digest` of done `blocked_by` tickets.
+- `attempts` table recording machine, account, agent, model, timings, exit, failure category, verify result, tokens and cost; daemon-side failure classifier for tasks (OOM, timeout, disk full, missing tool, verify, agent error, canceled, plus chat-engine auth/usage_limit/rate_limit).
+- Post-run digest extractor on `syred` (target 100–250 tokens) with test-output parsers for common runners (`go test`, jest/vitest, pytest, cargo, gradle, maven, dotnet) and ANSI-stripped tails on failure or `needs_you`.
+- Edge artifact store (`diff_stat`, `diff`, `stderr`, `log`, `transcript`, `file`) with hub `artifacts` index, fetched on demand with line/byte caps via `inspect`; replace `inspect_git_status`'s uncapped per-file diffs with capped `inspect`.
+- PWA ticket detail view showing attempts and digests.
+
+### Phase A4: Verification gate, self-repair and cross-agent review
+
+- Daemon verification gate: when a worker finishes, `syred` runs `verify_cmd` (ticket override else repo default) in the ticket workdir under the machine's resource envelope and timeout.
+- Self-repair loop: on verification failure with `attempt < retry_limit` (default 2), `syred` sends the compact failure tail back into the same worker session as the next prompt at zero Commander token cost; on exhausted retries, transition to `failed` (or `needs_you` when `escalate_on_blocker`) and push the digest.
+- Cross-agent review: when `cross_review` is enabled and verification passes, dispatch a review run on a different agent or model to check the diff against acceptance items; `changes-requested` loops back to the author session like a verify failure, and `approve` proceeds to delivery ([design/delivery.md](./design/delivery.md)).
+
+### Phase A5: Board pulse and Autopilot loop (Play/Pause, decomposition, expand_scope, fleet stop with grace)
+
+- Board pulse emitter on the hub: debounced (default 20s) push on actionable transitions (completions, `needs_you`, exhausted retries, followups awaiting triage, `needs_decomposition`, expiring directives, board idle) via the fleet-event path for built-in Commanders and MCP notification + `pulse` resource for external Commanders.
+- Autopilot Play/Pause loop (per project or global, distinct from emergency Pause everything): scheduler dispatches ready tickets in priority/age order, batches `needs_decomposition` or unbound tickets into a pulse for the Commander to decompose via `manage_work`, and turns Play off with a final pulse when idle.
+- Blocker routing and scope handling: worker questions route to the Commander first when allowed (with receipts and override window) while destructive/ambiguous ones stay in Needs you; followups are triaged by the Commander and auto-created under the same epic when `expand_scope` is on.
+- Graceful fleet/project/machine/session stop with configurable grace period before kill and process-group/job-object cleanup (`syre` + `syred`), plus Play/Pause controls on the PWA Work board.
+
+### Phase A6: Policy directives (timed pause/throttle/drain, provider disable with fallback, usage-limit auto-directives, commander_policy_writes)
+
+- `directives` table and hub expiry timers for typed, attributed directives: `machine.pause`, `machine.throttle` (concurrency, CPU ceiling, `heavy_ok`), `machine.drain`, `provider.disable` (with preferred `fallback`), and `autopilot.pause`.
+- Scheduler and daemon enforcement of active directives, including rerouting away from disabled providers and respecting throttle caps.
+- Tighten vs loosen rule: tightening directives apply immediately when set by the Commander (attributed "user via Commander" with receipt and one-click undo), governed by `commander_policy_writes` (`tighten` default | `confirm` | `none`); loosening operator policy still goes through `request_override` and approval.
+- Automatic `provider.disable` directives (provenance `system`) created until reset time when daemons report usage-limit windows, plus directive badges on machines in the PWA.
+
+### Phase A7: Lean MCP surface and token budgets
+
+- Consolidate the 28 Commander MCP tools into the ~10-tool flat-schema surface (`fleet_status`, `backlog`, `manage_work`, `control`, `set_policy`, `reply`, `inspect`, `ask_user`, `answer_question`, `request_override`, `memory`) for both built-in and external `/mcp` Commanders.
+- Group `fleet_status` summaries by capability by default; move settings, fan-out, narration and raw git inspection to the UI or existing tool actions.
+- CI token-budget tests (fixed tokenizer approximation) failing the build on regressions: packet <= 300, digest <= 250, pulse <= 120, full Commander tool schema <= 2,500, and 20-machine `fleet_status` summary <= 400.
+
+Existing Phases 5–11 follow; Phase 7 attempts and failure classifier move into Phase A3, and Phase 11 scheduling tools use the lean MCP surface from Phase A7.
 
 ### Phase 5: Observed sessions (Visibility I)
 
@@ -533,18 +589,17 @@ Built alongside 5a (open requests are questions with an action attached).
 ### Phase 7: Facts, work keys and outcomes
 
 - Extensible capability probes: built-in list plus probes declared in daemon config (command + version regex, or path exists), GPU detection (NVIDIA `nvidia-smi`, Apple Silicon GPU cores and unified memory, AMD), architecture in the selector, operator labels per machine, machine role (`dedicated` / `interactive` / `control-only`).
-- `work_key` on tasks (derived from project, repo, branch/worktree, kind; overridable by the dispatcher) and requirement fields on dispatch.
-- `task_attempts` table: one row per attempt with machine, account, queue wait, duration, exit, failure category, resource peaks, tokens/cost; requeue creates a new attempt.
-- Failure classifier on the daemon (OOM: exit 137/SIGKILL with kernel OOM evidence, Windows job memory limit; disk full; timeout; missing tool) feeding the attempt's failure category; agent-reported categories (auth, usage limit) from the chat engines.
-- `work_profiles` maintained from attempts per (work_key, machine class).
-- Exit: profiles fill in after a few runs; `get_work_profile` returns them.
+- `work_key` on tickets/tasks (derived from project, epic/ticket, repo, kind; overridable by the dispatcher) and requirement fields on dispatch.
+- Extend `attempts` and the daemon failure classifier (introduced in Phase A3) with resource peaks from Phase 6 and kernel OOM / Windows job memory limit evidence.
+- `work_profiles` maintained from attempts per `(work_key, machine class)`.
+- Exit: profiles fill in after a few runs; `inspect` returns them.
 
 ### Phase 8: Policy and enforcement
 
 - Machine policy (hub-owned, pushed to the daemon): max managed sessions, max load average, min free RAM, reserved CPU/RAM, quiet hours, allowed work classes, role. Hub admission check plus daemon-side refusal.
 - Resource envelopes per OS: Linux systemd user scopes (cgroup v2) with rlimit fallback; Windows Job Object limits on the existing job; macOS priority plus monitored kill. Envelope size from the work profile or a default class.
 - Optional rootless Podman tier for Linux work (`isolation: container` per project): image, mounts for repo and agent login state, envelope via Podman flags.
-- Policy read-only over MCP; edits in UI/CLI, audited.
+- Policy directives over MCP follow the tighten vs loosen rule from Phase A6 (`commander_policy_writes`); full policy edits remain in UI/CLI and are audited.
 - Break glass: `request_override` (rules, scope, duration, justification) with user approval by default (approval card in the commander chat + notification), optional commander self-approval, automatic expiry. `policy_events` log of every block and override with the stated intent; a report of how often rules blocked work and whether overrides followed.
 - Container awareness: detect Podman/Docker; per-project opt-in container execution; never required for resource protection.
 - Exit: a memory-hungry test job is capped on Linux and Windows and killed (classified OOM) when it exceeds its envelope; an interactive machine with an active user receives no new heavy work.
@@ -575,14 +630,14 @@ Built alongside 5a (open requests are questions with an action attached).
 
 ### Phase 11: Commander scheduling
 
-- MCP tools: `fleet_snapshot`, `explain_placement`, `get_work_profile`, `list_attempts`, `set_placement_rule` / `clear_placement_rule`, `requeue_task`, `migrate_task`, `request_override`, plus event notifications to the commander chat for failure, stall, needs-input and completion of work it dispatched.
+- Expose scheduling capabilities through the lean MCP surface from Phase A7 rather than adding separate tools: `fleet_status` (headroom, managed/observed sessions, quotas, policies), `inspect` (explain placement, work profiles, attempts), `set_policy` (placement rules and directives), `manage_work` (requeue/migrate), `control`, and `request_override`; push actionable transitions via the board pulse (Phase A5).
 - Ship the Syre scheduler skill (installed for the commander agent): reading the snapshot, trusting vs overriding the built-in scheduler, responding to failure categories, migrating, recording rules.
 - Evaluation suite: scripted fleets (mock engine with synthetic resource profiles) and scenarios the commander must handle; track decisions over versions.
 - Exit: the commander handles the OOM → migrate → pin scenario and a usage-limit → switch-account scenario end to end, and its learned rules survive a hub restart and a fresh commander context.
 
 ### Cross-cutting
 
-- Deep links in the PWA by sid (`/tasks/t-…`, `/machines/m-…`, `/chats/c-…`).
+- Deep links in the PWA by sid (`/<sid>` short links and `/<mode>/<sid>`) — done.
 - Each phase adds a hands-on walkthrough to [walkthrough.md](./walkthrough.md) on macOS, Linux and Windows.
 
 ---
