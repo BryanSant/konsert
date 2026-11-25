@@ -54,6 +54,13 @@ const VIEW_KEY = 'syre.work.view';
       </button>
     </div>
 
+    @if (missingSid()) {
+      <div class="mx-4 mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] border border-[var(--sy-hairline)] px-3 py-2 text-[12.5px] text-[var(--sy-text-secondary)] shrink-0" role="status" data-testid="work-not-found">
+        <span>No work item {{ missingSid() }} here (it may have been removed).</span>
+        <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="clear()">Clear</button>
+      </div>
+    }
+
     <div class="flex flex-1 min-h-0">
       <main class="flex-1 min-w-0 overflow-auto px-4 pb-4" aria-label="Work board">
         @if (view() === 'board') {
@@ -234,6 +241,7 @@ export class WorkModeComponent {
     const sid = this.sid();
     return sid ? (this.work.bySid(sid) ?? null) : null;
   });
+  readonly missingSid = computed(() => (this.sid() && !this.selected() && this.ui.workLoaded() ? this.sid() : ''));
 
   readonly lanes = computed(() => {
     const b = this.board();

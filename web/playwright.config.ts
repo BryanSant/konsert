@@ -30,7 +30,7 @@ export default defineConfig({
         browserName: 'chromium',
         viewport: { width: 1440, height: 900 },
       },
-      testMatch: /(syre|subscription-chat|human-control|questions|activity|modes|modes-first-run|shells|device-auth|machine-join|retention|shell-policy|fleet-layout|forges)\.spec\.ts/,
+      testMatch: /(syre|subscription-chat|human-control|questions|activity|modes|modes-first-run|shells|device-auth|machine-join|retention|shell-policy|fleet-layout|forges|deep-links)\.spec\.ts/,
     },
     {
       name: 'mobile',
@@ -40,7 +40,7 @@ export default defineConfig({
         isMobile: true,
         hasTouch: true,
       },
-      testMatch: /(syre|subscription-chat|questions|modes|modes-first-run)\.spec\.ts/,
+      testMatch: /(syre|subscription-chat|questions|modes|modes-first-run|deep-links)\.spec\.ts/,
     },
   ],
 });

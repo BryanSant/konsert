@@ -1,4 +1,5 @@
 import { Route, UrlMatchResult, UrlSegment, Routes } from '@angular/router';
+import { resolveSidRoute, sidMatcher } from './core/routing/sid-links';
 
 /** Phone widths get the watch-and-answer inbox; everything wider lands in Command. */
 export const PHONE_QUERY = '(max-width: 767px)';
@@ -64,6 +65,14 @@ export const routes: Routes = [
     path: 'approve/:code',
     title: 'Approve sign-in · Syre',
     loadComponent: () => import('./features/auth/approve-login.component').then((m) => m.ApproveLoginComponent),
+  },
+  // Mode-agnostic short links (`/<sid>`) redirect to the right mode URL.
+  {
+    matcher: sidMatcher,
+    redirectTo: (info) => {
+      const sid = info.params['sid'] ?? info.url[0]?.path ?? '';
+      return resolveSidRoute(sid, { phone: isPhoneWidth() }) ?? '/';
+    },
   },
   {
     path: '',
