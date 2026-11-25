@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -427,17 +428,31 @@ func TestSpoolDoesNotReplayAcrossHubs(t *testing.T) {
 	waitFor(t, 5*time.Second, "worker connected to hub B", func() bool {
 		return thB.h.IsWorkerConnected(wid)
 	})
-	waitFor(t, 5*time.Second, "hub B replay finished and live record applied", func() bool {
+	// Slow CI runners under -race need more than the usual 5 s here; on timeout, say
+	// which condition was missing (no new epoch adopted vs. no live record applied).
+	var last string
+	deadline := time.Now().Add(15 * time.Second)
+	for {
 		thB.h.spoolMu.Lock()
 		ws := thB.h.spools[wid]
 		thB.h.spoolMu.Unlock()
+		ok := false
 		if ws == nil {
-			return false
+			last = "no spool state for the worker on hub B"
+		} else {
+			ws.mu.Lock()
+			last = fmt.Sprintf("epoch=%q (old %q) applied=%d", ws.epoch, oldEpoch, ws.applied)
+			ok = ws.epoch != "" && ws.epoch != oldEpoch && ws.applied > 0
+			ws.mu.Unlock()
 		}
-		ws.mu.Lock()
-		defer ws.mu.Unlock()
-		return ws.epoch != "" && ws.epoch != oldEpoch && ws.applied > 0
-	})
+		if ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for hub B to adopt the new epoch and apply a live record: %s", last)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// Nothing from hub A's spool may appear in hub B.
 	evs, err := thB.st.ListEvents(ctx, "task-from-a", 0, 100)
