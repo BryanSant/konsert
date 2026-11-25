@@ -460,6 +460,13 @@ func TestShellIntegrationGitBash(t *testing.T) {
 		t.Fatalf("cwd/redaction after cd: %+v (want cwd %q)", start, sub)
 	}
 
+	// Non-drive MSYS mounts (/usr/bin) are mapped by cygpath in the integration script.
+	h.run("cd /usr/bin")
+	start, _ = h.run("true")
+	if strings.HasPrefix(start.Cwd, "/") || !strings.HasSuffix(strings.ToLower(start.Cwd), `\usr\bin`) {
+		t.Fatalf("MSYS mount cwd was not mapped to a Windows path: %q", start.Cwd)
+	}
+
 	s, _ := h.snapshot()
 	if strings.Contains(s, "633;") {
 		t.Fatalf("browser stream contains OSC 633: %q", tail(s, 800))
