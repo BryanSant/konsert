@@ -41,6 +41,10 @@ const (
 	// Ticket lease interventions (SYR-DXMYY).
 	AuditTicketRequeue = "ticket.requeue"
 	AuditTicketCancel  = "ticket.cancel"
+	// Autopilot Play/Pause (SYR-08DMH).
+	AuditAutopilotPlay   = "autopilot.play"
+	AuditAutopilotPause  = "autopilot.pause"
+	AuditAutopilotFinish = "autopilot.finished"
 )
 
 // Audit sources: the path an action arrived through.

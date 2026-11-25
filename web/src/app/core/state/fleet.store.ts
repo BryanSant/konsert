@@ -1,6 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   AppSettings,
+  AutopilotProjectState,
+  AutopilotState,
   Project,
   Repo,
   SessionDefaults,
@@ -49,6 +51,14 @@ export class FleetStore {
   });
   /** Review decisions and Expedite flags by "task:<id>" / "chat:<id>" (hub-stored, SYR-BM8JR). */
   readonly reviews = signal<Record<string, Review>>({});
+  /** Fleet-wide and per-project Autopilot Play/Pause state and ticket counts. */
+  readonly autopilot = signal<AutopilotState>({
+    global: false,
+    fleet_paused: false,
+    state: 'paused',
+    counts: { dispatchable: 0, running: 0, needs_you: 0, review: 0 },
+    projects: [],
+  });
   readonly loading = signal(false);
 
   /**
@@ -124,6 +134,9 @@ export class FleetStore {
       if (snap.pause) {
         this.control.applyPause(snap.pause);
       }
+      if (snap.autopilot) {
+        this.autopilot.set(snap.autopilot);
+      }
       if (snap.activity) {
         this.activity.applySnapshot(snap.activity);
       }
@@ -169,6 +182,34 @@ export class FleetStore {
     } catch {
       // ignore
     }
+  }
+
+  /** Autopilot snapshot pushed by the hub (fleet.update kind "autopilot"). */
+  applyAutopilot(state: AutopilotState): void {
+    this.live(() => {
+      this.autopilot.set(state);
+    });
+  }
+
+  /** Merges a single project's autopilot response into the live snapshot. */
+  applyAutopilotProject(ps: AutopilotProjectState): void {
+    this.live(() => {
+      this.autopilot.update((cur) => {
+        const idx = cur.projects.findIndex((p) => p.project_id === ps.project_id);
+        const projects = idx === -1 ? [...cur.projects, ps] : cur.projects.map((p, i) => (i === idx ? ps : p));
+        const anyPlaying = projects.some((p) => p.play);
+        const anyFinished = projects.some((p) => p.state === 'finished');
+        const state = cur.fleet_paused ? 'paused' : cur.global || anyPlaying ? 'playing' : anyFinished ? 'finished' : 'paused';
+        return { ...cur, state, projects };
+      });
+      this.projects.update((list) =>
+        list.map((p) =>
+          p.id === ps.project_id
+            ? { ...p, autopilot: ps.autopilot, autopilot_paused: ps.autopilot_paused }
+            : p,
+        ),
+      );
+    });
   }
 
   /** A review pushed by the hub (fleet.update kind "review") or returned by a call. */

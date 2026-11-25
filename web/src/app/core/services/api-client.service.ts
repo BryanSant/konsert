@@ -4,6 +4,8 @@ import {
   AuditListResponse,
   AuditQuery,
   AuthMe,
+  AutopilotProjectState,
+  AutopilotState,
   ChatMessage,
   ChatSession,
   CompactionRun,
@@ -465,6 +467,21 @@ export class ApiClientService {
 
   resumeFleet(): Promise<FleetPauseResult> {
     return this.request('/api/fleet/resume', { method: 'POST' });
+  }
+
+  getAutopilot(): Promise<AutopilotState> {
+    return this.request<AutopilotState>('/api/autopilot');
+  }
+
+  getProjectAutopilot(projectId: string): Promise<AutopilotProjectState> {
+    return this.request<AutopilotProjectState>(`/api/projects/${encodeURIComponent(projectId)}/autopilot`);
+  }
+
+  setProjectAutopilot(projectId: string, play: boolean): Promise<AutopilotProjectState> {
+    return this.request<AutopilotProjectState>(`/api/projects/${encodeURIComponent(projectId)}/autopilot`, {
+      method: 'POST',
+      body: JSON.stringify({ play }),
+    });
   }
 
   listHolds(q: { active?: boolean; worker_id?: string } = {}): Promise<{ holds: Hold[] }> {

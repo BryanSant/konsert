@@ -128,14 +128,15 @@ type Project struct {
 	IsDefault bool   `json:"is_default"`
 	// Headline is the project's current goal as the commander states it ("" = none;
 	// the UI falls back to facts). HeadlineAt is when it was set.
-	Headline     string         `json:"headline,omitempty"`
-	HeadlineAt   *time.Time     `json:"headline_at,omitzero"`
-	VerifyCmd    string         `json:"verify_cmd,omitempty"`
-	Autonomy     AutonomyPolicy `json:"autonomy,omitzero"`
-	Autopilot    bool           `json:"autopilot"`
-	DeliveryMode string         `json:"delivery_mode,omitempty"`
-	MergeStyle   string         `json:"merge_style,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
+	Headline        string         `json:"headline,omitempty"`
+	HeadlineAt      *time.Time     `json:"headline_at,omitzero"`
+	VerifyCmd       string         `json:"verify_cmd,omitempty"`
+	Autonomy        AutonomyPolicy `json:"autonomy,omitzero"`
+	Autopilot       bool           `json:"autopilot"`
+	AutopilotPaused bool           `json:"autopilot_paused"`
+	DeliveryMode    string         `json:"delivery_mode,omitempty"`
+	MergeStyle      string         `json:"merge_style,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
 }
 
 // Repo is a per-project repository registry entry keyed by RemoteURL (docs/design/work.md).

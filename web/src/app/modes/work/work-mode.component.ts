@@ -12,6 +12,7 @@ import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { isPhoneWidth } from '../../app.routes';
 import { ReviewPanelComponent } from './review-panel.component';
+import { AutopilotControlComponent } from './autopilot-control.component';
 import { ItemSpinnerComponent } from '../item-spinner.component';
 
 export const COLUMN_LABELS: Record<WorkColumn, string> = {
@@ -33,7 +34,7 @@ const VIEW_KEY = 'syre.work.view';
   selector: 'sy-work-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent, AutopilotControlComponent, TooltipDirective],
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
     <div class="flex flex-wrap items-center gap-3 px-4 pt-3 pb-2 text-[12.5px] shrink-0">
@@ -43,7 +44,8 @@ const VIEW_KEY = 'syre.work.view';
         <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="view() === 'list'" data-testid="view-list" (click)="setView('list')">List</button>
       </div>
       <span class="sy-kbd" aria-hidden="true">⌘B</span>
-      <span class="ml-auto hidden md:inline text-[var(--sy-text-secondary)]">Syre moves the cards; you review and decide.</span>
+      <sy-autopilot-control />
+      <span class="ml-auto hidden xl:inline text-[var(--sy-text-secondary)]">Syre moves the cards; you review and decide.</span>
       <button type="button" class="sy-btn sy-btn-sm" data-testid="open-projects" (click)="ui.projectsOpen.set(true)">
         <app-icon name="project" [size]="12" />
         Projects

@@ -250,6 +250,10 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 		}
 	}
 
+	globalOn := h.autopilotGlobal(ctx)
+	fleetPaused := h.fleetPaused(ctx)
+	projectPlaying := isProjectAutopilotPlaying(proj, globalOn, fleetPaused)
+
 	if kind != "" {
 		h.recordPulseTrigger(ctx, pulseTriggerMeta{
 			Kind:          kind,
@@ -260,11 +264,11 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 			UnblockedSIDs: unblocked,
 			Followups:     followups,
 			Category:      category,
-			Autopilot:     proj.Autopilot,
+			Autopilot:     projectPlaying,
 		}, workerID, taskID, "")
 	}
 
-	if proj.Autopilot && tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
+	if projectPlaying && tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
 		h.checkProjectBoardIdle(ctx, tk.ProjectID)
 	}
 }
@@ -362,7 +366,7 @@ func (h *Hub) pulseTicketDecompositionCheck(ctx context.Context, tk store.Ticket
 	if tk.ProjectID != "" {
 		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
 			projName = p.Name
-			autopilot = p.Autopilot
+			autopilot = isProjectAutopilotPlaying(p, h.autopilotGlobal(ctx), h.fleetPaused(ctx))
 		}
 	}
 	h.recordPulseTrigger(ctx, pulseTriggerMeta{
@@ -408,14 +412,15 @@ func (h *Hub) markProjectActive(projectID string) {
 	h.pulse.mu.Unlock()
 }
 
-// checkProjectBoardIdle triggers a project-level board_idle pulse when an autopilot
-// project has no dispatchable, running, or needs_you tickets left.
+// checkProjectBoardIdle triggers a project-level board_idle pulse and turns Play off
+// automatically when an autopilot project has no dispatchable, running, or needs_you
+// tickets left (review does not count as work left for autopilot).
 func (h *Hub) checkProjectBoardIdle(ctx context.Context, projectID string) {
 	if h == nil || h.store == nil || projectID == "" {
 		return
 	}
 	proj, err := h.store.GetProject(ctx, projectID)
-	if err != nil || !proj.Autopilot {
+	if err != nil || !isProjectAutopilotPlaying(proj, h.autopilotGlobal(ctx), h.fleetPaused(ctx)) {
 		h.markProjectActive(projectID)
 		return
 	}
@@ -442,6 +447,10 @@ func (h *Hub) checkProjectBoardIdle(ctx context.Context, projectID string) {
 	}
 	h.pulse.idlePulsed[projectID] = true
 	h.pulse.mu.Unlock()
+
+	// Turn Play off before recording the final pulse so the delivered pulse reflects
+	// the final autopilot state.
+	h.finishProjectAutopilot(ctx, proj)
 
 	h.recordPulseTrigger(ctx, pulseTriggerMeta{
 		Kind:         protocol.PulseTriggerBoardIdle,
@@ -485,11 +494,14 @@ func (h *Hub) buildBoardPulse(ctx context.Context, pulseEvents []store.FleetEven
 	// Autopilot state
 	if h.fleetPaused(ctx) {
 		p.AutopilotState = "paused"
-	} else if projects, err := h.store.ListProjects(ctx); err == nil {
-		for _, proj := range projects {
-			if proj.Autopilot {
-				p.AutopilotState = "on"
-				break
+	} else {
+		globalOn := h.autopilotGlobal(ctx)
+		if projects, err := h.store.ListProjects(ctx); err == nil {
+			for _, proj := range projects {
+				if isProjectAutopilotPlaying(proj, globalOn, false) {
+					p.AutopilotState = "on"
+					break
+				}
 			}
 		}
 	}

@@ -271,6 +271,9 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 	})
 
 	addNarrationTool(srv, backend)
+	if ap, ok := backend.(AutopilotBackend); ok {
+		addAutopilotTool(srv, ap)
+	}
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_tasks",

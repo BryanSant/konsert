@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
   AuditEvent,
+  AutopilotState,
   ChatSession,
   ChatToolCard,
   Envelope,
@@ -265,6 +266,7 @@ export class SyreSocketService {
           review?: Review;
           device?: Device;
           shell_reminder?: ShellReminder;
+          autopilot?: AutopilotState;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -306,6 +308,8 @@ export class SyreSocketService {
           this.controlStore.applyVeto(p.veto);
         } else if (p.kind === 'pause' && p.pause) {
           this.controlStore.applyPause(p.pause);
+        } else if (p.kind === 'autopilot' && p.autopilot) {
+          this.fleetStore.applyAutopilot(p.autopilot);
         } else if (p.kind === 'question' && p.question) {
           this.questionsStore.apply(p.question);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {

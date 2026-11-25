@@ -115,6 +115,7 @@ type Hub struct {
 	delivery deliveryState
 	// pulse batches actionable autopilot/board triggers for commanders (see pulse.go).
 	pulse         pulseState
+	autopilot     autopilotRuntimeState
 	PulseDebounce time.Duration
 	pulseNow      func() time.Time
 	// operatorCommands de-duplicates worker.operator_command reports by command id.

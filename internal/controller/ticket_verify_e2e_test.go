@@ -144,6 +144,14 @@ func TestTicketVerifySelfRepairEndToEnd(t *testing.T) {
 	}
 
 	// 2. Always-failing verify command with default retry_limit=2 -> retries exhausted -> failed.
+	// Wait for autopilot auto-off after tkRepair emptied the board, then re-enable Play.
+	waitFor(t, 3*time.Second, "autopilot auto-off after tkRepair", func() bool {
+		p, err := cs.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := cs.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	alwaysFailCmd := "printf '%s\\n' '--- FAIL: TestAlwaysBroken (0.00s)' 'FAIL\texample.com/app\t0.01s' && exit 1"
 	tkFail, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,
@@ -191,6 +199,14 @@ func TestTicketVerifySelfRepairEndToEnd(t *testing.T) {
 	})
 
 	// 3. Always-failing verify command with autonomy.escalate_on_blocker=true -> needs_you.
+	// Wait for autopilot auto-off after tkFail emptied the board, then re-enable Play.
+	waitFor(t, 3*time.Second, "autopilot auto-off after tkFail", func() bool {
+		p, err := cs.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := cs.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	escalate := true
 	tkEsc, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,

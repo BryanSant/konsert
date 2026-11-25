@@ -320,6 +320,8 @@ export interface Project {
   headline_at?: string;
   verify_cmd?: string;
   autonomy?: AutonomyPolicy;
+  autopilot?: boolean;
+  autopilot_paused?: boolean;
   delivery_mode?: DeliveryMode;
   merge_style?: MergeStyle;
   created_at: string;
@@ -528,6 +530,38 @@ export interface AppSettings {
   default_delivery_mode?: DeliveryMode;
   /** Global default merge style ('squash' | 'merge' | 'rebase'). */
   default_merge_style?: MergeStyle;
+  /** Global Autopilot Play switch: every project plays unless explicitly paused. */
+  autopilot_global?: boolean;
+}
+
+export type AutopilotDisplayState = 'playing' | 'paused' | 'finished';
+
+export interface AutopilotCounts {
+  dispatchable: number;
+  running: number;
+  needs_you: number;
+  review: number;
+}
+
+export interface AutopilotProjectState {
+  project_id: string;
+  project_sid: string;
+  project_name: string;
+  play: boolean;
+  autopilot: boolean;
+  autopilot_paused: boolean;
+  global: boolean;
+  fleet_paused: boolean;
+  state: AutopilotDisplayState;
+  counts: AutopilotCounts;
+}
+
+export interface AutopilotState {
+  global: boolean;
+  fleet_paused: boolean;
+  state: AutopilotDisplayState;
+  counts: AutopilotCounts;
+  projects: AutopilotProjectState[];
 }
 
 export interface Task {
@@ -722,6 +756,8 @@ export interface FleetSnapshotResponse {
   controller_version?: string;
   /** Fleet-wide Pause everything state. */
   pause?: FleetPause;
+  /** Fleet-wide and per-project Autopilot Play/Pause state and ticket counts. */
+  autopilot?: AutopilotState;
   /** Latest activity of every known session. */
   activity?: SessionActivity[];
   /** Review decisions and Expedite flags (SYR-BM8JR). */

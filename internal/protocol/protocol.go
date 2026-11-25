@@ -564,6 +564,8 @@ type FleetUpdatePayload struct {
 	// ShellReminder carries a "shells left running" Needs-you item when Kind is
 	// "shell_reminder" (resolved: true when it is gone).
 	ShellReminder any `json:"shell_reminder,omitzero"`
+	// Autopilot carries the fleet/project autopilot snapshot when Kind is "autopilot".
+	Autopilot any `json:"autopilot,omitzero"`
 }
 
 type GitChangedFile struct {
