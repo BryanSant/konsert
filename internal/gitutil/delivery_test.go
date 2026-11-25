@@ -13,7 +13,7 @@ import (
 
 func initTestRepo(t *testing.T, withBareRemote bool) (repoDir, bareDir string) {
 	t.Helper()
-	base, err := os.MkdirTemp("/var/tmp", "konsert-gitutil-*")
+	base, err := os.MkdirTemp(tempBaseDir(), "konsert-gitutil-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestMergeBranchNonFastForwardPushRaceRetry(t *testing.T) {
 
 	pushConcurrentCommit := func(t *testing.T, bareDir, filename, content string) {
 		t.Helper()
-		cloneDir, err := os.MkdirTemp("/var/tmp", "konsert-race-clone-*")
+		cloneDir, err := os.MkdirTemp(tempBaseDir(), "konsert-race-clone-*")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -605,7 +605,7 @@ func TestRefuseAutoCommitOutsideTaskWorktree(t *testing.T) {
 
 func TestMissingGitIdentityFailsClearly(t *testing.T) {
 	ctx := context.Background()
-	base, err := os.MkdirTemp("/var/tmp", "konsert-noident-*")
+	base, err := os.MkdirTemp(tempBaseDir(), "konsert-noident-*")
 	if err != nil {
 		t.Fatal(err)
 	}

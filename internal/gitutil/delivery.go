@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -636,6 +637,11 @@ func resolveMergeSID(taskSID, dir, source string) string {
 }
 
 func tempBaseDir() string {
+	// /var/tmp only on Unix: on Windows "/var/tmp" resolves to a drive-relative path
+	// (C:\var\tmp may even exist) that git cannot use.
+	if runtime.GOOS == "windows" {
+		return os.TempDir()
+	}
 	if fi, err := os.Stat("/var/tmp"); err == nil && fi.IsDir() {
 		return "/var/tmp"
 	}
