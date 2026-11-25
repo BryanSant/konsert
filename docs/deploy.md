@@ -262,6 +262,9 @@ name: bocabox
 max_concurrent: 2
 # sandbox: true          # opt-in: no YOLO/skip-permissions flags, shell driver refused
 # allowed_roots: [/home/me/src]
+# spool:                 # what konsertd keeps for the hub while it is unreachable
+#   max_mb: 256          # default 256
+#   max_age_days: 14     # default 14
 ```
 
 Check a host with `konsertd doctor`.
@@ -269,9 +272,22 @@ Check a host with `konsertd doctor`.
 `controller_url` (or `--controller`, `KONSERT_CONTROLLER_URL`) is only for outbound
 machines; without it konsertd serves the local socket.
 
-konsertd keeps its stable worker ID, machine ID, credential and status outbox in
-`~/.konsert` (override with `KONSERT_STATE_DIR`), so a re-run never registers a duplicate
-machine. The worker ID file is keyed by name (`worker-id-<name>-<isolation>`, name
+konsertd keeps its stable worker ID, machine ID, credential, outbound spool and terminal
+scrollback in `~/.konsert` (override with `KONSERT_STATE_DIR`), so a re-run never registers a
+duplicate machine.
+
+**When the hub sleeps or is unreachable** (a laptop hub, a network outage), konsertd keeps
+working and keeps everything that matters on disk: agent transcripts and questions, task
+events and statuses, usage, session reports and machine vitals go to its spool
+(`~/.konsert/spool/<worker id>/`) before they are sent, and are replayed in order when the
+link comes back; the hub applies each record exactly once. Raw terminal output is not spooled;
+each terminal's last 1 MB is kept on disk so it redraws when you re-open it. The spool is
+bounded (`spool.max_mb`, default 256 MB, and `spool.max_age_days`, default 14): over budget,
+vitals are compacted first (into 1-minute, then hourly averages), then activity; transcripts,
+task events, statuses and questions are never dropped. If it is still full, `konsertd status`
+prints `SPOOL FULL` and Fleet shows it on the machine. After the hub itself wakes up, it waits
+up to 2 minutes for machines to re-attach before marking anything offline or lost (Fleet:
+"reconnecting after sleep…"). Details: [docs/design/spool.md](design/spool.md). The worker ID file is keyed by name (`worker-id-<name>-<isolation>`, name
 defaulting to the hostname), so hosts sharing a home directory (a container and its
 host) each keep their own identity.
 
