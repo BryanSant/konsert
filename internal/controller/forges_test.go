@@ -152,17 +152,31 @@ func TestForgeDeviceFlowEndpoints(t *testing.T) {
 	}))
 	defer fakeOAuth.Close()
 
-	// GHES host without a configured client ID -> 501 Not Implemented (the built-in
-	// client ID only applies to github.com).
+	// GHES and self-managed GitLab hosts without a configured client ID -> 501 Not
+	// Implemented (built-in client IDs only apply to github.com and gitlab.com).
 	srvNoID, cleanupNoID := newForgeTestServer(t, nil)
 	defer cleanupNoID()
-	req := httptest.NewRequest(http.MethodPost, "/api/forges/github.corp.example/device",
-		bytes.NewBufferString(`{"kind":"github"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	srvNoID.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 without client ID, got %d: %s", rec.Code, rec.Body.String())
+	for _, tc := range []struct {
+		host string
+		kind string
+	}{
+		{"github.corp.example", "github"},
+		{"gitlab.corp.example", "gitlab"},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/forges/"+tc.host+"/device",
+			bytes.NewBufferString(`{"kind":"`+tc.kind+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		srvNoID.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotImplemented {
+			t.Fatalf("%s: expected 501 without client ID, got %d: %s", tc.host, rec.Code, rec.Body.String())
+		}
+	}
+	if !srvNoID.forges.device.Available("gitlab.com", forge.GitLab) {
+		t.Fatalf("gitlab.com should be device-flow available with no config")
+	}
+	if srvNoID.forges.device.Available("gitlab.corp.example", forge.GitLab) {
+		t.Fatalf("self-managed gitlab host should not be device-flow available without config")
 	}
 
 	// With client ID -> start + poll pending + poll authorized.
