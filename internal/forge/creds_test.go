@@ -122,22 +122,47 @@ func TestCredDiscoveryOrder(t *testing.T) {
 	_ = st.PutToken(ctx, StoredToken{Host: "github.com", Token: "tok-stored", Source: "pasted", Kind: GitHub})
 	_ = st.PutToken(ctx, StoredToken{Host: "gitlab.com", Token: "tok-gl-stored", Source: "device", Kind: GitLab})
 
-	t.Run("git credential wins first and sets GIT_TERMINAL_PROMPT=0", func(t *testing.T) {
+	t.Run("encrypted store wins over git credential and CLI login", func(t *testing.T) {
 		runner := &fakeCmdRunner{
-			fn: func(name string, args []string, env []string, stdin string) (string, error) {
+			fn: func(name string, _ []string, _ []string, _ string) (string, error) {
+				t.Errorf("runner should not be called when stored token exists, got %s", name)
+				return "password=tok-git\n", nil
+			},
+		}
+		disc := &CredDiscovery{Runner: runner, Store: st}
+
+		cred, err := disc.Discover(ctx, "github.com", GitHub)
+		if err != nil {
+			t.Fatalf("Discover github: %v", err)
+		}
+		if cred.Token != "tok-stored" || cred.Source != "pasted" {
+			t.Fatalf("github got %+v", cred)
+		}
+
+		cred, err = disc.Discover(ctx, "gitlab.com", GitLab)
+		if err != nil {
+			t.Fatalf("Discover gitlab: %v", err)
+		}
+		if cred.Token != "tok-gl-stored" || cred.Source != "device" {
+			t.Fatalf("gitlab got %+v", cred)
+		}
+		if len(runner.calls) != 0 {
+			t.Fatalf("expected 0 runner calls, got %d", len(runner.calls))
+		}
+	})
+
+	emptyStore := NewEncryptedSettingsStore(&memSettings{}, newTestBox(t))
+
+	t.Run("git credential wins when no stored token exists", func(t *testing.T) {
+		runner := &fakeCmdRunner{
+			fn: func(name string, _ []string, _ []string, _ string) (string, error) {
 				if name == "git" {
-					if !slices.Contains(env, "GIT_TERMINAL_PROMPT=0") {
-						t.Errorf("missing GIT_TERMINAL_PROMPT=0 in env: %v", env)
-					}
-					if !strings.Contains(stdin, "protocol=https\nhost=github.com\n") {
-						t.Errorf("unexpected stdin: %q", stdin)
-					}
 					return "protocol=https\nhost=github.com\nusername=octocat\npassword=tok-git\n", nil
 				}
 				return "", errors.New("unexpected call")
 			},
 		}
-		disc := &CredDiscovery{Runner: runner, Store: st}
+		disc := &CredDiscovery{Runner: runner, Store: emptyStore}
 		cred, err := disc.Discover(ctx, "github.com", GitHub)
 		if err != nil {
 			t.Fatalf("Discover: %v", err)
@@ -150,7 +175,7 @@ func TestCredDiscoveryOrder(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to gh for GitHub", func(t *testing.T) {
+	t.Run("falls back to gh for GitHub when store and git credential miss", func(t *testing.T) {
 		runner := &fakeCmdRunner{
 			fn: func(name string, args []string, _ []string, _ string) (string, error) {
 				if name == "gh" && len(args) == 4 && args[3] == "github.com" {
@@ -159,7 +184,7 @@ func TestCredDiscoveryOrder(t *testing.T) {
 				return "", errors.New("no cred")
 			},
 		}
-		disc := &CredDiscovery{Runner: runner, Store: st}
+		disc := &CredDiscovery{Runner: runner, Store: emptyStore}
 		cred, err := disc.Discover(ctx, "github.com", GitHub)
 		if err != nil {
 			t.Fatalf("Discover: %v", err)
@@ -178,7 +203,7 @@ func TestCredDiscoveryOrder(t *testing.T) {
 				return "", errors.New("no cred")
 			},
 		}
-		disc := &CredDiscovery{Runner: runner, Store: st}
+		disc := &CredDiscovery{Runner: runner, Store: emptyStore}
 		cred, err := disc.Discover(ctx, "gitlab.com", GitLab)
 		if err != nil {
 			t.Fatalf("Discover: %v", err)
@@ -194,24 +219,12 @@ func TestCredDiscoveryOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 		runner := &fakeCmdRunner{}
-		disc := &CredDiscovery{Runner: runner, Store: st, GlabConfigPath: cfgPath}
+		disc := &CredDiscovery{Runner: runner, Store: emptyStore, GlabConfigPath: cfgPath}
 		cred, err := disc.Discover(ctx, "gitlab.com", GitLab)
 		if err != nil {
 			t.Fatalf("Discover: %v", err)
 		}
 		if cred.Token != "tok-glab-file" || cred.Source != "glab" {
-			t.Fatalf("got %+v", cred)
-		}
-	})
-
-	t.Run("falls back to encrypted store", func(t *testing.T) {
-		runner := &fakeCmdRunner{}
-		disc := &CredDiscovery{Runner: runner, Store: st, GlabConfigPath: filepath.Join(t.TempDir(), "missing.yml")}
-		cred, err := disc.Discover(ctx, "gitlab.com", GitLab)
-		if err != nil {
-			t.Fatalf("Discover: %v", err)
-		}
-		if cred.Token != "tok-gl-stored" || cred.Source != "device" {
 			t.Fatalf("got %+v", cred)
 		}
 	})
@@ -222,6 +235,87 @@ func TestCredDiscoveryOrder(t *testing.T) {
 		_, err := disc.Discover(ctx, "codeberg.org", Forgejo)
 		if !errors.Is(err, ErrNoCredential) {
 			t.Fatalf("err = %v, want ErrNoCredential", err)
+		}
+	})
+}
+
+func TestCredDiscoveryNonInteractiveRunnerArgsAndEnv(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("git and gh calls pass non-interactive args, env, and explicit stdin", func(t *testing.T) {
+		runner := &fakeCmdRunner{}
+		disc := &CredDiscovery{Runner: runner}
+		_, err := disc.Discover(ctx, "github.com", GitHub)
+		if !errors.Is(err, ErrNoCredential) {
+			t.Fatalf("err = %v, want ErrNoCredential", err)
+		}
+		if len(runner.calls) != 2 {
+			t.Fatalf("expected 2 runner calls (git, gh), got %d: %+v", len(runner.calls), runner.calls)
+		}
+
+		gitCall := runner.calls[0]
+		if gitCall.name != "git" {
+			t.Fatalf("call[0].name = %q, want git", gitCall.name)
+		}
+		wantGitArgs := []string{"-c", "credential.interactive=false", "credential", "fill"}
+		if !slices.Equal(gitCall.args, wantGitArgs) {
+			t.Errorf("git args = %v, want %v", gitCall.args, wantGitArgs)
+		}
+		for _, wantEnv := range []string{
+			"GIT_TERMINAL_PROMPT=0",
+			"GCM_INTERACTIVE=never",
+			"GIT_ASKPASS=",
+			"SSH_ASKPASS=",
+		} {
+			if !slices.Contains(gitCall.env, wantEnv) {
+				t.Errorf("git env %v missing %q", gitCall.env, wantEnv)
+			}
+		}
+		wantGitStdin := "protocol=https\nhost=github.com\n\n"
+		if gitCall.stdin != wantGitStdin {
+			t.Errorf("git stdin = %q, want %q", gitCall.stdin, wantGitStdin)
+		}
+
+		ghCall := runner.calls[1]
+		if ghCall.name != "gh" {
+			t.Fatalf("call[1].name = %q, want gh", ghCall.name)
+		}
+		wantGHArgs := []string{"auth", "token", "--hostname", "github.com"}
+		if !slices.Equal(ghCall.args, wantGHArgs) {
+			t.Errorf("gh args = %v, want %v", ghCall.args, wantGHArgs)
+		}
+		if !slices.Contains(ghCall.env, "GH_PROMPT_DISABLED=1") {
+			t.Errorf("gh env %v missing GH_PROMPT_DISABLED=1", ghCall.env)
+		}
+		if ghCall.stdin != "" {
+			t.Errorf("gh stdin = %q, want empty", ghCall.stdin)
+		}
+	})
+
+	t.Run("glab call passes NO_PROMPT=1 and empty stdin", func(t *testing.T) {
+		runner := &fakeCmdRunner{}
+		disc := &CredDiscovery{Runner: runner, GlabConfigPath: filepath.Join(t.TempDir(), "missing.yml")}
+		_, err := disc.Discover(ctx, "gitlab.com", GitLab)
+		if !errors.Is(err, ErrNoCredential) {
+			t.Fatalf("err = %v, want ErrNoCredential", err)
+		}
+		if len(runner.calls) != 2 {
+			t.Fatalf("expected 2 runner calls (git, glab), got %d: %+v", len(runner.calls), runner.calls)
+		}
+
+		glabCall := runner.calls[1]
+		if glabCall.name != "glab" {
+			t.Fatalf("call[1].name = %q, want glab", glabCall.name)
+		}
+		wantGlabArgs := []string{"config", "get", "token", "--host", "gitlab.com"}
+		if !slices.Equal(glabCall.args, wantGlabArgs) {
+			t.Errorf("glab args = %v, want %v", glabCall.args, wantGlabArgs)
+		}
+		if !slices.Contains(glabCall.env, "NO_PROMPT=1") {
+			t.Errorf("glab env %v missing NO_PROMPT=1", glabCall.env)
+		}
+		if glabCall.stdin != "" {
+			t.Errorf("glab stdin = %q, want empty", glabCall.stdin)
 		}
 	})
 }

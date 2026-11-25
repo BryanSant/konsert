@@ -63,18 +63,24 @@ rotated tokens take effect immediately).
 
 ## Credential discovery (`internal/forge/creds.go`)
 
-Most users need not paste a token. Credentials for a host are resolved in this order:
+Most users need not paste a token, while an explicitly stored token always takes
+precedence over ambient machine credentials. Credentials for a host are resolved in this
+order:
 
-1. **`git credential fill`** for `protocol=https` and `host=<host>`, invoked with
-   `GIT_TERMINAL_PROMPT=0` and a 5s timeout so it never blocks waiting for interactive
-   input. Uses whatever helper the host machine already has (macOS Keychain, Git
-   Credential Manager, libsecret).
-2. **Existing CLI login** (read-only lookup; the CLI is not used for API calls):
+1. **Hub encrypted token store** (`device` from OAuth device-code sign-in, or `pasted`
+   personal access token) — wins over discovered credentials because it represents the
+   user's deliberate choice for that host.
+2. **`git credential fill`** for `protocol=https` and `host=<host>`, invoked read-only
+   (Konsert never calls `git credential approve` or `reject`) with
+   `-c credential.interactive=false`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`,
+   `GIT_ASKPASS=`, `SSH_ASKPASS=`, and a 5s timeout so headless hub runs never pop up GUI
+   prompts, browser sign-ins, or block waiting for interactive input. Uses whatever helper
+   the host machine already has (macOS Keychain, Git Credential Manager, libsecret).
+3. **Existing CLI login** (read-only lookup; the CLI is not used for API calls; stdin is
+   bound to an empty reader so nothing can block on a terminal):
    - GitHub: `gh auth token --hostname <host>` (`GH_PROMPT_DISABLED=1`).
-   - GitLab: `glab config get token --host <host>`, falling back to
+   - GitLab: `glab config get token --host <host>` (`NO_PROMPT=1`), falling back to
      `~/.config/glab-cli/config.yml` (or `$XDG_CONFIG_HOME/glab-cli/config.yml`).
-3. **Hub encrypted token store** (`device` from OAuth device-code sign-in, or `pasted`
-   personal access token).
 
 If none of these yield a token, `Client` returns `ErrNoCredential` and delivery falls back
 to `CompareURL`.

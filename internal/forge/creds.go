@@ -36,9 +36,9 @@ func (execRunner) Run(ctx context.Context, name string, args []string, env []str
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
+	// Always attach an explicit (possibly empty) reader so child helpers (git, gh, glab)
+	// never inherit the parent's stdin or block waiting on a terminal.
+	cmd.Stdin = strings.NewReader(stdin)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	// Discard stderr so no credential helper output is ever surfaced or logged.
@@ -204,9 +204,9 @@ func (s *EncryptedSettingsStore) openEntry(host, raw string) (StoredToken, bool,
 }
 
 // CredDiscovery resolves credentials for a forge host in order:
-//  1. git credential fill (HTTPS, GIT_TERMINAL_PROMPT=0)
-//  2. gh auth token (GitHub) / glab stored token (GitLab)
-//  3. encrypted hub TokenStore (device sign-in or pasted token)
+//  1. encrypted hub TokenStore (device sign-in or pasted token — user's explicit choice)
+//  2. git credential fill (read-only HTTPS lookup, strictly non-interactive)
+//  3. gh auth token (GitHub) / glab stored token (GitLab)
 type CredDiscovery struct {
 	Runner         CmdRunner
 	Store          TokenStore
@@ -236,12 +236,23 @@ func (c *CredDiscovery) Discover(ctx context.Context, host string, kind Kind) (C
 		return Credential{}, ErrNoCredential
 	}
 
-	// (a) git credential fill
+	// (1) hub encrypted token store (device sign-in or pasted) — explicit user choice wins.
+	if c != nil && c.Store != nil {
+		if st, ok, err := c.Store.GetToken(ctx, host); err == nil && ok && st.Token != "" {
+			src := st.Source
+			if src == "" {
+				src = "pasted"
+			}
+			return Credential{Host: host, Token: st.Token, Source: src}, nil
+		}
+	}
+
+	// (2) git credential fill (read-only, non-interactive)
 	if tok := c.fromGitCredential(ctx, host); tok != "" {
 		return Credential{Host: host, Token: tok, Source: "git-credential"}, nil
 	}
 
-	// (b) existing CLI login (gh for GitHub, glab for GitLab)
+	// (3) existing CLI login (gh for GitHub, glab for GitLab)
 	switch kind {
 	case GitHub:
 		if tok := c.fromGH(ctx, host); tok != "" {
@@ -253,25 +264,25 @@ func (c *CredDiscovery) Discover(ctx context.Context, host string, kind Kind) (C
 		}
 	}
 
-	// (c) hub encrypted token store (device sign-in or pasted)
-	if c != nil && c.Store != nil {
-		if st, ok, err := c.Store.GetToken(ctx, host); err == nil && ok && st.Token != "" {
-			src := st.Source
-			if src == "" {
-				src = "pasted"
-			}
-			return Credential{Host: host, Token: st.Token, Source: src}, nil
-		}
-	}
-
 	return Credential{}, fmt.Errorf("%w: %s", ErrNoCredential, host)
 }
 
+// fromGitCredential performs a strictly read-only lookup via `git credential fill`.
+// Konsert must never invoke `git credential approve` or `git credential reject` or
+// cause git to store/mutate credentials. All interactive/GUI/askpass prompts are
+// disabled via config and environment variables so headless hub runs never block.
 func (c *CredDiscovery) fromGitCredential(ctx context.Context, host string) string {
 	cmdCtx, cancel := context.WithTimeout(ctx, c.timeout())
 	defer cancel()
 	stdin := "protocol=https\nhost=" + host + "\n\n"
-	out, err := c.runner().Run(cmdCtx, "git", []string{"credential", "fill"}, []string{"GIT_TERMINAL_PROMPT=0"}, stdin)
+	args := []string{"-c", "credential.interactive=false", "credential", "fill"}
+	env := []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=never",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
+	}
+	out, err := c.runner().Run(cmdCtx, "git", args, env, stdin)
 	if err != nil {
 		return ""
 	}
