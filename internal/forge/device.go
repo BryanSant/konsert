@@ -46,6 +46,11 @@ type DevicePollResult struct {
 	Error       string           `json:"error,omitempty"`
 }
 
+// DefaultGitHubClientID is Syre's public OAuth App client ID on github.com. Device-flow
+// client IDs are not secrets; GitHub Enterprise Server hosts need their own OAuth App,
+// configured via forges.github_client_id or SYRE_GITHUB_CLIENT_ID.
+const DefaultGitHubClientID = "Ov23limGWxnHWpQ8jPGO"
+
 // DeviceFlowClient implements the OAuth 2.0 Device Authorization Grant (RFC 8628) for
 // GitHub and GitLab.
 type DeviceFlowClient struct {
@@ -56,28 +61,22 @@ type DeviceFlowClient struct {
 	Now            func() time.Time // default time.Now
 }
 
-// Available reports whether device flow is configured for kind.
-func (d *DeviceFlowClient) Available(kind Kind) bool {
-	if d == nil {
-		return false
-	}
-	switch kind {
-	case GitHub:
-		return strings.TrimSpace(d.GitHubClientID) != ""
-	case GitLab:
-		return strings.TrimSpace(d.GitLabClientID) != ""
-	default:
-		return false
-	}
+// Available reports whether device flow is configured for kind on host.
+func (d *DeviceFlowClient) Available(host string, kind Kind) bool {
+	_, err := d.clientIDFor(host, kind)
+	return err == nil
 }
 
-func (d *DeviceFlowClient) clientIDFor(kind Kind) (string, error) {
+func (d *DeviceFlowClient) clientIDFor(host string, kind Kind) (string, error) {
 	if d == nil {
 		return "", fmt.Errorf("%w: %s", ErrDeviceFlowUnavailable, kind)
 	}
 	switch kind {
 	case GitHub:
 		id := strings.TrimSpace(d.GitHubClientID)
+		if id == "" && NormalizeHost(host) == "github.com" {
+			id = DefaultGitHubClientID
+		}
 		if id == "" {
 			return "", fmt.Errorf("%w: no GitHub OAuth client ID configured", ErrDeviceFlowUnavailable)
 		}
@@ -116,7 +115,7 @@ func (d *DeviceFlowClient) now() time.Time {
 
 // Start initiates an OAuth device flow on host for kind (GitHub or GitLab).
 func (d *DeviceFlowClient) Start(ctx context.Context, host string, kind Kind) (DeviceStartResult, error) {
-	clientID, err := d.clientIDFor(kind)
+	clientID, err := d.clientIDFor(host, kind)
 	if err != nil {
 		return DeviceStartResult{}, err
 	}
@@ -204,7 +203,7 @@ func (d *DeviceFlowClient) Start(ctx context.Context, host string, kind Kind) (D
 // Poll checks whether the user has authorized deviceCode. currentInterval is used to
 // compute the bumped interval on slow_down.
 func (d *DeviceFlowClient) Poll(ctx context.Context, host string, kind Kind, deviceCode string, currentInterval int, expiresAt time.Time) (DevicePollResult, error) {
-	clientID, err := d.clientIDFor(kind)
+	clientID, err := d.clientIDFor(host, kind)
 	if err != nil {
 		return DevicePollResult{}, err
 	}

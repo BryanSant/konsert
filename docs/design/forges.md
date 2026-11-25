@@ -89,10 +89,12 @@ to `CompareURL`.
 
 `DeviceFlowClient` implements RFC 8628 (OAuth 2.0 Device Authorization Grant) for GitHub
 (`/login/device/code`, `/login/oauth/access_token`) and GitLab (`/oauth/authorize_device`,
-`/oauth/token`). Client IDs are supplied via controller config (`forges.github_client_id`,
-`forges.gitlab_client_id`) or environment variables (`SYRE_GITHUB_CLIENT_ID`,
-`SYRE_GITLAB_CLIENT_ID`). When a client ID is empty (or for Forgejo), device flow
-reports `ErrDeviceFlowUnavailable` (HTTP 501 on the REST API).
+`/oauth/token`). Syre ships a built-in GitHub OAuth App client ID
+(`forge.DefaultGitHubClientID`) used for github.com only; client IDs are public, not
+secrets. Controller config (`forges.github_client_id`, `forges.gitlab_client_id`) or
+environment variables (`SYRE_GITHUB_CLIENT_ID`, `SYRE_GITLAB_CLIENT_ID`) override it and
+are required for GitHub Enterprise Server and GitLab. When no client ID applies (or for
+Forgejo), device flow reports `ErrDeviceFlowUnavailable` (HTTP 501 on the REST API).
 
 ## Storage and security
 

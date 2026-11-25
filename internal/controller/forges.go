@@ -122,7 +122,7 @@ func (s *Server) handleListForges(w http.ResponseWriter, r *http.Request) {
 			Host:                item.Host,
 			Kind:                item.Kind,
 			CredentialSource:    item.CredentialSource,
-			DeviceFlowAvailable: s.forges.device.Available(item.Kind),
+			DeviceFlowAvailable: s.forges.device.Available(item.Host, item.Kind),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"forges": resp})
