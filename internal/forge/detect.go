@@ -40,7 +40,7 @@ func (d *Detector) Detect(ctx context.Context, remoteURL string) (Repo, error) {
 		return Repo{}, err
 	}
 
-	scheme := d.scheme()
+	scheme := d.schemeFor(remoteURL)
 	if kind, ok := d.overrideFor(host); ok {
 		return Repo{
 			Kind:    kind,
@@ -198,6 +198,16 @@ func splitRepoPath(rawPath string) (owner, name string, err error) {
 func (d *Detector) scheme() string {
 	if d != nil && d.Scheme != "" {
 		return d.Scheme
+	}
+	return "https"
+}
+
+func (d *Detector) schemeFor(remoteURL string) string {
+	if d != nil && d.Scheme != "" {
+		return d.Scheme
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(remoteURL)), "http://") {
+		return "http"
 	}
 	return "https"
 }

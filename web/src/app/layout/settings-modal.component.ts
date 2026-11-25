@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, output, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
@@ -11,6 +11,7 @@ import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { defaultModel, effortsFor, findModel } from '../features/chat/composer/composer-logic';
 import { QuestionInsightsComponent } from '../features/questions/question-insights.component';
+import { ForgeSettingsComponent } from './forge-settings.component';
 import { StorageSettingsComponent } from './storage-settings.component';
 import { ShellPolicySettingsComponent } from './shell-policy-settings.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
@@ -18,7 +19,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, StorageSettingsComponent, ShellPolicySettingsComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -170,6 +171,9 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
+        <!-- Forges (KON-CK7S2) -->
+        <ks-forge-settings />
+
         <!-- Sign-in & devices -->
         <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Sign-in &amp; devices</div>
@@ -304,16 +308,28 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
   `,
 })
 export class SettingsModalComponent implements OnInit {
+  readonly focusSection = input<'forges' | null>(null);
   readonly close = output<void>();
   /** Opens Settings → Devices on a view. */
   readonly openDevices = output<DevicesView>();
   /** How long machine vitals and heat are kept (fixed tiers on the hub). */
 
+  private readonly hostEl = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
   private readonly auth = inject(AuthService);
   private readonly notifications = inject(NotificationService);
   private readonly agentAccounts = inject(AgentAccountsStore);
+
+  constructor() {
+    effect(() => {
+      if (this.focusSection() === 'forges') {
+        queueMicrotask(() => {
+          this.hostEl.nativeElement.querySelector('#settings-forges')?.scrollIntoView({ block: 'start' });
+        });
+      }
+    });
+  }
 
   readonly provider = signal('openai');
   readonly model = signal<string>('');

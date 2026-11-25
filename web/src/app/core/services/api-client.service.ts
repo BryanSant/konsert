@@ -37,6 +37,14 @@ import {
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
+import {
+  ForgeDetectResult,
+  ForgeDevicePoll,
+  ForgeDeviceStart,
+  ForgeHost,
+  ForgeKind,
+  ForgeTokenSaveResult,
+} from '../models/forge.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
 import {
   ChatActionResult,
@@ -900,6 +908,43 @@ export class ApiClientService {
 
   deleteWorktree(id: string): Promise<{ ok: boolean; id: string }> {
     return this.request(`/api/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // --- Forges (KON-QHGWZ / KON-CK7S2) ---
+
+  listForges(): Promise<{ forges: ForgeHost[] }> {
+    return this.request('/api/forges');
+  }
+
+  detectForge(req: { remote_url?: string; host?: string }): Promise<ForgeDetectResult> {
+    return this.request('/api/forges/detect', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  putForgeToken(host: string, token: string, kind?: ForgeKind): Promise<ForgeTokenSaveResult> {
+    return this.request(`/api/forges/${encodeURIComponent(host)}/token`, {
+      method: 'PUT',
+      body: JSON.stringify({ token, kind: kind || undefined }),
+    });
+  }
+
+  deleteForgeToken(host: string): Promise<{ ok: boolean; host: string }> {
+    return this.request(`/api/forges/${encodeURIComponent(host)}/token`, {
+      method: 'DELETE',
+    });
+  }
+
+  startForgeDevice(host: string, kind?: ForgeKind): Promise<ForgeDeviceStart> {
+    return this.request(`/api/forges/${encodeURIComponent(host)}/device`, {
+      method: 'POST',
+      body: JSON.stringify({ kind: kind || undefined }),
+    });
+  }
+
+  pollForgeDevice(host: string, id: string): Promise<ForgeDevicePoll> {
+    return this.request(`/api/forges/${encodeURIComponent(host)}/device/${encodeURIComponent(id)}`);
   }
 }
 

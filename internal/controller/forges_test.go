@@ -217,6 +217,127 @@ func TestForgeDeviceFlowEndpoints(t *testing.T) {
 	}
 }
 
+func TestForgeDetectEndpoint(t *testing.T) {
+	fakeForgejo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/version" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":"9.0.1"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer fakeForgejo.Close()
+
+	fakeUnknown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer fakeUnknown.Close()
+
+	srv, cleanup := newForgeTestServer(t, nil)
+	defer cleanup()
+
+	// Well-known host via host field
+	req := httptest.NewRequest(http.MethodPost, "/api/forges/detect", bytes.NewBufferString(`{"host":"github.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detect github.com = %d %s", rec.Code, rec.Body.String())
+	}
+	var ghResp struct {
+		Host    string     `json:"host"`
+		Kind    forge.Kind `json:"kind"`
+		APIBase string     `json:"api_base"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &ghResp); err != nil {
+		t.Fatal(err)
+	}
+	if ghResp.Host != "github.com" || ghResp.Kind != forge.GitHub || ghResp.APIBase != "https://api.github.com" {
+		t.Fatalf("unexpected github detect response: %+v", ghResp)
+	}
+
+	// SCP-style remote URL via remote_url field
+	req = httptest.NewRequest(http.MethodPost, "/api/forges/detect", bytes.NewBufferString(`{"remote_url":"git@gitlab.com:acme/platform/api.git"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detect gitlab scp = %d %s", rec.Code, rec.Body.String())
+	}
+	var glResp struct {
+		Host    string     `json:"host"`
+		Kind    forge.Kind `json:"kind"`
+		APIBase string     `json:"api_base"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &glResp); err != nil {
+		t.Fatal(err)
+	}
+	if glResp.Host != "gitlab.com" || glResp.Kind != forge.GitLab || glResp.APIBase != "https://gitlab.com/api/v4" {
+		t.Fatalf("unexpected gitlab detect response: %+v", glResp)
+	}
+
+	// Fake HTTP Forgejo server (explicit http:// origin URL) -> detected and recorded in GET /api/forges
+	req = httptest.NewRequest(http.MethodPost, "/api/forges/detect", bytes.NewBufferString(`{"remote_url":"`+fakeForgejo.URL+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detect fake forgejo = %d %s", rec.Code, rec.Body.String())
+	}
+	var fjResp struct {
+		Host    string     `json:"host"`
+		Kind    forge.Kind `json:"kind"`
+		APIBase string     `json:"api_base"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &fjResp); err != nil {
+		t.Fatal(err)
+	}
+	wantHost := strings.TrimPrefix(fakeForgejo.URL, "http://")
+	if fjResp.Host != wantHost || fjResp.Kind != forge.Forgejo || fjResp.APIBase != fakeForgejo.URL+"/api/v1" {
+		t.Fatalf("unexpected forgejo detect response: %+v", fjResp)
+	}
+
+	// Host appears in GET /api/forges with credential_source="none"
+	listRec := httptest.NewRecorder()
+	srv.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/forges", nil))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/forges = %d", listRec.Code)
+	}
+	var listResp struct {
+		Forges []forgeHostResponse `json:"forges"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatal(err)
+	}
+	var sawFake bool
+	for _, f := range listResp.Forges {
+		if f.Host == wantHost && f.Kind == forge.Forgejo && f.CredentialSource == "none" {
+			sawFake = true
+		}
+	}
+	if !sawFake {
+		t.Fatalf("expected %s in GET /api/forges, got %+v", wantHost, listResp.Forges)
+	}
+
+	// Unknown host -> 422
+	req = httptest.NewRequest(http.MethodPost, "/api/forges/detect", bytes.NewBufferString(`{"remote_url":"`+fakeUnknown.URL+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for unknown forge, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Empty input -> 400
+	req = httptest.NewRequest(http.MethodPost, "/api/forges/detect", bytes.NewBufferString(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty detect input, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestForgeEndpointsRequireAuth(t *testing.T) {
 	srv, cleanup := newForgeTestServer(t, func(cfg *config.ControllerConfig) {
 		cfg.NoAuth = false
@@ -224,9 +345,22 @@ func TestForgeEndpointsRequireAuth(t *testing.T) {
 	})
 	defer cleanup()
 
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/forges", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 unauthenticated, got %d", rec.Code)
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/forges", ""},
+		{http.MethodPost, "/api/forges/detect", `{"host":"github.com"}`},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
+		if tc.body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s: expected 401 unauthenticated, got %d", tc.method, tc.path, rec.Code)
+		}
 	}
 }
