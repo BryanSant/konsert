@@ -184,6 +184,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
 	s.mux.Handle("GET /api/workers/{id}/ports", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerPorts)))
 	s.mux.Handle("PUT /api/workers/{id}/default-shell", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerDefaultShell)))
+	s.mux.Handle("PUT /api/workers/{id}/agents-use-git-bash", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerAgentsUseGitBash)))
 	s.mux.Handle("POST /api/workers/local", s.requireBrowserAuth(s.handleAddLocalWorker))
 	s.mux.Handle("POST /api/workers/{id}/start", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStartWorker)))
 
@@ -548,6 +549,35 @@ func (s *Server) handleSetWorkerDefaultShell(w http.ResponseWriter, r *http.Requ
 	}
 	s.hub.broadcastFleetUpdate("worker", view)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "default_shell": shell, "worker": view})
+}
+
+func (s *Server) handleSetWorkerAgentsUseGitBash(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		AgentsUseGitBash bool `json:"agents_use_git_bash"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := s.store.SetWorkerAgentsUseGitBash(r.Context(), id, body.AgentsUseGitBash); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	wk, err := s.store.GetWorker(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	view := toWorkerView(wk, s.hub.ActiveTaskCounts()[wk.ID], s.hub.WorkerMetrics(wk.ID))
+	if view.Status == "online" && !s.hub.IsWorkerConnected(wk.ID) {
+		view.Status = "offline"
+	}
+	s.hub.broadcastFleetUpdate("worker", view)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "agents_use_git_bash": body.AgentsUseGitBash, "worker": view})
 }
 
 func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {

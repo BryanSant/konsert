@@ -8,7 +8,30 @@ import (
 	"strings"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
+
+// gitBashAgentEnv resolves agent-specific Git Bash env overrides for chat spawns.
+// Tests replace it to exercise Windows Git Bash injection on any host OS.
+var gitBashAgentEnv = drivers.GitBashAgentEnv
+
+// accountWithGitBash returns a copy of acct with Git Bash shell-tool env vars merged
+// into acct.Env when useGitBash is true and the agent has a verified mechanism.
+func accountWithGitBash(acct Account, agent string, useGitBash bool) Account {
+	extra := gitBashAgentEnv(agent, useGitBash)
+	if len(extra) == 0 {
+		return acct
+	}
+	env := make(map[string]string, len(acct.Env)+len(extra))
+	for k, v := range acct.Env {
+		env[k] = v
+	}
+	for k, v := range extra {
+		env[k] = v
+	}
+	acct.Env = env
+	return acct
+}
 
 // Account is a resolved agent account: which CLI binary to run and the environment that
 // selects its subscription (e.g. CLAUDE_CONFIG_DIR + CLAUDE_CODE_OAUTH_TOKEN for a second

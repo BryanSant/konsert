@@ -74,6 +74,58 @@ func DetectGitBash() (string, bool) {
 	return detectGitBash(defaultShellLookup())
 }
 
+// GitBashAgentEnv returns agent-specific environment overrides that configure the agent's
+// shell tool to use Git Bash on Windows when enabled is true and Git Bash is installed.
+// Returns nil on non-Windows hosts, when enabled is false, when Git Bash is absent, or
+// for agents without a verified Git Bash mechanism.
+func GitBashAgentEnv(agent string, enabled bool) map[string]string {
+	return gitBashAgentEnv(defaultShellLookup(), agent, enabled)
+}
+
+func gitBashAgentEnv(l shellLookup, agent string, enabled bool) map[string]string {
+	if !enabled || l.goos != "windows" {
+		return nil
+	}
+	bashPath, ok := detectGitBash(l)
+	if !ok {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(agent)) {
+	case "claude":
+		return map[string]string{"CLAUDE_CODE_GIT_BASH_PATH": bashPath}
+	case "grok":
+		return map[string]string{"GROK_SHELL": "bash"}
+	default:
+		return nil
+	}
+}
+
+// applyEnvMap returns a copy of env with each key=value from overrides set,
+// replacing any existing entry for that key.
+func applyEnvMap(env []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return env
+	}
+	out := env
+	for k, v := range overrides {
+		out = withEnv(out, k, v)
+	}
+	return out
+}
+
+// withEnv returns a copy of env with key=value set, replacing any existing entry for key.
+func withEnv(env []string, key, value string) []string {
+	out := make([]string, 0, len(env)+1)
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, prefix+value)
+}
+
 func detectShells(l shellLookup) []protocol.TerminalShell {
 	var out []protocol.TerminalShell
 	add := func(id, label, p string) {

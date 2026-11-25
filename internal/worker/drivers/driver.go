@@ -67,6 +67,9 @@ type LaunchOptions struct {
 	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
 	// "zsh", "bash", "fish") for the shell driver; "" = worker default.
 	Shell string
+	// UseGitBash asks Windows agent drivers to point their shell tool at Git Bash
+	// when Git Bash is detected on this machine.
+	UseGitBash bool
 	// ShellIntegration, when set, asks the shell driver to start an interactive shell
 	// with Syre's shell integration (command and exit-status marks).
 	ShellIntegration *shellint.Integration

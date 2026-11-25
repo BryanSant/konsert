@@ -148,6 +148,7 @@ func (e *claudeEngine) Open(ctx context.Context, acct Account, opts protocol.Age
 	}
 
 	acct = claudeWithMCPTimeout(acct, opts.MCPServers)
+	acct = accountWithGitBash(acct, "claude", opts.UseGitBash)
 	s := &claudeSession{
 		eng:     e,
 		acct:    acct,

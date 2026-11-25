@@ -56,6 +56,9 @@ type AgentChatOpen struct {
 	// (claude --resume X --fork-session, codex thread/fork, ACP session/fork). Used for
 	// read-only side conversations about a question; the original stays undisturbed.
 	ForkFrom string `json:"fork_from,omitempty"`
+	// UseGitBash asks Windows chat engines to configure their shell tool to use
+	// Git Bash when Git Bash is installed on the worker.
+	UseGitBash bool `json:"use_git_bash,omitzero"`
 }
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.

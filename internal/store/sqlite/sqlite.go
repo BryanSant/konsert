@@ -290,27 +290,43 @@ func (s *SQLiteStore) SetWorkerDefaultShell(ctx context.Context, id, shell strin
 	return nil
 }
 
+func (s *SQLiteStore) SetWorkerAgentsUseGitBash(ctx context.Context, id string, enabled bool) error {
+	val := 0
+	if enabled {
+		val = 1
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE workers SET agents_use_git_bash = ? WHERE id = ?`, val, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // workerColumns is the column list scanWorker reads, in order.
 const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
-		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at, default_shell`
+		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at, default_shell, agents_use_git_bash`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
-		w            store.Worker
-		perm         string
-		agentsJSON   string
-		tagsJSON     string
-		lastSeen     string
-		factsJSON    string
-		factsUpdated sql.NullString
-		launchAt     sql.NullString
-		drained      int
-		drainedAt    sql.NullString
+		w                store.Worker
+		perm             string
+		agentsJSON       string
+		tagsJSON         string
+		lastSeen         string
+		factsJSON        string
+		factsUpdated     sql.NullString
+		launchAt         sql.NullString
+		drained          int
+		drainedAt        sql.NullString
+		agentsUseGitBash int
 	)
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
-		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt, &w.DefaultShell,
+		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt, &w.DefaultShell, &agentsUseGitBash,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound
@@ -333,6 +349,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 		dt := parseTime(drainedAt.String)
 		w.DrainedAt = &dt
 	}
+	w.AgentsUseGitBash = agentsUseGitBash != 0
 	_ = json.Unmarshal([]byte(agentsJSON), &w.Agents)
 	_ = json.Unmarshal([]byte(tagsJSON), &w.Tags)
 	if w.Agents == nil {

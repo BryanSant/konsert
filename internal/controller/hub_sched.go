@@ -175,6 +175,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		if payload.Shell == "" && (payload.Agent == "shell" || payload.SessionKind == "terminal") && w.DefaultShell != "" {
 			payload.Shell = w.DefaultShell
 		}
+		if payload.Agent != "shell" && payload.SessionKind != "terminal" {
+			payload.UseGitBash = w.AgentsUseGitBash
+		}
 		if err := h.DispatchToWorker(w.ID, payload); err != nil {
 			h.logger.Warn("dispatch of queued task failed; returning it to the queue",
 				"task_id", t.ID, "worker_id", w.ID, "err", err)

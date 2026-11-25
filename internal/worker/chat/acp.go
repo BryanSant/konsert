@@ -211,6 +211,7 @@ type acpSession struct {
 
 // Open starts (or resumes) a session.
 func (e *acpEngine) Open(ctx context.Context, acct Account, opts protocol.AgentChatOpen, emit Emit) (Session, error) {
+	acct = accountWithGitBash(acct, e.ad.Agent, opts.UseGitBash)
 	s := &acpSession{eng: e, ad: e.ad, acct: acct, opts: opts, emit: emit, perms: map[string]*acpPerm{}, stopWatch: make(chan struct{}),
 		wdAfter: acpWatchdog, wdTick: acpWatchdogTick}
 	if _, ok := e.ad.approval(opts.ApprovalMode); !ok {

@@ -260,6 +260,21 @@ Not installed (`which gemini` → not found). `~/.gemini` is now used by agy; th
 
 ---
 
+## Windows shell tool / Git Bash configuration
+
+Research snapshot (2026-11-25) for SYR-GM3S7: how each supported agent CLI can be configured on Windows to run its shell tool under Git Bash instead of PowerShell/cmd. Inspected via locally installed CLIs (`--help`, subcommand help, on-disk docs, JS bundles, and binary strings) on macOS; runtime execution on Windows was not exercised here.
+
+| Agent | Version inspected | Mechanism | Verified how |
+|---|---|---|---|
+| **claude** | 2.1.332 | `CLAUDE_CODE_GIT_BASH_PATH=<path-to-bash.exe>` | Binary strings: reads `process.env.CLAUDE_CODE_GIT_BASH_PATH`, validates the basename is `bash.exe`/`sh.exe`/`bash`/`sh`, and prints *"Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location."* when Git Bash is missing on Windows. (`CLAUDE_CODE_USE_POWERSHELL_TOOL=1` opts into PowerShell; unset/default uses Bash.) |
+| **grok** | 1.0.92 | `GROK_SHELL=bash` | Binary strings (`crates/codegen/xai-grok-config/src/shell.rs`) and embedded Windows docs: *"In settings shared with other platforms or with Claude Code, set `GROK_SHELL=bash` instead, so the command runs under Git Bash."* Verified live on Windows 11 (2026-11-25): `uname -s` returned `MINGW64_NT`. |
+| **copilot** | 1.0.114 | **Not supported** | Not supported: `COPILOT_BASH_PATH` only sets which bash runs when bash is invoked; on Windows the shell tool stays PowerShell (verified live on Windows 11, 2026-11-25: `'uname'` not recognized). |
+| **codex** | 0.171.0 | **Not supported** | Checked `codex --help`, `codex features list`, `codex app-server generate-json-schema`, and binary strings. Only `shell_environment_policy` (env filtering/injection) and internal `default_user_shell` / PowerShell helpers exist; no CLI flag, `config.toml` key, feature flag, or `CODEX_*` env var selects Git Bash. |
+| **cursor** (`cursor-agent`) | 2026.11.22 | **Not supported** | Checked `cursor-agent --help` and bundled JS (`~/.local/share/cursor-agent/versions/2026.11.22-e9042b2/*.js`). No CLI flag, config key, or `CURSOR_*`/`AGENT_CLI_*` env var selects Git Bash for the shell tool (only `CURSOR_LOGIN_SHELL` and `CURSOR_FORCED_SHELL_EGRESS` exist; `COMSPEC` is read only for shell-name detection). |
+| **agy** | 1.5.14 | **Not supported** | Checked `agy --help`, `agy install --help`, bundled docs, and binary strings. No CLI flag, `AGY_*` env var, or `--settings`/`settings.json` key configures the agent's shell executable (`shell_path`/`shellPath` exists only in internal protobuf/language-server messages). |
+
+---
+
 ## Cleanup
 
 - Scratch dir `/var/tmp/syre-research/` (empty config dirs, generated Codex schema, strings dumps, one Copilot probe session) was deleted.

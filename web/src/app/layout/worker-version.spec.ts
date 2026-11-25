@@ -60,6 +60,11 @@ describe('worker version UI', () => {
               default_shell,
               worker: { ...worker('win', '1.5.0'), default_shell },
             })),
+            setWorkerAgentsUseGitBash: vi.fn(async (_id: string, agents_use_git_bash: boolean) => ({
+              ok: true,
+              agents_use_git_bash,
+              worker: { ...worker('win', '1.5.0'), os: 'windows', agents_use_git_bash },
+            })),
           },
         },
         provideRouter([]),
@@ -175,6 +180,65 @@ describe('worker version UI', () => {
       select.dispatchEvent(new Event('change'));
       await new Promise((r) => setTimeout(r, 0));
       expect(api.setWorkerDefaultShell).toHaveBeenCalledWith('win', 'git-bash');
+    });
+
+    it('lets the operator toggle agents using Git Bash on Windows when Git Bash is detected', async () => {
+      const w: Worker = {
+        ...worker('win', '1.5.0'),
+        os: 'windows',
+        agents_use_git_bash: true,
+        facts: {
+          cpu_cores: 8,
+          ram_total_mb: 16384,
+          swap_total_mb: 0,
+          swap_used_mb: 0,
+          disk_total_gb: 500,
+          disk_free_gb: 200,
+          tmp_is_tmpfs: false,
+          is_wsl: false,
+          is_container: false,
+          is_mac_container: false,
+          is_vm: false,
+          shells: [
+            { id: 'git-bash', label: 'Git Bash' },
+            { id: 'pwsh', label: 'PowerShell 7' },
+          ],
+        },
+      };
+      const api = TestBed.inject(ApiClientService) as unknown as {
+        setWorkerAgentsUseGitBash: ReturnType<typeof vi.fn>;
+      };
+      const root = render('1.5.0', w);
+      const toggle = root.querySelector('[data-testid="machine-agents-use-git-bash"]') as HTMLInputElement;
+      expect(toggle).toBeTruthy();
+      expect(toggle.checked).toBe(true);
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change'));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(api.setWorkerAgentsUseGitBash).toHaveBeenCalledWith('win', false);
+    });
+
+    it('hides the agents-use-git-bash toggle when Git Bash is not present', () => {
+      const w: Worker = {
+        ...worker('mac', '1.5.0'),
+        os: 'darwin',
+        facts: {
+          cpu_cores: 8,
+          ram_total_mb: 16384,
+          swap_total_mb: 0,
+          swap_used_mb: 0,
+          disk_total_gb: 500,
+          disk_free_gb: 200,
+          tmp_is_tmpfs: false,
+          is_wsl: false,
+          is_container: false,
+          is_mac_container: false,
+          is_vm: false,
+          shells: [{ id: 'zsh', label: 'zsh' }],
+        },
+      };
+      const root = render('1.5.0', w);
+      expect(root.querySelector('[data-testid="machine-agents-use-git-bash"]')).toBeNull();
     });
   });
 });

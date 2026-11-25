@@ -848,6 +848,17 @@ export class ApiClientService {
     });
   }
 
+  /** Enables or disables configuring agent CLIs to use Git Bash on a Windows machine. */
+  setWorkerAgentsUseGitBash(
+    workerId: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean; agents_use_git_bash: boolean; worker: Worker }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/agents-use-git-bash`, {
+      method: 'PUT',
+      body: JSON.stringify({ agents_use_git_bash: enabled }),
+    });
+  }
+
   getSessionDefaults(params?: { workerId?: string; agent?: string; model?: string }): Promise<SessionDefaults> {
     const sp = new URLSearchParams();
     if (params?.workerId) sp.set('worker_id', params.workerId);
