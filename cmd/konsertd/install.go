@@ -43,7 +43,7 @@ type installFlags struct {
 
 func (f *installFlags) bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&f.showStatus, "status", false, "Show whether konsertd is installed and running (same as `konsertd status`)")
-	fs.BoolVar(&f.service, "service", false, "Windows: install a native service running as --user instead of a logon task (needs administrator rights: asks for approval (UAC) at the desktop)")
+	fs.BoolVar(&f.service, "service", false, "Windows: install a native service running as --user instead of a scheduled task (needs administrator rights: asks for approval (UAC) at the desktop)")
 	fs.StringVar(&f.account, "user", "", `Windows --service: account to run as, e.g. .\alice or DOMAIN\alice`)
 	fs.BoolVar(&f.passwordStdin, "password-stdin", false, "Windows --service: read the account password from stdin instead of prompting")
 	fs.BoolVar(&f.noStart, "no-start", false, "Register only; start at the next login/boot")
@@ -58,7 +58,7 @@ func newInstallCmd() *cobra.Command {
 	runCmd := newRunCmd()
 	cmd := &cobra.Command{
 		Use:   "install [run flags]",
-		Short: "Start konsertd automatically as the current user (systemd user unit, LaunchAgent, or Windows logon task/service)",
+		Short: "Start konsertd automatically as the current user (systemd user unit, LaunchAgent, or Windows scheduled task/service)",
 		Long: `Register konsertd to start automatically as the current user, so agent CLIs use your
 logins (profile, keychain, Credential Manager), and start it now.
 
@@ -66,8 +66,11 @@ logins (profile, keychain, Credential Manager), and start it now.
            systemctl --user enable; lingering is enabled when allowed (--no-linger to skip)
   macOS    LaunchAgent ~/Library/LaunchAgents/dev.konsert.konsertd.plist in gui/<uid>,
            logs in ~/Library/Logs/konsert/
-  Windows  Scheduled Task \konsertd at your logon (not elevated, no console window),
-           logs in %LOCALAPPDATA%\konsert\logs; or, with --service --user .\NAME, a
+  Windows  Scheduled Task \konsertd (no console window), logs in
+           %LOCALAPPDATA%\konsert\logs. Run elevated (an administrator over SSH, or
+           an elevated terminal) it is an S4U task: it starts at boot and runs whether
+           or not you are signed in, with no stored password. Otherwise it is a logon
+           task that only runs while you are signed in. Or, with --service --user .\NAME, a
            native service running as that account (needs administrator rights: in
            a terminal at the desktop it asks for approval (UAC) and shows the result
            there; over SSH, connect as an administrator)

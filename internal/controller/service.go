@@ -59,6 +59,9 @@ type WorkerStatusView struct {
 	LaunchState string     `json:"launch_state,omitempty"`
 	LaunchError string     `json:"launch_error,omitempty"`
 	LaunchAt    *time.Time `json:"launch_at,omitzero"`
+	// Restart is the outage of a hub-started daemon the hub cannot attach to: the host
+	// is unreachable, or konsertd is down and being restarted (nil while connected).
+	Restart *WorkerRestartView `json:"restart,omitzero"`
 	// WakeLock is the host Keep Awake state (nil until reported or requested).
 	WakeLock *WorkerWakeLockView `json:"wake_lock,omitzero"`
 	// Heat is the machine's smoothed load score (nil before its first heartbeat).
@@ -145,6 +148,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		view.Status = st
 		view.WakeLock = s.hub.workerWakeLockView(w.ID)
 		s.hub.decorateSpool(&view)
+		view.Restart = s.hub.workerRestartView(w.ID)
 		if st == "online" {
 			view.Heat = s.hub.workerHeat(w.ID)
 		}

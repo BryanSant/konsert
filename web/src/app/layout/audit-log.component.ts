@@ -18,6 +18,7 @@ export const AUDIT_ACTIONS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'task.cancel', label: 'Cancel' },
   { id: 'git.commit', label: 'Git commit' },
   { id: 'worker.remove', label: 'Remove host' },
+  { id: 'worker.restart', label: 'Restart konsertd' },
   { id: 'worker.uninstall', label: 'Uninstall konsertd' },
   { id: 'settings.update', label: 'Settings change' },
   { id: 'wakelock.host', label: 'Keep Awake (host)' },

@@ -78,6 +78,9 @@ type Env struct {
 	UserSID string
 	// SystemRoot is %SystemRoot% (conhost.exe lives in its System32).
 	SystemRoot string
+	// Elevated: the install runs with an elevated token (Windows: an administrator over
+	// SSH or in an elevated terminal), so it may register an S4U task.
+	Elevated bool
 	// PATH is persisted into launchd/systemd definitions, whose default PATH lacks
 	// Homebrew, ~/.local/bin and friends where agent CLIs live.
 	PATH string

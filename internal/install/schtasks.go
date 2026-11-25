@@ -11,10 +11,21 @@ import (
 	"unicode/utf16"
 )
 
-// schtasksBackend registers a Task Scheduler task that starts konsertd at the current
-// user's logon, in the user's interactive session (LogonType InteractiveToken: no stored
-// password, full access to the user's profile, Credential Manager and DPAPI), with a
-// limited (non-elevated) token.
+// schtasksBackend registers a Task Scheduler task that runs konsertd as the current user.
+// Which kind depends on whether the install runs elevated (KON-224K5):
+//
+//   - Elevated (an administrator over SSH, which is the hub's bootstrap, or an elevated
+//     terminal): LogonType S4U, "run whether the user is logged on or not" with no stored
+//     password. It runs in session 0 (no desktop) at startup, at logon and every minute,
+//     so a headless machine starts konsertd after a reboot with nobody signed in, and
+//     `schtasks /Run` starts it over SSH. S4U has no network credentials (SMB/Kerberos;
+//     HTTPS is unaffected). Creating an S4U task needs elevation, and running one needs
+//     the batch logon right, which Administrators have and standard users do not. Verified
+//     on Windows 11: claude, grok and copilot authenticate under S4U (their logins are
+//     plain files, not DPAPI or Credential Manager).
+//   - Not elevated: LogonType InteractiveToken, at the user's logon in their interactive
+//     session (no stored password, full access to Credential Manager and DPAPI), with a
+//     limited token. It only runs while the user is signed in.
 //
 // A console program started by Task Scheduler in an interactive session gets a visible
 // console window (on Windows 11 possibly a Windows Terminal tab). To avoid it, the task
@@ -31,8 +42,19 @@ import (
 // indefinitely, from install time on, with MultipleInstancesPolicy IgnoreNew: while
 // konsertd runs each firing is ignored, and if it has exited the next one starts it
 // again. (A repetition on the logon trigger itself would only begin at the next logon.)
-// Like the logon trigger, it only runs while the user is logged on.
+// For an InteractiveToken task, like the logon trigger, it only runs while the user is
+// logged on.
 type schtasksBackend struct{}
+
+// Task Scheduler logon types konsertd registers.
+const (
+	TaskLogonS4U         = "S4U"
+	TaskLogonInteractive = "InteractiveToken"
+)
+
+// HeadlessHint tells a user whose konsertd is a logon task how to have it start with
+// nobody signed in.
+const HeadlessHint = "For headless use (start with nobody signed in), run `konsertd install` again from an elevated terminal (Run as administrator) or over SSH as an administrator, which registers an S4U task, or use `konsertd install --service`."
 
 // TaskName is the Task Scheduler task name of an instance (in the root folder, where a
 // standard user may create tasks).
@@ -49,6 +71,9 @@ type TaskXMLParams struct {
 	// StartBoundary is the local time (2006-01-02T15:04:05) the every-minute
 	// keep-alive trigger starts from.
 	StartBoundary string
+	// LogonType is TaskLogonS4U (runs whether or not the user is signed in, with a boot
+	// trigger as well) or TaskLogonInteractive ("" means interactive).
+	LogonType string
 }
 
 // RenderTaskXML renders the Task Scheduler definition (UTF-8 text; see EncodeUTF16 for
@@ -58,6 +83,17 @@ func RenderTaskXML(p TaskXMLParams) string {
 		var e bytes.Buffer
 		_ = xml.EscapeText(&e, []byte(s))
 		return e.String()
+	}
+	logon := p.LogonType
+	if logon == "" {
+		logon = TaskLogonInteractive
+	}
+	boot := ""
+	if logon == TaskLogonS4U {
+		boot = `
+    <BootTrigger>
+      <Enabled>true</Enabled>
+    </BootTrigger>`
 	}
 	work := ""
 	if p.WorkDir != "" {
@@ -70,7 +106,7 @@ func RenderTaskXML(p TaskXMLParams) string {
     <Description>` + esc(p.Description) + `</Description>
     <URI>` + esc(p.URI) + `</URI>
   </RegistrationInfo>
-  <Triggers>
+  <Triggers>` + boot + `
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>` + esc(p.UserSID) + `</UserId>
@@ -87,7 +123,7 @@ func RenderTaskXML(p TaskXMLParams) string {
   <Principals>
     <Principal id="Author">
       <UserId>` + esc(p.UserSID) + `</UserId>
-      <LogonType>InteractiveToken</LogonType>
+      <LogonType>` + logon + `</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
@@ -190,9 +226,13 @@ func (schtasksBackend) conhost(in *Installer) string {
 
 func (s schtasksBackend) params(in *Installer, spec Spec) TaskXMLParams {
 	args := append([]string{"--headless", spec.Exe}, runArgs(in.ConfigPath(spec.Instance), spec.ExtraArgs, in.LogPath(spec.Instance))...)
-	desc := "Konsert worker daemon (konsertd), started at logon by `konsertd install`."
+	when := "started at logon"
+	if s.logonType(in) == TaskLogonS4U {
+		when = "started at boot and logon whether or not the user is signed in"
+	}
+	desc := "Konsert worker daemon (konsertd), " + when + " by `konsertd install`."
 	if spec.Instance != "" {
-		desc = "Konsert worker daemon (konsertd, " + spec.Instance + "), started at logon by `konsertd install`."
+		desc = "Konsert worker daemon (konsertd, " + spec.Instance + "), " + when + " by `konsertd install`."
 	}
 	return TaskXMLParams{
 		URI:         TaskName(spec.Instance),
@@ -203,7 +243,17 @@ func (s schtasksBackend) params(in *Installer, spec Spec) TaskXMLParams {
 		WorkDir:     in.Env.Home,
 		// A minute in the past, so the first keep-alive firing is due at once.
 		StartBoundary: time.Now().Add(-time.Minute).Format("2006-01-02T15:04:05"),
+		LogonType:     s.logonType(in),
 	}
+}
+
+// logonType is S4U when the install runs elevated (only then may it register one),
+// else InteractiveToken.
+func (schtasksBackend) logonType(in *Installer) string {
+	if in.Env.Elevated {
+		return TaskLogonS4U
+	}
+	return TaskLogonInteractive
 }
 
 func (s schtasksBackend) render(in *Installer, spec Spec) (string, []byte, error) {
@@ -240,16 +290,27 @@ func (s schtasksBackend) install(ctx context.Context, in *Installer, spec Spec) 
 	if _, err := in.Runner.Run(ctx, "", "schtasks", "/Create", "/TN", name, "/XML", xmlPath, "/F"); err != nil {
 		return fmt.Errorf("register scheduled task: %w", err)
 	}
-	in.printf("Registered scheduled task %s (at logon of the current user, hidden, not elevated)\n", name)
+	s4u := s.logonType(in) == TaskLogonS4U
+	if s4u {
+		in.printf("Registered scheduled task %s (S4U: runs at startup, at logon and every minute whether or not you are signed in; hidden, no stored password)\n", name)
+	} else {
+		in.printf("Registered scheduled task %s (at logon of the current user, hidden, not elevated)\n", name)
+	}
 	if spec.NoStart {
-		in.printf("Not started now (--no-start); it starts at your next logon.\n")
+		if s4u {
+			in.printf("Not started now (--no-start); it starts within a minute, at startup or at logon.\n")
+		} else {
+			in.printf("Not started now (--no-start); it starts at your next logon.\n")
+		}
 		return nil
 	}
 	if _, err := in.Runner.Run(ctx, "", "schtasks", "/Run", "/TN", name); err != nil {
 		return fmt.Errorf("start scheduled task: %w", err)
 	}
 	in.printf("Started %s; logs: %s\n", name, in.LogPath(spec.Instance))
-	in.printf("(An InteractiveToken task only runs while you are logged on to Windows; from an SSH session with no desktop logon it starts at your next logon.)\n")
+	if !s4u {
+		in.printf("konsertd starts when you sign in to Windows (this logon task only runs while you are signed in; from an SSH session with no desktop sign-in it starts at your next sign-in).\n%s\n", HeadlessHint)
+	}
 	return nil
 }
 
@@ -271,7 +332,7 @@ func (s schtasksBackend) uninstall(ctx context.Context, in *Installer, instance 
 func (s schtasksBackend) status(ctx context.Context, in *Installer, instance string) (Status, error) {
 	name := TaskName(instance)
 	st := Status{
-		Mechanism:      "Task Scheduler logon task",
+		Mechanism:      "Task Scheduler task",
 		Name:           name,
 		DefinitionPath: name,
 		ConfigPath:     in.ConfigPath(instance),
@@ -286,5 +347,24 @@ func (s schtasksBackend) status(ctx context.Context, in *Installer, instance str
 		st.Detail = state
 		st.Running = schtasksStateRunning(state)
 	}
+	if def, err := in.Runner.Run(ctx, "", "schtasks", "/Query", "/TN", name, "/XML"); err == nil {
+		switch taskLogonType(def) {
+		case TaskLogonS4U:
+			st.Mechanism = "Task Scheduler task (S4U: runs whether or not you are signed in)"
+		case TaskLogonInteractive:
+			st.Mechanism = "Task Scheduler logon task (runs only while you are signed in)"
+		}
+	}
 	return st, nil
+}
+
+// taskLogonType reads the principal's LogonType from a task definition (schtasks /Query
+// /XML), "" when absent.
+func taskLogonType(def string) string {
+	_, rest, ok := strings.Cut(def, "<LogonType>")
+	if !ok {
+		return ""
+	}
+	v, _, _ := strings.Cut(rest, "</LogonType>")
+	return strings.TrimSpace(v)
 }

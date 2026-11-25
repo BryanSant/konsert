@@ -145,6 +145,10 @@ func (h *Hub) checkWake(now time.Time) bool {
 		return false
 	}
 	h.logger.Warn("hub woke from sleep: waiting for machines to re-attach before treating anything as lost", "grace", h.wakeGrace())
+	if h.restarts != nil {
+		// Running daemons re-attach on their own: no restart before the grace is over.
+		h.restarts.holdAtLeast(now.Round(0).Add(h.wakeGrace()))
+	}
 	h.broadcastAllWorkers()
 	h.goBackground(func(ctx context.Context) {
 		t := time.NewTimer(h.wakeGrace())

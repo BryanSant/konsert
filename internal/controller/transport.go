@@ -191,6 +191,7 @@ func (a *attacher) ensure(w store.Worker) {
 			a.mu.Lock()
 			if a.loops[w.ID] == loop {
 				delete(a.loops, w.ID)
+				a.s.hub.restarts.forget(w.ID)
 			}
 			a.mu.Unlock()
 		}()
@@ -255,8 +256,22 @@ func (a *attacher) stop(workerID string) {
 	loop := a.loops[workerID]
 	delete(a.loops, workerID)
 	a.mu.Unlock()
+	a.s.hub.restarts.forget(workerID)
 	if loop != nil {
 		loop.cancel()
+	}
+}
+
+// poke asks workerID's attach loop to dial now instead of waiting out its backoff (a
+// start just ran, so the daemon is coming up).
+func (a *attacher) poke(workerID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if l := a.loops[workerID]; l != nil {
+		select {
+		case l.redial <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -322,6 +337,8 @@ func (a *attacher) run(ctx context.Context, workerID string, loop *attachLoop) {
 			// failed a few times in a row, then stay quiet until it comes back.
 			if !up {
 				failures++
+				// A daemon that is down on a reachable host is restarted (restart.go).
+				a.s.onAttachFailed(ctx, w, t, err)
 			}
 			switch {
 			case up:
@@ -362,7 +379,9 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 		}
 		conn, err = a.dialSSH(ctx, w.SSHTarget, key, w.ID)
 	default:
-		conn, err = a.dialLocal(ctx, w.ID)
+		if conn, err = a.dialLocal(ctx, w.ID); err != nil {
+			err = errDaemonSocket{err}
+		}
 	}
 	if err != nil {
 		return false, err
@@ -395,6 +414,7 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 		return false, linkError(conn, err)
 	}
 
+	a.s.onAttached(ctx, w.ID)
 	// The link is bound to this machine: a hello claiming another identity is refused.
 	sctx := withBoundMachine(ctx, boundMachine{workerID: w.ID, via: t})
 	sctx = withWorkerTransport(sctx, t)

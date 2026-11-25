@@ -192,6 +192,9 @@ type Hub struct {
 	// kaShowFn and ghPRFn replace ka/gh in tests.
 	kaShowFn func(ctx context.Context, id string) ([]byte, error)
 	ghPRFn   func(ctx context.Context, repo, number string) ([]byte, error)
+	// restarts is the automatic restart state of hub-started daemons the hub cannot
+	// attach to (restart.go); the Server sets it, machine views show it.
+	restarts *restartTracker
 }
 
 // NewHub constructs a Hub backed by store.Store.
