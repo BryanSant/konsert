@@ -81,41 +81,53 @@ func TestSchedulerDispatchesReadyTicketOnlyWhenAutopilotEnabled(t *testing.T) {
 
 	fw := th.connectWorker(t, testWorkerInfo("w-1", "box-1"), nil, "w-1")
 	th.h.SchedulePending(ctx)
-	if got := fw.drain(protocol.MsgTaskStart, 200*time.Millisecond); len(got) != 0 {
-		t.Fatalf("ticket in autopilot=false project must not dispatch, got %d task.start", len(got))
+	if got := fw.drain(protocol.MsgAgentChatOpen, 200*time.Millisecond); len(got) != 0 {
+		t.Fatalf("ticket in autopilot=false project must not dispatch, got %d agent.chat.open", len(got))
 	}
 	if cur, _ := th.st.GetTicket(ctx, tk.ID); cur.Status != store.TicketStatusReady || cur.Lease != nil {
 		t.Fatalf("expected ticket still ready/unleased, got %+v", cur)
 	}
 
-	// Enable autopilot on the project -> next scheduler pass dispatches it.
+	// Enable autopilot on the project -> next scheduler pass dispatches it as an agent chat.
 	proj.Autopilot = true
 	if err := th.st.UpdateProject(ctx, proj); err != nil {
 		t.Fatal(err)
 	}
 	th.h.SchedulePending(ctx)
 
-	env := fw.expect(protocol.MsgTaskStart, 3*time.Second)
-	p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
+	openEnv := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open, err := protocol.DecodePayload[protocol.AgentChatOpen](openEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Agent != "mock" || p.Model != "mock-fast" || p.Branch != "feat/rotate" {
-		t.Fatalf("unexpected TaskStartPayload: %+v", p)
+	promptEnv := fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	prompt, err := protocol.DecodePayload[protocol.AgentChatPrompt](promptEnv)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(p.Prompt, "Rotate tokens") || !strings.Contains(p.Prompt, "Invalidate token family on reuse") {
-		t.Fatalf("placeholder prompt missing title/acceptance: %q", p.Prompt)
+	if open.Agent != "mock" || open.Model != "mock-fast" || open.TicketSID != tk.SID || len(open.Bindings) != 1 || open.Bindings[0].TargetBranch != "feat/rotate" {
+		t.Fatalf("unexpected AgentChatOpen: %+v", open)
+	}
+	if prompt.ChatID != open.ChatID || !strings.Contains(prompt.Text, "Rotate tokens") || !strings.Contains(prompt.Text, "Invalidate token family on reuse") {
+		t.Fatalf("dispatch prompt missing title/acceptance: %+v", prompt)
 	}
 
-	// Verify ticket is running with lease pointing to the created task.
+	// Verify ticket is running with lease pointing to the created task and chat session bound to ticket.
 	leased, err := th.st.GetTicket(ctx, tk.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if leased.Status != store.TicketStatusRunning || leased.Lease == nil || leased.Lease.WorkerID != "w-1" || leased.Lease.TaskID != p.TaskID {
+	if leased.Status != store.TicketStatusRunning || leased.Lease == nil || leased.Lease.WorkerID != "w-1" || leased.Lease.TaskID == "" {
 		t.Fatalf("unexpected leased ticket state: %+v", leased)
 	}
-	task, err := th.st.GetTask(ctx, p.TaskID)
+	cs, err := th.st.GetChatSession(ctx, open.ChatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.TicketID != tk.ID || cs.TaskID != leased.Lease.TaskID || cs.FleetTools {
+		t.Fatalf("unexpected chat session linkage: %+v", cs)
+	}
+	task, err := th.st.GetTask(ctx, leased.Lease.TaskID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,18 +159,19 @@ func TestTicketHeartbeatRenewalAndStatusTransitions(t *testing.T) {
 	tkComplete := mkReady("Complete flow")
 	fw := th.connectWorker(t, testWorkerInfo("w-1", "box-1"), nil, "w-1")
 
-	env := fw.expect(protocol.MsgTaskStart, 3*time.Second)
-	p, _ := protocol.DecodePayload[protocol.TaskStartPayload](env)
+	openEnv := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open1, _ := protocol.DecodePayload[protocol.AgentChatOpen](openEnv)
+	_ = fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
 
 	before, _ := th.st.GetTicket(ctx, tkComplete.ID)
 	if before.Lease == nil {
 		t.Fatalf("expected active lease")
 	}
 
-	// Sleep briefly and send heartbeat with active task -> lease must extend.
+	// Sleep briefly and send heartbeat with active chat -> lease must extend.
 	time.Sleep(50 * time.Millisecond)
 	fw.send(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
-		ActiveTaskIDs: []string{p.TaskID},
+		ActiveChatIDs: []string{open1.ChatID},
 		At:            time.Now().UTC(),
 	})
 	waitFor(t, 2*time.Second, "lease heartbeat to advance", func() bool {
@@ -166,49 +179,82 @@ func TestTicketHeartbeatRenewalAndStatusTransitions(t *testing.T) {
 		return err == nil && cur.Lease != nil && cur.Lease.ExpiresAt.After(before.Lease.ExpiresAt)
 	})
 
-	// waiting_input -> ticket needs_you (lease kept).
-	fw.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: p.TaskID, Status: protocol.TaskStatusWaitingInput})
+	// elicitation -> ticket needs_you (lease kept).
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID:      open1.ChatID,
+		Seq:         1,
+		Kind:        protocol.EventElicitation,
+		Elicitation: &protocol.AgentElicitation{ID: "e-1", Kind: protocol.ElicitQuestion, Title: "Pick color?"},
+	})
 	waitFor(t, 2*time.Second, "ticket needs_you", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkComplete.ID)
 		return err == nil && cur.Status == store.TicketStatusNeedsYou && cur.Lease != nil
 	})
 
-	// Back to running -> ticket running (lease kept).
-	fw.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: p.TaskID, Status: protocol.TaskStatusRunning})
+	// elicitation_resolved -> ticket back to running (lease kept).
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID:      open1.ChatID,
+		Seq:         2,
+		Kind:        protocol.EventElicitationOK,
+		Elicitation: &protocol.AgentElicitation{ID: "e-1"},
+	})
 	waitFor(t, 2*time.Second, "ticket back to running", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkComplete.ID)
 		return err == nil && cur.Status == store.TicketStatusRunning && cur.Lease != nil
 	})
 
-	// completed -> ticket review (lease released).
-	fw.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: p.TaskID, Status: protocol.TaskStatusCompleted})
+	// turn_end (ok) -> ticket review (lease released, chat stays open).
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID:     open1.ChatID,
+		Seq:        3,
+		Kind:       protocol.EventTurnEnd,
+		StopReason: "end_turn",
+		Digest: &protocol.RunDigest{
+			TicketSID: tkComplete.SID,
+			Status:    protocol.DigestStatusReview,
+			Summary:   "Done",
+		},
+	})
 	waitFor(t, 2*time.Second, "ticket review", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkComplete.ID)
 		return err == nil && cur.Status == store.TicketStatusReview && cur.Lease == nil
 	})
 
-	// Failed task -> ticket failed.
+	// Engine error -> ticket failed + chat closed.
 	tkFail := mkReady("Fail flow")
 	th.h.SchedulePending(ctx)
-	env2 := fw.expect(protocol.MsgTaskStart, 3*time.Second)
-	p2, _ := protocol.DecodePayload[protocol.TaskStartPayload](env2)
-	code := 1
-	fw.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: p2.TaskID, Status: protocol.TaskStatusFailed, ExitCode: &code})
+	openEnv2 := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open2, _ := protocol.DecodePayload[protocol.AgentChatOpen](openEnv2)
+	_ = fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID: open2.ChatID,
+		Seq:    1,
+		Kind:   protocol.EventError,
+		Error:  &protocol.AgentChatError{Kind: protocol.ErrKindAuth, Message: "token expired"},
+	})
 	waitFor(t, 2*time.Second, "ticket failed", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkFail.ID)
 		return err == nil && cur.Status == store.TicketStatusFailed && cur.Lease == nil
 	})
+	_ = fw.expect(protocol.MsgAgentChatClose, 3*time.Second)
 
-	// Canceled task -> ticket canceled.
+	// Cancelled turn -> ticket canceled + chat closed.
 	tkCancel := mkReady("Cancel flow")
 	th.h.SchedulePending(ctx)
-	env3 := fw.expect(protocol.MsgTaskStart, 3*time.Second)
-	p3, _ := protocol.DecodePayload[protocol.TaskStartPayload](env3)
-	fw.send(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: p3.TaskID, Status: protocol.TaskStatusCanceled})
+	openEnv3 := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open3, _ := protocol.DecodePayload[protocol.AgentChatOpen](openEnv3)
+	_ = fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID:     open3.ChatID,
+		Seq:        1,
+		Kind:       protocol.EventTurnEnd,
+		StopReason: "cancelled",
+	})
 	waitFor(t, 2*time.Second, "ticket canceled", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkCancel.ID)
 		return err == nil && cur.Status == store.TicketStatusCanceled && cur.Lease == nil
 	})
+	_ = fw.expect(protocol.MsgAgentChatClose, 3*time.Second)
 }
 
 func TestTicketLeaseExpiryRequeuesAndRedispaches(t *testing.T) {
@@ -230,8 +276,10 @@ func TestTicketLeaseExpiryRequeuesAndRedispaches(t *testing.T) {
 	}
 
 	fw1 := th.connectWorker(t, testWorkerInfo("w-1", "box-1"), nil, "w-1")
-	env1 := fw1.expect(protocol.MsgTaskStart, 3*time.Second)
-	p1, _ := protocol.DecodePayload[protocol.TaskStartPayload](env1)
+	env1 := fw1.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open1, _ := protocol.DecodePayload[protocol.AgentChatOpen](env1)
+	_ = fw1.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	firstLeased, _ := th.st.GetTicket(ctx, tk.ID)
 
 	// Connect a second worker, close w-1, then expire the lease past its TTL.
 	fw2 := th.connectWorker(t, testWorkerInfo("w-2", "box-2"), nil, "w-2")
@@ -240,14 +288,15 @@ func TestTicketLeaseExpiryRequeuesAndRedispaches(t *testing.T) {
 
 	th.h.expireTicketLeases(ctx, time.Now().UTC().Add(20*time.Second))
 
-	env2 := fw2.expect(protocol.MsgTaskStart, 3*time.Second)
-	p2, _ := protocol.DecodePayload[protocol.TaskStartPayload](env2)
-	if p2.TaskID == p1.TaskID {
-		t.Fatalf("re-dispatched ticket should get a new task id, got %s", p2.TaskID)
+	env2 := fw2.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open2, _ := protocol.DecodePayload[protocol.AgentChatOpen](env2)
+	_ = fw2.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	if open2.ChatID == open1.ChatID {
+		t.Fatalf("re-dispatched ticket should get a new chat id, got %s", open2.ChatID)
 	}
 	got, _ := th.st.GetTicket(ctx, tk.ID)
-	if got.Status != store.TicketStatusRunning || got.Lease == nil || got.Lease.WorkerID != "w-2" || got.Lease.TaskID != p2.TaskID {
-		t.Fatalf("expected ticket re-leased on w-2: %+v", got)
+	if got.Status != store.TicketStatusRunning || got.Lease == nil || got.Lease.WorkerID != "w-2" || got.Lease.TaskID == firstLeased.Lease.TaskID {
+		t.Fatalf("expected ticket re-leased on w-2 with new task: %+v", got)
 	}
 }
 

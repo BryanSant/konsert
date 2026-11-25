@@ -330,6 +330,7 @@ type WorkerPortsPayload struct {
 
 type WorkerHeartbeatPayload struct {
 	ActiveTaskIDs []string       `json:"active_task_ids"`
+	ActiveChatIDs []string       `json:"active_chat_ids,omitempty"`
 	LoadAvg       float64        `json:"load_avg,omitzero"`
 	Metrics       *WorkerMetrics `json:"metrics,omitzero"`
 	// At is when the vitals were sampled: a heartbeat replayed from the spool after an

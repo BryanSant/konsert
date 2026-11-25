@@ -507,7 +507,7 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		}
 		return
 	}
-	h.renewWorkerTicketLeases(ctx, wc.id, p.ActiveTaskIDs, now)
+	h.renewWorkerTicketLeases(ctx, wc.id, p.ActiveTaskIDs, p.ActiveChatIDs, now)
 	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
 		metrics := p.Metrics
 		if metrics == nil {

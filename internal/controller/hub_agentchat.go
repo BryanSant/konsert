@@ -168,25 +168,33 @@ type emitOpts struct {
 // chat does not exist.
 func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.AgentChatEvent, o emitOpts) (protocol.AgentChatEvent, bool) {
 	ctx = context.WithoutCancel(ctx)
+	cs, out, ok := h.emitChatEventLocked(ctx, chatID, ev, o)
+	if ok && cs.TicketID != "" && cs.QuestionID == "" {
+		h.syncTicketFromChatEvent(ctx, cs, out)
+	}
+	return out, ok
+}
+
+func (h *Hub) emitChatEventLocked(ctx context.Context, chatID string, ev protocol.AgentChatEvent, o emitOpts) (store.ChatSession, protocol.AgentChatEvent, bool) {
 	rt := h.chatRT(chatID)
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	if o.fromWorker != nil && ev.Seq > 0 {
 		if rt.seqConn == o.fromWorker && ev.Seq <= rt.lastWorkerSeq {
-			return ev, false
+			return store.ChatSession{}, ev, false
 		}
 		rt.seqConn, rt.lastWorkerSeq = o.fromWorker, ev.Seq
 	}
 	cs, err := h.store.GetChatSession(ctx, chatID)
 	if err != nil {
-		return ev, false
+		return store.ChatSession{}, ev, false
 	}
 	if !rt.seqLoaded {
 		maxSeq, err := h.store.MaxChatEventSeq(ctx, chatID)
 		if err != nil {
 			h.logger.Warn("load chat seq failed", "chat_id", chatID, "err", err)
-			return ev, false
+			return store.ChatSession{}, ev, false
 		}
 		rt.seq, rt.seqLoaded = maxSeq, true
 	}
@@ -200,13 +208,13 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	ev.Seq = rt.seq + 1
 	raw, err := json.Marshal(ev, protocol.JSONOptions)
 	if err != nil {
-		return ev, false
+		return store.ChatSession{}, ev, false
 	}
 	if _, err := h.store.AppendChatEvent(ctx, store.ChatEvent{
 		ChatID: chatID, Seq: ev.Seq, TurnID: ev.TurnID, Kind: ev.Kind, JSON: string(raw), CreatedAt: ev.At,
 	}); err != nil {
 		h.logger.Warn("persist chat event failed", "chat_id", chatID, "kind", ev.Kind, "err", err)
-		return ev, false
+		return store.ChatSession{}, ev, false
 	}
 	rt.seq = ev.Seq
 
@@ -274,7 +282,7 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	// Broadcast under the chat lock so subscribers see events in seq order
 	// (sendChatEvent only enqueues).
 	h.sendChatEvent(chatID, protocol.MsgAgentChatEvent, ev)
-	return ev, true
+	return cs, ev, true
 }
 
 // applyEventToSession derives the session's status, CLI session id and last error from ev.
@@ -801,6 +809,9 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 	}
 	if w, err := h.store.GetWorker(ctx, cs.WorkerID); err == nil {
 		open.UseGitBash = w.AgentsUseGitBash
+	}
+	if cs.TicketID != "" && cs.QuestionID == "" {
+		open.TicketSID, open.Bindings = h.ticketChatBindings(ctx, cs.TicketID, cs.WorkerID)
 	}
 	if cs.QuestionID != "" {
 		// A side-conversation answerer: no Syre tools (it must not ask the user or act

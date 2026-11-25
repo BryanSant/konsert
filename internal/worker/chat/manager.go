@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -74,6 +75,11 @@ type ManagerOptions struct {
 	// speaking, ...) whenever it changes. It is called with the chat's lock held and must
 	// not block (syred hands it to a rate-limiting activity.Publisher).
 	OnActivity func(protocol.SessionActivity)
+	// MachineName is included in post-turn RunDigests for ticket-backed chats.
+	MachineName string
+	// ProvisionBindings, when set, provisions per-repo ticket worktrees before opening
+	// a ticket-backed chat engine.
+	ProvisionBindings func(ctx context.Context, ticketSID, requestedRoot string, bindings []protocol.TaskRepoBinding) (ProvisionedWorktrees, error)
 }
 
 // Manager owns every chat session on this worker: ChatID → engine session, per-chat Seq,
@@ -128,6 +134,16 @@ type chatState struct {
 	suspended bool
 	// act derives the chat's live activity from the events it emits.
 	act *activity.Chat
+
+	// Ticket-backed chat state (worktree provisioning + per-turn digest signals).
+	effectiveDir     string
+	worktrees        []protocol.TaskWorktree
+	worktreeBaseSHAs map[string]string
+	turnAttempt      int
+	turnStartedAt    time.Time
+	turnMessageBuf   strings.Builder
+	turnLastMessage  string
+	turnToolOutput   strings.Builder
 }
 
 // Suspender is implemented by sessions that can freeze and thaw their engine (every
@@ -540,6 +556,9 @@ func (m *Manager) Chats() []ChatInfo {
 
 func (m *Manager) doOpen(c *chatState, o protocol.AgentChatOpen) {
 	c.mu.Lock()
+	if c.effectiveDir != "" && o.TicketSID != "" && o.TicketSID == c.opts.TicketSID && (o.Cwd == "" || o.Cwd == c.effectiveDir) {
+		o.Cwd = c.effectiveDir
+	}
 	alive := c.sess != nil
 	sameTarget := c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID && c.opts.Cwd == o.Cwd && c.opts.UseGitBash == o.UseGitBash
 	c.mu.Unlock()
@@ -567,6 +586,7 @@ func (m *Manager) doOpen(c *chatState, o protocol.AgentChatOpen) {
 		m.emitLocked(c, protocol.AgentChatEvent{
 			Kind: protocol.EventSessionReady, AgentSessionID: c.agentSessionID,
 			Model: c.opts.Model, Effort: c.opts.Effort, ApprovalMode: c.opts.ApprovalMode,
+			Workdir: c.effectiveDir, Worktrees: c.worktrees,
 		})
 		c.mu.Unlock()
 		return
@@ -614,6 +634,30 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 	if o.Agent == "" {
 		m.emitError(c, turnID, errEvent(protocol.ErrKindProtocol, "chat is not open on this worker (agent.chat.open was never received)", false))
 		return false
+	}
+	if len(o.Bindings) > 0 && m.opts.ProvisionBindings != nil {
+		c.mu.Lock()
+		existingDir := c.effectiveDir
+		hasWTs := len(c.worktrees) > 0
+		c.mu.Unlock()
+		if existingDir != "" && hasWTs {
+			o.Cwd = existingDir
+		} else {
+			pctx, pcancel := context.WithTimeout(context.Background(), DefaultOpenTimeout)
+			prov, pErr := m.opts.ProvisionBindings(pctx, cmp.Or(strings.TrimSpace(o.TicketSID), c.id), o.Cwd, o.Bindings)
+			pcancel()
+			if pErr != nil {
+				m.emitError(c, turnID, errEvent(protocol.ErrKindOther, pErr.Error(), false))
+				return false
+			}
+			c.mu.Lock()
+			c.effectiveDir = prov.Workdir
+			c.worktrees = prov.Worktrees
+			c.worktreeBaseSHAs = prov.BaseSHAs
+			c.opts.Cwd = prov.Workdir
+			c.mu.Unlock()
+			o.Cwd = prov.Workdir
+		}
 	}
 	// Resolve the working directory here, for every engine: the hub sends "~" by
 	// default, and a missing directory must not be reported as "agent not installed".
@@ -749,6 +793,11 @@ func (m *Manager) doPrompt(c *chatState, p protocol.AgentChatPrompt) {
 	now := m.opts.Now()
 	c.turnActive = true
 	c.turnID = p.TurnID
+	c.turnAttempt++
+	c.turnStartedAt = now
+	c.turnMessageBuf.Reset()
+	c.turnLastMessage = ""
+	c.turnToolOutput.Reset()
 	c.lastEvent = now
 	c.timedOut = false
 	c.cancelAt = time.Time{}
@@ -887,6 +936,18 @@ func (m *Manager) isClosed() bool {
 
 // onEngineEvent stamps and forwards an engine event, tracking turn and session state.
 func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEvent) {
+	var gitByRepo map[string]*protocol.GitSummary
+	if ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError {
+		c.mu.Lock()
+		ticketSID := c.opts.TicketSID
+		wts := c.worktrees
+		baseSHAs := c.worktreeBaseSHAs
+		c.mu.Unlock()
+		if ticketSID != "" && len(wts) > 0 {
+			gitByRepo = captureWorktreeGit(wts, baseSHAs)
+		}
+	}
+
 	c.mu.Lock()
 	if c.gen != gen {
 		c.mu.Unlock()
@@ -899,9 +960,33 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		if ev.AgentSessionID != "" {
 			c.agentSessionID = ev.AgentSessionID
 		}
+		if ev.Model != "" {
+			c.opts.Model = ev.Model
+		}
+		if ev.Workdir == "" && c.effectiveDir != "" {
+			ev.Workdir = c.effectiveDir
+		}
+		if len(ev.Worktrees) == 0 && len(c.worktrees) > 0 {
+			ev.Worktrees = c.worktrees
+		}
+	case protocol.EventMessageDelta:
+		if ev.ParentToolCallID == "" && ev.Text != "" {
+			c.turnMessageBuf.WriteString(ev.Text)
+		}
+	case protocol.EventMessage:
+		if ev.ParentToolCallID == "" && ev.Text != "" {
+			c.turnLastMessage = ev.Text
+		}
+	case protocol.EventToolCall:
+		if ev.ToolCall != nil && ev.ToolCall.Output != "" {
+			appendTurnToolOutput(&c.turnToolOutput, ev.ToolCall.Output)
+		}
 	case protocol.EventElicitation:
 		if ev.Elicitation != nil {
 			c.pending[ev.Elicitation.ID] = true
+		}
+		if ev.Digest == nil {
+			ev.Digest = m.buildTurnDigestLocked(c, ev, nil)
 		}
 	case protocol.EventElicitationOK:
 		if ev.Elicitation != nil {
@@ -913,6 +998,9 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		}
 		c.turnActive = false
 		c.pending = map[string]bool{}
+		if ev.Digest == nil {
+			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
+		}
 	case protocol.EventError:
 		if ev.TurnID == "" && c.turnActive {
 			ev.TurnID = c.turnID
@@ -931,6 +1019,9 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 				// The agent session id is already known from session_ready / Open; the
 				// dead session's methods are not called under c.mu.
 			}
+		}
+		if ev.Digest == nil {
+			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
 		}
 	}
 	if ev.TurnID == "" && c.turnActive && ev.Kind != protocol.EventSessionReady {
@@ -1030,12 +1121,25 @@ func subagentChatter(ev protocol.AgentChatEvent) bool {
 // emitError emits a manager-generated error that ends turnID (if it is the running turn).
 func (m *Manager) emitError(c *chatState, turnID string, ev protocol.AgentChatEvent) {
 	c.mu.Lock()
+	ticketSID := c.opts.TicketSID
+	wts := c.worktrees
+	baseSHAs := c.worktreeBaseSHAs
+	c.mu.Unlock()
+	var gitByRepo map[string]*protocol.GitSummary
+	if ticketSID != "" && len(wts) > 0 {
+		gitByRepo = captureWorktreeGit(wts, baseSHAs)
+	}
+
+	c.mu.Lock()
 	ev.TurnID = turnID
 	if c.turnActive && c.turnID == turnID {
 		c.turnActive = false
 		c.pending = map[string]bool{}
 	}
 	c.errorSeen = true
+	if ev.Digest == nil {
+		ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
+	}
 	m.emitLocked(c, ev)
 	acctID := c.acct.ID
 	c.mu.Unlock()

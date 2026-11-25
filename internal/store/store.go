@@ -635,6 +635,10 @@ type Store interface {
 	UpdateChatSession(ctx context.Context, s ChatSession) error
 	// ListChatSessionsByWorker returns the agent chat sessions hosted on workerID.
 	ListChatSessionsByWorker(ctx context.Context, workerID string) ([]ChatSession, error)
+	// GetChatSessionByTaskID returns the agent chat session linked to taskID.
+	GetChatSessionByTaskID(ctx context.Context, taskID string) (ChatSession, error)
+	// ListChatSessionsByTicket returns the agent chat sessions linked to ticketID, newest first.
+	ListChatSessionsByTicket(ctx context.Context, ticketID string) ([]ChatSession, error)
 
 	// Agent chat events. AppendChatEvent ignores a duplicate (chat_id, seq) and
 	// reports whether the row was inserted.

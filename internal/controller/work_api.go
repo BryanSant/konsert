@@ -512,9 +512,12 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 	s.hub.broadcastFleetUpdate("ticket", updated)
 	if updated.Status == store.TicketStatusDone && prevStatus != store.TicketStatusDone {
 		ticketID := updated.ID
+		s.hub.closeTicketChats(r.Context(), ticketID)
 		s.hub.goBackground(func(ctx context.Context) {
 			_ = s.hub.CleanupTicketWorktrees(ctx, ticketID)
 		})
+	} else if (updated.Status == store.TicketStatusFailed || updated.Status == store.TicketStatusCanceled) && updated.Status != prevStatus {
+		s.hub.closeTicketChats(r.Context(), updated.ID)
 	}
 	if updated.Status == store.TicketStatusReady || updated.Status == store.TicketStatusDone || updated.Status == store.TicketStatusReview {
 		s.hub.kickScheduler()

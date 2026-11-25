@@ -340,13 +340,20 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		createdWTs       []gitutil.WorktreeInfo
 		taskWorktrees    []protocol.TaskWorktree
 		worktreeBaseSHAs map[string]string
-		ticketWorkdir    string
+		provisioned      *provisionedBindings
 		err              error
 	)
 
 	// undoWorktrees removes any worktrees created during setup if the task never gets to run.
 	undoWorktree := func() {
-		if registered || (len(createdWTs) == 0 && ticketWorkdir == "") {
+		if registered {
+			return
+		}
+		if provisioned != nil {
+			provisioned.undo(r.logger, req.TaskID)
+			return
+		}
+		if len(createdWTs) == 0 {
 			return
 		}
 		cctx, ccancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -356,102 +363,19 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 				r.logger.Warn("failed to remove worktree after launch failure", "task_id", req.TaskID, "path", info.Path, "err", rmErr)
 			}
 		}
-		if ticketWorkdir != "" {
-			_ = os.Remove(ticketWorkdir)
-		}
 	}
 
 	if len(req.Bindings) > 0 {
-		workdirRoot, rootErr := r.resolveWorkdirRoot(req.Workdir)
-		if rootErr != nil {
-			r.failTask(req.TaskID, "", fmt.Sprintf("workdir root resolution failed: %v", rootErr))
-			return rootErr
-		}
 		ticketDirName := cmp.Or(strings.TrimSpace(req.TicketSID), strings.TrimSpace(req.SID), req.TaskID)
-		if vErr := gitutil.ValidatePathSegment(ticketDirName); vErr != nil {
-			r.failTask(req.TaskID, "", fmt.Sprintf("invalid ticket directory name %q: %v", ticketDirName, vErr))
-			return vErr
+		provisioned, err = provisionBindings(setupCtx, r.allowedRoots, req.Workdir, ticketDirName, req.Bindings, false, r.logger)
+		if err != nil {
+			r.failTask(req.TaskID, "", err.Error())
+			return err
 		}
-		ticketWorkdir = filepath.Join(workdirRoot, ticketDirName)
-		if mkErr := os.MkdirAll(ticketWorkdir, 0o755); mkErr != nil {
-			r.failTask(req.TaskID, "", fmt.Sprintf("create ticket workdir failed: %v", mkErr))
-			return mkErr
-		}
-
-		for _, b := range req.Bindings {
-			repoName := strings.TrimSpace(b.RepoName)
-			if vErr := gitutil.ValidatePathSegment(repoName); vErr != nil {
-				undoWorktree()
-				r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("invalid binding repo name %q: %v", b.RepoName, vErr))
-				return vErr
-			}
-			checkoutPath := strings.TrimSpace(b.CheckoutPath)
-			var repoRoot string
-			if checkoutPath != "" {
-				validCheckout, vErr := gitutil.ValidateWorkdir(checkoutPath, r.allowedRoots)
-				if vErr != nil {
-					undoWorktree()
-					r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("checkout validation failed for %s: %v", repoName, vErr))
-					return vErr
-				}
-				top, isGit := gitutil.IsGitRepo(setupCtx, validCheckout)
-				if !isGit {
-					undoWorktree()
-					notGitErr := fmt.Errorf("checkout %s for repo %s is not a git repository", validCheckout, repoName)
-					r.failTask(req.TaskID, ticketWorkdir, notGitErr.Error())
-					return notGitErr
-				}
-				repoRoot = top
-			} else {
-				if strings.TrimSpace(b.RemoteURL) == "" {
-					undoWorktree()
-					noRemoteErr := fmt.Errorf("binding %s has neither checkout_path nor remote_url", repoName)
-					r.failTask(req.TaskID, ticketWorkdir, noRemoteErr.Error())
-					return noRemoteErr
-				}
-				cloneDir := filepath.Join(workdirRoot, ".syre-clones", repoName)
-				if cloneErr := gitutil.CloneRepo(setupCtx, b.RemoteURL, cloneDir); cloneErr != nil {
-					undoWorktree()
-					r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("git clone failed for %s: %v", repoName, cloneErr))
-					return cloneErr
-				}
-				top, isGit := gitutil.IsGitRepo(setupCtx, cloneDir)
-				if !isGit {
-					undoWorktree()
-					notGitErr := fmt.Errorf("cloned directory %s for repo %s is not a git repository", cloneDir, repoName)
-					r.failTask(req.TaskID, ticketWorkdir, notGitErr.Error())
-					return notGitErr
-				}
-				repoRoot = top
-			}
-
-			targetBranch := strings.TrimSpace(b.TargetBranch)
-			if targetBranch == "" {
-				targetBranch = "syre/" + ticketDirName
-			}
-			wtPath := filepath.Join(ticketWorkdir, repoName)
-			info, wtErr := gitutil.CreateWorktreeAt(setupCtx, repoRoot, wtPath, b.BaseBranch, targetBranch)
-			if wtErr != nil {
-				undoWorktree()
-				r.failTask(req.TaskID, ticketWorkdir, fmt.Sprintf("git worktree setup failed for %s: %v", repoName, wtErr))
-				return wtErr
-			}
-			createdWTs = append(createdWTs, info)
-			taskWorktrees = append(taskWorktrees, protocol.TaskWorktree{
-				RepoName:     repoName,
-				CheckoutPath: repoRoot,
-				WorktreePath: info.Path,
-				Branch:       targetBranch,
-			})
-			if worktreeBaseSHAs == nil {
-				worktreeBaseSHAs = make(map[string]string, len(req.Bindings))
-			}
-			worktreeBaseSHAs[repoName] = info.BaseSHA
-			if baseSHA == "" {
-				baseSHA = info.BaseSHA
-			}
-		}
-		effectiveDir = ticketWorkdir
+		effectiveDir = provisioned.workdir
+		taskWorktrees = provisioned.worktrees
+		worktreeBaseSHAs = provisioned.worktreeBaseSHAs
+		baseSHA = provisioned.baseSHA
 	} else {
 		effectiveDir, err = gitutil.ValidateWorkdir(req.Workdir, r.allowedRoots)
 		if err != nil {
@@ -1179,25 +1103,7 @@ func (r *Runner) ShutdownAll() {
 // resolveWorkdirRoot picks the base directory under which per-ticket workdirs
 // (<root>/<ticket sid>/<repo name>) and clones (<root>/.syre-clones/<repo name>) live.
 func (r *Runner) resolveWorkdirRoot(requested string) (string, error) {
-	if strings.TrimSpace(requested) != "" {
-		return gitutil.ValidateWorkdir(requested, r.allowedRoots)
-	}
-	if len(r.allowedRoots) > 0 {
-		root := gitutil.ExpandHome(r.allowedRoots[0])
-		if err := os.MkdirAll(root, 0o755); err != nil {
-			return "", err
-		}
-		return gitutil.ValidateWorkdir(root, r.allowedRoots)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return os.TempDir(), nil
-	}
-	root := filepath.Join(home, "src")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", err
-	}
-	return gitutil.ValidateWorkdir(root, r.allowedRoots)
+	return resolveWorkdirRoot(requested, r.allowedRoots)
 }
 
 func (r *Runner) failTask(taskID, effectiveDir, reason string) {

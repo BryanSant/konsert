@@ -148,11 +148,11 @@ func TestTicketPlacementLocalityPreference(t *testing.T) {
 	}
 	th.h.SchedulePending(ctx)
 
-	env := fwLocal.expect(protocol.MsgTaskStart, 3*time.Second)
-	if got := fwRemote.drain(protocol.MsgTaskStart, 150*time.Millisecond); len(got) != 0 {
-		t.Fatalf("expected w-local to win by locality, but w-remote received task.start")
+	env := fwLocal.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	if got := fwRemote.drain(protocol.MsgAgentChatOpen, 150*time.Millisecond); len(got) != 0 {
+		t.Fatalf("expected w-local to win by locality, but w-remote received agent.chat.open")
 	}
-	p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
+	p, err := protocol.DecodePayload[protocol.AgentChatOpen](env)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -752,8 +752,9 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 		every = 10 * time.Second
 	}
 	var lastIDs []string
+	var lastChatIDs []string
 	var lastAt time.Time
-	send := func(ids []string, active bool) {
+	send := func(ids, chatIDs []string, active bool) {
 		now := time.Now()
 		m := d.metrics.collect(ctx, active, now)
 		if ctx.Err() != nil {
@@ -761,14 +762,16 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 		}
 		d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
 			ActiveTaskIDs: ids,
+			ActiveChatIDs: chatIDs,
 			LoadAvg:       m.LoadAvg,
 			Metrics:       m,
 			At:            now.UTC(),
 		})
-		lastIDs, lastAt = ids, now
+		lastIDs, lastChatIDs, lastAt = ids, chatIDs, now
 	}
 	ids := d.runner.ActiveTaskIDs()
-	send(ids, d.sessionsActive(ids))
+	chatIDs := d.activeChatIDs()
+	send(ids, chatIDs, d.sessionsActive(ids))
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -777,13 +780,15 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 			return
 		case <-ticker.C:
 			ids := d.runner.ActiveTaskIDs()
+			chatIDs := d.activeChatIDs()
 			active := d.sessionsActive(ids)
-			if active || !slices.Equal(ids, lastIDs) || time.Since(lastAt) >= maxIdle {
-				send(ids, active)
+			if active || !slices.Equal(ids, lastIDs) || !slices.Equal(chatIDs, lastChatIDs) || time.Since(lastAt) >= maxIdle {
+				send(ids, chatIDs, active)
 			}
 		case <-kick:
 			ids := d.runner.ActiveTaskIDs()
-			send(ids, d.sessionsActive(ids))
+			chatIDs := d.activeChatIDs()
+			send(ids, chatIDs, d.sessionsActive(ids))
 		}
 	}
 }
