@@ -218,6 +218,7 @@ func (h *Hub) suspendTask(ctx context.Context, t store.Task, by string) (ActionR
 		return ActionResult{}, errors.New("worker send queue full")
 	}
 	if by == store.SuspendedByUser {
+		defer h.beginDeliveryBatch()()
 		where := h.workerLabel(ctx, t.WorkerID)
 		h.recordIntervention(ctx, cause, "suspend", t.WorkerID, t.ID, t.ParentChatID,
 			fmt.Sprintf("%s suspended task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, where))
@@ -276,6 +277,7 @@ func (h *Hub) VetoTask(ctx context.Context, taskID, reason, note string) (Action
 	if err != nil {
 		return ActionResult{}, err
 	}
+	defer h.beginDeliveryBatch()()
 	res, err := h.cancelTask(ctx, t.ID, "veto: "+label)
 	if err != nil {
 		return res, err
@@ -300,6 +302,7 @@ func vetoLabel(reason string) (string, error) {
 // recordVeto stores a veto as commander memory at the work's scope (project for now)
 // and records it in the fleet timeline, which delivers it to the commander.
 func (h *Hub) recordVeto(ctx context.Context, reason, label, note, what, workerID, taskID, chatID, scope string) {
+	defer h.beginDeliveryBatch()()
 	cause := causeFrom(ctx)
 	text := fmt.Sprintf("The user vetoed %s — reason: %s", what, label)
 	if n := strings.TrimSpace(note); n != "" {
@@ -372,6 +375,7 @@ func (h *Hub) suspendChat(ctx context.Context, cs store.ChatSession, by string) 
 	})
 	_ = updated
 	if by == store.SuspendedByUser {
+		defer h.beginDeliveryBatch()()
 		h.recordIntervention(ctx, cause, "suspend", cs.WorkerID, "", cs.ID,
 			fmt.Sprintf("%s suspended chat %s (%s) on %s", capitalize(describeActor(cause)), cs.SID, cs.Title, h.workerLabel(ctx, cs.WorkerID)))
 		h.recordAudit(ctx, store.AuditEvent{Action: AuditSuspend, WorkerID: cs.WorkerID, Message: "Suspended chat " + cs.SID,
@@ -454,6 +458,7 @@ func (h *Hub) VetoChat(ctx context.Context, chatID, reason, note string) (store.
 		}
 	}
 	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
 	projID := store.DefaultProjectID
 	what := fmt.Sprintf("chat %s (%s, %s on %s)", cs.SID, cs.Title, cs.Agent, h.workerLabel(ctx, cs.WorkerID))
 	h.recordVeto(ctx, reason, label, note, what, cs.WorkerID, "", cs.ID, "project:"+projID)
@@ -535,6 +540,7 @@ func (h *Hub) SuspendAll(ctx context.Context, workerID string) (WorkerControlRes
 		return WorkerControlResult{}, err
 	}
 	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
 	tasks, chats := h.machineSessions(ctx, w.ID)
 	n := 0
 	for _, t := range tasks {
@@ -567,6 +573,7 @@ func (h *Hub) ResumeAll(ctx context.Context, workerID string) (WorkerControlResu
 		return WorkerControlResult{}, err
 	}
 	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
 	tasks, chats := h.machineSessions(ctx, w.ID)
 	n := 0
 	for _, t := range tasks {
@@ -604,6 +611,7 @@ func (h *Hub) StopAll(ctx context.Context, workerID string) (WorkerControlResult
 		return WorkerControlResult{}, err
 	}
 	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
 	tasks, chats := h.machineSessions(ctx, w.ID)
 	n := 0
 	for _, t := range tasks {

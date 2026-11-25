@@ -93,12 +93,14 @@ func (h *Hub) spoolStatusOf(workerID string) *protocol.SpoolStatus {
 // acknowledging. It runs before the connection's writer and read loop start.
 func (h *Hub) startSpool(ctx, connCtx context.Context, wc *workerConn, hello protocol.WorkerHelloPayload) {
 	wc.replayDoneCh = make(chan struct{})
+	wc.mu.Lock()
 	wc.activeChats = map[string]bool{}
 	for _, c := range hello.ActiveChats {
 		if c.TurnActive {
 			wc.activeChats[c.ChatID] = true
 		}
 	}
+	wc.mu.Unlock()
 	if hello.Spool == nil || h.store == nil {
 		wc.replayDone.Store(true)
 		close(wc.replayDoneCh)

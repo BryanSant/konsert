@@ -33,6 +33,33 @@ const eventNotePrefix = "[Syre]"
 type deliveryState struct {
 	mu      sync.Mutex
 	pending bool
+	running bool // notifyCommanders is currently executing
+	inBatch int  // compound operations currently recording related fleet events
+	dirty   bool // a relevant event arrived while inBatch > 0 or running
+}
+
+// beginDeliveryBatch defers commander event delivery until the returned finish function
+// runs. Compound interventions (recording an action and then placing its hold or tracking
+// a veto row) wrap their writes in a batch so notifyCommanders never builds a partial note.
+func (h *Hub) beginDeliveryBatch() func() {
+	h.delivery.mu.Lock()
+	h.delivery.inBatch++
+	h.delivery.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			h.delivery.mu.Lock()
+			h.delivery.inBatch--
+			kick := h.delivery.inBatch == 0 && h.delivery.dirty && !h.delivery.running
+			if kick {
+				h.delivery.dirty = false
+			}
+			h.delivery.mu.Unlock()
+			if kick {
+				h.scheduleDelivery()
+			}
+		})
+	}
 }
 
 // deliverFleetEvent schedules delivery of a newly recorded event. It never blocks: the
@@ -46,6 +73,11 @@ func (h *Hub) deliverFleetEvent(e store.FleetEvent) {
 
 func (h *Hub) scheduleDelivery() {
 	h.delivery.mu.Lock()
+	if h.delivery.inBatch > 0 || h.delivery.running {
+		h.delivery.dirty = true
+		h.delivery.mu.Unlock()
+		return
+	}
 	if h.delivery.pending {
 		h.delivery.mu.Unlock()
 		return
@@ -57,12 +89,34 @@ func (h *Hub) scheduleDelivery() {
 		defer t.Stop()
 		select {
 		case <-ctx.Done():
+			h.delivery.mu.Lock()
+			h.delivery.pending = false
+			h.delivery.mu.Unlock()
 			return
 		case <-t.C:
 		}
 		h.delivery.mu.Lock()
 		h.delivery.pending = false
+		if h.delivery.inBatch > 0 || h.delivery.running {
+			h.delivery.dirty = true
+			h.delivery.mu.Unlock()
+			return
+		}
+		h.delivery.running = true
 		h.delivery.mu.Unlock()
+
+		defer func() {
+			h.delivery.mu.Lock()
+			h.delivery.running = false
+			kick := h.delivery.inBatch == 0 && h.delivery.dirty
+			if kick {
+				h.delivery.dirty = false
+			}
+			h.delivery.mu.Unlock()
+			if kick {
+				h.scheduleDelivery()
+			}
+		}()
 		h.notifyCommanders(ctx)
 	})
 	if !started {
@@ -264,10 +318,17 @@ func (h *Hub) takeNote(ctx context.Context, chatID, turnID string) string {
 	if err != nil {
 		return ""
 	}
-	events := h.undeliveredEvents(ctx, cs)
+	// Snapshot MaxFleetEventID BEFORE querying undeliveredEvents so a fleet event
+	// committed concurrently after the query can never be skipped by advancing the cursor
+	// past it.
 	maxID, _ := h.store.MaxFleetEventID(ctx)
-	if maxID > cs.NotesCursor {
-		cs.NotesCursor = maxID
+	events := h.undeliveredEvents(ctx, cs)
+	nextCursor := maxID
+	if len(events) > 0 && events[len(events)-1].ID > nextCursor {
+		nextCursor = events[len(events)-1].ID
+	}
+	if nextCursor > cs.NotesCursor {
+		cs.NotesCursor = nextCursor
 		if err := h.store.UpdateChatSession(ctx, cs); err != nil {
 			h.logger.Warn("advance notes cursor failed", "chat_id", chatID, "err", err)
 		}

@@ -968,6 +968,7 @@ func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult
 			MetaJSON: auditMeta(map[string]any{"prior_status": t.Status}),
 		})
 	}
+	defer h.beginDeliveryBatch()()
 	h.recordIntervention(ctx, cause, "cancel", t.WorkerID, t.ID, t.ParentChatID,
 		fmt.Sprintf("%s canceled task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, h.workerLabel(ctx, t.WorkerID)))
 	hold := func() {

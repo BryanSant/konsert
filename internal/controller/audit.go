@@ -297,6 +297,7 @@ func (s *Server) handleTaskControl(w http.ResponseWriter, r *http.Request) {
 	where := s.hub.workerLabel(r.Context(), t.WorkerID)
 	resp := map[string]any{"ok": true, "task_id": t.ID, "enabled": *body.Enabled}
 	if *body.Enabled {
+		defer s.hub.beginDeliveryBatch()()
 		s.hub.recordIntervention(r.Context(), cause, "take_control", t.WorkerID, t.ID, t.ParentChatID,
 			fmt.Sprintf("%s took control of task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, where))
 		if hd, ok := s.hub.holdAfterIntervention(r.Context(), cause, holdSpec{scope: store.HoldScopeSession, workerID: t.WorkerID, taskID: t.ID,
