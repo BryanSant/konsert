@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -16,23 +17,26 @@ import (
 
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/hubkey"
+	"github.com/BryanSant/konsert/internal/ids"
 	"github.com/BryanSant/konsert/internal/install"
 	"gopkg.in/yaml.v3"
 )
 
-// Removing a machine uninstalls konsertd from it (KON-AV0YT). Both the hub (running
-// `konsertd uninstall --worker <id>` over the user's SSH, or locally for its own
+// Removing a machine uninstalls konsertd from it (KON-AV0YT, KON-RVNBH). Both the hub
+// (running `konsertd uninstall --worker <id>` over the user's SSH, or locally for its own
 // machine) and the daemon itself (on close code 4001, or at start when a removal was
-// interrupted) end up in Uninstaller.RemoveIdentity, which removes everything installed
-// for one konsertd identity and nothing of any other identity on the same account.
+// interrupted) end up in Uninstaller.RemoveIdentity, which removes everything konsertd
+// created for one identity and nothing of any other identity on the same account.
 //
 // Several hosts can share one home directory (a container, its siblings and its host),
-// so ~/.konsert, the konsertd config directory and ~/.claude/settings.json are shared.
-// What belongs to an identity is found by worker id, never by "the default instance":
-// each installed config (konsertd*.yaml in the config directory, and the nohup configs
-// in the state directory) names the worker it runs, whose id is in
-// worker-id-<name>-<isolation>. The agent hooks are shared by every identity on the
-// account, so they go only with the last installed one.
+// so ~/.konsert, the konsertd config directory, the managed binary and
+// ~/.claude/settings.json are shared. What belongs to an identity is found by worker id,
+// never by "the default instance": each installed config (konsertd*.yaml in the config
+// directory, and the nohup configs in the state directory) names the worker it runs,
+// whose id is in worker-id-<name>-<isolation>. Shared files (hooks, hook-events.jsonl,
+// orphaned spools, managed binary, and empty konsert directories) go only when no other
+// konsertd identity remains on the account. Foreign files and ~/.konsert/machine-id are
+// never deleted.
 
 // Uninstaller removes what konsertd installed for one identity.
 type Uninstaller struct {
@@ -56,6 +60,13 @@ type Uninstaller struct {
 	// RemoveService removes one (self: from inside the daemon it runs).
 	ServiceConfigs func() ([]install.InstalledConfig, error)
 	RemoveService  func(ctx context.Context, instance string, self bool) error
+	// Executable returns the running konsertd binary path (default os.Executable).
+	Executable func() (string, error)
+	// OtherRunning reports whether another konsertd daemon process is running.
+	OtherRunning func(binPath string) (bool, error)
+	// ScheduleDelete schedules deletion of a locked executable (and optional empty parent
+	// dir) after exit on Windows.
+	ScheduleDelete func(exePath, emptyDir string) error
 }
 
 // UninstallReport says what a removal did.
@@ -162,9 +173,11 @@ func readWorkerConfig(path string) (config.WorkerConfig, error) {
 	return cfg, err
 }
 
-// RemoveIdentity removes everything installed for workerID: its service or nohup
-// daemon and config, its hub key grant (hubID given), its credential and per-identity
-// state, and the agent hooks when no other identity on the account remains.
+// RemoveIdentity removes everything konsertd created for workerID: its service or nohup
+// daemon, config and logs, its hub key grant (hubID given), its identity file, credential
+// and per-identity state, and shared files (agent hooks, hook-events.jsonl, orphaned
+// spools, managed binary, empty konsert directories) when no other identity on the
+// account remains.
 func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string) (UninstallReport, error) {
 	rep := UninstallReport{WorkerID: workerID}
 	if !hubkey.ValidWorkerID(workerID) {
@@ -174,7 +187,14 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 	if err != nil {
 		return rep, err
 	}
-	defer unlock()
+	unlocked := false
+	releaseLock := func() {
+		if !unlocked {
+			unlocked = true
+			unlock()
+		}
+	}
+	defer releaseLock()
 
 	var errs []error
 	if hubID != "" && hubkey.ValidHubID(hubID) {
@@ -196,8 +216,6 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 	if err != nil {
 		return rep, err
 	}
-	// The hooks are only ever removed along with an installed daemon: state files or a
-	// key grant alone never touch the account's ~/.claude/settings.json.
 	daemonFound := false
 	for _, it := range all {
 		if it.workerID != workerID {
@@ -205,11 +223,13 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 		}
 		rep.Found, daemonFound = true, true
 		if it.nohup {
-			if err := u.removeNohup(it); err != nil {
+			removedLogs, err := u.removeNohup(it)
+			if err != nil {
 				errs = append(errs, err)
 				continue
 			}
 			rep.Removed = append(rep.Removed, "the nohup daemon "+it.label()+" ("+it.config+")")
+			rep.Removed = append(rep.Removed, removedLogs...)
 			continue
 		}
 		var err error
@@ -229,27 +249,81 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 		}
 		rep.Services++
 		rep.Removed = append(rep.Removed, "the "+kind+" for "+it.label())
+		if !it.service {
+			u.removeInstanceLogs(&rep, it.instance, &errs)
+		}
 	}
 
+	// Per-identity state files (credential, link status, local socket, spool, scrollback).
 	for _, p := range u.identityState(workerID) {
+		u.removePerIdentityPath(&rep, p, &errs)
+	}
+
+	// Per-machine identity file(s) matching workerID (worker-id-<name>-<isolation>).
+	// Never touch machine-id or files belonging to other identities.
+	identityFileRemoved := false
+	for _, p := range u.identityFilesFor(workerID) {
 		if removed, err := removeIfExists(p); err != nil {
 			errs = append(errs, err)
 		} else if removed {
 			rep.Found = true
+			identityFileRemoved = true
 			rep.Removed = append(rep.Removed, p)
 		}
 	}
 
-	if daemonFound && len(errs) == 0 {
-		u.removeHooksIfLast(&rep, workerID, &errs)
-	}
 	if len(errs) == 0 {
 		if p := RemovedMarkerPath(u.stateDir(), workerID); p != "" {
 			_ = os.Remove(p)
-			_ = os.Remove(filepath.Dir(p)) // only when empty
 		}
 	}
+
+	// Clean up empty per-identity subdirectories inside stateDir.
+	u.removeEmptyStateSubdirs(&rep)
+
+	if (daemonFound || identityFileRemoved) && len(errs) == 0 {
+		u.removeSharedIfLast(&rep, workerID, releaseLock, &errs)
+	}
 	return rep, errors.Join(errs...)
+}
+
+func (u *Uninstaller) removePerIdentityPath(rep *UninstallReport, p string, errs *[]error) {
+	removed, err := removeIfExists(p)
+	if err == nil {
+		if removed {
+			rep.Found = true
+			rep.Removed = append(rep.Removed, p)
+		}
+		return
+	}
+	// On Windows, a daemon removing itself may still hold its own socket open until exit.
+	if u.Self && runtime.GOOS == "windows" {
+		rep.Found = true
+		rep.Kept = append(rep.Kept, p+": in use while exiting")
+		return
+	}
+	*errs = append(*errs, err)
+}
+
+func (u *Uninstaller) removeInstanceLogs(rep *UninstallReport, instance string, errs *[]error) {
+	if u.Installer == nil || u.Installer.Env.LogDir == "" {
+		return
+	}
+	logPath := u.Installer.LogPath(instance)
+	for _, p := range []string{logPath, logPath + ".1"} {
+		removed, err := removeIfExists(p)
+		if err == nil {
+			if removed {
+				rep.Removed = append(rep.Removed, p)
+			}
+			continue
+		}
+		if u.Self && runtime.GOOS == "windows" {
+			rep.Kept = append(rep.Kept, p+": in use while exiting")
+			continue
+		}
+		*errs = append(*errs, fmt.Errorf("remove log %s: %w", p, err))
+	}
 }
 
 func (u *Uninstaller) removeService(ctx context.Context, instance string) error {
@@ -262,61 +336,295 @@ func (u *Uninstaller) removeService(ctx context.Context, instance string) error 
 	return u.Installer.UninstallService(ctx, instance)
 }
 
-// RemoveHooksIfLast removes the agent hooks unless another identity on the account is
-// still installed (`konsertd uninstall --name`, which removes one instance by name).
-func (u *Uninstaller) RemoveHooksIfLast(rep *UninstallReport) error {
+// RemoveSharedIfLast removes the agent hooks and shared files/directories unless another
+// identity on the account remains (`konsertd uninstall --name` or `--service`, which
+// removes one instance without a worker id).
+func (u *Uninstaller) RemoveSharedIfLast(rep *UninstallReport) error {
 	var errs []error
-	u.removeHooksIfLast(rep, "", &errs)
+	u.removeSharedIfLast(rep, "", nil, &errs)
 	return errors.Join(errs...)
 }
 
-func (u *Uninstaller) removeHooksIfLast(rep *UninstallReport, workerID string, errs *[]error) {
-	if u.KeepHooks {
-		rep.Kept = append(rep.Kept, "the agent hooks (--keep-hooks)")
-		return
-	}
+// otherIdentities returns the sorted, deduplicated labels of all konsertd identities
+// other than workerID still present on this account (installed configs, Windows services,
+// nohup configs, or worker-id-* files in stateDir).
+func (u *Uninstaller) otherIdentities(workerID string) ([]string, error) {
 	all, err := u.installed()
 	if err != nil {
-		*errs = append(*errs, err)
-		return
+		return nil, err
 	}
 	var others []string
+	seenIDs := map[string]bool{}
 	for _, it := range all {
 		if workerID != "" && it.workerID == workerID {
 			continue
 		}
+		if it.workerID != "" {
+			seenIDs[it.workerID] = true
+		}
 		others = append(others, it.label())
 	}
-	if len(others) > 0 {
-		slices.Sort(others)
-		others = slices.Compact(others)
-		rep.Kept = append(rep.Kept, "the agent hooks: still used by "+strings.Join(others, ", ")+" on this account")
-		return
-	}
-	remove := u.RemoveHooks
-	if remove == nil {
-		remove = func() ([]string, error) {
-			r, err := RemoveAgentHooks("")
-			return r.Notes, err
+	if dir := u.stateDir(); dir != "" {
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() || !strings.HasPrefix(e.Name(), "worker-id-") {
+					continue
+				}
+				raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+				if err != nil {
+					continue
+				}
+				var rec identityRecord
+				if json.Unmarshal(raw, &rec) != nil || !ids.IsUUIDv7(rec.ID) {
+					continue
+				}
+				if (workerID != "" && rec.ID == workerID) || seenIDs[rec.ID] {
+					continue
+				}
+				seenIDs[rec.ID] = true
+				others = append(others, strings.TrimPrefix(e.Name(), "worker-id-"))
+			}
 		}
 	}
-	notes, err := remove()
+	slices.Sort(others)
+	return slices.Compact(others), nil
+}
+
+func (u *Uninstaller) removeSharedIfLast(rep *UninstallReport, workerID string, releaseLock func(), errs *[]error) {
+	others, err := u.otherIdentities(workerID)
 	if err != nil {
-		*errs = append(*errs, fmt.Errorf("remove the agent hooks: %w", err))
+		*errs = append(*errs, err)
 		return
 	}
-	if len(notes) > 0 {
-		rep.Removed = append(rep.Removed, "the agent hooks, no other konsertd on this account ("+strings.Join(notes, "; ")+")")
+	if len(others) > 0 {
+		otherList := strings.Join(others, ", ")
+		if u.KeepHooks {
+			rep.Kept = append(rep.Kept, "the agent hooks (--keep-hooks)")
+		} else {
+			rep.Kept = append(rep.Kept, "the agent hooks: still used by "+otherList+" on this account")
+		}
+		rep.Kept = append(rep.Kept, "shared files and konsertd binary: still used by "+otherList+" on this account")
+		return
+	}
+
+	// 1. Agent hooks.
+	if u.KeepHooks {
+		rep.Kept = append(rep.Kept, "the agent hooks (--keep-hooks)")
+	} else {
+		remove := u.RemoveHooks
+		if remove == nil {
+			home := ""
+			if u.Installer != nil {
+				home = u.Installer.Env.Home
+			}
+			remove = func() ([]string, error) {
+				r, err := RemoveAgentHooks(home)
+				return r.Notes, err
+			}
+		}
+		notes, err := remove()
+		if err != nil {
+			*errs = append(*errs, fmt.Errorf("remove the agent hooks: %w", err))
+		} else if len(notes) > 0 {
+			rep.Removed = append(rep.Removed, "the agent hooks, no other konsertd on this account ("+strings.Join(notes, "; ")+")")
+		}
+	}
+
+	// 2. Shared konsertd state files (never machine-id or foreign files).
+	dir := u.stateDir()
+	sharedFiles := []string{}
+	if dir != "" {
+		sharedFiles = append(sharedFiles,
+			filepath.Join(dir, "hook-events.jsonl"),
+			filepath.Join(dir, "usage-cache.json"),
+			filepath.Join(dir, "shell-integration"),
+		)
+		if orphans, _ := filepath.Glob(filepath.Join(dir, "spool", "spool-orphaned-*")); len(orphans) > 0 {
+			sharedFiles = append(sharedFiles, orphans...)
+		}
+	}
+	if u.Installer != nil && u.Installer.Env.Home != "" {
+		homeEvents := HookEventsPath(u.Installer.Env.Home)
+		if dir == "" || !samePath(homeEvents, filepath.Join(dir, "hook-events.jsonl")) {
+			sharedFiles = append(sharedFiles, homeEvents)
+		}
+	}
+	for _, p := range sharedFiles {
+		if removed, err := removeIfExists(p); err != nil {
+			*errs = append(*errs, err)
+		} else if removed {
+			rep.Removed = append(rep.Removed, p)
+		}
+	}
+
+	// 3. Managed konsertd binary (only if konsertd installed it and no other konsertd is running).
+	u.removeManagedBinary(rep, errs)
+
+	// 4. Empty konsertd directories.
+	u.removeEmptyStateSubdirs(rep)
+	if u.Installer != nil {
+		for _, d := range []string{u.Installer.Env.LogDir, u.Installer.Env.ConfigDir} {
+			if d != "" && removeEmptyDir(d) {
+				rep.Removed = append(rep.Removed, d)
+			}
+		}
+	}
+	if dir != "" {
+		// Release uninstall.lock before checking whether stateDir itself is empty.
+		if releaseLock != nil {
+			releaseLock()
+		}
+		if removeEmptyDir(dir) {
+			rep.Removed = append(rep.Removed, dir)
+		} else if dirExists(dir) {
+			if fileExistsPath(filepath.Join(dir, "machine-id")) {
+				rep.Kept = append(rep.Kept, filepath.Join(dir, "machine-id")+": preserved")
+			}
+			rep.Kept = append(rep.Kept, dir+": not empty (other files present)")
+		}
 	}
 }
 
+func (u *Uninstaller) removeManagedBinary(rep *UninstallReport, errs *[]error) {
+	if u.Installer == nil {
+		return
+	}
+	managedBin := u.Installer.ManagedBinPath()
+	exe := u.currentExecutable()
+
+	if managedBin != "" {
+		// Clean up any leftover staged/previous update files alongside managedBin.
+		for _, side := range []string{managedBin + ".old", managedBin + ".new"} {
+			if removed, err := removeIfExists(side); err == nil && removed {
+				rep.Removed = append(rep.Removed, side)
+			}
+		}
+		if fileExistsPath(managedBin) {
+			otherRunning := u.OtherRunning
+			if otherRunning == nil {
+				otherRunning = otherKonsertdRunning
+			}
+			running, rerr := otherRunning(managedBin)
+			if rerr == nil && running {
+				rep.Kept = append(rep.Kept, "the konsertd binary "+managedBin+": another konsertd process is still running")
+			} else {
+				emptyDir := ""
+				if strings.EqualFold(filepath.Base(filepath.Dir(managedBin)), "konsertd") {
+					emptyDir = filepath.Dir(managedBin)
+				}
+				if err := os.Remove(managedBin); err == nil {
+					rep.Removed = append(rep.Removed, "the konsertd binary "+managedBin)
+					if emptyDir != "" && removeEmptyDir(emptyDir) {
+						rep.Removed = append(rep.Removed, emptyDir)
+					}
+				} else if !errors.Is(err, os.ErrNotExist) {
+					if runtime.GOOS == "windows" || u.ScheduleDelete != nil {
+						sched := u.ScheduleDelete
+						if sched == nil {
+							sched = install.ScheduleDeleteOnExit
+						}
+						if serr := sched(managedBin, emptyDir); serr == nil {
+							rep.Removed = append(rep.Removed, "the konsertd binary "+managedBin+" (scheduled for deletion on exit)")
+						} else {
+							rep.Kept = append(rep.Kept, "the konsertd binary "+managedBin+": in use (delete it manually after exit)")
+						}
+					} else {
+						*errs = append(*errs, fmt.Errorf("remove %s: %w", managedBin, err))
+					}
+				}
+			}
+		}
+	}
+
+	if exe != "" && (managedBin == "" || !samePath(exe, managedBin)) && fileExistsPath(exe) && looksLikeKonsertdBin(exe) {
+		rep.Kept = append(rep.Kept, "the konsertd binary "+exe+": not installed by konsertd")
+	}
+}
+
+func (u *Uninstaller) currentExecutable() string {
+	fn := u.Executable
+	if fn == nil {
+		fn = os.Executable
+	}
+	exe, err := fn()
+	if err != nil || exe == "" {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	return filepath.Clean(exe)
+}
+
+func looksLikeKonsertdBin(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == "konsertd" || base == "konsertd.exe" || strings.HasPrefix(base, "konsertd-")
+}
+
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
+}
+
+func (u *Uninstaller) removeEmptyStateSubdirs(rep *UninstallReport) {
+	dir := u.stateDir()
+	if dir == "" {
+		return
+	}
+	for _, sub := range []string{"credentials", "run", "spool", "scrollback", "removed", "hooks", "logs"} {
+		p := filepath.Join(dir, sub)
+		if removeEmptyDir(p) {
+			rep.Removed = append(rep.Removed, p)
+		}
+	}
+}
+
+// identityFilesFor returns all worker-id-* files in stateDir whose persisted ID matches workerID.
+func (u *Uninstaller) identityFilesFor(workerID string) []string {
+	dir := u.stateDir()
+	if dir == "" || workerID == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "worker-id-") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var rec identityRecord
+		if json.Unmarshal(raw, &rec) == nil && rec.ID == workerID {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // identityState is the per-identity state removal deletes: the credential, link status,
-// outbound spool and terminal scrollback. The worker-id file stays, so the machine keeps its identity if it
-// is added again.
+// local socket, outbound spool and terminal scrollback.
 func (u *Uninstaller) identityState(workerID string) []string {
 	dir := u.stateDir()
 	var out []string
-	for _, p := range []string{CredentialPath(dir, workerID), LinkStatusPath(dir, workerID), spoolDir(dir, workerID), scrollbackDir(dir, workerID)} {
+	for _, p := range []string{
+		CredentialPath(dir, workerID),
+		LinkStatusPath(dir, workerID),
+		LocalSocketPath(dir, workerID),
+		spoolDir(dir, workerID),
+		scrollbackDir(dir, workerID),
+	} {
 		if p != "" {
 			out = append(out, p)
 		}
@@ -324,9 +632,11 @@ func (u *Uninstaller) identityState(workerID string) []string {
 	return out
 }
 
-// removeNohup stops a nohup daemon (unless it is this process) and removes its files.
-func (u *Uninstaller) removeNohup(it installedIdentity) error {
-	pidPath := strings.TrimSuffix(it.config, ".yaml") + ".pid"
+// removeNohup stops a nohup daemon (unless it is this process) and removes its config,
+// pid, and log files.
+func (u *Uninstaller) removeNohup(it installedIdentity) ([]string, error) {
+	stem := strings.TrimSuffix(it.config, ".yaml")
+	pidPath := stem + ".pid"
 	if !u.Self {
 		if raw, err := os.ReadFile(pidPath); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
@@ -341,7 +651,7 @@ func (u *Uninstaller) removeNohup(it installedIdentity) error {
 						kill = terminate
 					}
 					if err := kill(pid); err != nil {
-						return fmt.Errorf("stop the nohup daemon %s (pid %d): %w", it.label(), pid, err)
+						return nil, fmt.Errorf("stop the nohup daemon %s (pid %d): %w", it.label(), pid, err)
 					}
 				}
 			}
@@ -349,10 +659,18 @@ func (u *Uninstaller) removeNohup(it installedIdentity) error {
 	}
 	for _, p := range []string{it.config, pidPath} {
 		if _, err := removeIfExists(p); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	var removedLogs []string
+	for _, p := range []string{stem + ".log", stem + ".log.1"} {
+		if removed, err := removeIfExists(p); err != nil {
+			return removedLogs, err
+		} else if removed {
+			removedLogs = append(removedLogs, p)
+		}
+	}
+	return removedLogs, nil
 }
 
 func psArgs(pid int) (string, error) {
@@ -392,6 +710,24 @@ func removeIfExists(p string) (bool, error) {
 	return false, err
 }
 
+// removeEmptyDir removes dir only if it exists and is empty.
+func removeEmptyDir(dir string) bool {
+	if !dirExists(dir) {
+		return false
+	}
+	return os.Remove(dir) == nil
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+func fileExistsPath(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
 // lockStale is when a leftover lock (a removal that crashed) is ignored.
 const lockStale = 2 * time.Minute
 
@@ -402,6 +738,7 @@ func (u *Uninstaller) lock(ctx context.Context) (func(), error) {
 	if dir == "" {
 		return func() {}, nil
 	}
+	createdDir := !dirExists(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -416,7 +753,12 @@ func (u *Uninstaller) lock(ctx context.Context) (func(), error) {
 		if err == nil {
 			fmt.Fprintf(f, "%d\n", os.Getpid())
 			_ = f.Close()
-			return func() { _ = os.Remove(path) }, nil
+			return func() {
+				_ = os.Remove(path)
+				if createdDir {
+					_ = os.Remove(dir) // only if still empty
+				}
+			}, nil
 		}
 		if !errors.Is(err, os.ErrExist) {
 			return nil, err

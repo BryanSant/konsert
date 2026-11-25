@@ -217,16 +217,19 @@ func newUninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Stop konsertd and remove what `konsertd install` registered",
 		Long: `Stop konsertd and remove the unit, LaunchAgent, scheduled task or service that
-` + "`konsertd install`" + ` created, plus its installed config file. Pass the same --name used at
-install time to remove a named instance, or --worker to remove whatever is installed
-for that konsertd identity (the hub does this when you remove a machine; with --hub it
-also drops that hub's key grant). The machine credential and per-identity state go too.
+` + "`konsertd install`" + ` created, plus its installed config, logs, identity file,
+credential and per-identity state. Pass the same --name used at install time to remove a
+named instance, or --worker to remove whatever is installed for that konsertd identity
+(the hub does this when you remove a machine; with --hub it also drops that hub's key
+grant).
 
-The agent hooks ` + "`konsertd install-hooks`" + ` added are removed when no other konsertd
-remains installed on this account (hosts sharing a home directory, such as a container
-and its host, share them); pass --keep-hooks to keep them regardless. The rest of
-~/.claude/settings.json is left as it was. Log files and the identity files in
-~/.konsert are kept, so a reinstall keeps the same identity.`,
+Shared files (the agent hooks ` + "`konsertd install-hooks`" + ` added,
+~/.konsert/hook-events.jsonl, orphaned spool archives, the konsertd binary if konsertd
+installed it, and empty konsert directories) are removed only when no other konsertd
+identity remains on this account (hosts sharing a home directory, such as a container and
+its host, share them); pass --keep-hooks to keep the agent hooks regardless. The rest of
+~/.claude/settings.json, ~/.konsert/machine-id, and any files konsertd did not create are
+left untouched.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := runUninstall(cmd.Context(), cmd.OutOrStdout(), o)
@@ -309,11 +312,16 @@ func runUninstall(ctx context.Context, out io.Writer, o uninstallOptions) error 
 	case !o.service:
 		if err = in.Uninstall(ctx, instance); err == nil {
 			rep.Found = true
-			err = u.RemoveHooksIfLast(&rep)
+			for _, lp := range []string{in.LogPath(instance), in.LogPath(instance) + ".1"} {
+				if os.Remove(lp) == nil {
+					rep.Removed = append(rep.Removed, lp)
+				}
+			}
+			err = u.RemoveSharedIfLast(&rep)
 		}
 	default:
 		rep.Found = true
-		err = u.RemoveHooksIfLast(&rep)
+		err = u.RemoveSharedIfLast(&rep)
 	}
 	for _, l := range rep.Lines() {
 		fmt.Fprintln(out, l)
