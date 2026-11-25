@@ -41,6 +41,18 @@ type ControllerConfig struct {
 	// /ws/client. The request's own Host is always allowed.
 	AllowedOrigins []string           `yaml:"allowed_origins"`
 	Orchestrator   OrchestratorConfig `yaml:"orchestrator"`
+	Forges         ForgesConfig       `yaml:"forges"`
+}
+
+// ForgesConfig configures forge host overrides and OAuth device-flow client IDs.
+type ForgesConfig struct {
+	// Hosts maps hostnames (e.g. "git.corp.example") to forge kinds ("github", "gitlab",
+	// "forgejo") to override automatic detection.
+	Hosts map[string]string `yaml:"hosts"`
+	// GitHubClientID is the OAuth App client ID for GitHub device-flow sign-in.
+	GitHubClientID string `yaml:"github_client_id"`
+	// GitLabClientID is the OAuth Application ID for GitLab device-flow sign-in.
+	GitLabClientID string `yaml:"gitlab_client_id"`
 }
 
 // DefaultPort is the controller's default TCP port.
@@ -220,6 +232,12 @@ func applyControllerEnv(cfg *ControllerConfig) {
 		} else {
 			cfg.Orchestrator.MaxTokens = -1 // rejected by Validate
 		}
+	}
+	if v := os.Getenv("KONSERT_GITHUB_CLIENT_ID"); v != "" {
+		cfg.Forges.GitHubClientID = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("KONSERT_GITLAB_CLIENT_ID"); v != "" {
+		cfg.Forges.GitLabClientID = strings.TrimSpace(v)
 	}
 	// Fallback provider-specific API keys if KONSERT_LLM_API_KEY is unset.
 	if cfg.Orchestrator.APIKey == "" {
