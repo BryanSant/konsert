@@ -21,15 +21,48 @@ export const HEAT_STRIP_POINTS = 48;
 /** A finished session stays on its machine's row this long. */
 export const FLEET_DONE_MS = 5 * 60_000;
 
-export type MachineBadge = 'OFFLINE' | 'STARTING' | 'DRAINING' | 'FULL' | 'IDLE' | 'OK';
+export type MachineBadge = 'RECONNECTING' | 'OFFLINE' | 'STARTING' | 'DRAINING' | 'FULL' | 'IDLE' | 'OK';
 
 /** A machine's state badge (grey baseline; amber only for FULL). */
 export function machineBadge(w: Worker, running: number): MachineBadge {
+  if (w.reconnecting_after_sleep) return 'RECONNECTING';
   if (w.status !== 'online') return w.launch_state === 'starting' ? 'STARTING' : 'OFFLINE';
   if (w.drained) return 'DRAINING';
   if (w.max_concurrent && running >= w.max_concurrent) return 'FULL';
   if (running === 0) return 'IDLE';
   return 'OK';
+}
+
+/** Megabytes with one decimal ("12.3 MB"). */
+function mb(bytes: number): string {
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/**
+ * What a machine row says about its outbound spool, when there is something to say: the
+ * replay after an outage, a backlog not yet sent, a full spool. Undefined otherwise.
+ */
+export function spoolNote(w: Worker, now: number): string | undefined {
+  const s = w.spool;
+  if (!s) return undefined;
+  if (s.full) return `spool full (${s.full_reason || 'over budget'}): vitals and activity are no longer kept`;
+  if (s.replaying && s.replay_total) return `replaying ${s.replay_sent ?? 0} of ${s.replay_total} records from the outage`;
+  if (s.oldest_unsent_at) {
+    const age = now - Date.parse(s.oldest_unsent_at);
+    if (age > 30_000) return `${s.records} records waiting to be sent (oldest ${Math.round(age / 60_000)} min) · ${mb(s.bytes)}`;
+  }
+  return undefined;
+}
+
+/** The spool in one line for machine details: size of budget, backlog, oldest unsent. */
+export function spoolSummary(w: Worker, now: number): string | undefined {
+  const s = w.spool;
+  if (!s) return undefined;
+  const parts = [`${mb(s.bytes)} of ${mb(s.budget_bytes)}`];
+  parts.push(s.records ? `${s.records} records not yet acknowledged` : 'everything acknowledged');
+  if (s.oldest_unsent_at) parts.push(`oldest unsent ${Math.max(0, Math.round((now - Date.parse(s.oldest_unsent_at)) / 1000))} s ago`);
+  if (s.replaying && s.replay_total) parts.push(`replay ${s.replay_sent ?? 0}/${s.replay_total}`);
+  return parts.join(' · ');
 }
 
 /** "macOS · arm64 · 10c / 16G" */

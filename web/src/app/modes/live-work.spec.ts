@@ -28,6 +28,8 @@ import {
   queueReasons,
   shellChip,
   shellRows,
+  spoolNote,
+  spoolSummary,
   subagentChip,
   subagentText,
   transportHint,
@@ -236,6 +238,19 @@ describe('fleet machine rows', () => {
     expect(rows[1]).toMatchObject({ badge: 'OFFLINE', free: 0, load: '', heatText: 'no heat data while offline' });
     expect(machineBadge(worker('x', 'x', { max_concurrent: 1 }), 1)).toBe('FULL');
     expect(machineBadge(worker('x', 'x', { drained: true }), 0)).toBe('DRAINING');
+    expect(machineBadge(worker('x', 'x', { status: 'offline', reconnecting_after_sleep: true }), 0)).toBe('RECONNECTING');
+  });
+
+  it('says what the outbound spool does when it matters', () => {
+    const spool = { bytes: 3 * 1048576, budget_bytes: 256 * 1048576, records: 0, last_seq: 10, acked_seq: 10 };
+    expect(spoolNote(worker('x', 'x'), NOW)).toBeUndefined();
+    expect(spoolNote(worker('x', 'x', { spool }), NOW)).toBeUndefined();
+    expect(spoolNote(worker('x', 'x', { spool: { ...spool, replaying: true, replay_sent: 40, replay_total: 120 } }), NOW)).toBe('replaying 40 of 120 records from the outage');
+    expect(spoolNote(worker('x', 'x', { spool: { ...spool, records: 7, oldest_unsent_at: iso(NOW - 600_000) } }), NOW)).toBe('7 records waiting to be sent (oldest 10 min) · 3.0 MB');
+    expect(spoolNote(worker('x', 'x', { spool: { ...spool, full: true, full_reason: 'over 256 MB' } }), NOW)).toContain('spool full (over 256 MB)');
+    expect(spoolSummary(worker('x', 'x', { spool: { ...spool, records: 2, oldest_unsent_at: iso(NOW - 5000) } }), NOW)).toBe(
+      '3.0 MB of 256.0 MB · 2 records not yet acknowledged · oldest unsent 5 s ago',
+    );
   });
 
   it('spells out shells and sub-agents, and keeps a finished session while its shells run', () => {
