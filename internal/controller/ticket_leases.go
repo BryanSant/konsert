@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -107,6 +109,14 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 	}
 	leaseTTL := h.ticketLeaseTTL(ctx)
 
+	// Account for tickets already leased to each worker (their runs are agent chats,
+	// not PTY tasks in ActiveTaskCounts).
+	for _, w := range workers {
+		if leased, err := h.store.ListLeasedTicketsByWorker(ctx, w.ID); err == nil && len(leased) > 0 {
+			counts[w.ID] += len(leased)
+		}
+	}
+
 	for _, tk := range tickets {
 		if ctx.Err() != nil {
 			return
@@ -191,6 +201,11 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		if err != nil {
 			continue
 		}
+		chatID := ids.UUID()
+		chatSID, err := h.store.NewSID(ctx, ids.Chat)
+		if err != nil {
+			continue
+		}
 
 		now := time.Now().UTC()
 		claimedTk, claimed, err := h.store.ClaimTicket(ctx, tk.ID, w.ID, taskID, now, leaseTTL)
@@ -206,93 +221,77 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		}
 		prompt := FormatDispatchPrompt(pkt)
 
-		workdir := ""
 		branch := firstBinding.TargetBranch
 		if branch == "" {
 			branch = firstBinding.BaseBranch
-		}
-		taskBindings := make([]protocol.TaskRepoBinding, 0, len(resolved))
-		for _, rb := range resolved {
-			checkoutPath, _ := h.WorkerCheckoutPath(ctx, w.ID, rb.repo.RemoteURL)
-			baseBranch := strings.TrimSpace(rb.binding.BaseBranch)
-			if baseBranch == "" {
-				baseBranch = strings.TrimSpace(rb.repo.DefaultBranch)
-			}
-			targetBranch := strings.TrimSpace(rb.binding.TargetBranch)
-			if targetBranch == "" {
-				targetBranch = "syre/" + claimedTk.SID
-			}
-			taskBindings = append(taskBindings, protocol.TaskRepoBinding{
-				RepoName:     rb.repo.Name,
-				RemoteURL:    rb.repo.RemoteURL,
-				CheckoutPath: checkoutPath,
-				BaseBranch:   baseBranch,
-				TargetBranch: targetBranch,
-			})
 		}
 		orphanPolicy := protocol.OrphanPolicyRequeue
 		if tk.OrphanPolicy == store.TicketOrphanPolicyFail {
 			orphanPolicy = protocol.OrphanPolicyFail
 		}
 
-		payload := protocol.TaskStartPayload{
-			TaskID:         taskID,
-			SID:            taskSID,
-			TicketSID:      claimedTk.SID,
-			Bindings:       taskBindings,
-			Agent:          agent,
-			Model:          model,
-			SessionKind:    "chat",
-			Workdir:        workdir,
-			Branch:         branch,
-			UseWorktree:    false,
-			Prompt:         prompt,
-			Mode:           protocol.TaskModeOneshot,
-			PermissionMode: string(permMode),
-			TimeoutSeconds: 3600,
-			UseGitBash:     w.AgentsUseGitBash,
+		cs := store.ChatSession{
+			ID:         chatID,
+			SID:        chatSID,
+			Title:      claimedTk.SID + ": " + tk.Title,
+			Backend:    store.ChatBackendAgent,
+			WorkerID:   w.ID,
+			Agent:      agent,
+			Model:      model,
+			FleetTools: false,
+			TaskID:     taskID,
+			TicketID:   tk.ID,
+			Status:     protocol.ChatStatusStarting,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		}
+		h.resolveChatTarget(ctx, &cs)
+		h.initNotesCursor(ctx, &cs)
+
+		startedAt := now
 		task := store.Task{
 			ID:             taskID,
 			SID:            taskSID,
 			WorkerID:       w.ID,
 			ProjectID:      tk.ProjectID,
 			RepoID:         firstBinding.RepoID,
-			Agent:          agent,
-			Model:          model,
+			Agent:          cs.Agent,
+			Model:          cs.Model,
 			SessionKind:    "chat",
-			Workdir:        workdir,
 			Branch:         branch,
-			Mode:           protocol.TaskModeOneshot,
+			Mode:           "chat",
 			Origin:         protocol.TaskOriginCommander,
 			PermissionMode: permMode,
 			OrphanPolicy:   orphanPolicy,
 			Prompt:         prompt,
-			Status:         protocol.TaskStatusAssigned,
+			Status:         protocol.TaskStatusRunning,
+			ParentChatID:   chatID,
 			Title:          tk.Title,
 			TicketID:       tk.ID,
 			TicketTitle:    tk.Title,
 			Cause:          &causeScheduler,
 			CreatedAt:      now,
+			StartedAt:      &startedAt,
 		}
 		if err := h.store.CreateTask(ctx, task); err != nil {
 			h.logger.Warn("create task for claimed ticket failed; releasing lease", "ticket_id", tk.ID, "err", err)
 			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
 			continue
 		}
-		selJSON, _ := json.Marshal(sel)
-		payJSON, _ := json.Marshal(payload)
-		_ = h.store.SetTaskStartSpec(ctx, taskID, store.TaskStartSpec{
-			SelectorJSON: string(selJSON),
-			PayloadJSON:  string(payJSON),
-			WorkerPinned: sel.WorkerID != "",
-		})
+		if err := h.store.CreateChatSession(ctx, cs); err != nil {
+			h.logger.Warn("create chat session for claimed ticket failed; releasing lease", "ticket_id", tk.ID, "err", err)
+			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
+			_, _ = h.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "chat creation failed", "", nil, causeScheduler)
+			continue
+		}
+		h.broadcastFleetUpdate("chat_session", cs)
 
-		if err := h.DispatchToWorker(w.ID, payload); err != nil {
-			h.logger.Warn("dispatch of ticket task failed; releasing ticket back to ready",
-				"ticket_id", tk.ID, "task_id", taskID, "worker_id", w.ID, "err", err)
+		if err := h.sendAgentChat(ctx, cs, chatSendRequest{SessionID: cs.ID, Content: prompt}); err != nil {
+			h.logger.Warn("dispatch of ticket chat failed; releasing ticket back to ready",
+				"ticket_id", tk.ID, "task_id", taskID, "chat_id", chatID, "worker_id", w.ID, "err", err)
 			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
 			_, _ = h.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "dispatch failed", "", nil, causeScheduler)
+			h.closeChat(ctx, cs.ID)
 			continue
 		}
 
@@ -309,23 +308,171 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 	}
 }
 
+// ticketChatBindings builds the ticket SID and per-repo bindings for opening a ticket-backed
+// agent chat on workerID.
+func (h *Hub) ticketChatBindings(ctx context.Context, ticketID, workerID string) (string, []protocol.TaskRepoBinding) {
+	if ticketID == "" {
+		return "", nil
+	}
+	tk, err := h.store.GetTicket(ctx, ticketID)
+	if err != nil {
+		return "", nil
+	}
+	bindings, err := h.store.ListTicketRepoBindings(ctx, tk.ID)
+	if err != nil || len(bindings) == 0 {
+		return tk.SID, nil
+	}
+	type boundRepo struct {
+		binding store.TicketRepoBinding
+		repo    store.Repo
+	}
+	bound := make([]boundRepo, 0, len(bindings))
+	for _, b := range bindings {
+		repo, rErr := h.store.GetRepo(ctx, b.RepoID)
+		if rErr != nil {
+			continue
+		}
+		bound = append(bound, boundRepo{binding: b, repo: repo})
+	}
+	sort.Slice(bound, func(i, j int) bool {
+		if bound[i].repo.Name != bound[j].repo.Name {
+			return bound[i].repo.Name < bound[j].repo.Name
+		}
+		return bound[i].repo.ID < bound[j].repo.ID
+	})
+	out := make([]protocol.TaskRepoBinding, 0, len(bound))
+	for _, br := range bound {
+		checkoutPath := ""
+		if workerID != "" {
+			checkoutPath, _ = h.WorkerCheckoutPath(ctx, workerID, br.repo.RemoteURL)
+		}
+		baseBranch := strings.TrimSpace(br.binding.BaseBranch)
+		if baseBranch == "" {
+			baseBranch = strings.TrimSpace(br.repo.DefaultBranch)
+		}
+		targetBranch := strings.TrimSpace(br.binding.TargetBranch)
+		if targetBranch == "" {
+			targetBranch = "syre/" + tk.SID
+		}
+		out = append(out, protocol.TaskRepoBinding{
+			RepoName:     br.repo.Name,
+			RemoteURL:    br.repo.RemoteURL,
+			CheckoutPath: checkoutPath,
+			BaseBranch:   baseBranch,
+			TargetBranch: targetBranch,
+		})
+	}
+	return tk.SID, out
+}
+
+// SendTicketTurn sends a follow-up prompt into the ticket's open agent chat session
+// (used by self-repair and review follow-ups). The ticket must be in running, needs_you,
+// or review status.
+func (h *Hub) SendTicketTurn(ctx context.Context, ticketID, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return errors.New("prompt text is required")
+	}
+	tk, err := h.store.GetTicket(ctx, ticketID)
+	if err != nil {
+		return err
+	}
+	switch tk.Status {
+	case store.TicketStatusRunning, store.TicketStatusNeedsYou, store.TicketStatusReview:
+	default:
+		return fmt.Errorf("ticket %s is in status %q and cannot accept a turn", tk.SID, tk.Status)
+	}
+	cs, err := h.activeTicketChat(ctx, tk)
+	if err != nil {
+		return err
+	}
+	if tk.Status == store.TicketStatusReview {
+		tk.Status = store.TicketStatusRunning
+		if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+			h.broadcastFleetUpdate("ticket", updated)
+		}
+		if cs.TaskID != "" {
+			_, _ = h.setTaskStatus(ctx, cs.TaskID, protocol.TaskStatusRunning, "", "", nil, causeScheduler)
+		}
+	}
+	return h.sendAgentChat(ctx, cs, chatSendRequest{SessionID: cs.ID, Content: text})
+}
+
+func (h *Hub) activeTicketChat(ctx context.Context, tk store.Ticket) (store.ChatSession, error) {
+	if tk.Lease != nil && tk.Lease.TaskID != "" {
+		if cs, err := h.store.GetChatSessionByTaskID(ctx, tk.Lease.TaskID); err == nil {
+			return cs, nil
+		}
+	}
+	sessions, err := h.store.ListChatSessionsByTicket(ctx, tk.ID)
+	if err != nil {
+		return store.ChatSession{}, err
+	}
+	for _, cs := range sessions {
+		if cs.Backend == store.ChatBackendAgent && cs.QuestionID == "" {
+			return cs, nil
+		}
+	}
+	return store.ChatSession{}, fmt.Errorf("no agent chat session found for ticket %s", tk.SID)
+}
+
+// closeTicketChats closes all agent chat sessions associated with ticketID.
+func (h *Hub) closeTicketChats(ctx context.Context, ticketID string) {
+	if ticketID == "" {
+		return
+	}
+	sessions, err := h.store.ListChatSessionsByTicket(ctx, ticketID)
+	if err != nil {
+		return
+	}
+	for _, cs := range sessions {
+		if cs.Backend == store.ChatBackendAgent && cs.QuestionID == "" {
+			h.closeChat(ctx, cs.ID)
+		}
+	}
+}
+
 // renewWorkerTicketLeases extends leases for every ticket leased to workerID whose
-// leased task is currently active in the worker's heartbeat.
-func (h *Hub) renewWorkerTicketLeases(ctx context.Context, workerID string, activeTaskIDs []string, now time.Time) {
-	if workerID == "" || len(activeTaskIDs) == 0 {
+// chat session (or legacy task) is currently active in the worker's heartbeat.
+func (h *Hub) renewWorkerTicketLeases(ctx context.Context, workerID string, activeTaskIDs, activeChatIDs []string, now time.Time) {
+	if workerID == "" || (len(activeTaskIDs) == 0 && len(activeChatIDs) == 0) {
 		return
 	}
 	leased, err := h.store.ListLeasedTicketsByWorker(ctx, workerID)
 	if err != nil || len(leased) == 0 {
 		return
 	}
-	active := make(map[string]bool, len(activeTaskIDs))
+	activeTasks := make(map[string]bool, len(activeTaskIDs))
 	for _, id := range activeTaskIDs {
-		active[id] = true
+		activeTasks[id] = true
+	}
+	activeChats := make(map[string]bool, len(activeChatIDs))
+	for _, id := range activeChatIDs {
+		activeChats[id] = true
 	}
 	var ticketIDs []string
 	for _, tk := range leased {
-		if tk.Lease != nil && (tk.Lease.TaskID == "" || active[tk.Lease.TaskID]) {
+		if tk.Lease == nil {
+			continue
+		}
+		alive := false
+		if tk.Lease.TaskID != "" {
+			if cs, err := h.store.GetChatSessionByTaskID(ctx, tk.Lease.TaskID); err == nil {
+				alive = activeChats[cs.ID]
+			} else {
+				alive = activeTasks[tk.Lease.TaskID]
+			}
+		} else if sessions, err := h.store.ListChatSessionsByTicket(ctx, tk.ID); err == nil && len(sessions) > 0 {
+			for _, cs := range sessions {
+				if activeChats[cs.ID] {
+					alive = true
+					break
+				}
+			}
+		} else {
+			alive = true
+		}
+		if alive {
 			ticketIDs = append(ticketIDs, tk.ID)
 		}
 	}
@@ -337,49 +484,198 @@ func (h *Hub) renewWorkerTicketLeases(ctx context.Context, workerID string, acti
 	}
 }
 
-// syncTicketFromTaskStatus maps task status transitions onto the ticket leased to that task:
-//   - completed     -> ticket review (lease released; kicks scheduler for optimistic chaining)
-//   - failed        -> ticket failed (lease released)
-//   - canceled      -> ticket canceled (lease released)
-//   - waiting_input -> ticket needs_you (lease kept)
-//   - running       -> ticket running (when coming back from needs_you; lease kept)
-func (h *Hub) syncTicketFromTaskStatus(ctx context.Context, t store.Task, prevStatus string) {
-	if t.TicketID == "" || prevStatus == t.Status {
+// syncTicketFromChatEvent maps agent chat events onto the bound ticket and task run record:
+//   - session_ready        -> persists provisioned workdir + worktrees on chat/task
+//   - elicitation          -> ticket needs_you (lease kept, chat kept open)
+//   - elicitation_resolved -> ticket running (lease kept, chat kept open)
+//   - turn_end (ok)        -> persist digest, ticket review (lease released, chat kept open)
+//   - turn_end (cancelled) -> persist digest, ticket canceled (lease released, chat closed)
+//   - turn_end (error) / error -> persist digest with failure category, ticket failed (lease released, chat closed)
+func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession, ev protocol.AgentChatEvent) {
+	if cs.TicketID == "" || cs.QuestionID != "" {
 		return
 	}
-	tk, err := h.store.GetTicket(ctx, t.TicketID)
-	if err != nil || tk.Lease == nil || tk.Lease.TaskID != t.ID {
+	tk, err := h.store.GetTicket(ctx, cs.TicketID)
+	if err != nil {
+		return
+	}
+	var task *store.Task
+	if cs.TaskID != "" {
+		if t, err := h.store.GetTask(ctx, cs.TaskID); err == nil {
+			task = &t
+		}
+	}
+
+	if ev.Kind == protocol.EventSessionReady {
+		if ev.Workdir != "" && cs.Cwd != ev.Workdir {
+			cs.Cwd = ev.Workdir
+			_ = h.store.UpdateChatSession(ctx, cs)
+		}
+		if task != nil {
+			if ev.Workdir != "" {
+				_ = h.store.UpdateTaskAssignment(ctx, task.ID, cs.WorkerID, ev.Workdir)
+			}
+			if len(ev.Worktrees) > 0 {
+				wts := make([]store.TaskWorktree, len(ev.Worktrees))
+				for i, wt := range ev.Worktrees {
+					wts[i] = store.TaskWorktree{
+						RepoName:     wt.RepoName,
+						CheckoutPath: wt.CheckoutPath,
+						WorktreePath: wt.WorktreePath,
+						Branch:       wt.Branch,
+					}
+				}
+				_ = h.store.UpdateTaskWorktrees(ctx, task.ID, wts)
+			}
+		}
 		return
 	}
 
-	switch t.Status {
-	case protocol.TaskStatusCompleted:
-		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
-			h.broadcastFleetUpdate("ticket", updated)
-			h.kickScheduler()
+	// Build a fallback digest for hub-generated elicitations (ask_user) or errors when syred
+	// did not attach one.
+	dig := ev.Digest
+	if dig == nil && task != nil {
+		switch ev.Kind {
+		case protocol.EventElicitation:
+			if ev.Elicitation != nil {
+				dig = &protocol.RunDigest{
+					TicketSID: tk.SID,
+					Status:    protocol.DigestStatusNeedsYou,
+					Agent:     cs.Agent,
+					Model:     cs.Model,
+					Question:  &protocol.DigestQuestion{Text: strings.TrimSpace(ev.Elicitation.Title)},
+				}
+			}
+		case protocol.EventError:
+			if ev.Error != nil && (ev.Error.Kind != protocol.ErrKindTimeout || cs.Status == protocol.ChatStatusFailed) {
+				cat := ev.Error.Kind
+				if cat == "" || cat == protocol.ErrKindExit || cat == protocol.ErrKindOther || cat == protocol.ErrKindProtocol {
+					cat = protocol.ErrKindAgentError
+				}
+				if cat == protocol.ErrKindNotFound {
+					cat = protocol.ErrKindMissingTool
+				}
+				dig = &protocol.RunDigest{
+					TicketSID: tk.SID,
+					Status:    protocol.DigestStatusFailed,
+					Agent:     cs.Agent,
+					Model:     cs.Model,
+					Summary:   ev.Error.Message,
+					Failure:   &protocol.DigestFailure{Category: cat},
+				}
+			}
 		}
-	case protocol.TaskStatusFailed:
-		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
-			h.broadcastFleetUpdate("ticket", updated)
+	}
+	if dig != nil && task != nil {
+		d := *dig
+		mergeTaskFollowupsIntoDigest(&d, task.Followups)
+		if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
+			_ = h.store.UpdateTaskDigest(ctx, task.ID, string(b))
 		}
-	case protocol.TaskStatusCanceled:
-		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusCanceled); err == nil && changed {
-			h.broadcastFleetUpdate("ticket", updated)
-		}
-	case protocol.TaskStatusWaitingInput:
+	}
+
+	// Only drive ticket transitions if this chat belongs to the ticket's current run.
+	if tk.Lease != nil && tk.Lease.TaskID != "" && cs.TaskID != "" && tk.Lease.TaskID != cs.TaskID {
+		return
+	}
+
+	switch ev.Kind {
+	case protocol.EventElicitation:
 		if tk.Status == store.TicketStatusRunning {
 			tk.Status = store.TicketStatusNeedsYou
 			if updated, err := h.store.UpdateTicket(ctx, tk); err == nil {
 				h.broadcastFleetUpdate("ticket", updated)
 			}
 		}
-	case protocol.TaskStatusRunning:
+		if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
+			_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusWaitingInput, "", "", nil, causeScheduler)
+		}
+
+	case protocol.EventElicitationOK:
 		if tk.Status == store.TicketStatusNeedsYou {
 			tk.Status = store.TicketStatusRunning
 			if updated, err := h.store.UpdateTicket(ctx, tk); err == nil {
 				h.broadcastFleetUpdate("ticket", updated)
 			}
 		}
+		if task != nil && task.Status == protocol.TaskStatusWaitingInput {
+			_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusRunning, "", "", nil, causeScheduler)
+		}
+
+	case protocol.EventTurnEnd:
+		if tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
+			return
+		}
+		summary := ""
+		if dig != nil {
+			summary = dig.Summary
+		}
+		switch ev.StopReason {
+		case "cancelled":
+			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusCanceled); err == nil && changed {
+				h.broadcastFleetUpdate("ticket", updated)
+			}
+			if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
+				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusCanceled, summary, "", nil, causeScheduler)
+			}
+			h.closeChat(ctx, cs.ID)
+		case "error":
+			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
+				h.broadcastFleetUpdate("ticket", updated)
+			}
+			if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
+				code := 1
+				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusFailed, summary, "", &code, causeScheduler)
+			}
+			h.closeChat(ctx, cs.ID)
+		default:
+			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
+				h.broadcastFleetUpdate("ticket", updated)
+				h.kickScheduler()
+			} else if tk.Lease == nil {
+				// Follow-up turn from review (no active lease): transition back to review.
+				tk.Status = store.TicketStatusReview
+				if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+					h.broadcastFleetUpdate("ticket", updated)
+					h.kickScheduler()
+				}
+			}
+			if task != nil {
+				code := 0
+				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusCompleted, summary, "", &code, causeScheduler)
+			}
+		}
+
+	case protocol.EventError:
+		// Watchdog timeout keeps the turn running; ignore unless chat actually failed.
+		if ev.Error != nil && ev.Error.Kind == protocol.ErrKindTimeout && cs.Status != protocol.ChatStatusFailed {
+			return
+		}
+		if tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
+			return
+		}
+		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
+			h.broadcastFleetUpdate("ticket", updated)
+		} else if tk.Lease == nil {
+			tk.Status = store.TicketStatusFailed
+			if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+				h.broadcastFleetUpdate("ticket", updated)
+			}
+		}
+		if task != nil {
+			msg := ""
+			var code *int
+			if ev.Error != nil {
+				msg = ev.Error.Message
+				code = ev.Error.ExitCode
+			}
+			if code == nil {
+				c := 1
+				code = &c
+			}
+			_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusFailed, msg, "", code, causeScheduler)
+		}
+		h.closeChat(ctx, cs.ID)
 	}
 }
 
@@ -413,6 +709,7 @@ func (h *Hub) expireTicketLeases(ctx context.Context, now time.Time) {
 			code := -1
 			_, _ = h.setTaskStatus(ctx, ex.TaskID, protocol.TaskStatusFailed, "ticket lease expired", "", &code, causeReaper)
 		}
+		h.closeTicketChats(ctx, ex.Ticket.ID)
 		h.broadcastFleetUpdate("ticket", ex.Ticket)
 		if ex.Ticket.Status == store.TicketStatusReady {
 			requeued = true
@@ -453,8 +750,8 @@ func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditA
 		return store.Ticket{}, err
 	}
 
-	// Cancel the previously leased task without placing a session hold (otherwise
-	// RequeueTicket would immediately block the ticket from re-dispatching).
+	// Close any agent chat sessions bound to this ticket and mark the prior task canceled.
+	h.closeTicketChats(ctx, tk.ID)
 	if priorTaskID != "" {
 		if t, err := h.store.GetTask(ctx, priorTaskID); err == nil && !protocol.IsTerminalTaskStatus(t.Status) {
 			h.setPendingCause(priorTaskID, protocol.TaskStatusCanceled, cause)

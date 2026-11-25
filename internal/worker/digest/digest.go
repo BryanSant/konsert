@@ -15,25 +15,26 @@ const MaxSummaryChars = 200
 
 // Input carries all post-run signals collected by syred for a single task.
 type Input struct {
-	TicketSID    string
-	Attempt      int
-	TaskStatus   string // protocol.TaskStatusCompleted | TaskStatusFailed | TaskStatusCanceled | TaskStatusWaitingInput
-	Machine      string
-	Agent        string
-	Model        string
-	Duration     time.Duration
-	ExitCode     int
-	TimedOut     bool
-	Canceled     bool
-	OOM          bool
-	WaitErr      error
-	Summary      string                          // from drv.ExtractSummary
-	FinalMessage string                          // optional agent final message for interface extraction
-	Question     string                          // worker's question text when waiting_input / needs_you
-	Output       []byte                          // raw PTY/stderr ring buffer snapshot
-	Git          map[string]*protocol.GitSummary // repo name -> GitSummary for every binding or single workdir
-	Verify       *protocol.DigestVerify          // nil until verification gate (A4a)
-	Followups    []string                        // empty until ticket_followup wiring
+	TicketSID       string
+	Attempt         int
+	TaskStatus      string // protocol.TaskStatusCompleted | TaskStatusFailed | TaskStatusCanceled | TaskStatusWaitingInput
+	Machine         string
+	Agent           string
+	Model           string
+	Duration        time.Duration
+	ExitCode        int
+	TimedOut        bool
+	Canceled        bool
+	OOM             bool
+	WaitErr         error
+	FailureCategory string                          // optional explicit failure category (e.g. from AgentChatError.Kind)
+	Summary         string                          // from drv.ExtractSummary or agent final message
+	FinalMessage    string                          // optional agent final message for interface extraction
+	Question        string                          // worker's question text when waiting_input / needs_you
+	Output          []byte                          // raw PTY/stderr ring buffer snapshot
+	Git             map[string]*protocol.GitSummary // repo name -> GitSummary for every binding or single workdir
+	Verify          *protocol.DigestVerify          // nil until verification gate (A4a)
+	Followups       []string                        // empty until ticket_followup wiring
 }
 
 // Build constructs a compact protocol.RunDigest from post-run task inputs.
@@ -80,14 +81,17 @@ func Build(in Input) protocol.RunDigest {
 				classText = in.Summary
 			}
 		}
-		cat := ClassifyTaskFailure(FailureClassInput{
-			ExitCode: in.ExitCode,
-			TimedOut: in.TimedOut,
-			Canceled: in.Canceled || in.TaskStatus == protocol.TaskStatusCanceled,
-			OOM:      in.OOM,
-			Text:     classText,
-			WaitErr:  in.WaitErr,
-		})
+		cat := strings.TrimSpace(in.FailureCategory)
+		if cat == "" {
+			cat = ClassifyTaskFailure(FailureClassInput{
+				ExitCode: in.ExitCode,
+				TimedOut: in.TimedOut,
+				Canceled: in.Canceled || in.TaskStatus == protocol.TaskStatusCanceled,
+				OOM:      in.OOM,
+				Text:     classText,
+				WaitErr:  in.WaitErr,
+			})
+		}
 		var failingTests []string
 		if parsed, ok := ParseTestOutput(string(in.Output)); ok && len(parsed.Names) > 0 {
 			failingTests = parsed.Names

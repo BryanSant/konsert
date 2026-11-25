@@ -80,6 +80,18 @@ func (d *Daemon) initChat() {
 		OnFailure:   d.onChatFailure,
 		OnRateLimit: d.onChatRateLimit,
 		OnActivity:  d.activity.Update,
+		MachineName: d.cfg.Name,
+		ProvisionBindings: func(ctx context.Context, ticketSID, requestedRoot string, bindings []protocol.TaskRepoBinding) (chat.ProvisionedWorktrees, error) {
+			prov, err := provisionBindings(ctx, d.cfg.AllowedRoots, requestedRoot, ticketSID, bindings, true, d.logger)
+			if err != nil {
+				return chat.ProvisionedWorktrees{}, err
+			}
+			return chat.ProvisionedWorktrees{
+				Workdir:   prov.workdir,
+				Worktrees: prov.worktrees,
+				BaseSHAs:  prov.worktreeBaseSHAs,
+			}, nil
+		},
 		CheckApproval: func(agent, accountID, mode string) error {
 			if !d.cfg.Sandbox || d.caps == nil {
 				return nil
@@ -164,6 +176,20 @@ func (d *Daemon) activeChats() []protocol.ActiveChatInfo {
 	for _, c := range d.chat.Chats() {
 		if c.Open || c.TurnActive {
 			out = append(out, protocol.ActiveChatInfo{ChatID: c.ChatID, TurnActive: c.TurnActive, LastSeq: c.LastSeq})
+		}
+	}
+	return out
+}
+
+// activeChatIDs lists the chat IDs currently alive on this daemon for heartbeats.
+func (d *Daemon) activeChatIDs() []string {
+	if d.chat == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range d.chat.Chats() {
+		if c.Open || c.TurnActive {
+			out = append(out, c.ChatID)
 		}
 	}
 	return out

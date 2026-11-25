@@ -59,6 +59,10 @@ type AgentChatOpen struct {
 	// UseGitBash asks Windows chat engines to configure their shell tool to use
 	// Git Bash when Git Bash is installed on the worker.
 	UseGitBash bool `json:"use_git_bash,omitzero"`
+	// TicketSID and Bindings identify a ticket-backed chat whose per-repo worktrees
+	// (<root>/<ticket sid>/<repo>) are provisioned by syred before opening the engine.
+	TicketSID string            `json:"ticket_sid,omitempty"`
+	Bindings  []TaskRepoBinding `json:"bindings,omitempty"`
 }
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.
@@ -173,6 +177,12 @@ type AgentChatEvent struct {
 	Model        string `json:"model,omitempty"`
 	Effort       string `json:"effort,omitempty"`
 	ApprovalMode string `json:"approval_mode,omitempty"`
+	// Workdir and Worktrees are populated on session_ready for ticket-backed chats
+	// after syred provisions per-binding worktrees.
+	Workdir   string         `json:"workdir,omitempty"`
+	Worktrees []TaskWorktree `json:"worktrees,omitempty"`
+	// Digest is populated on turn_end, error, and elicitation events for ticket-backed chats.
+	Digest *RunDigest `json:"digest,omitzero"`
 }
 
 // AgentToolCall is a tool invocation shown as a card in the transcript.

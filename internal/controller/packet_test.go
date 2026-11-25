@@ -335,20 +335,21 @@ func TestSchedulerUsesCompiledPacketPrompt(t *testing.T) {
 	wi.Facts = &protocol.MachineFacts{WorkdirRoot: "/work"}
 	fw := th.connectWorker(t, wi, nil, "w-pkt")
 
-	env := fw.expect(protocol.MsgTaskStart, 3*time.Second)
-	p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
+	_ = fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	env := fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	p, err := protocol.DecodePayload[protocol.AgentChatPrompt](env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(p.Prompt, "ticket: "+tk.SID) {
-		t.Fatalf("prompt missing compiled packet header:\n%s", p.Prompt)
+	if !strings.Contains(p.Text, "ticket: "+tk.SID) {
+		t.Fatalf("prompt missing compiled packet header:\n%s", p.Text)
 	}
 	wantPath := "/work/" + tk.SID + "/" + repo.Name
-	if !strings.Contains(p.Prompt, "path: "+wantPath) {
-		t.Fatalf("prompt missing post-placement worktree path %q:\n%s", wantPath, p.Prompt)
+	if !strings.Contains(p.Text, "path: "+wantPath) {
+		t.Fatalf("prompt missing post-placement worktree path %q:\n%s", wantPath, p.Text)
 	}
-	if !strings.HasSuffix(p.Prompt, DispatchStandingInstruction) {
-		t.Fatalf("prompt missing standing instruction:\n%s", p.Prompt)
+	if !strings.HasSuffix(p.Text, DispatchStandingInstruction) {
+		t.Fatalf("prompt missing standing instruction:\n%s", p.Text)
 	}
 }
 

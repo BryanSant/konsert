@@ -1059,6 +1059,22 @@ func (s *SQLiteStore) ListChatSessionsByWorker(ctx context.Context, workerID str
 		WHERE worker_id = ? AND backend = 'agent' ORDER BY updated_at DESC`, workerID)
 }
 
+// GetChatSessionByTaskID returns the agent chat session linked to taskID.
+func (s *SQLiteStore) GetChatSessionByTaskID(ctx context.Context, taskID string) (store.ChatSession, error) {
+	cs, err := scanChatSession(s.db.QueryRowContext(ctx, `SELECT `+chatSessionSelectCols+` FROM chat_sessions
+		WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1`, taskID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.ChatSession{}, store.ErrNotFound
+	}
+	return cs, err
+}
+
+// ListChatSessionsByTicket returns the agent chat sessions linked to ticketID, newest first.
+func (s *SQLiteStore) ListChatSessionsByTicket(ctx context.Context, ticketID string) ([]store.ChatSession, error) {
+	return s.queryChatSessions(ctx, `SELECT `+chatSessionSelectCols+` FROM chat_sessions
+		WHERE ticket_id = ? ORDER BY updated_at DESC`, ticketID)
+}
+
 func (s *SQLiteStore) queryChatSessions(ctx context.Context, q string, args ...any) ([]store.ChatSession, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

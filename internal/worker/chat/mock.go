@@ -410,12 +410,31 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		s.eng.mu.Unlock()
 	}
 	text = strings.ToLower(text)
+	// Strip dispatch packet boilerplate (tools list and standing instruction) so tool
+	// names like "ask_user" don't falsely trigger mock prompt keywords ("ask").
+	if s.opts.TicketSID != "" {
+		if idx := strings.Index(text, "\ntools:"); idx >= 0 {
+			text = text[:idx]
+		}
+	}
 	if s.runQuestionTurn(ctx, p, text) {
 		return
 	}
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {
+	case s.opts.TicketSID != "" && strings.Contains(text, "check_item_0"):
+		out, ok := s.callSyre(ctx, turn, "ticket_check", map[string]any{"index": 0})
+		reply := "Checked acceptance item 0.\nInterface: MockHandler updated in repo/handler.go"
+		if !ok {
+			reply = "ticket_check failed: " + out
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
 	case strings.Contains(text, "subagents"):
 		if !s.subagents(ctx, turn) {
 			s.cancelled(turn)
