@@ -237,3 +237,127 @@ func TestScrollbackRotatesAndRedraws(t *testing.T) {
 		t.Fatal("subscribe to an unknown task without scrollback succeeded")
 	}
 }
+
+// Deterministic (no timing) test for hub-id mismatch archive + cursor reset:
+//  1. Even if a connection's spoolConn already holds a stale high cursor from an old epoch
+//     (or an in-flight writeSpool was reading at a high seq), archiving via BindHub resets
+//     the cursor to 1, kicks a live heartbeat in the new epoch, emits caught_up with the
+//     new epoch, and streams live records starting at seq 1.
+func TestSpoolConnResetAfterArchiveResetsStaleCursorAndKicksHeartbeat(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w-reset")
+	sp, err := spool.Open(spool.Options{Dir: dir, SyncEvery: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.BindHub("hub-A"); err != nil {
+		t.Fatal(err)
+	}
+	oldEv, err := protocol.NewEnvelope(protocol.MsgTaskEvent, "", protocol.TaskEventPayload{TaskID: "tA", Kind: "log", Message: "from-A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(spool.ClassTaskEvent, "", oldEv); err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Reopen so the next seq jumps past the 4096-seq reservation, then append another record.
+	sp, err = spool.Open(spool.Options{Dir: dir, SyncEvery: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sp.Close()
+	highSeq, err := sp.Append(spool.ClassTaskEvent, "", oldEv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if highSeq <= 4096 {
+		t.Fatalf("expected highSeq > 4096 after reopen, got %d", highSeq)
+	}
+	oldEpoch := sp.Epoch()
+
+	d := &Daemon{
+		spool:     sp,
+		logger:    discardLogger(),
+		spoolKick: make(chan struct{}, 1),
+		hbKick:    make(chan struct{}, 1),
+	}
+	sc := newSpoolConn()
+	// Simulate a stale cursor already positioned past highSeq on the old epoch.
+	if !sc.resume(highSeq, highSeq) {
+		t.Fatal("initial resume failed")
+	}
+
+	// Hub B sends worker.spool.resume with a different HubID.
+	resumeRaw, err := protocol.NewEnvelope(protocol.MsgWorkerSpoolResume, "", protocol.SpoolResume{
+		HubID:      "hub-B",
+		Epoch:      oldEpoch,
+		AppliedSeq: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeEnv, err := protocol.DecodeEnvelope(resumeRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.handleSpoolMessage(sc, resumeEnv) {
+		t.Fatal("handleSpoolMessage did not handle worker.spool.resume")
+	}
+	newEpoch := sp.Epoch()
+	if newEpoch == "" || newEpoch == oldEpoch {
+		t.Fatalf("epoch did not change after archive: %q", newEpoch)
+	}
+
+	// The cursor must be reset to 1 (not stuck at highSeq+1) and hbKick must be signaled.
+	cursor, start, target, caught := sc.position()
+	if cursor != 1 || start != 1 || target != 0 || caught {
+		t.Fatalf("post-reset position = (cursor=%d, start=%d, target=%d, caught=%v), want (1, 1, 0, false)", cursor, start, target, caught)
+	}
+	select {
+	case <-d.hbKick:
+	default:
+		t.Fatal("expected hbKick to be signaled after spool archive so the new hub gets a live heartbeat")
+	}
+
+	// First writeSpool emits worker.spool.caught_up with the new epoch and seq 0.
+	var sent []protocol.Envelope
+	write := func(m outboundMsg) error {
+		env, err := protocol.DecodeEnvelope(m.data)
+		if err != nil {
+			return err
+		}
+		sent = append(sent, env)
+		return nil
+	}
+	more, err := d.writeSpool(sc, write)
+	if err != nil || !more {
+		t.Fatalf("writeSpool(caught_up): more=%v err=%v", more, err)
+	}
+	if len(sent) != 1 || sent[0].Type != protocol.MsgWorkerSpoolCaughtUp {
+		t.Fatalf("expected caught_up first, got %+v", sent)
+	}
+	ack, err := protocol.DecodePayload[protocol.SpoolAck](sent[0])
+	if err != nil || ack.Epoch != newEpoch || ack.Seq != 0 {
+		t.Fatalf("caught_up payload = %+v (err=%v), want epoch=%q seq=0", ack, err, newEpoch)
+	}
+
+	// Append a live record in the new epoch (seq 1) and verify writeSpool sends it.
+	liveRaw, err := protocol.NewEnvelope(protocol.MsgWorkerHeartbeat, "", protocol.WorkerHeartbeatPayload{LoadAvg: 1.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveSeq, err := sp.Append(spool.ClassVitals, "", liveRaw)
+	if err != nil || liveSeq != 1 {
+		t.Fatalf("live append seq=%d err=%v, want seq=1", liveSeq, err)
+	}
+	more, err = d.writeSpool(sc, write)
+	if err != nil || !more {
+		t.Fatalf("writeSpool(live): more=%v err=%v", more, err)
+	}
+	if len(sent) != 2 || sent[1].Type != protocol.MsgWorkerHeartbeat || sent[1].Seq != 1 {
+		t.Fatalf("expected live heartbeat seq=1, got %+v", sent)
+	}
+}

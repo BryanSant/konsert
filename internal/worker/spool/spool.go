@@ -169,6 +169,7 @@ type Spool struct {
 	metaDirty bool
 	segs      []*segment
 	next      uint64
+	last      uint64 // highest seq written (or acked across restarts); 0 when none
 	bytes     int64
 	latest    map[string]uint64 // collapse key → newest seq
 	dirty     bool              // unsynced writes in the active segment
@@ -228,7 +229,7 @@ func Open(opts Options) (*Spool, error) {
 	}
 	// Everything recovered may have been sent before the restart: until a hub says what
 	// it applied (Resumed), compaction leaves it alone.
-	s.sent = s.next - 1
+	s.sent = s.last
 	if s.next > s.meta.Reserved {
 		s.meta.Reserved = s.next - 1
 	}
@@ -356,6 +357,7 @@ func (s *Spool) recover() error {
 			}
 		}
 	}
+	s.last = max(last, s.meta.Acked)
 	s.next = max(last, s.meta.Reserved, s.meta.Acked) + 1
 	return nil
 }
@@ -522,6 +524,7 @@ func (s *Spool) Append(class Class, key string, data []byte) (uint64, error) {
 	g.entries = append(g.entries, entry{seq: r.Seq, at: r.At.UnixNano(), off: g.size, size: int64(len(buf)), class: class, key: key})
 	g.size += int64(len(buf))
 	s.bytes += int64(len(buf))
+	s.last = r.Seq
 	s.next++
 	if key != "" {
 		s.latest[key] = r.Seq
@@ -635,7 +638,7 @@ func (s *Spool) Ack(seq uint64) {
 	if s.closed || seq <= s.meta.Acked {
 		return
 	}
-	seq = min(seq, s.next-1)
+	seq = min(seq, s.last)
 	if seq <= s.meta.Acked {
 		return
 	}
@@ -826,6 +829,7 @@ func (s *Spool) BindHub(hubID string) (BindHubResult, error) {
 	s.metaDirty = false
 	s.segs = nil
 	s.next = 1
+	s.last = 0
 	s.bytes = 0
 	s.latest = map[string]uint64{}
 	s.dirty = false
@@ -922,7 +926,7 @@ func (s *Spool) Bounds() (first, last uint64) {
 	if i, j, ok := s.findLocked(s.meta.Acked + 1); ok {
 		first = s.segs[i].entries[j].seq
 	}
-	return first, s.next - 1
+	return first, s.last
 }
 
 // Status is the spool's state (replay fields are the sender's).
@@ -942,7 +946,7 @@ type Status struct {
 func (s *Spool) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := Status{Bytes: s.bytes, BudgetBytes: s.opts.MaxBytes, LastSeq: s.next - 1, AckedSeq: s.meta.Acked,
+	st := Status{Bytes: s.bytes, BudgetBytes: s.opts.MaxBytes, LastSeq: s.last, AckedSeq: s.meta.Acked,
 		Full: s.full, Dropped: s.dropped, Err: s.writeErr}
 	for _, g := range s.segs {
 		for _, e := range g.entries {

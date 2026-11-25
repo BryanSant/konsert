@@ -155,13 +155,15 @@ func (d *Daemon) spoolMessage(class spool.Class, key string, raw []byte) bool {
 
 // spoolConn is one connection's position in the spool.
 type spoolConn struct {
-	mu         sync.Mutex
-	cursor     uint64 // next seq to send; 0 until the hub resumed this connection
-	start      uint64 // cursor at resume
-	target     uint64 // last seq at resume: the replay ends after it
-	caught     bool   // the replay reached target (worker.spool.caught_up sent)
-	resetEpoch string // non-empty when the spool was archived and reset to a fresh epoch
-	resumed    chan struct{}
+	mu          sync.Mutex
+	cursor      uint64 // next seq to send; 0 until the hub resumed this connection
+	start       uint64 // cursor at resume
+	target      uint64 // last seq at resume: the replay ends after it
+	caught      bool   // the replay reached target (worker.spool.caught_up sent)
+	resetEpoch  string // non-empty when the spool was archived and reset to a fresh epoch
+	gen         uint64 // incremented on resume/reset so an in-flight writeSpool cannot clobber a reset cursor
+	resumedOnce bool
+	resumed     chan struct{}
 }
 
 func newSpoolConn() *spoolConn { return &spoolConn{resumed: make(chan struct{})} }
@@ -170,28 +172,32 @@ func newSpoolConn() *spoolConn { return &spoolConn{resumed: make(chan struct{})}
 func (c *spoolConn) resume(applied, last uint64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.cursor != 0 {
+	if c.resumedOnce {
 		return false
 	}
 	c.cursor, c.start, c.target = applied+1, applied+1, last
 	c.caught = last <= applied
+	c.gen++
+	c.resumedOnce = true
 	close(c.resumed)
 	return true
 }
 
 // resumeReset starts a fresh epoch stream after archiving an orphaned spool: writeSpool
 // sends worker.spool.caught_up{epoch: newEpoch, seq: 0} before any live records so the
-// hub adopts the new epoch and finishes waiting for the old replay.
+// hub adopts the new epoch and finishes waiting for the old replay. Unlike resume, it
+// resets the cursor even if the connection was previously resumed on the old epoch.
 func (c *spoolConn) resumeReset(newEpoch string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.cursor != 0 {
-		return false
-	}
 	c.cursor, c.start, c.target = 1, 1, 0
 	c.caught = false
 	c.resetEpoch = newEpoch
-	close(c.resumed)
+	c.gen++
+	if !c.resumedOnce {
+		c.resumedOnce = true
+		close(c.resumed)
+	}
 	return true
 }
 
@@ -223,6 +229,10 @@ func (d *Daemon) handleSpoolMessage(sc *spoolConn, env protocol.Envelope) bool {
 					"old_hub_id", oldHub, "new_hub_id", p.HubID,
 					"archive", filepath.Base(res.ArchiveDir), "epoch", res.NewEpoch)
 				if sc.resumeReset(res.NewEpoch) {
+					// Kick a live heartbeat in the new epoch: serveConn's initial
+					// kickHeartbeat may have landed in the archived old spool before
+					// worker.spool.resume arrived.
+					d.kickHeartbeat()
 					d.kickSpoolStatus()
 				}
 				return true
@@ -264,7 +274,7 @@ func (d *Daemon) writeSpool(sc *spoolConn, write func(outboundMsg) error) (bool,
 		return false, nil
 	}
 	sc.mu.Lock()
-	cursor, target, caught, resetEpoch := sc.cursor, sc.target, sc.caught, sc.resetEpoch
+	cursor, target, caught, resetEpoch, gen := sc.cursor, sc.target, sc.caught, sc.resetEpoch, sc.gen
 	sc.mu.Unlock()
 	if cursor == 0 {
 		return false, nil
@@ -277,23 +287,39 @@ func (d *Daemon) writeSpool(sc *spoolConn, write func(outboundMsg) error) (bool,
 			}
 		}
 		sc.mu.Lock()
-		sc.caught = true
-		sc.resetEpoch = ""
+		if sc.gen == gen {
+			sc.caught = true
+			sc.resetEpoch = ""
+		}
 		sc.mu.Unlock()
 		d.kickSpoolStatus()
 		return true, nil
 	}
 	recs, next := d.spool.Read(cursor, spoolBatch, 1<<20)
 	for _, r := range recs {
+		sc.mu.Lock()
+		stale := sc.gen != gen
+		sc.mu.Unlock()
+		if stale {
+			return true, nil
+		}
 		if err := write(outboundMsg{msgType: websocket.MessageText, data: protocol.WithSeq(r.Data, r.Seq)}); err != nil {
 			return false, err
 		}
 		d.spool.MarkSent(r.Seq)
 		sc.mu.Lock()
+		if sc.gen != gen {
+			sc.mu.Unlock()
+			return true, nil
+		}
 		sc.cursor = r.Seq + 1
 		sc.mu.Unlock()
 	}
 	sc.mu.Lock()
+	if sc.gen != gen {
+		sc.mu.Unlock()
+		return true, nil
+	}
 	sc.cursor = max(sc.cursor, next)
 	cursor = sc.cursor
 	sc.mu.Unlock()
@@ -305,7 +331,9 @@ func (d *Daemon) writeSpool(sc *spoolConn, write func(outboundMsg) error) (bool,
 			}
 		}
 		sc.mu.Lock()
-		sc.caught = true
+		if sc.gen == gen {
+			sc.caught = true
+		}
 		sc.mu.Unlock()
 		d.kickSpoolStatus()
 	}
@@ -339,8 +367,21 @@ func (d *Daemon) spoolStatus(sc *spoolConn) *protocol.SpoolStatus {
 }
 
 func (d *Daemon) kickSpoolStatus() {
+	if d.spoolKick == nil {
+		return
+	}
 	select {
 	case d.spoolKick <- struct{}{}:
+	default:
+	}
+}
+
+func (d *Daemon) kickHeartbeat() {
+	if d.hbKick == nil {
+		return
+	}
+	select {
+	case d.hbKick <- struct{}{}:
 	default:
 	}
 }

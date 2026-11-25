@@ -686,3 +686,70 @@ func TestBindHubArchiveRotation(t *testing.T) {
 		t.Fatalf("unexpected archives kept: %v", archives)
 	}
 }
+
+// Bounds and Status.LastSeq report the highest seq actually written (or acked across
+// restarts), not the ahead-of-use seq reservation, and reset cleanly after BindHub archives.
+func TestBoundsAndStatusUseLastWrittenSeqNotReservation(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w1")
+	c := newClock()
+	s := open(t, dir, c, nil)
+	if _, err := s.BindHub("hub-A"); err != nil {
+		t.Fatal(err)
+	}
+	if first, last := s.Bounds(); first != 1 || last != 0 {
+		t.Fatalf("empty spool bounds = %d..%d, want 1..0", first, last)
+	}
+	mustAppend(t, s, ClassChat, "", "m1")
+	mustAppend(t, s, ClassChat, "", "m2")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopening advances s.next past the 4096-seq reservation, but Bounds/Status.LastSeq
+	// must still report 2 (the last written seq), not 4097.
+	s = open(t, dir, c, nil)
+	if first, last := s.Bounds(); first != 1 || last != 2 {
+		t.Fatalf("reopened bounds = %d..%d, want 1..2", first, last)
+	}
+	if st := s.Status(); st.LastSeq != 2 {
+		t.Fatalf("reopened Status.LastSeq = %d, want 2", st.LastSeq)
+	}
+
+	// Acking all records and reopening must still report last == acked (2), not the reservation.
+	s.Ack(2)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = open(t, dir, c, nil)
+	if _, last := s.Bounds(); last != 2 {
+		t.Fatalf("reopened fully-acked bounds last = %d, want 2", last)
+	}
+	if st := s.Status(); st.LastSeq != 2 || st.AckedSeq != 2 {
+		t.Fatalf("reopened fully-acked status = %+v, want LastSeq=2 AckedSeq=2", st)
+	}
+
+	// Appending after reopen uses a reserved seq (> 4096) and updates last to that written seq.
+	seq := mustAppend(t, s, ClassChat, "", "m3")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = open(t, dir, c, nil)
+	defer s.Close()
+	if first, last := s.Bounds(); first != seq || last != seq {
+		t.Fatalf("after second reopen bounds = %d..%d, want %d..%d", first, last, seq, seq)
+	}
+
+	// Archiving via BindHub resets Bounds and Status.LastSeq to an empty new epoch.
+	c.add(time.Minute)
+	res, err := s.BindHub("hub-B")
+	if err != nil || !res.Archived {
+		t.Fatalf("BindHub mismatch: res=%+v err=%v", res, err)
+	}
+	if first, last := s.Bounds(); first != 1 || last != 0 {
+		t.Fatalf("post-archive bounds = %d..%d, want 1..0", first, last)
+	}
+	if st := s.Status(); st.LastSeq != 0 || st.AckedSeq != 0 {
+		t.Fatalf("post-archive status = %+v, want LastSeq=0 AckedSeq=0", st)
+	}
+}
