@@ -80,13 +80,14 @@ konsertd                                       hub
 * **Hub identity binding (KON-3R7J7):** the hub includes its persistent `hub_id` (from the
   `settings` table; a fresh or reset database generates a new UUIDv7) in `worker.spool.resume`
   on every transport (outbound, ssh, local socket). When konsertd learns a `hub_id` that differs
-  from `spool.json` — or `spool.json` has none yet while holding unacked records — it does not
-  replay: it closes its open segment files, renames the spool directory to
-  `spool-orphaned-<old hub id or "unknown">-<timestamp>` (keeping at most 2 archives and
+  from the one in `spool.json` it does not replay: it closes its open segment files, renames the spool directory to
+  `spool-orphaned-<old hub id>-<timestamp>` (keeping at most 2 archives and
   deleting older ones), starts a fresh epoch bound to the new `hub_id`, sends
   `worker.spool.caught_up` with the new `epoch` (so the hub adopts it before any live records
   arrive), and continues live. Records produced while disconnected from a known hub remain
-  tagged with that hub's id; a daemon that has never seen a hub tags nothing until it learns one.
+  tagged with that hub's id. A spool never bound to any hub (a fresh daemon, whose first facts
+  and vitals are written before it learns the hub's id) adopts the first hub it meets and
+  replays those records to it.
 * `worker.spool.caught_up` goes out in stream order once the cursor passes the last seq at
   resume time; records up to it that were never sent (superseded activity, compacted vitals)
   count as applied.

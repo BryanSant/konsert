@@ -621,23 +621,28 @@ func TestBindHubMismatchArchivesAndStartsFreshEpoch(t *testing.T) {
 	}
 }
 
-func TestBindHubUnknownWithUnackedRecordsArchives(t *testing.T) {
+func TestBindHubNeverBoundAdoptsFirstHubAndKeepsRecords(t *testing.T) {
+	// A fresh daemon spools its first records (facts, vitals) before it learns the hub's
+	// id; they belong to the first hub it binds to and must be replayed, not archived.
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "w1")
 	c := newClock()
 	s := open(t, dir, c, nil)
 	defer s.Close()
-	mustAppend(t, s, ClassChat, "", "legacy-unacked")
+	mustAppend(t, s, ClassVitals, "", "first-vitals")
 
 	res, err := s.BindHub("hub-A")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Archived || res.OldHubID != "" || !strings.HasPrefix(filepath.Base(res.ArchiveDir), "spool-orphaned-unknown-") {
-		t.Fatalf("unknown archive result: %+v", res)
+	if res.Archived {
+		t.Fatalf("a never-bound spool was archived: %+v", res)
 	}
-	if s.HubID() != "hub-A" || len(readAll(s, 1)) != 0 {
-		t.Fatalf("post-archive state: hub=%q recs=%d", s.HubID(), len(readAll(s, 1)))
+	if s.HubID() != "hub-A" || len(readAll(s, 1)) != 1 {
+		t.Fatalf("post-bind state: hub=%q recs=%d", s.HubID(), len(readAll(s, 1)))
+	}
+	if m, _ := filepath.Glob(filepath.Join(parent, "spool-orphaned-*")); len(m) != 0 {
+		t.Fatalf("unexpected archives: %v", m)
 	}
 }
 

@@ -762,24 +762,18 @@ func (s *Spool) HubID() string {
 
 // BindHubResult describes what BindHub did.
 type BindHubResult struct {
-	// Archived is true when the existing spool belonged to a different hub (or had no
-	// hub id while holding unacked records) and was archived in favor of a fresh epoch.
+	// Archived is true when the existing spool belonged to a different hub and was
+	// archived in favor of a fresh epoch.
 	Archived   bool
 	OldHubID   string
 	ArchiveDir string
 	NewEpoch   string
 }
 
-func (s *Spool) hasUnackedLocked() bool {
-	_, _, ok := s.findLocked(s.meta.Acked + 1)
-	return ok
-}
-
 // BindHub binds the spool to hubID. If the spool is already bound to hubID, nothing
-// changes. If it has never been bound and holds no unacked records, it is tagged in
-// place. Otherwise (it belonged to a different hub, or had no hub id while holding
-// unacked records), all open segment files are closed, the spool directory is renamed to
-// spool-orphaned-<oldHubID or "unknown">-<timestamp> (keeping at most
+// changes. If it has never been bound, it is tagged in place and keeps its records for
+// replay. Otherwise (it belonged to a different hub), all open segment files are closed,
+// the spool directory is renamed to spool-orphaned-<oldHubID>-<timestamp> (keeping at most
 // MaxOrphanedArchives), and a fresh epoch bound to hubID is started.
 func (s *Spool) BindHub(hubID string) (BindHubResult, error) {
 	hubID = strings.TrimSpace(hubID)
@@ -794,7 +788,10 @@ func (s *Spool) BindHub(hubID string) (BindHubResult, error) {
 	if s.meta.HubID == hubID {
 		return BindHubResult{}, nil
 	}
-	if s.meta.HubID == "" && !s.hasUnackedLocked() {
+	// A spool never bound to any hub (a fresh daemon whose first records were written
+	// before it learned the hub's id) belongs to the first hub it meets: adopt it and keep
+	// the records for replay. Only a spool bound to a different hub is archived.
+	if s.meta.HubID == "" {
 		s.meta.HubID = hubID
 		if err := s.writeMetaLocked(); err != nil {
 			s.meta.HubID = ""
