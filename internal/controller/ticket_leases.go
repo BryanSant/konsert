@@ -21,7 +21,127 @@ const (
 	defaultTicketLeaseTTLSeconds = 600 // 10 minutes
 	minTicketLeaseTTLSeconds     = 10
 	maxTicketLeaseTTLSeconds     = 86400
+
+	verifyTimeoutSetting        = "verify_timeout_seconds"
+	defaultVerifyTimeoutSeconds = 1200 // 20 minutes
+	minVerifyTimeoutSeconds     = 10
+	maxVerifyTimeoutSeconds     = 86400
+
+	defaultTicketRetryLimit = 2
+	verifyRepairMaxTokens   = 200
 )
+
+// verifyTimeout returns the configured verification command timeout (Hub override ->
+// controller setting -> 20 minutes default).
+func (h *Hub) verifyTimeout(ctx context.Context) time.Duration {
+	if h.VerifyTimeout > 0 {
+		return h.VerifyTimeout
+	}
+	if saved, err := h.store.GetAllSettings(ctx); err == nil {
+		if raw := strings.TrimSpace(saved[verifyTimeoutSetting]); raw != "" {
+			if sec, err := strconv.Atoi(raw); err == nil && sec >= minVerifyTimeoutSeconds && sec <= maxVerifyTimeoutSeconds {
+				return time.Duration(sec) * time.Second
+			}
+		}
+	}
+	return time.Duration(defaultVerifyTimeoutSeconds) * time.Second
+}
+
+// ticketAutonomy resolves effective retry_limit and escalate_on_blocker for tk
+// (ticket override > project default > built-in default: retry_limit=2, escalate_on_blocker=false).
+func (h *Hub) ticketAutonomy(ctx context.Context, tk store.Ticket) (retryLimit int, escalateOnBlocker bool) {
+	retryLimit = defaultTicketRetryLimit
+	var proj store.Project
+	if tk.ProjectID != "" {
+		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
+			proj = p
+		}
+	}
+	if tk.Autonomy.RetryLimit != nil {
+		retryLimit = *tk.Autonomy.RetryLimit
+	} else if proj.Autonomy.RetryLimit != nil {
+		retryLimit = *proj.Autonomy.RetryLimit
+	}
+	if tk.Autonomy.EscalateOnBlocker != nil {
+		escalateOnBlocker = *tk.Autonomy.EscalateOnBlocker
+	} else if proj.Autonomy.EscalateOnBlocker != nil {
+		escalateOnBlocker = *proj.Autonomy.EscalateOnBlocker
+	}
+	return retryLimit, escalateOnBlocker
+}
+
+func isVerifyFailureDigest(dig *protocol.RunDigest) bool {
+	if dig == nil {
+		return false
+	}
+	if dig.Verify != nil && dig.Verify.Exit != 0 {
+		return true
+	}
+	return dig.Failure != nil && dig.Failure.Category == protocol.ErrKindVerify
+}
+
+// formatVerifyRepairPrompt builds a compact self-repair prompt capped at ~200 tokens:
+//
+//	Verification failed (attempt N/M). Fix the failures below, then end your turn.
+//	<cmd>
+//	<failing tests>
+//	<tail>
+func formatVerifyRepairPrompt(attempt, retryLimit int, dig *protocol.RunDigest) string {
+	header := fmt.Sprintf("Verification failed (attempt %d/%d). Fix the failures below, then end your turn.", attempt, retryLimit)
+	var cmdLine string
+	if dig != nil && dig.Verify != nil && strings.TrimSpace(dig.Verify.Cmd) != "" {
+		cmdLine = strings.TrimSpace(dig.Verify.Cmd)
+	}
+	var tests []string
+	var tail []string
+	if dig != nil && dig.Failure != nil {
+		tests = append(tests, dig.Failure.Tests...)
+		tail = append(tail, dig.Failure.Tail...)
+	}
+
+	render := func(tList, tailLines []string) string {
+		var b strings.Builder
+		b.WriteString(header)
+		if cmdLine != "" {
+			b.WriteByte('\n')
+			b.WriteString(cmdLine)
+		}
+		if len(tList) > 0 {
+			b.WriteByte('\n')
+			b.WriteString("Failing tests: ")
+			b.WriteString(strings.Join(tList, ", "))
+		}
+		if len(tailLines) > 0 {
+			b.WriteByte('\n')
+			b.WriteString(strings.Join(tailLines, "\n"))
+		}
+		return b.String()
+	}
+
+	out := render(tests, tail)
+	if protocol.EstimateTokens(out) <= verifyRepairMaxTokens {
+		return out
+	}
+	// 1. Trim tail lines from the front (oldest first, preserving most recent output).
+	for len(tail) > 0 && protocol.EstimateTokens(out) > verifyRepairMaxTokens {
+		tail = tail[1:]
+		out = render(tests, tail)
+	}
+	// 2. Trim failing test names from the end.
+	for len(tests) > 0 && protocol.EstimateTokens(out) > verifyRepairMaxTokens {
+		tests = tests[:len(tests)-1]
+		out = render(tests, tail)
+	}
+	// 3. Hard cap if still over budget.
+	if protocol.EstimateTokens(out) > verifyRepairMaxTokens {
+		maxChars := verifyRepairMaxTokens * 4
+		runes := []rune(out)
+		if len(runes) > maxChars {
+			out = string(runes[:maxChars])
+		}
+	}
+	return out
+}
 
 // ticketLeaseTTL returns the configured ticket lease TTL (Hub override -> controller
 // setting -> 10 minutes default).
@@ -568,6 +688,9 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 	}
 	if dig != nil && task != nil {
 		d := *dig
+		if attempt := max(tk.Attempt, 1); d.Attempt < attempt {
+			d.Attempt = attempt
+		}
 		mergeTaskFollowupsIntoDigest(&d, task.Followups)
 		if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
 			_ = h.store.UpdateTaskDigest(ctx, task.ID, string(b))
@@ -629,6 +752,62 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			}
 			h.closeChat(ctx, cs.ID)
 		default:
+			if isVerifyFailureDigest(dig) {
+				retryLimit, escalateOnBlocker := h.ticketAutonomy(ctx, tk)
+				currentAttempt := max(tk.Attempt, 1)
+				if dig.Attempt > currentAttempt {
+					currentAttempt = dig.Attempt
+				}
+				if currentAttempt < retryLimit {
+					tk.Attempt = currentAttempt + 1
+					if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+						h.broadcastFleetUpdate("ticket", updated)
+					}
+					repairPrompt := formatVerifyRepairPrompt(currentAttempt, retryLimit, dig)
+					if sErr := h.SendTicketTurn(ctx, tk.ID, repairPrompt); sErr == nil {
+						return
+					} else {
+						h.logger.Warn("self-repair turn dispatch failed; escalating ticket",
+							"ticket_id", tk.ID, "ticket_sid", tk.SID, "attempt", currentAttempt, "err", sErr)
+					}
+				}
+				// Retries exhausted (or repair dispatch failed).
+				exitCode := 1
+				if dig.Verify != nil && dig.Verify.Exit != 0 {
+					exitCode = dig.Verify.Exit
+				}
+				if escalateOnBlocker {
+					if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusNeedsYou); err == nil && changed {
+						h.broadcastFleetUpdate("ticket", updated)
+						h.kickScheduler()
+					} else if tk.Lease == nil {
+						tk.Status = store.TicketStatusNeedsYou
+						if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+							h.broadcastFleetUpdate("ticket", updated)
+							h.kickScheduler()
+						}
+					}
+					if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
+						_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusWaitingInput, summary, "", &exitCode, causeScheduler)
+					}
+					return
+				}
+				if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
+					h.broadcastFleetUpdate("ticket", updated)
+					h.kickScheduler()
+				} else if tk.Lease == nil {
+					tk.Status = store.TicketStatusFailed
+					if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+						h.broadcastFleetUpdate("ticket", updated)
+						h.kickScheduler()
+					}
+				}
+				if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
+					_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusFailed, summary, "", &exitCode, causeScheduler)
+				}
+				h.closeChat(ctx, cs.ID)
+				return
+			}
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
 				h.kickScheduler()

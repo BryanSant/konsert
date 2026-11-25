@@ -103,6 +103,7 @@ CREATE TABLE tickets (
     hints_json         TEXT NOT NULL DEFAULT '{}',
     verify_cmd         TEXT NOT NULL DEFAULT '',
     autonomy_json      TEXT NOT NULL DEFAULT '{}',
+    attempt            INTEGER NOT NULL DEFAULT 0,
     lease_worker_id    TEXT NOT NULL DEFAULT '',
     lease_task_id      TEXT NOT NULL DEFAULT '',
     lease_expires_at   TEXT,

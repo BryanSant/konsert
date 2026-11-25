@@ -77,6 +77,9 @@ type ManagerOptions struct {
 	OnActivity func(protocol.SessionActivity)
 	// MachineName is included in post-turn RunDigests for ticket-backed chats.
 	MachineName string
+	// VerifyTimeout overrides the default 20m verification command timeout when
+	// AgentChatOpen.VerifyTimeoutSeconds is not set.
+	VerifyTimeout time.Duration
 	// ProvisionBindings, when set, provisions per-repo ticket worktrees before opening
 	// a ticket-backed chat engine.
 	ProvisionBindings func(ctx context.Context, ticketSID, requestedRoot string, bindings []protocol.TaskRepoBinding) (ProvisionedWorktrees, error)
@@ -144,6 +147,8 @@ type chatState struct {
 	turnMessageBuf   strings.Builder
 	turnLastMessage  string
 	turnToolOutput   strings.Builder
+	verifying        bool
+	verifyCancel     context.CancelFunc
 }
 
 // Suspender is implemented by sessions that can freeze and thaw their engine (every
@@ -166,6 +171,9 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 	if opts.CancelGrace <= 0 {
 		opts.CancelGrace = DefaultCancelGrace
+	}
+	if opts.VerifyTimeout <= 0 {
+		opts.VerifyTimeout = DefaultVerifyTimeout
 	}
 	if opts.SweepInterval <= 0 {
 		opts.SweepInterval = defaultSweepInterval
@@ -461,10 +469,14 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	for _, c := range chats {
 		c.mu.Lock()
 		s := c.sess
+		vcancel := c.verifyCancel
 		c.sess = nil
 		c.gen++
 		c.turnActive = false
 		c.mu.Unlock()
+		if vcancel != nil {
+			vcancel()
+		}
 		if s == nil {
 			continue
 		}
@@ -864,11 +876,18 @@ func (m *Manager) doControl(c *chatState, ctl protocol.AgentChatControl) {
 		c.opts.ApprovalMode = ctl.ApprovalMode
 	}
 	sess := c.sess
+	var vcancel context.CancelFunc
 	if ctl.Cancel && c.turnActive && c.cancelAt.IsZero() {
 		c.cancelAt = m.opts.Now()
 	}
+	if ctl.Cancel && c.verifyCancel != nil {
+		vcancel = c.verifyCancel
+	}
 	c.lastActivity = m.opts.Now()
 	c.mu.Unlock()
+	if vcancel != nil {
+		vcancel()
+	}
 	if sess == nil {
 		// Applied on the next open.
 		return
@@ -883,6 +902,7 @@ func (m *Manager) doControl(c *chatState, ctl protocol.AgentChatControl) {
 func (m *Manager) closeSession(c *chatState, why string) {
 	c.mu.Lock()
 	s := c.sess
+	vcancel := c.verifyCancel
 	c.sess = nil
 	c.gen++
 	wasTurn := c.turnActive
@@ -896,6 +916,9 @@ func (m *Manager) closeSession(c *chatState, why string) {
 		m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusIdle, Text: why})
 	}
 	c.mu.Unlock()
+	if vcancel != nil {
+		vcancel()
+	}
 	if s != nil {
 		m.thawForClose(c, s)
 		m.rememberSessionID(c, s)
@@ -936,15 +959,62 @@ func (m *Manager) isClosed() bool {
 
 // onEngineEvent stamps and forwards an engine event, tracking turn and session state.
 func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEvent) {
-	var gitByRepo map[string]*protocol.GitSummary
+	var (
+		gitByRepo map[string]*protocol.GitSummary
+		verifyRes *VerifyResult
+	)
 	if ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError {
 		c.mu.Lock()
-		ticketSID := c.opts.TicketSID
+		valid := c.gen == gen
+		ticketSID := strings.TrimSpace(c.opts.TicketSID)
 		wts := c.worktrees
 		baseSHAs := c.worktreeBaseSHAs
+		verifyCmd := strings.TrimSpace(c.opts.VerifyCmd)
+		verifyDir := c.effectiveDir
+		fallbackCwd := c.opts.Cwd
+		timeoutSec := c.opts.VerifyTimeoutSeconds
 		c.mu.Unlock()
+		if !valid {
+			return
+		}
 		if ticketSID != "" && len(wts) > 0 {
 			gitByRepo = captureWorktreeGit(wts, baseSHAs)
+		}
+		if ev.Kind == protocol.EventTurnEnd && ev.StopReason != "cancelled" && ev.StopReason != "error" && ticketSID != "" && verifyCmd != "" {
+			if verifyDir == "" {
+				verifyDir, _ = ResolveCwd(fallbackCwd)
+			}
+			timeout := m.opts.VerifyTimeout
+			if timeoutSec > 0 {
+				timeout = time.Duration(timeoutSec) * time.Second
+			}
+			vctx, vcancel := context.WithCancel(context.Background())
+			c.mu.Lock()
+			if c.gen != gen {
+				c.mu.Unlock()
+				vcancel()
+				return
+			}
+			c.verifying = true
+			c.verifyCancel = vcancel
+			c.mu.Unlock()
+
+			res := RunVerify(vctx, verifyDir, verifyCmd, timeout)
+			vcancel()
+
+			c.mu.Lock()
+			c.verifying = false
+			c.verifyCancel = nil
+			stillValid := c.gen == gen
+			c.mu.Unlock()
+			if !stillValid {
+				return
+			}
+			if res.Canceled {
+				ev.StopReason = "cancelled"
+			} else {
+				verifyRes = &res
+			}
 		}
 	}
 
@@ -986,7 +1056,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 			c.pending[ev.Elicitation.ID] = true
 		}
 		if ev.Digest == nil {
-			ev.Digest = m.buildTurnDigestLocked(c, ev, nil)
+			ev.Digest = m.buildTurnDigestLocked(c, ev, nil, nil)
 		}
 	case protocol.EventElicitationOK:
 		if ev.Elicitation != nil {
@@ -999,7 +1069,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		c.turnActive = false
 		c.pending = map[string]bool{}
 		if ev.Digest == nil {
-			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
+			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo, verifyRes)
 		}
 	case protocol.EventError:
 		if ev.TurnID == "" && c.turnActive {
@@ -1021,7 +1091,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 			}
 		}
 		if ev.Digest == nil {
-			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
+			ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo, nil)
 		}
 	}
 	if ev.TurnID == "" && c.turnActive && ev.Kind != protocol.EventSessionReady {
@@ -1138,7 +1208,7 @@ func (m *Manager) emitError(c *chatState, turnID string, ev protocol.AgentChatEv
 	}
 	c.errorSeen = true
 	if ev.Digest == nil {
-		ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo)
+		ev.Digest = m.buildTurnDigestLocked(c, ev, gitByRepo, nil)
 	}
 	m.emitLocked(c, ev)
 	acctID := c.acct.ID
@@ -1219,7 +1289,7 @@ func (m *Manager) Sweep() {
 			c.turnActive = false
 			c.pending = map[string]bool{}
 			m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "cancelled"})
-		case c.turnActive && len(c.pending) == 0 && !c.timedOut && now.Sub(c.lastEvent) >= m.opts.TurnWatchdog:
+		case c.turnActive && !c.verifying && len(c.pending) == 0 && !c.timedOut && now.Sub(c.lastEvent) >= m.opts.TurnWatchdog:
 			// The turn stays running (the user may cancel or keep waiting).
 			c.timedOut = true
 			mins := int(m.opts.TurnWatchdog.Round(time.Minute) / time.Minute)

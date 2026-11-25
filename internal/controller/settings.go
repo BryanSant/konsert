@@ -48,6 +48,8 @@ type SettingsUpdate struct {
 	DefaultMergeStyle   *string `json:"default_merge_style"`
 	// TicketLeaseTTLSeconds is the duration of a ticket lease in seconds (default 600 = 10m).
 	TicketLeaseTTLSeconds *int `json:"ticket_lease_ttl_seconds"`
+	// VerifyTimeoutSeconds is the verification command timeout in seconds (default 1200 = 20m).
+	VerifyTimeoutSeconds *int `json:"verify_timeout_seconds"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -154,6 +156,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		updates[ticketLeaseTTLSetting] = strconv.Itoa(*u.TicketLeaseTTLSeconds)
 	}
+	if u.VerifyTimeoutSeconds != nil {
+		if *u.VerifyTimeoutSeconds < minVerifyTimeoutSeconds || *u.VerifyTimeoutSeconds > maxVerifyTimeoutSeconds {
+			return errInvalidSettings{fmt.Errorf("%s must be between %d and %d", verifyTimeoutSetting, minVerifyTimeoutSeconds, maxVerifyTimeoutSeconds)}
+		}
+		updates[verifyTimeoutSetting] = strconv.Itoa(*u.VerifyTimeoutSeconds)
+	}
 
 	if len(updates) > 0 {
 		if err := s.store.SetSettings(ctx, updates); err != nil {
@@ -257,6 +265,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.TicketLeaseTTLSeconds = &n
+		case verifyTimeoutSetting:
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.VerifyTimeoutSeconds = &n
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -296,6 +310,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"default_delivery_mode":    r.DefaultDeliveryMode,
 		"default_merge_style":      r.DefaultMergeStyle,
 		"ticket_lease_ttl_seconds": r.TicketLeaseTTLSeconds,
+		"verify_timeout_seconds":   r.VerifyTimeoutSeconds,
 		"commander_backend":        r.CommanderBackend,
 		"api_key_required":         r.APIKeyRequired,
 	}

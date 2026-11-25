@@ -79,7 +79,7 @@ func appendTurnToolOutput(b *strings.Builder, s string) {
 
 // buildTurnDigestLocked builds a compact RunDigest for ticket-backed chat events.
 // c.mu must be held.
-func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent, gitByRepo map[string]*protocol.GitSummary) *protocol.RunDigest {
+func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent, gitByRepo map[string]*protocol.GitSummary, vr *VerifyResult) *protocol.RunDigest {
 	ticketSID := strings.TrimSpace(c.opts.TicketSID)
 	if ticketSID == "" {
 		return nil
@@ -99,6 +99,7 @@ func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent
 	case protocol.EventTurnEnd:
 		taskStatus := protocol.TaskStatusCompleted
 		canceled := false
+		failureCat := ""
 		switch ev.StopReason {
 		case "cancelled":
 			taskStatus = protocol.TaskStatusCanceled
@@ -110,19 +111,30 @@ func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent
 		if outText == "" {
 			outText = finalMsg
 		}
+		var verifyRes *protocol.DigestVerify
+		if vr != nil && !vr.Skipped && vr.Verify != nil {
+			verifyRes = vr.Verify
+			if vr.Verify.Exit != 0 {
+				taskStatus = protocol.TaskStatusFailed
+				failureCat = protocol.ErrKindVerify
+				outText = string(vr.Output)
+			}
+		}
 		d := digest.Build(digest.Input{
-			TicketSID:    ticketSID,
-			Attempt:      c.turnAttempt,
-			TaskStatus:   taskStatus,
-			Machine:      m.opts.MachineName,
-			Agent:        c.opts.Agent,
-			Model:        model,
-			Duration:     duration,
-			Canceled:     canceled,
-			Summary:      finalMsg,
-			FinalMessage: finalMsg,
-			Output:       []byte(outText),
-			Git:          gitByRepo,
+			TicketSID:       ticketSID,
+			Attempt:         c.turnAttempt,
+			TaskStatus:      taskStatus,
+			Machine:         m.opts.MachineName,
+			Agent:           c.opts.Agent,
+			Model:           model,
+			Duration:        duration,
+			Canceled:        canceled,
+			FailureCategory: failureCat,
+			Summary:         finalMsg,
+			FinalMessage:    finalMsg,
+			Output:          []byte(outText),
+			Git:             gitByRepo,
+			Verify:          verifyRes,
 		})
 		return &d
 

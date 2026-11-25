@@ -63,6 +63,11 @@ type AgentChatOpen struct {
 	// (<root>/<ticket sid>/<repo>) are provisioned by syred before opening the engine.
 	TicketSID string            `json:"ticket_sid,omitempty"`
 	Bindings  []TaskRepoBinding `json:"bindings,omitempty"`
+	// VerifyCmd is the verification command syred runs in the ticket workdir when a
+	// ticket chat's turn ends OK (empty skips verification).
+	VerifyCmd string `json:"verify_cmd,omitempty"`
+	// VerifyTimeoutSeconds bounds a single verification run (0 uses syred's default 20m).
+	VerifyTimeoutSeconds int `json:"verify_timeout_seconds,omitzero"`
 }
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.

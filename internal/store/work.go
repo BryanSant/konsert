@@ -174,6 +174,7 @@ type Ticket struct {
 	Hints        TicketHints      `json:"hints,omitzero"`
 	VerifyCmd    string           `json:"verify_cmd,omitempty"`
 	Autonomy     AutonomyPolicy   `json:"autonomy,omitzero"`
+	Attempt      int              `json:"attempt,omitzero"`
 	Lease        *TicketLease     `json:"lease,omitzero"`
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`

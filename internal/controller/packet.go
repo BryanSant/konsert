@@ -154,13 +154,7 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 	}
 
 	// Verify precedence: ticket verify_cmd > repo verify_cmd > project verify_cmd.
-	verifyCmd := singleLine(tk.VerifyCmd)
-	if verifyCmd == "" && len(repoVerifyCmds) > 0 {
-		verifyCmd = strings.Join(repoVerifyCmds, " && ")
-	}
-	if verifyCmd == "" {
-		verifyCmd = singleLine(proj.VerifyCmd)
-	}
+	verifyCmd := resolveVerifyCmd(tk.VerifyCmd, repoVerifyCmds, proj.VerifyCmd)
 
 	return protocol.DispatchPacket{
 		TicketSID:  tk.SID,
@@ -241,6 +235,58 @@ func firstParagraph(body string) string {
 		parts = append(parts, trimmed)
 	}
 	return singleLine(strings.Join(parts, " "))
+}
+
+func resolveVerifyCmd(ticketCmd string, repoCmds []string, projectCmd string) string {
+	if cmd := singleLine(ticketCmd); cmd != "" {
+		return cmd
+	}
+	if len(repoCmds) > 0 {
+		return strings.Join(repoCmds, " && ")
+	}
+	return singleLine(projectCmd)
+}
+
+// ticketVerifyCmd resolves the effective verification command for ticketID using the
+// precedence: ticket verify_cmd > bound repo verify_cmd(s) > project verify_cmd.
+func (h *Hub) ticketVerifyCmd(ctx context.Context, ticketID string) string {
+	if ticketID == "" {
+		return ""
+	}
+	tk, err := h.store.GetTicket(ctx, ticketID)
+	if err != nil {
+		return ""
+	}
+	if cmd := singleLine(tk.VerifyCmd); cmd != "" {
+		return cmd
+	}
+	var repoVerifyCmds []string
+	if bindings, err := h.store.ListTicketRepoBindings(ctx, tk.ID); err == nil && len(bindings) > 0 {
+		repos := make([]store.Repo, 0, len(bindings))
+		for _, b := range bindings {
+			if r, rErr := h.store.GetRepo(ctx, b.RepoID); rErr == nil {
+				repos = append(repos, r)
+			}
+		}
+		sort.Slice(repos, func(i, j int) bool {
+			if repos[i].Name != repos[j].Name {
+				return repos[i].Name < repos[j].Name
+			}
+			return repos[i].ID < repos[j].ID
+		})
+		for _, r := range repos {
+			if cmd := singleLine(r.VerifyCmd); cmd != "" && !slices.Contains(repoVerifyCmds, cmd) {
+				repoVerifyCmds = append(repoVerifyCmds, cmd)
+			}
+		}
+	}
+	var projCmd string
+	if tk.ProjectID != "" {
+		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
+			projCmd = p.VerifyCmd
+		}
+	}
+	return resolveVerifyCmd(tk.VerifyCmd, repoVerifyCmds, projCmd)
 }
 
 func singleLine(s string) string {
