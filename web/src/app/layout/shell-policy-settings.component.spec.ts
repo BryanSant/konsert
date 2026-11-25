@@ -20,7 +20,7 @@ describe('ShellPolicySettingsComponent', () => {
 
   async function setup() {
     TestBed.inject(FleetStore).projects.set([
-      { id: 'p1', sid: 'p-1', workspace_id: 'w', name: 'webapp', is_default: false, created_at: '' },
+      { id: 'p1', sid: 'p-1', name: 'webapp', is_default: false, created_at: '' },
     ] as never);
     const fixture = TestBed.createComponent(ShellPolicySettingsComponent);
     fixture.detectChanges();

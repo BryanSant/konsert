@@ -14,7 +14,7 @@ describe('FleetStore (Zoneless Signals)', () => {
     TestBed.resetTestingModule();
   });
 
-  it('tracks workers and tasks, and removing a worker drops its spaces', () => {
+  it('tracks workers and tasks, and removing a worker drops it from the store', () => {
     TestBed.configureTestingModule({});
     const fleet = TestBed.inject(FleetStore);
 
@@ -79,18 +79,9 @@ describe('FleetStore (Zoneless Signals)', () => {
     expect(fleet.onlineWorkersCount()).toBe(1);
     expect(Object.keys(fleet.tasksById())).toHaveLength(2);
 
-    // removeWorker removes worker and its spaces
-    fleet.upsertSpace({
-      id: 'sp-w1',
-      sid: 'sp-w1-sid',
-      worker_id: 'w1',
-      name: 'syre',
-      path: '/home/dev/syre',
-      created_at: new Date().toISOString(),
-    });
+    // removeWorker removes worker
     fleet.removeWorker('w1');
     expect(fleet.workersById()['w1']).toBeUndefined();
-    expect(fleet.spaces().length).toBe(0);
   });
 
   it('resolves unified Chat Session Machine/Agent/Model via default -> last used -> guess cascade', () => {
@@ -149,16 +140,12 @@ describe('FleetStore (Zoneless Signals)', () => {
     expect(r3.model).toBe('gemini-2.5-flash');
     expect(r3.model_source).toBe('default');
 
-    // 4. Taxonomy cascading removal
-    fleet.upsertWorkspace({ id: 'ws-1', sid: 'ws-1-sid', name: 'Work', is_default: false, created_at: new Date().toISOString() });
-    fleet.upsertProject({ id: 'p-1', sid: 'p-1-sid', workspace_id: 'ws-1', name: 'App1', is_default: false, created_at: new Date().toISOString() });
-    fleet.upsertRepo({ id: 'r-1', sid: 'r-1-sid', project_id: 'p-1', worker_id: 'w-local', name: 'api', path: '/api', created_at: new Date().toISOString() });
-    fleet.upsertWorktree({ id: 'wt-1', sid: 'wt-1-sid', repo_id: 'r-1', branch: 'main', path: '/api', is_primary: true, created_at: new Date().toISOString() });
-    fleet.removeWorkspace('ws-1');
-    expect(fleet.workspaces().length).toBe(0);
+    // 4. Project removal cascades its registered repos
+    fleet.upsertProject({ id: 'p-1', sid: 'p-1-sid', name: 'App1', is_default: false, created_at: new Date().toISOString() });
+    fleet.upsertRepo({ id: 'r-1', sid: 'r-1-sid', project_id: 'p-1', name: 'api', remote_url: 'https://github.com/org/api.git', created_at: new Date().toISOString() });
+    fleet.removeProject('p-1');
     expect(fleet.projects().length).toBe(0);
     expect(fleet.repos().length).toBe(0);
-    expect(fleet.worktrees().length).toBe(0);
   });
 
   it('parses markdown, attachments and tool card task ids', () => {

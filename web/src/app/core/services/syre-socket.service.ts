@@ -12,13 +12,10 @@ import {
   Project,
   PtyFrameEvent,
   Repo,
-  Space,
   Task,
   TaskEvent,
   UsageSummary,
   Worker,
-  Workspace,
-  Worktree,
 } from '../models/syre.models';
 import { AgentAccount } from '../models/agent-chat.models';
 import { SessionActivity, ShellReminder } from '../models/activity.models';
@@ -250,11 +247,8 @@ export class SyreSocketService {
           worker?: Worker;
           task?: Task;
           event?: TaskEvent;
-          space?: Space;
-          workspace?: Workspace;
           project?: Project;
           repo?: Repo;
-          worktree?: Worktree;
           audit?: AuditEvent;
           deleted_id?: string;
           worker_id?: string;
@@ -314,17 +308,9 @@ export class SyreSocketService {
           this.controlStore.applyPause(p.pause);
         } else if (p.kind === 'question' && p.question) {
           this.questionsStore.apply(p.question);
-        } else if (p.kind === 'space' && p.space) {
-          this.fleetStore.upsertSpace(p.space);
-        } else if (p.kind === 'space_deleted' && p.deleted_id) {
-          this.fleetStore.removeSpace(p.deleted_id);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {
           this.fleetStore.removeWorker(p.deleted_id);
           this.agentAccounts.removeWorker(p.deleted_id);
-        } else if (p.kind === 'workspace' && p.workspace) {
-          this.fleetStore.upsertWorkspace(p.workspace);
-        } else if (p.kind === 'workspace_deleted' && p.deleted_id) {
-          this.fleetStore.removeWorkspace(p.deleted_id);
         } else if (p.kind === 'project' && p.project) {
           this.fleetStore.upsertProject(p.project);
         } else if (p.kind === 'project_deleted' && p.deleted_id) {
@@ -333,10 +319,6 @@ export class SyreSocketService {
           this.fleetStore.upsertRepo(p.repo);
         } else if (p.kind === 'repo_deleted' && p.deleted_id) {
           this.fleetStore.removeRepo(p.deleted_id);
-        } else if (p.kind === 'worktree' && p.worktree) {
-          this.fleetStore.upsertWorktree(p.worktree);
-        } else if (p.kind === 'worktree_deleted' && p.deleted_id) {
-          this.fleetStore.removeWorktree(p.deleted_id);
         }
         break;
       }

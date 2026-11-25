@@ -50,15 +50,14 @@ func (s *Server) byRef(kind ids.Kind, next http.HandlerFunc) http.HandlerFunc {
 
 // queryRefKinds are the query parameters that name an entity.
 var queryRefKinds = map[string]ids.Kind{
-	"worker_id":    ids.Machine,
-	"task_id":      ids.Task,
-	"chat_id":      ids.Chat,
-	"session_id":   ids.Chat,
-	"space_id":     ids.Space,
-	"workspace_id": ids.Workspace,
-	"project_id":   ids.Project,
-	"repo_id":      ids.Repo,
-	"worktree_id":  ids.Worktree,
+	"worker_id":  ids.Machine,
+	"task_id":    ids.Task,
+	"chat_id":    ids.Chat,
+	"session_id": ids.Chat,
+	"project_id": ids.Project,
+	"repo_id":    ids.Repo,
+	"ticket_id":  ids.Ticket,
+	"parent_id":  ids.Ticket,
 }
 
 // withQueryRefs resolves entity-naming query parameters (worker_id=m-…) to ids.

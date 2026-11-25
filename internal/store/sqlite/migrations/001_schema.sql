@@ -7,7 +7,7 @@
 --       persistent UUID.
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
---       r-… repo, s-… space, ws-… workspace, wt-… worktree,
+--       r-… repo, tk-… ticket,
 --       h-… hold, rq-… user request, q-… question, o-… override request, v-… veto.
 -- Event/log/child tables keep integer or composite keys. External identities live in
 -- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
@@ -48,67 +48,96 @@ CREATE TABLE workers (
     agents_use_git_bash INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE workspaces (
-    id         TEXT PRIMARY KEY,
-    sid        TEXT NOT NULL UNIQUE,
-    name       TEXT NOT NULL,
-    is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-);
-
 CREATE TABLE projects (
     id            TEXT PRIMARY KEY,
     sid           TEXT NOT NULL UNIQUE,
-    workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name          TEXT NOT NULL,
     is_default    INTEGER NOT NULL DEFAULT 0,
     -- headline is the project's current goal, set by the commander (set_narration).
     headline      TEXT NOT NULL DEFAULT '',
     headline_at   TEXT,
+    -- Verification and autonomy defaults (docs/design/work.md).
+    verify_cmd    TEXT NOT NULL DEFAULT '',
+    autonomy_json TEXT NOT NULL DEFAULT '{}',
     -- Delivery overrides (SYR-H50YW): '' inherits global default.
     delivery_mode TEXT NOT NULL DEFAULT '',
     merge_style   TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL
 );
-CREATE INDEX idx_projects_workspace ON projects(workspace_id);
 
+-- Per-project repository registry keyed by remote_url (docs/design/work.md).
+-- Per-machine checkouts and worktrees are reported by daemons as facts, not stored here.
 CREATE TABLE repos (
-    id            TEXT PRIMARY KEY,
-    sid           TEXT NOT NULL UNIQUE,
-    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    worker_id     TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
-    name          TEXT NOT NULL,
-    path          TEXT NOT NULL,
-    remote_url    TEXT NOT NULL DEFAULT '',
+    id             TEXT PRIMARY KEY,
+    sid            TEXT NOT NULL UNIQUE,
+    project_id     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    remote_url     TEXT NOT NULL,
+    default_branch TEXT NOT NULL DEFAULT '',
+    verify_cmd     TEXT NOT NULL DEFAULT '',
     -- Delivery overrides (SYR-H50YW): '' inherits project / global default.
-    delivery_mode TEXT NOT NULL DEFAULT '',
-    merge_style   TEXT NOT NULL DEFAULT '',
-    created_at    TEXT NOT NULL
+    delivery_mode  TEXT NOT NULL DEFAULT '',
+    merge_style    TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL,
+    UNIQUE(project_id, remote_url)
 );
 CREATE INDEX idx_repos_project ON repos(project_id);
-CREATE INDEX idx_repos_worker ON repos(worker_id);
 
-CREATE TABLE worktrees (
-    id         TEXT PRIMARY KEY,
-    sid        TEXT NOT NULL UNIQUE,
-    repo_id    TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-    branch     TEXT NOT NULL DEFAULT '',
-    path       TEXT NOT NULL,
-    is_primary INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+-- Work items (docs/design/work.md): ka fields plus Syre runtime fields.
+-- Lease columns are added in A1b; attempts and post-run digests (docs/design/autopilot.md)
+-- are added in the Autopilot execution tickets.
+CREATE TABLE tickets (
+    id              TEXT PRIMARY KEY,
+    sid             TEXT NOT NULL UNIQUE,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    parent_id       TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+    kind            TEXT NOT NULL, -- initiative | epic | feature | bug | chore | spike
+    title           TEXT NOT NULL,
+    body            TEXT NOT NULL DEFAULT '',
+    acceptance_json TEXT NOT NULL DEFAULT '[]',
+    labels_json     TEXT NOT NULL DEFAULT '[]',
+    priority        TEXT NOT NULL DEFAULT 'P2', -- P0 | P1 | P2 | P3
+    status          TEXT NOT NULL DEFAULT 'backlog', -- backlog | ready | running | needs_you | review | done | failed | canceled
+    hints_json      TEXT NOT NULL DEFAULT '{}',
+    verify_cmd      TEXT NOT NULL DEFAULT '',
+    autonomy_json   TEXT NOT NULL DEFAULT '{}',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
 );
-CREATE INDEX idx_worktrees_repo ON worktrees(repo_id);
+CREATE INDEX idx_tickets_project ON tickets(project_id, status, priority, created_at);
+CREATE INDEX idx_tickets_parent ON tickets(parent_id) WHERE parent_id IS NOT NULL;
+CREATE INDEX idx_tickets_status ON tickets(status, priority, created_at);
 
-CREATE TABLE spaces (
-    id         TEXT PRIMARY KEY,
-    sid        TEXT NOT NULL UNIQUE,
-    worker_id  TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    path       TEXT NOT NULL,
-    branch     TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-CREATE INDEX idx_spaces_worker ON spaces(worker_id, created_at DESC);
+-- DAG dependency edges: ticket_id is blocked by blocked_by_id. Cycles are rejected in the store.
+CREATE TABLE ticket_edges (
+    ticket_id     TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    blocked_by_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (ticket_id, blocked_by_id),
+    CHECK (ticket_id != blocked_by_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_ticket_edges_blocker ON ticket_edges(blocked_by_id);
+
+-- Per-ticket bindings to one or more repos in the project's registry.
+CREATE TABLE ticket_repo_bindings (
+    ticket_id     TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    repo_id       TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    base_branch   TEXT NOT NULL DEFAULT '',
+    target_branch TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (ticket_id, repo_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_ticket_repo_bindings_repo ON ticket_repo_bindings(repo_id);
+
+-- External tracker links (ka, github-projects, jira, linear, etc.).
+CREATE TABLE external_refs (
+    ticket_id   TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    tracker     TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    url         TEXT NOT NULL DEFAULT '',
+    version     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (ticket_id, tracker, external_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_external_refs_lookup ON external_refs(tracker, external_id);
 
 CREATE TABLE tasks (
     id                 TEXT PRIMARY KEY,
@@ -118,11 +147,8 @@ CREATE TABLE tasks (
     worker_id          TEXT REFERENCES workers(id),
     worker_pinned      INTEGER NOT NULL DEFAULT 0,
     selector_json      TEXT NOT NULL DEFAULT '',
-    workspace_id       TEXT NOT NULL DEFAULT '00000000-0000-7000-8000-000000000000',
     project_id         TEXT NOT NULL DEFAULT '00000000-0000-7000-8000-000000000001',
     repo_id            TEXT NOT NULL DEFAULT '',
-    worktree_id        TEXT NOT NULL DEFAULT '',
-    space_id           TEXT NOT NULL DEFAULT '',
     origin             TEXT NOT NULL DEFAULT 'commander',
     session_kind       TEXT NOT NULL DEFAULT 'chat',
     agent              TEXT NOT NULL,
@@ -150,8 +176,7 @@ CREATE TABLE tasks (
     title              TEXT NOT NULL DEFAULT '',
     narration          TEXT NOT NULL DEFAULT '',
     narration_at       TEXT,
-    -- ticket_id / ticket_title: the ka ticket the task works on (detected in its title or
-    -- prompt; the title is resolved with ka in the background).
+    -- ticket_id / ticket_title: optional link to a Syre or external ticket the task works on.
     ticket_id          TEXT NOT NULL DEFAULT '',
     ticket_title       TEXT NOT NULL DEFAULT '',
     -- keep: the user pinned the task ("Keep"); retention never compacts it.
@@ -167,8 +192,8 @@ CREATE INDEX idx_tasks_status ON tasks(status, created_at DESC);
 CREATE INDEX idx_tasks_worker ON tasks(worker_id, status);
 CREATE INDEX idx_tasks_created ON tasks(created_at DESC);
 CREATE INDEX idx_tasks_worker_created ON tasks(worker_id, created_at DESC);
-CREATE INDEX idx_tasks_space ON tasks(space_id, created_at DESC);
-CREATE INDEX idx_tasks_taxonomy ON tasks(workspace_id, project_id, repo_id, worktree_id);
+CREATE INDEX idx_tasks_project ON tasks(project_id, repo_id);
+CREATE INDEX idx_tasks_ticket ON tasks(ticket_id) WHERE ticket_id != '';
 CREATE UNIQUE INDEX idx_tasks_external ON tasks(worker_id, external_id) WHERE external_id != '';
 -- Retention candidates: finished tasks not compacted yet, oldest first.
 CREATE INDEX idx_tasks_compact ON tasks(completed_at) WHERE compacted_at IS NULL AND completed_at IS NOT NULL;
@@ -584,8 +609,8 @@ CREATE TABLE review_seen_comments (
     PRIMARY KEY (task_id, comment_id)
 ) WITHOUT ROWID;
 
--- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
--- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.
+-- The Default project (ids.DefaultProjectID, sid ids.DefaultProjectSID) is seeded by
+-- EnsureDefaultProject.
 
 -- Override requests (break-glass): a commander asks the user for a time-boxed
 -- exception to a slot limit or hold. Approved ones are enforced until expires_at and

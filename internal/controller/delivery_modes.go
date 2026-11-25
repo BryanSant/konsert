@@ -89,15 +89,8 @@ func (h *Hub) resolveDelivery(ctx context.Context, t store.Task, queryWorker boo
 	if t.RepoID != "" {
 		if r, err := h.store.GetRepo(ctx, t.RepoID); err == nil {
 			repo, hasRepo = r, true
-		}
-	}
-	if !hasRepo && t.WorkerID != "" && t.Workdir != "" {
-		if repos, err := h.store.ListRepos(ctx, "", t.WorkerID); err == nil {
-			for _, r := range repos {
-				if r.Path == t.Workdir || (t.EffectiveDir != "" && strings.HasPrefix(t.EffectiveDir, r.Path)) {
-					repo, hasRepo = r, true
-					break
-				}
+			if r.DefaultBranch != "" {
+				out.defaultBranch = r.DefaultBranch
 			}
 		}
 	}

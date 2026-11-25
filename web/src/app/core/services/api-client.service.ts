@@ -27,13 +27,14 @@ import {
   RotationResponse,
   SSHHost,
   SessionDefaults,
-  Space,
   TaskEvent,
-  TaxonomySnapshot,
+  Ticket,
+  TicketEdge,
+  TicketRepoBinding,
+  TicketRollup,
   WakeLockStatus,
   Worker,
-  Workspace,
-  Worktree,
+  AutonomyPolicy,
 } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
@@ -660,24 +661,6 @@ export class ApiClientService {
     return (await res.json()) as { ok: boolean; worker_id: string; remote_path: string; filename: string; size: number };
   }
 
-  listSpaces(workerId = ''): Promise<{ spaces: Space[] }> {
-    const q = workerId ? `?worker_id=${encodeURIComponent(workerId)}` : '';
-    return this.request(`/api/spaces${q}`);
-  }
-
-  createSpace(req: { worker_id: string; name?: string; path: string; branch?: string }): Promise<Space> {
-    return this.request('/api/spaces', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    });
-  }
-
-  deleteSpace(spaceId: string): Promise<{ ok: boolean; id: string }> {
-    return this.request(`/api/spaces/${encodeURIComponent(spaceId)}`, {
-      method: 'DELETE',
-    });
-  }
-
   getSettings(): Promise<AppSettings> {
     return this.request('/api/settings');
   }
@@ -868,29 +851,33 @@ export class ApiClientService {
     return this.request(`/api/sessions/defaults${qs ? '?' + qs : ''}`);
   }
 
-  getTaxonomy(): Promise<TaxonomySnapshot> {
-    return this.request('/api/taxonomy');
+  listProjects(): Promise<{ projects: Project[] }> {
+    return this.request('/api/projects');
   }
 
-  createWorkspace(name: string): Promise<Workspace> {
-    return this.request('/api/workspaces', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    });
-  }
-
-  deleteWorkspace(id: string): Promise<{ ok: boolean; id: string }> {
-    return this.request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  }
-
-  createProject(req: { workspace_id?: string; name: string; delivery_mode?: string; merge_style?: string }): Promise<Project> {
+  createProject(req: {
+    name: string;
+    verify_cmd?: string;
+    autonomy?: AutonomyPolicy;
+    delivery_mode?: string;
+    merge_style?: string;
+  }): Promise<Project> {
     return this.request('/api/projects', {
       method: 'POST',
       body: JSON.stringify(req),
     });
   }
 
-  updateProject(id: string, patch: { delivery_mode?: string; merge_style?: string }): Promise<Project> {
+  updateProject(
+    id: string,
+    patch: {
+      name?: string;
+      verify_cmd?: string;
+      autonomy?: AutonomyPolicy;
+      delivery_mode?: string;
+      merge_style?: string;
+    },
+  ): Promise<Project> {
     return this.request(`/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -901,33 +888,81 @@ export class ApiClientService {
     return this.request(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  createRepo(req: { project_id?: string; worker_id: string; name?: string; path: string; remote_url?: string; branch?: string; delivery_mode?: string; merge_style?: string }): Promise<Repo> {
-    return this.request('/api/repos', {
+  listProjectRepos(projectId: string): Promise<{ repos: Repo[] }> {
+    return this.request(`/api/projects/${encodeURIComponent(projectId)}/repos`);
+  }
+
+  createRepo(
+    projectId: string,
+    req: {
+      remote_url: string;
+      name?: string;
+      default_branch?: string;
+      verify_cmd?: string;
+      delivery_mode?: string;
+      merge_style?: string;
+    },
+  ): Promise<Repo> {
+    return this.request(`/api/projects/${encodeURIComponent(projectId)}/repos`, {
       method: 'POST',
       body: JSON.stringify(req),
     });
   }
 
-  updateRepo(id: string, patch: { delivery_mode?: string; merge_style?: string; remote_url?: string }): Promise<Repo> {
-    return this.request(`/api/repos/${encodeURIComponent(id)}`, {
+  updateRepo(
+    projectId: string,
+    repoId: string,
+    patch: {
+      name?: string;
+      remote_url?: string;
+      default_branch?: string;
+      verify_cmd?: string;
+      delivery_mode?: string;
+      merge_style?: string;
+    },
+  ): Promise<Repo> {
+    return this.request(`/api/projects/${encodeURIComponent(projectId)}/repos/${encodeURIComponent(repoId)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
   }
 
-  deleteRepo(id: string): Promise<{ ok: boolean; id: string }> {
-    return this.request(`/api/repos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteRepo(projectId: string, repoId: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/projects/${encodeURIComponent(projectId)}/repos/${encodeURIComponent(repoId)}`, {
+      method: 'DELETE',
+    });
   }
 
-  createWorktree(req: { repo_id: string; branch?: string; path?: string; is_primary?: boolean }): Promise<Worktree> {
-    return this.request('/api/worktrees', {
+  listTickets(params?: { project_id?: string; parent_id?: string; status?: string; kind?: string }): Promise<{ tickets: Ticket[] }> {
+    const sp = new URLSearchParams();
+    if (params?.project_id) sp.set('project_id', params.project_id);
+    if (params?.parent_id) sp.set('parent_id', params.parent_id);
+    if (params?.status) sp.set('status', params.status);
+    if (params?.kind) sp.set('kind', params.kind);
+    const qs = sp.toString();
+    return this.request(`/api/tickets${qs ? '?' + qs : ''}`);
+  }
+
+  getTicket(id: string): Promise<{ ticket: Ticket; blocked_by: TicketEdge[]; repo_bindings: TicketRepoBinding[]; rollup?: TicketRollup }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}`);
+  }
+
+  createTicket(req: Partial<Ticket> & { title: string }): Promise<Ticket> {
+    return this.request('/api/tickets', {
       method: 'POST',
       body: JSON.stringify(req),
     });
   }
 
-  deleteWorktree(id: string): Promise<{ ok: boolean; id: string }> {
-    return this.request(`/api/worktrees/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  updateTicket(id: string, patch: Partial<Ticket>): Promise<Ticket> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  deleteTicket(id: string): Promise<{ ok: boolean; id: string }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   // --- Forges (SYR-QHGWZ / SYR-CK7S2) ---

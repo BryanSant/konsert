@@ -177,33 +177,8 @@ export class ContextBarComponent {
   );
   readonly machineName = computed(() => this.fleet.workersById()[this.workerId()]?.name || (this.workerId() ? this.workerId() : 'localhost'));
 
-  readonly checkouts = computed<CheckoutOption[]>(() => {
-    const wid = this.workerId();
-    const repos = this.fleet.repos().filter((r) => r.worker_id === wid);
-    const out: CheckoutOption[] = [];
-    for (const r of repos) {
-      const wts = this.fleet.worktrees().filter((w) => w.repo_id === r.id);
-      if (wts.length === 0) {
-        out.push({ key: `r:${r.id}`, path: r.path, name: r.name, detail: 'Main checkout', branch: '', repoId: r.id });
-      }
-      for (const wt of wts) {
-        out.push({
-          key: `wt:${wt.id}`,
-          path: wt.path,
-          name: r.name,
-          detail: wt.is_primary ? `Main checkout${wt.branch ? ' · ' + wt.branch : ''}` : `${wt.branch || 'worktree'} · ${wt.path}`,
-          branch: wt.branch || '',
-          repoId: r.id,
-        });
-      }
-    }
-    for (const sp of this.fleet.spaces().filter((s) => s.worker_id === wid)) {
-      if (!out.some((o) => o.path === sp.path)) {
-        out.push({ key: `sp:${sp.id}`, path: sp.path, name: sp.name, detail: sp.path, branch: sp.branch || '' });
-      }
-    }
-    return out;
-  });
+  // Per-machine checkouts are reported as daemon facts in A1c; until then users pick any folder path directly.
+  readonly checkouts = computed<CheckoutOption[]>(() => []);
 
   private readonly currentCheckout = computed(() => this.checkouts().find((c) => c.path === this.cwd()) ?? null);
 

@@ -28,151 +28,15 @@ type FleetBackend interface {
 	CancelTask(ctx context.Context, taskID string) (ActionResult, error)
 }
 
-// ControlPlaneBackend extends FleetBackend with full taxonomy, facts, settings, memory, fan-out, and event streaming.
+// ControlPlaneBackend extends FleetBackend with facts, settings, memory, fan-out, and event streaming.
 type ControlPlaneBackend interface {
 	FleetBackend
-	GetTaxonomy(ctx context.Context) (store.TaxonomySnapshot, error)
-	ManageTaxonomy(ctx context.Context, req ManageTaxonomyInput) (any, error)
 	FanOutFleet(ctx context.Context, req FanOutRequest) (FanOutResult, error)
 	ListTaskEvents(ctx context.Context, taskID string, afterID int64) ([]store.TaskEvent, error)
 	GetSettingsMap(ctx context.Context) (map[string]any, error)
 	UpdateSettingsMap(ctx context.Context, updates map[string]string) (map[string]any, error)
 	SaveMemory(ctx context.Context, scope, key, summary string) error
 	RecallMemory(ctx context.Context, scope string, limit int) ([]store.MemoryEntry, error)
-}
-
-type ManageTaxonomyInput struct {
-	Action      string `json:"action" jsonschema:"create or delete"`
-	Kind        string `json:"kind" jsonschema:"workspace, project, repo, or worktree"`
-	ID          string `json:"id,omitempty" jsonschema:"ID to delete when action=delete"`
-	Name        string `json:"name,omitempty"`
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	ProjectID   string `json:"project_id,omitempty"`
-	RepoID      string `json:"repo_id,omitempty"`
-	WorkerID    string `json:"worker_id,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-}
-
-// Implement ControlPlaneBackend on *FleetService.
-func (s *FleetService) GetTaxonomy(ctx context.Context) (store.TaxonomySnapshot, error) {
-	return s.store.GetTaxonomy(ctx)
-}
-
-// taxonomyKinds maps manage_taxonomy kinds to id kinds.
-var taxonomyKinds = map[string]ids.Kind{
-	"workspace": ids.Workspace,
-	"project":   ids.Project,
-	"repo":      ids.Repo,
-	"worktree":  ids.Worktree,
-}
-
-func (s *FleetService) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInput) (any, error) {
-	action := strings.ToLower(strings.TrimSpace(req.Action))
-	kind := strings.ToLower(strings.TrimSpace(req.Kind))
-	// Every ref accepts an id or a sid.
-	if k, ok := taxonomyKinds[kind]; ok {
-		req.ID = resolveRef(ctx, s.store, k, req.ID)
-	}
-	resolveRefs(ctx, s.store, map[ids.Kind][]*string{
-		ids.Workspace: {&req.WorkspaceID},
-		ids.Project:   {&req.ProjectID},
-		ids.Machine:   {&req.WorkerID},
-		ids.Repo:      {&req.RepoID},
-	})
-	switch action + ":" + kind {
-	case "create:workspace":
-		sid, err := s.store.NewSID(ctx, ids.Workspace)
-		if err != nil {
-			return nil, err
-		}
-		ws := store.Workspace{ID: ids.UUID(), SID: sid, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
-		if ws.Name == "" {
-			return nil, fmt.Errorf("name is required")
-		}
-		if err := s.store.CreateWorkspace(ctx, ws); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("workspace", ws)
-		return ws, nil
-	case "delete:workspace":
-		if err := s.store.DeleteWorkspace(ctx, req.ID); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("workspace_deleted", req.ID)
-		return map[string]any{"ok": true, "id": req.ID}, nil
-	case "create:project":
-		sid, err := s.store.NewSID(ctx, ids.Project)
-		if err != nil {
-			return nil, err
-		}
-		p := store.Project{ID: ids.UUID(), SID: sid, WorkspaceID: req.WorkspaceID, Name: strings.TrimSpace(req.Name), CreatedAt: time.Now().UTC()}
-		if p.Name == "" {
-			return nil, fmt.Errorf("name is required")
-		}
-		if p.WorkspaceID == "" {
-			p.WorkspaceID = store.DefaultWorkspaceID
-		}
-		if err := s.store.CreateProject(ctx, p); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("project", p)
-		return p, nil
-	case "delete:project":
-		if err := s.store.DeleteProject(ctx, req.ID); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("project_deleted", req.ID)
-		return map[string]any{"ok": true, "id": req.ID}, nil
-	case "create:repo":
-		sid, err := s.store.NewSID(ctx, ids.Repo)
-		if err != nil {
-			return nil, err
-		}
-		r := store.Repo{ID: ids.UUID(), SID: sid, ProjectID: req.ProjectID, WorkerID: req.WorkerID, Name: strings.TrimSpace(req.Name), Path: strings.TrimSpace(req.Path), CreatedAt: time.Now().UTC()}
-		if r.ProjectID == "" {
-			r.ProjectID = store.DefaultProjectID
-		}
-		if r.WorkerID == "" || r.Path == "" {
-			return nil, fmt.Errorf("worker_id and path are required")
-		}
-		if r.Name == "" {
-			r.Name = derivePathLeaf(r.Path)
-		}
-		if err := s.store.CreateRepo(ctx, r); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("repo", r)
-		return r, nil
-	case "delete:repo":
-		if err := s.store.DeleteRepo(ctx, req.ID); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("repo_deleted", req.ID)
-		return map[string]any{"ok": true, "id": req.ID}, nil
-	case "create:worktree":
-		sid, err := s.store.NewSID(ctx, ids.Worktree)
-		if err != nil {
-			return nil, err
-		}
-		wt := store.Worktree{ID: ids.UUID(), SID: sid, RepoID: req.RepoID, Branch: req.Branch, Path: req.Path, CreatedAt: time.Now().UTC()}
-		if wt.RepoID == "" {
-			return nil, fmt.Errorf("repo_id is required")
-		}
-		if err := s.store.CreateWorktree(ctx, wt); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("worktree", wt)
-		return wt, nil
-	case "delete:worktree":
-		if err := s.store.DeleteWorktree(ctx, req.ID); err != nil {
-			return nil, err
-		}
-		s.hub.broadcastFleetUpdate("worktree_deleted", req.ID)
-		return map[string]any{"ok": true, "id": req.ID}, nil
-	default:
-		return nil, fmt.Errorf("unsupported action/kind %q/%q", req.Action, req.Kind)
-	}
 }
 
 func (s *FleetService) ListTaskEvents(ctx context.Context, taskID string, afterID int64) ([]store.TaskEvent, error) {
@@ -472,30 +336,8 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 		})
 	}
 
-	// Full control-plane tools (taxonomy, fan-out, settings, memory, Commander)
+	// Full control-plane tools (fan-out, settings, memory, Commander)
 	if cp, ok := backend.(ControlPlaneBackend); ok {
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "get_taxonomy",
-			Description: "Query Syre's Space > Project > Repo > Worktree taxonomy hierarchy.",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-			res, err := cp.GetTaxonomy(ctx)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
-
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "manage_taxonomy",
-			Description: "Create or delete a Workspace (Space), Project, Repo, or Worktree in Syre's taxonomy.",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ManageTaxonomyInput) (*mcp.CallToolResult, any, error) {
-			res, err := cp.ManageTaxonomy(ctx, in)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
-
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "fan_out_fleet",
 			Description: "Run a parallel operation across all matching online machines (short-circuiting no-op hosts deterministically via daemon at zero token cost).",
@@ -723,37 +565,6 @@ func (c *RemoteFleetClient) CancelTask(ctx context.Context, taskID string) (Acti
 	var res ActionResult
 	err := c.doJSON(ctx, http.MethodPost, "/api/tasks/"+url.PathEscape(taskID)+"/cancel", nil, &res)
 	return res, err
-}
-
-func (c *RemoteFleetClient) GetTaxonomy(ctx context.Context) (store.TaxonomySnapshot, error) {
-	var res store.TaxonomySnapshot
-	err := c.doJSON(ctx, http.MethodGet, "/api/taxonomy", nil, &res)
-	return res, err
-}
-
-func (c *RemoteFleetClient) ManageTaxonomy(ctx context.Context, req ManageTaxonomyInput) (any, error) {
-	kind := strings.ToLower(strings.TrimSpace(req.Kind))
-	action := strings.ToLower(strings.TrimSpace(req.Action))
-	var path string
-	switch kind {
-	case "workspace":
-		path = "/api/workspaces"
-	case "project":
-		path = "/api/projects"
-	case "repo":
-		path = "/api/repos"
-	case "worktree":
-		path = "/api/worktrees"
-	default:
-		return nil, fmt.Errorf("unknown taxonomy kind %q", req.Kind)
-	}
-	var out any
-	if action == "delete" {
-		err := c.doJSON(ctx, http.MethodDelete, path+"/"+req.ID, nil, &out)
-		return out, err
-	}
-	err := c.doJSON(ctx, http.MethodPost, path, req, &out)
-	return out, err
 }
 
 func (c *RemoteFleetClient) FanOutFleet(ctx context.Context, req FanOutRequest) (FanOutResult, error) {

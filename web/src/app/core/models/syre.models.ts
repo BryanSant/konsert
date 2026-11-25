@@ -292,36 +292,24 @@ export interface GitSummary {
   dirty_files?: string[];
 }
 
-export interface Space {
-  id: string;
-  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
-  sid: string;
-  worker_id: string;
-  name: string;
-  path: string;
-  branch?: string;
-  created_at: string;
-}
-
-export interface Workspace {
-  id: string;
-  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
-  sid: string;
-  name: string;
-  is_default: boolean;
-  created_at: string;
+export interface AutonomyPolicy {
+  retry_limit?: number;
+  cross_review?: boolean;
+  escalate_on_blocker?: boolean;
+  expand_scope?: boolean;
 }
 
 export interface Project {
   id: string;
   /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
   sid: string;
-  workspace_id: string;
   name: string;
   is_default: boolean;
   /** The project's current goal as the commander states it (set_narration). */
   headline?: string;
   headline_at?: string;
+  verify_cmd?: string;
+  autonomy?: AutonomyPolicy;
   delivery_mode?: DeliveryMode;
   merge_style?: MergeStyle;
   created_at: string;
@@ -332,31 +320,82 @@ export interface Repo {
   /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
   sid: string;
   project_id: string;
-  worker_id: string;
   name: string;
-  path: string;
-  remote_url?: string;
+  remote_url: string;
+  default_branch?: string;
+  verify_cmd?: string;
   delivery_mode?: DeliveryMode;
   merge_style?: MergeStyle;
   created_at: string;
 }
 
-export interface Worktree {
+export type TicketKind = 'initiative' | 'epic' | 'feature' | 'bug' | 'chore' | 'spike';
+export type TicketStatus = 'backlog' | 'ready' | 'running' | 'needs_you' | 'review' | 'done' | 'failed' | 'canceled';
+export type TicketPriority = 'P0' | 'P1' | 'P2' | 'P3';
+
+export interface AcceptanceItem {
+  text: string;
+  done: boolean;
+}
+
+export interface TicketHints {
+  machine?: string;
+  agent?: string;
+  model?: string;
+  effort?: string;
+  os?: string;
+  arch?: string;
+  gpu?: boolean;
+  min_ram_gb?: number;
+  tools?: string[];
+}
+
+export interface Ticket {
   id: string;
-  /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
   sid: string;
-  repo_id: string;
-  branch?: string;
-  path: string;
-  is_primary: boolean;
+  project_id: string;
+  parent_id?: string;
+  kind: TicketKind;
+  title: string;
+  body?: string;
+  acceptance: AcceptanceItem[];
+  labels: string[];
+  priority: TicketPriority;
+  status: TicketStatus;
+  hints?: TicketHints;
+  verify_cmd?: string;
+  autonomy?: AutonomyPolicy;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketEdge {
+  ticket_id: string;
+  blocked_by_id: string;
   created_at: string;
 }
 
-export interface TaxonomySnapshot {
-  workspaces: Workspace[];
-  projects: Project[];
-  repos: Repo[];
-  worktrees: Worktree[];
+export interface TicketRepoBinding {
+  ticket_id: string;
+  repo_id: string;
+  base_branch?: string;
+  target_branch?: string;
+}
+
+export interface ExternalRef {
+  ticket_id: string;
+  tracker: string;
+  external_id: string;
+  url?: string;
+  version?: string;
+}
+
+export interface TicketRollup {
+  ticket_id: string;
+  total: number;
+  done: number;
+  running: number;
+  blocked: number;
 }
 
 export interface SessionDefaults {
@@ -486,11 +525,8 @@ export interface Task {
   /** Short user-facing ID (shown in the UI); `id` (UUIDv7) keys all state. */
   sid: string;
   worker_id: string;
-  space_id?: string;
-  workspace_id?: string;
   project_id?: string;
   repo_id?: string;
-  worktree_id?: string;
   agent: string;
   model?: string;
   session_kind?: SessionKind | string;
@@ -669,8 +705,8 @@ export interface FleetSnapshotResponse {
   workers: Worker[];
   active_tasks_count: number;
   tasks: Task[];
-  spaces?: Space[];
-  taxonomy?: TaxonomySnapshot;
+  projects?: Project[];
+  repos?: Repo[];
   usage?: UsageSummary;
   /** The hub's own build version ("dev" for unstamped local builds). */
   controller_version?: string;
@@ -689,11 +725,9 @@ export interface DispatchTaskRequest {
     os?: string;
     tags?: Record<string, string>;
   };
-  space_id?: string;
-  workspace_id?: string;
   project_id?: string;
   repo_id?: string;
-  worktree_id?: string;
+  ticket_id?: string;
   session_kind?: SessionKind;
   agent?: string;
   /** Worker-local agent account (its env profile is applied to the session). */
@@ -722,7 +756,6 @@ export interface WorkspaceTab {
   pinned: boolean;
   taskId?: string;
   workerId?: string;
-  spaceId?: string;
   agent?: string;
   model?: string;
   sessionKind?: SessionKind | string;

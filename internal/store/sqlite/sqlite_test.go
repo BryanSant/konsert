@@ -54,31 +54,10 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("expected status offline, got %s", gotW.Status)
 	}
 
-	// Spaces & task space_id linkage
-	sp := store.Space{
-		ID:       "sp-1",
-		WorkerID: "w1",
-		Name:     "syre",
-		Path:     "/repo",
-		Branch:   "main",
-	}
-	if err := st.CreateSpace(ctx, sp); err != nil {
-		t.Fatalf("CreateSpace failed: %v", err)
-	}
-	gotSp, err := st.GetSpace(ctx, "sp-1")
-	if err != nil || gotSp.Name != "syre" || gotSp.Path != "/repo" || gotSp.WorkerID != "w1" {
-		t.Fatalf("GetSpace mismatch: %+v err=%v", gotSp, err)
-	}
-	allSp, err := st.ListSpaces(ctx, "w1")
-	if err != nil || len(allSp) != 1 {
-		t.Fatalf("ListSpaces mismatch: %+v err=%v", allSp, err)
-	}
-
 	// Tasks & Events
 	task := store.Task{
 		ID:             "t1",
 		WorkerID:       "w1",
-		SpaceID:        "sp-1",
 		Agent:          "claude",
 		Workdir:        "/repo",
 		Branch:         "feat/x",
@@ -101,15 +80,8 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("UpdateTaskStatus completed failed: %v", err)
 	}
 	gotT, err := st.GetTask(ctx, "t1")
-	if err != nil || gotT.Status != protocol.TaskStatusCompleted || gotT.SpaceID != "sp-1" || gotT.ExitCode == nil || *gotT.ExitCode != 0 || gotT.StartedAt == nil || gotT.CompletedAt == nil {
+	if err != nil || gotT.Status != protocol.TaskStatusCompleted || gotT.ExitCode == nil || *gotT.ExitCode != 0 || gotT.StartedAt == nil || gotT.CompletedAt == nil {
 		t.Fatalf("GetTask mismatch: %+v err=%v", gotT, err)
-	}
-
-	if err := st.DeleteSpace(ctx, "sp-1"); err != nil {
-		t.Fatalf("DeleteSpace failed: %v", err)
-	}
-	if _, err := st.GetSpace(ctx, "sp-1"); err != store.ErrNotFound {
-		t.Fatalf("expected ErrNotFound after DeleteSpace, got %v", err)
 	}
 
 	evID, err := st.AppendEvent(ctx, store.TaskEvent{TaskID: "t1", Kind: "milestone", Message: "started"})
@@ -134,18 +106,12 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 		t.Fatalf("ListChatMessages mismatch: %+v err=%v", msgs, err)
 	}
 
-	// DeleteWorker cascades spaces and unlinks tasks without deleting task history.
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp-del", WorkerID: "w1", Name: "repo", Path: "/repo"}); err != nil {
-		t.Fatalf("CreateSpace for delete test failed: %v", err)
-	}
+	// DeleteWorker unlinks tasks without deleting task history.
 	if err := st.DeleteWorker(ctx, "w1"); err != nil {
 		t.Fatalf("DeleteWorker failed: %v", err)
 	}
 	if _, err := st.GetWorker(ctx, "w1"); err != store.ErrNotFound {
 		t.Fatalf("expected ErrNotFound after DeleteWorker, got %v", err)
-	}
-	if _, err := st.GetSpace(ctx, "sp-del"); err != store.ErrNotFound {
-		t.Fatalf("expected worker space deleted after DeleteWorker, got %v", err)
 	}
 	gotTAfter, err := st.GetTask(ctx, "t1")
 	if err != nil || gotTAfter.WorkerID != "" {
@@ -153,88 +119,75 @@ func TestSQLiteStoreCRUDAndWAL(t *testing.T) {
 	}
 }
 
-func TestTaxonomyHierarchyDefaultsAndProtection(t *testing.T) {
+func TestProjectDefaultsReposAndFacts(t *testing.T) {
 	ctx := context.Background()
-	st, err := Open(ctx, filepath.Join(t.TempDir(), "taxonomy.db"))
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "work.db"))
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
 	defer st.Close()
 
-	// 1. Default Space and Default Project exist automatically and cannot be deleted.
-	tax, err := st.GetTaxonomy(ctx)
+	// 1. Default Project exists automatically and cannot be deleted.
+	projects, err := st.ListProjects(ctx)
 	if err != nil {
-		t.Fatalf("GetTaxonomy failed: %v", err)
+		t.Fatalf("ListProjects failed: %v", err)
 	}
-	if len(tax.Workspaces) != 1 || tax.Workspaces[0].ID != store.DefaultWorkspaceID || !tax.Workspaces[0].IsDefault {
-		t.Fatalf("expected built-in Default workspace, got %+v", tax.Workspaces)
-	}
-	if len(tax.Projects) != 1 || tax.Projects[0].ID != store.DefaultProjectID || !tax.Projects[0].IsDefault {
-		t.Fatalf("expected built-in Default project, got %+v", tax.Projects)
-	}
-	if err := st.DeleteWorkspace(ctx, store.DefaultWorkspaceID); err != store.ErrProtectedDefault {
-		t.Fatalf("expected ErrProtectedDefault deleting default workspace, got %v", err)
+	if len(projects) != 1 || projects[0].ID != store.DefaultProjectID || !projects[0].IsDefault {
+		t.Fatalf("expected built-in Default project, got %+v", projects)
 	}
 	if err := st.DeleteProject(ctx, store.DefaultProjectID); err != store.ErrProtectedDefault {
 		t.Fatalf("expected ErrProtectedDefault deleting default project, got %v", err)
 	}
 
-	// 2. Multi-repo Project across two machines inside a custom Space.
+	// 2. Multi-repo Project with registry entries keyed by remote_url.
 	now := time.Now().UTC()
 	for _, wid := range []string{"w-mac", "w-linux"} {
 		if err := st.UpsertWorker(ctx, store.Worker{ID: wid, Name: wid, HostGroup: wid, OS: "linux", Arch: "amd64", Status: "online", LastSeenAt: now}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := st.CreateWorkspace(ctx, store.Workspace{ID: "ws-work", Name: "Work"}); err != nil {
+	if err := st.CreateProject(ctx, store.Project{ID: "proj-app1", Name: "App1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateProject(ctx, store.Project{ID: "proj-app1", WorkspaceID: "ws-work", Name: "App1"}); err != nil {
+	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-api", ProjectID: "proj-app1", Name: "app1-api", RemoteURL: "https://github.com/org/app1-api.git"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-api", ProjectID: "proj-app1", WorkerID: "w-linux", Name: "app1-api", Path: "/srv/app1-api"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-web", ProjectID: "proj-app1", WorkerID: "w-mac", Name: "app1-web", Path: "/Users/dev/app1-web"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateWorktree(ctx, store.Worktree{ID: "wt-feat", RepoID: "repo-api", Branch: "feat/gcp", Path: "/srv/app1-api/.wt/gcp"}); err != nil {
+	if err := st.CreateRepo(ctx, store.Repo{ID: "repo-web", ProjectID: "proj-app1", Name: "app1-web", RemoteURL: "https://github.com/org/app1-web.git"}); err != nil {
 		t.Fatal(err)
 	}
 
-	repos, err := st.ListRepos(ctx, "proj-app1", "")
+	repos, err := st.ListRepos(ctx, "proj-app1")
 	if err != nil || len(repos) != 2 {
 		t.Fatalf("expected 2 repos under multi-repo project, got %+v err=%v", repos, err)
 	}
 
-	// Bind a task to the full 4-level taxonomy + unified session model fields.
+	// Bind a task to project + repo + unified session model fields.
 	if err := st.CreateTask(ctx, store.Task{
 		ID:          "t-tax-1",
 		WorkerID:    "w-linux",
-		WorkspaceID: "ws-work",
 		ProjectID:   "proj-app1",
 		RepoID:      "repo-api",
-		WorktreeID:  "wt-feat",
 		Agent:       "claude",
 		Model:       "claude-sonnet-4-5",
 		SessionKind: "chat",
 		Workdir:     "/srv/app1-api/.wt/gcp",
+		Branch:      "feat/gcp",
 		Status:      protocol.TaskStatusRunning,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	gotT, err := st.GetTask(ctx, "t-tax-1")
-	if err != nil || gotT.WorkspaceID != "ws-work" || gotT.ProjectID != "proj-app1" || gotT.RepoID != "repo-api" || gotT.WorktreeID != "wt-feat" || gotT.Model != "claude-sonnet-4-5" || gotT.SessionKind != "chat" {
-		t.Fatalf("unexpected task taxonomy/session fields: %+v err=%v", gotT, err)
+	if err != nil || gotT.ProjectID != "proj-app1" || gotT.RepoID != "repo-api" || gotT.Branch != "feat/gcp" || gotT.Model != "claude-sonnet-4-5" || gotT.SessionKind != "chat" {
+		t.Fatalf("unexpected task work/session fields: %+v err=%v", gotT, err)
 	}
 
-	// Deleting custom workspace cascades projects/repos/worktrees and re-homes tasks to Default.
-	if err := st.DeleteWorkspace(ctx, "ws-work"); err != nil {
+	// Deleting custom project cascades repos and re-homes tasks to Default.
+	if err := st.DeleteProject(ctx, "proj-app1"); err != nil {
 		t.Fatal(err)
 	}
 	gotRehomed, err := st.GetTask(ctx, "t-tax-1")
-	if err != nil || gotRehomed.WorkspaceID != store.DefaultWorkspaceID || gotRehomed.ProjectID != store.DefaultProjectID || gotRehomed.RepoID != "" {
-		t.Fatalf("expected task re-homed to Default after workspace delete, got %+v err=%v", gotRehomed, err)
+	if err != nil || gotRehomed.ProjectID != store.DefaultProjectID || gotRehomed.RepoID != "" {
+		t.Fatalf("expected task re-homed to Default after project delete, got %+v err=%v", gotRehomed, err)
 	}
 
 	// 3. Cached machine facts & Commander persistent memory

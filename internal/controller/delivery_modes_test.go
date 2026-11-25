@@ -154,17 +154,17 @@ func TestDeliverySettingsAndOverrides(t *testing.T) {
 		t.Fatalf("PATCH project: %d %s", code, raw)
 	}
 
-	// Repo override via PATCH /api/repos/{id}.
+	// Repo override via PATCH /api/projects/{id}/repos/{repoId}.
 	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
 	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t1", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"}, nil, nil)
 	defer stop()
-	code, raw = e.do(t, credCookie, http.MethodPost, "/api/repos", `{"project_id":"`+proj.ID+`","worker_id":"w1","path":"/src/app","remote_url":"https://github.com/acme/app.git"}`)
+	code, raw = e.do(t, credCookie, http.MethodPost, "/api/projects/"+proj.ID+"/repos", `{"name":"app","remote_url":"https://github.com/acme/app.git"}`)
 	if code != http.StatusCreated {
 		t.Fatalf("create repo: %d %s", code, raw)
 	}
 	var repo store.Repo
 	_ = json.Unmarshal([]byte(raw), &repo)
-	code, raw = e.do(t, credCookie, http.MethodPatch, "/api/repos/"+repo.ID, `{"delivery_mode":"keep_branch","merge_style":"squash"}`)
+	code, raw = e.do(t, credCookie, http.MethodPatch, "/api/projects/"+proj.ID+"/repos/"+repo.ID, `{"delivery_mode":"keep_branch","merge_style":"squash"}`)
 	if code != http.StatusOK || !strings.Contains(raw, `"delivery_mode":"keep_branch"`) {
 		t.Fatalf("PATCH repo: %d %s", code, raw)
 	}
@@ -177,7 +177,7 @@ func TestDeliverySettingsAndOverrides(t *testing.T) {
 		t.Fatalf("repo override plan = %+v", plan)
 	}
 	// Clear repo override -> falls back to project override.
-	_, _ = e.do(t, credCookie, http.MethodPatch, "/api/repos/"+repo.ID, `{"delivery_mode":"","merge_style":""}`)
+	_, _ = e.do(t, credCookie, http.MethodPatch, "/api/projects/"+proj.ID+"/repos/"+repo.ID, `{"delivery_mode":"","merge_style":""}`)
 	plan = e.th.h.TaskDeliveryPlan(ctx, task)
 	if plan.Mode != store.DeliveryModeDirect || plan.MergeStyle != store.MergeStyleMerge {
 		t.Fatalf("project override plan = %+v", plan)

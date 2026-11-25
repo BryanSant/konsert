@@ -83,7 +83,7 @@ import { ModeUiStore } from './mode-ui.store';
       />
     }
     @if (ui.projectsOpen()) {
-      <sy-projects-dialog (close)="ui.projectsOpen.set(false)" (chat)="ui.projectsOpen.set(false); ui.sessionRequest.set({ kind: 'chat', worker: fleet.workersById()[$event.repo.worker_id] ?? null, repo: $event.repo, worktree: $event.worktree })" />
+      <sy-projects-dialog (close)="ui.projectsOpen.set(false)" (chat)="ui.projectsOpen.set(false); ui.sessionRequest.set({ kind: 'chat', worker: null, repo: $event.repo })" />
     }
     @if (ui.auditOpen()) {
       <app-modal-dialog label="Audit log" panelClass="w-full max-w-3xl h-[min(760px,88vh)] flex flex-col rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] overflow-hidden" (close)="ui.auditOpen.set(false)">

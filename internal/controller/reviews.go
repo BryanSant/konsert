@@ -166,7 +166,6 @@ func (h *Hub) deliverChanges(ctx context.Context, svc *FleetService, t store.Tas
 		Model:          t.Model,
 		ProjectID:      t.ProjectID,
 		RepoID:         t.RepoID,
-		WorktreeID:     t.WorktreeID,
 		RepoPath:       firstNonEmpty(t.EffectiveDir, t.Workdir),
 		Branch:         t.Branch,
 		Title:          oneLine("Changes: "+title, 80),

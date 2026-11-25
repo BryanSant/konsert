@@ -37,11 +37,11 @@ func TestNewFormatAndParse(t *testing.T) {
 			t.Errorf("Parse(%q) accepted", bad)
 		}
 	}
-	if !Valid(Workspace, DefaultWorkspaceSID) || !Valid(Project, DefaultProjectSID) {
-		t.Fatalf("default sids invalid: %s %s", DefaultWorkspaceSID, DefaultProjectSID)
+	if !Valid(Project, DefaultProjectSID) {
+		t.Fatalf("default project sid invalid: %s", DefaultProjectSID)
 	}
-	if !IsUUIDv7(DefaultWorkspaceID) || !IsUUIDv7(DefaultProjectID) || DefaultWorkspaceID == DefaultProjectID {
-		t.Fatalf("default ids are not distinct UUIDv7s: %s %s", DefaultWorkspaceID, DefaultProjectID)
+	if !IsUUIDv7(DefaultProjectID) {
+		t.Fatalf("default project id is not a UUIDv7: %s", DefaultProjectID)
 	}
 }
 

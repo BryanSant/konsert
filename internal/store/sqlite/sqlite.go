@@ -74,7 +74,7 @@ func Open(ctx context.Context, path string) (*SQLiteStore, error) {
 	}
 
 	st := &SQLiteStore{db: db}
-	if err := st.EnsureTaxonomyDefaults(ctx); err != nil {
+	if err := st.EnsureDefaultProject(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -400,26 +400,6 @@ func (s *SQLiteStore) DeleteWorker(ctx context.Context, id string) error {
 		_ = tx.Rollback()
 		return err
 	}
-	// Clear task references to the spaces, repos and worktrees about to be deleted
-	// (repos cascade to worktrees), mirroring DeleteRepo, so no task dangles.
-	for _, q := range []string{
-		`UPDATE tasks SET space_id = '' WHERE space_id IN (SELECT id FROM spaces WHERE worker_id = ?)`,
-		`UPDATE tasks SET repo_id = '', worktree_id = '' WHERE repo_id IN (SELECT id FROM repos WHERE worker_id = ?)`,
-		`UPDATE tasks SET worktree_id = '' WHERE worktree_id IN (SELECT wt.id FROM worktrees wt JOIN repos r ON r.id = wt.repo_id WHERE r.worker_id = ?)`,
-	} {
-		if _, err := tx.ExecContext(ctx, q, id); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE worker_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM repos WHERE worker_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_accounts WHERE worker_id = ?`, id); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -481,91 +461,6 @@ func (s *SQLiteStore) MarkStaleWorkersOffline(ctx context.Context, cutoff time.T
 	return stale, nil
 }
 
-func (s *SQLiteStore) CreateSpace(ctx context.Context, sp store.Space) error {
-	if sp.CreatedAt.IsZero() {
-		sp.CreatedAt = time.Now().UTC()
-	}
-	if err := s.assignIDs(ctx, ids.Space, &sp.ID, &sp.SID); err != nil {
-		return err
-	}
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO spaces (id, sid, worker_id, name, path, branch, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, sp.ID, sp.SID, sp.WorkerID, sp.Name, sp.Path, sp.Branch, formatTime(sp.CreatedAt))
-	return err
-}
-
-func (s *SQLiteStore) GetSpace(ctx context.Context, id string) (store.Space, error) {
-	var sp store.Space
-	var createdAt string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, worker_id, name, path, branch, created_at
-		FROM spaces WHERE id = ?
-	`, id).Scan(&sp.ID, &sp.SID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return store.Space{}, store.ErrNotFound
-	}
-	if err != nil {
-		return store.Space{}, err
-	}
-	sp.CreatedAt = parseTime(createdAt)
-	return sp, nil
-}
-
-func (s *SQLiteStore) ListSpaces(ctx context.Context, workerID string) ([]store.Space, error) {
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if workerID != "" {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, worker_id, name, path, branch, created_at
-			FROM spaces WHERE worker_id = ? ORDER BY created_at ASC
-		`, workerID)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, worker_id, name, path, branch, created_at
-			FROM spaces ORDER BY created_at ASC
-		`)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := []store.Space{}
-	for rows.Next() {
-		var sp store.Space
-		var createdAt string
-		if err := rows.Scan(&sp.ID, &sp.SID, &sp.WorkerID, &sp.Name, &sp.Path, &sp.Branch, &createdAt); err != nil {
-			return nil, err
-		}
-		sp.CreatedAt = parseTime(createdAt)
-		out = append(out, sp)
-	}
-	return out, rows.Err()
-}
-
-func (s *SQLiteStore) DeleteSpace(ctx context.Context, id string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }() // no-op after Commit
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET space_id = '' WHERE space_id = ?`, id); err != nil {
-		return err
-	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return store.ErrNotFound
-	}
-	return tx.Commit()
-}
-
 func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now().UTC()
@@ -592,9 +487,6 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 			t.SessionKind = "chat"
 		}
 	}
-	if t.WorkspaceID == "" {
-		t.WorkspaceID = store.DefaultWorkspaceID
-	}
 	if t.ProjectID == "" {
 		t.ProjectID = store.DefaultProjectID
 	}
@@ -616,13 +508,13 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, sid, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			id, sid, worker_id, project_id, repo_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 			cause_json, suspended_by, parent_chat_id, title, ticket_id, ticket_title,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, t.ID, t.SID, workerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, t.ID, t.SID, workerID, t.ProjectID, t.RepoID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
 		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID, t.Title, t.TicketID, t.TicketTitle,
@@ -663,9 +555,6 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 	if t.OrphanPolicy == "" {
 		t.OrphanPolicy = protocol.OrphanPolicyFail
 	}
-	if t.WorkspaceID == "" {
-		t.WorkspaceID = store.DefaultWorkspaceID
-	}
 	if t.ProjectID == "" {
 		t.ProjectID = store.DefaultProjectID
 	}
@@ -676,17 +565,15 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+			id, sid, external_id, worker_id, project_id, repo_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, exit_code, cause_json,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			cause_json = CASE WHEN excluded.status != tasks.status AND excluded.cause_json != '' THEN excluded.cause_json ELSE tasks.cause_json END,
-			workspace_id = excluded.workspace_id,
 			project_id = excluded.project_id,
 			repo_id = CASE WHEN excluded.repo_id != '' THEN excluded.repo_id ELSE tasks.repo_id END,
-			worktree_id = CASE WHEN excluded.worktree_id != '' THEN excluded.worktree_id ELSE tasks.worktree_id END,
 			model = CASE WHEN excluded.model != '' THEN excluded.model ELSE tasks.model END,
 			effective_dir = CASE WHEN excluded.effective_dir != '' THEN excluded.effective_dir ELSE tasks.effective_dir END,
 			branch = CASE WHEN excluded.branch != '' THEN excluded.branch ELSE tasks.branch END,
@@ -695,7 +582,7 @@ func (s *SQLiteStore) UpsertExternalTask(ctx context.Context, t store.Task) (str
 			git_summary_json = CASE WHEN excluded.git_summary_json != '' THEN excluded.git_summary_json ELSE tasks.git_summary_json END,
 			completed_at = CASE WHEN excluded.completed_at IS NOT NULL THEN excluded.completed_at ELSE tasks.completed_at END,
 			compacted_at = CASE WHEN excluded.completed_at IS NULL THEN NULL ELSE tasks.compacted_at END
-	`, t.ID, t.SID, t.ExternalID, t.WorkerID, t.SpaceID, t.WorkspaceID, t.ProjectID, t.RepoID, t.WorktreeID,
+	`, t.ID, t.SID, t.ExternalID, t.WorkerID, t.ProjectID, t.RepoID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode, causeJSON(t.Cause),
 		formatTime(t.CreatedAt), startedAt, completedAt)
@@ -818,7 +705,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		compactedAt sql.NullString
 	)
 	if err := scanner.Scan(
-		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.SpaceID, &t.WorkspaceID, &t.ProjectID, &t.RepoID, &t.WorktreeID,
+		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.ProjectID, &t.RepoID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
@@ -857,7 +744,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 
 func (s *SQLiteStore) GetTask(ctx context.Context, id string) (store.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, sid, external_id, worker_id, project_id, repo_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
@@ -884,7 +771,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, status, workerID string, li
 	}
 
 	query := `
-		SELECT id, sid, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+		SELECT id, sid, external_id, worker_id, project_id, repo_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 		       orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 		       cause_json, suspended_by, parent_chat_id,

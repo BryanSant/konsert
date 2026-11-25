@@ -151,7 +151,7 @@ func TestCSRFProtectionOnStateChangingAPI(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", strings.NewReader(body), tc.headers)
+			resp := doReq(t, http.MethodPost, ts.URL+"/api/projects", strings.NewReader(body), tc.headers)
 			if resp.StatusCode != tc.want {
 				t.Fatalf("got %d, want %d", resp.StatusCode, tc.want)
 			}
@@ -165,10 +165,10 @@ func TestCSRFProtectionOnStateChangingAPI(t *testing.T) {
 	_, _ = fw.Write([]byte("hello"))
 	_ = mw.WriteField("session_id", "s1")
 	_ = mw.Close()
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", bytes.NewReader(buf.Bytes()),
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/projects", bytes.NewReader(buf.Bytes()),
 		map[string]string{"Content-Type": mw.FormDataContentType()})
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
-		t.Fatalf("multipart to /api/workspaces: got %d, want 415", resp.StatusCode)
+		t.Fatalf("multipart to /api/projects: got %d, want 415", resp.StatusCode)
 	}
 	resp = doReq(t, http.MethodPost, ts.URL+"/api/attachments", bytes.NewReader(buf.Bytes()),
 		map[string]string{"Content-Type": mw.FormDataContentType(), "Origin": ts.URL})
@@ -201,7 +201,7 @@ func TestCSRFProtectionOnStateChangingAPI(t *testing.T) {
 	}
 
 	// Safe methods are untouched.
-	resp = doReq(t, http.MethodGet, ts.URL+"/api/workspaces", nil, map[string]string{"Origin": "http://evil.example"})
+	resp = doReq(t, http.MethodGet, ts.URL+"/api/projects", nil, map[string]string{"Origin": "http://evil.example"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET: got %d, want 200", resp.StatusCode)
 	}
@@ -213,14 +213,14 @@ func TestCSRFAllowsConfiguredOrigins(t *testing.T) {
 		c.AllowedOrigins = []string{"http://localhost:4200"}
 	})
 	for _, origin := range []string{"https://syre.example.ts.net", "http://localhost:4200"} {
-		resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", strings.NewReader(`{"name":"x"}`),
+		resp := doReq(t, http.MethodPost, ts.URL+"/api/projects", strings.NewReader(`{"name":"x"}`),
 			map[string]string{"Content-Type": "application/json", "Origin": origin, "Sec-Fetch-Site": "cross-site"})
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("origin %s: got %d, want 201", origin, resp.StatusCode)
 		}
 	}
 	// Scheme matters for patterns that include one.
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", strings.NewReader(`{"name":"x"}`),
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/projects", strings.NewReader(`{"name":"x"}`),
 		map[string]string{"Content-Type": "application/json", "Origin": "https://localhost:4200"})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("scheme mismatch: got %d, want 403", resp.StatusCode)
@@ -241,14 +241,14 @@ func TestRequestBodyLimits(t *testing.T) {
 	big := `{"name":"` + strings.Repeat("a", maxJSONBodyBytes+10) + `"}`
 
 	// Known Content-Length: rejected before the handler runs.
-	resp := doReq(t, http.MethodPost, ts.URL+"/api/workspaces", strings.NewReader(big),
+	resp := doReq(t, http.MethodPost, ts.URL+"/api/projects", strings.NewReader(big),
 		map[string]string{"Content-Type": "application/json"})
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body: got %d, want 413", resp.StatusCode)
 	}
 
 	// Chunked (unknown length): MaxBytesReader trips inside the decoder.
-	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/workspaces", io.MultiReader(strings.NewReader(big)))
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/projects", io.MultiReader(strings.NewReader(big)))
 	req.Header.Set("Content-Type", "application/json")
 	req.ContentLength = -1
 	resp2, err := http.DefaultClient.Do(req)

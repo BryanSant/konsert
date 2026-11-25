@@ -484,15 +484,13 @@ type ChatErrorPayload struct {
 }
 
 type FleetUpdatePayload struct {
-	Kind      string `json:"kind"` // "worker" | "task" | "event" | "space" | "workspace" | "project" | "repo" | "worktree" | "*_deleted"
-	Worker    any    `json:"worker,omitzero"`
-	Task      any    `json:"task,omitzero"`
-	Event     any    `json:"event,omitzero"`
-	Space     any    `json:"space,omitzero"`
-	Workspace any    `json:"workspace,omitzero"`
-	Project   any    `json:"project,omitzero"`
-	Repo      any    `json:"repo,omitzero"`
-	Worktree  any    `json:"worktree,omitzero"`
+	Kind    string `json:"kind"` // "worker" | "task" | "event" | "project" | "repo" | "ticket" | "*_deleted"
+	Worker  any    `json:"worker,omitzero"`
+	Task    any    `json:"task,omitzero"`
+	Event   any    `json:"event,omitzero"`
+	Project any    `json:"project,omitzero"`
+	Repo    any    `json:"repo,omitzero"`
+	Ticket  any    `json:"ticket,omitzero"`
 	// Audit carries a new fleet audit log entry when Kind is "audit" (additive).
 	Audit any `json:"audit,omitzero"`
 	// Accounts carries a worker's agent accounts when Kind is "agent_accounts" (additive).

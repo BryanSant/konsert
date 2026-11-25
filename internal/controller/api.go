@@ -207,24 +207,29 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/ssh/bootstrap", s.requireBrowserAuth(s.handleSSHBootstrap))
 	s.mux.Handle("GET /api/usage", s.requireBrowserAuth(s.handleGetUsage))
 	s.mux.Handle("POST /api/usage/quotas", s.requireBrowserAuth(s.handleUpsertQuotas))
-	s.mux.Handle("GET /api/spaces", s.requireBrowserAuth(s.handleListSpaces))
-	s.mux.Handle("POST /api/spaces", s.requireBrowserAuth(s.handleCreateSpace))
-	s.mux.Handle("DELETE /api/spaces/{id}", s.requireBrowserAuth(s.byRef(ids.Space, s.handleDeleteSpace)))
-	s.mux.Handle("GET /api/taxonomy", s.requireBrowserAuth(s.handleGetTaxonomy))
-	s.mux.Handle("GET /api/workspaces", s.requireBrowserAuth(s.handleListWorkspaces))
-	s.mux.Handle("POST /api/workspaces", s.requireBrowserAuth(s.handleCreateWorkspace))
-	s.mux.Handle("DELETE /api/workspaces/{id}", s.requireBrowserAuth(s.byRef(ids.Workspace, s.handleDeleteWorkspace)))
 	s.mux.Handle("GET /api/projects", s.requireBrowserAuth(s.handleListProjects))
 	s.mux.Handle("POST /api/projects", s.requireBrowserAuth(s.handleCreateProject))
 	s.mux.Handle("PATCH /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProject)))
 	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProject)))
-	s.mux.Handle("GET /api/repos", s.requireBrowserAuth(s.handleListRepos))
-	s.mux.Handle("POST /api/repos", s.requireBrowserAuth(s.handleCreateRepo))
-	s.mux.Handle("PATCH /api/repos/{id}", s.requireBrowserAuth(s.byRef(ids.Repo, s.handleUpdateRepo)))
-	s.mux.Handle("DELETE /api/repos/{id}", s.requireBrowserAuth(s.byRef(ids.Repo, s.handleDeleteRepo)))
-	s.mux.Handle("GET /api/worktrees", s.requireBrowserAuth(s.handleListWorktrees))
-	s.mux.Handle("POST /api/worktrees", s.requireBrowserAuth(s.handleCreateWorktree))
-	s.mux.Handle("DELETE /api/worktrees/{id}", s.requireBrowserAuth(s.byRef(ids.Worktree, s.handleDeleteWorktree)))
+	s.mux.Handle("GET /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleListProjectRepos)))
+	s.mux.Handle("POST /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleCreateProjectRepo)))
+	s.mux.Handle("PATCH /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProjectRepo)))
+	s.mux.Handle("DELETE /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProjectRepo)))
+	s.mux.Handle("GET /api/tickets", s.requireBrowserAuth(s.handleListTickets))
+	s.mux.Handle("POST /api/tickets", s.requireBrowserAuth(s.handleCreateTicket))
+	s.mux.Handle("GET /api/tickets/{id}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicket)))
+	s.mux.Handle("PATCH /api/tickets/{id}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleUpdateTicket)))
+	s.mux.Handle("DELETE /api/tickets/{id}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleDeleteTicket)))
+	s.mux.Handle("GET /api/tickets/{id}/rollup", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicketRollup)))
+	s.mux.Handle("GET /api/tickets/{id}/edges", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListTicketEdges)))
+	s.mux.Handle("POST /api/tickets/{id}/edges", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleAddTicketEdge)))
+	s.mux.Handle("DELETE /api/tickets/{id}/edges/{blockerId}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleRemoveTicketEdge)))
+	s.mux.Handle("GET /api/tickets/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListTicketRepoBindings)))
+	s.mux.Handle("PUT /api/tickets/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handlePutTicketRepoBinding)))
+	s.mux.Handle("DELETE /api/tickets/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleRemoveTicketRepoBinding)))
+	s.mux.Handle("GET /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListExternalRefs)))
+	s.mux.Handle("POST /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handlePutExternalRef)))
+	s.mux.Handle("DELETE /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleRemoveExternalRef)))
 	s.mux.Handle("GET /api/sessions/defaults", s.requireBrowserAuth(s.handleSessionDefaults))
 	s.mux.Handle("POST /api/sessions", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
@@ -399,15 +404,18 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, _ := s.store.ListTasks(r.Context(), "", "", 100)
-	spaces, _ := s.store.ListSpaces(r.Context(), "")
-	taxonomy, _ := s.store.GetTaxonomy(r.Context())
+	projects, _ := s.store.ListProjects(r.Context())
+	repos, _ := s.store.ListRepos(r.Context(), "")
 	usage, _ := s.store.GetUsageSummary(r.Context())
 	reviews, _ := s.store.ListReviews(r.Context())
 	if tasks == nil {
 		tasks = []store.Task{}
 	}
-	if spaces == nil {
-		spaces = []store.Space{}
+	if projects == nil {
+		projects = []store.Project{}
+	}
+	if repos == nil {
+		repos = []store.Repo{}
 	}
 	if reviews == nil {
 		reviews = []store.Review{}
@@ -416,105 +424,14 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"workers":            res.Workers,
 		"active_tasks_count": res.ActiveTasksCount,
 		"tasks":              tasks,
-		"spaces":             spaces,
-		"taxonomy":           taxonomy,
+		"projects":           projects,
+		"repos":              repos,
 		"usage":              usage,
 		"controller_version": s.version,
 		"pause":              res.Pause,
 		"activity":           s.hub.activityList(),
 		"reviews":            reviews,
 	})
-}
-
-func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
-	workerID := r.URL.Query().Get("worker_id")
-	spaces, err := s.store.ListSpaces(r.Context(), workerID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if spaces == nil {
-		spaces = []store.Space{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"spaces": spaces})
-}
-
-func (s *Server) handleCreateSpace(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		WorkerID string `json:"worker_id"`
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-		Branch   string `json:"branch"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	body.WorkerID = resolveRef(r.Context(), s.store, ids.Machine, body.WorkerID)
-	body.Path = strings.TrimSpace(body.Path)
-	body.Name = strings.TrimSpace(body.Name)
-	if body.WorkerID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id is required"})
-		return
-	}
-	if body.Path == "" {
-		body.Path = "~"
-	}
-	if body.Name == "" {
-		if body.Path == "~" {
-			body.Name = "~"
-		} else {
-			trimmed := strings.TrimRight(body.Path, "/\\")
-			parts := strings.FieldsFunc(trimmed, func(r rune) bool { return r == '/' || r == '\\' })
-			if len(parts) > 0 {
-				body.Name = parts[len(parts)-1]
-			} else {
-				body.Name = body.Path
-			}
-		}
-	}
-	if _, err := s.store.GetWorker(r.Context(), body.WorkerID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	spaceSID, err := s.store.NewSID(r.Context(), ids.Space)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	sp := store.Space{
-		ID:        ids.UUID(),
-		SID:       spaceSID,
-		WorkerID:  body.WorkerID,
-		Name:      body.Name,
-		Path:      body.Path,
-		Branch:    strings.TrimSpace(body.Branch),
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := s.store.CreateSpace(r.Context(), sp); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	s.hub.broadcastFleetUpdate("space", sp)
-	writeJSON(w, http.StatusCreated, sp)
-}
-
-func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.store.DeleteSpace(r.Context(), id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "space not found"})
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	s.hub.broadcastFleetUpdate("space_deleted", id)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
 func (s *Server) handleSetWorkerDefaultShell(w http.ResponseWriter, r *http.Request) {
@@ -880,10 +797,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.buildSettingsResponse(r.Context()))
 }
 
-func (s *Server) resolveGitTarget(ctx context.Context, workerID, workdir, taskID, spaceID string) (string, string, error) {
+func (s *Server) resolveGitTarget(ctx context.Context, workerID, workdir, taskID string) (string, string, error) {
 	workerID = resolveRef(ctx, s.store, ids.Machine, workerID)
 	taskID = resolveRef(ctx, s.store, ids.Task, taskID)
-	spaceID = resolveRef(ctx, s.store, ids.Space, spaceID)
 	if taskID != "" {
 		t, err := s.store.GetTask(ctx, taskID)
 		if err != nil {
@@ -900,27 +816,15 @@ func (s *Server) resolveGitTarget(ctx context.Context, workerID, workdir, taskID
 			}
 		}
 	}
-	if spaceID != "" {
-		sp, err := s.store.GetSpace(ctx, spaceID)
-		if err != nil {
-			return "", "", err
-		}
-		if workerID == "" {
-			workerID = sp.WorkerID
-		}
-		if workdir == "" {
-			workdir = sp.Path
-		}
-	}
 	if workerID == "" || workdir == "" {
-		return "", "", errors.New("worker_id and workdir (or task_id/space_id) are required")
+		return "", "", errors.New("worker_id and workdir (or task_id) are required")
 	}
 	return workerID, workdir, nil
 }
 
 func (s *Server) handleGitInspect(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	workerID, workdir, err := s.resolveGitTarget(r.Context(), q.Get("worker_id"), q.Get("workdir"), q.Get("task_id"), q.Get("space_id"))
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), q.Get("worker_id"), q.Get("workdir"), q.Get("task_id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -945,7 +849,6 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		WorkerID string `json:"worker_id"`
 		Workdir  string `json:"workdir"`
 		TaskID   string `json:"task_id"`
-		SpaceID  string `json:"space_id"`
 		Message  string `json:"message"`
 		StageAll *bool  `json:"stage_all"`
 	}
@@ -953,8 +856,7 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.TaskID = resolveRef(r.Context(), s.store, ids.Task, body.TaskID)
-	body.SpaceID = resolveRef(r.Context(), s.store, ids.Space, body.SpaceID)
-	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, body.SpaceID)
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -997,7 +899,7 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 			WorkerID: workerID,
 			TaskID:   body.TaskID,
 			Message:  "Git commit " + res.CommitSHA + ": " + firstLine(body.Message),
-			MetaJSON: auditMeta(map[string]any{"sha": res.CommitSHA, "workdir": workdir, "space_id": body.SpaceID}),
+			MetaJSON: auditMeta(map[string]any{"sha": res.CommitSHA, "workdir": workdir}),
 		})
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -1024,7 +926,7 @@ func (s *Server) handleGitWorktreeCleanup(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID, "")
+	workerID, workdir, err := s.resolveGitTarget(r.Context(), body.WorkerID, body.Workdir, body.TaskID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

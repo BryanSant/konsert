@@ -4,12 +4,9 @@ import {
   Project,
   Repo,
   SessionDefaults,
-  Space,
   Task,
   UsageSummary,
   Worker,
-  Workspace,
-  Worktree,
 } from '../models/syre.models';
 import { WorkerHeat } from '../models/activity.models';
 import { Review, reviewKey } from '../models/review.models';
@@ -27,11 +24,8 @@ export class FleetStore {
   /** Hub build version from GET /api/fleet, for worker version-mismatch warnings. */
   readonly controllerVersion = signal('');
   readonly tasks = signal<Task[]>([]);
-  readonly spaces = signal<Space[]>([]);
-  readonly workspaces = signal<Workspace[]>([]);
   readonly projects = signal<Project[]>([]);
   readonly repos = signal<Repo[]>([]);
-  readonly worktrees = signal<Worktree[]>([]);
   readonly settings = signal<AppSettings>({
     llm_provider: 'openai',
     llm_model: '',
@@ -118,14 +112,11 @@ export class FleetStore {
       this.workers.set(snap.workers ?? []);
       this.controllerVersion.set(snap.controller_version ?? '');
       this.tasks.set(snap.tasks ?? []);
-      if (snap.spaces) {
-        this.spaces.set(snap.spaces);
+      if (snap.projects) {
+        this.projects.set(snap.projects);
       }
-      if (snap.taxonomy) {
-        this.workspaces.set(snap.taxonomy.workspaces ?? []);
-        this.projects.set(snap.taxonomy.projects ?? []);
-        this.repos.set(snap.taxonomy.repos ?? []);
-        this.worktrees.set(snap.taxonomy.worktrees ?? []);
+      if (snap.repos) {
+        this.repos.set(snap.repos);
       }
       if (snap.usage) {
         this.usage.set(snap.usage);
@@ -193,52 +184,9 @@ export class FleetStore {
     });
   }
 
-  upsertSpace(space: Space): void {
-    this.live(() => {
-      this.spaces.update((list) => {
-        const idx = list.findIndex((s) => s.id === space.id);
-        if (idx === -1) return [...list, space];
-        const next = [...list];
-        next[idx] = { ...next[idx], ...space };
-        return next;
-      });
-    });
-  }
-
-  removeSpace(spaceId: string): void {
-    this.live(() => {
-      this.spaces.update((list) => list.filter((s) => s.id !== spaceId));
-    });
-  }
-
   removeWorker(workerId: string): void {
     this.live(() => {
       this.workers.update((list) => list.filter((w) => w.id !== workerId));
-      this.spaces.update((list) => list.filter((s) => s.worker_id !== workerId));
-      this.repos.update((list) => list.filter((r) => r.worker_id !== workerId));
-    });
-  }
-
-  upsertWorkspace(ws: Workspace): void {
-    this.live(() => {
-      this.workspaces.update((list) => {
-        const idx = list.findIndex((x) => x.id === ws.id);
-        if (idx === -1) return [...list, ws];
-        const next = [...list];
-        next[idx] = { ...next[idx], ...ws };
-        return next;
-      });
-    });
-  }
-
-  removeWorkspace(id: string): void {
-    this.live(() => {
-      this.workspaces.update((list) => list.filter((x) => x.id !== id));
-      const removedProjIds = new Set(this.projects().filter((p) => p.workspace_id === id).map((p) => p.id));
-      this.projects.update((list) => list.filter((p) => p.workspace_id !== id));
-      const removedRepoIds = new Set(this.repos().filter((r) => removedProjIds.has(r.project_id)).map((r) => r.id));
-      this.repos.update((list) => list.filter((r) => !removedProjIds.has(r.project_id)));
-      this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
     });
   }
 
@@ -257,9 +205,7 @@ export class FleetStore {
   removeProject(id: string): void {
     this.live(() => {
       this.projects.update((list) => list.filter((p) => p.id !== id));
-      const removedRepoIds = new Set(this.repos().filter((r) => r.project_id === id).map((r) => r.id));
       this.repos.update((list) => list.filter((r) => r.project_id !== id));
-      this.worktrees.update((list) => list.filter((wt) => !removedRepoIds.has(wt.repo_id)));
     });
   }
 
@@ -278,25 +224,6 @@ export class FleetStore {
   removeRepo(id: string): void {
     this.live(() => {
       this.repos.update((list) => list.filter((r) => r.id !== id));
-      this.worktrees.update((list) => list.filter((wt) => wt.repo_id !== id));
-    });
-  }
-
-  upsertWorktree(wt: Worktree): void {
-    this.live(() => {
-      this.worktrees.update((list) => {
-        const idx = list.findIndex((x) => x.id === wt.id);
-        if (idx === -1) return [...list, wt];
-        const next = [...list];
-        next[idx] = { ...next[idx], ...wt };
-        return next;
-      });
-    });
-  }
-
-  removeWorktree(id: string): void {
-    this.live(() => {
-      this.worktrees.update((list) => list.filter((wt) => wt.id !== id));
     });
   }
 

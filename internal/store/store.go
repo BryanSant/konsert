@@ -14,8 +14,7 @@ var (
 )
 
 const (
-	DefaultWorkspaceID = ids.DefaultWorkspaceID
-	DefaultProjectID   = ids.DefaultProjectID
+	DefaultProjectID = ids.DefaultProjectID
 )
 
 type PermissionMode string
@@ -120,72 +119,37 @@ type MemoryEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type Space struct {
-	ID        string    `json:"id"`
-	SID       string    `json:"sid"`
-	WorkerID  string    `json:"worker_id"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Branch    string    `json:"branch,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// Workspace is the top-level abstract "Space" in Syre's Space > Project > Repo > Worktree taxonomy.
-type Workspace struct {
-	ID        string    `json:"id"`
-	SID       string    `json:"sid"`
-	Name      string    `json:"name"`
-	IsDefault bool      `json:"is_default"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// Project groups one or more Repos (supporting multi-repo projects across machines) inside a Workspace.
+// Project is a conceptual product owning a repo registry, work hierarchy, and defaults
+// (docs/design/work.md).
 type Project struct {
-	ID          string `json:"id"`
-	SID         string `json:"sid"`
-	WorkspaceID string `json:"workspace_id"`
-	Name        string `json:"name"`
-	IsDefault   bool   `json:"is_default"`
+	ID        string `json:"id"`
+	SID       string `json:"sid"`
+	Name      string `json:"name"`
+	IsDefault bool   `json:"is_default"`
 	// Headline is the project's current goal as the commander states it ("" = none;
 	// the UI falls back to facts). HeadlineAt is when it was set.
-	Headline     string     `json:"headline,omitempty"`
-	HeadlineAt   *time.Time `json:"headline_at,omitzero"`
-	DeliveryMode string     `json:"delivery_mode,omitempty"`
-	MergeStyle   string     `json:"merge_style,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	Headline     string         `json:"headline,omitempty"`
+	HeadlineAt   *time.Time     `json:"headline_at,omitzero"`
+	VerifyCmd    string         `json:"verify_cmd,omitempty"`
+	Autonomy     AutonomyPolicy `json:"autonomy,omitzero"`
+	DeliveryMode string         `json:"delivery_mode,omitempty"`
+	MergeStyle   string         `json:"merge_style,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
-// Repo represents a repository or working folder on a specific machine belonging to a Project.
+// Repo is a per-project repository registry entry keyed by RemoteURL (docs/design/work.md).
+// Per-machine checkouts and worktrees are reported as daemon facts, not stored here.
 type Repo struct {
-	ID           string    `json:"id"`
-	SID          string    `json:"sid"`
-	ProjectID    string    `json:"project_id"`
-	WorkerID     string    `json:"worker_id"`
-	Name         string    `json:"name"`
-	Path         string    `json:"path"`
-	RemoteURL    string    `json:"remote_url,omitempty"`
-	DeliveryMode string    `json:"delivery_mode,omitempty"`
-	MergeStyle   string    `json:"merge_style,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-// Worktree represents a branch checkout or git worktree within a Repo.
-type Worktree struct {
-	ID        string    `json:"id"`
-	SID       string    `json:"sid"`
-	RepoID    string    `json:"repo_id"`
-	Branch    string    `json:"branch,omitempty"`
-	Path      string    `json:"path"`
-	IsPrimary bool      `json:"is_primary"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// TaxonomySnapshot bundles the complete Space > Project > Repo > Worktree hierarchy.
-type TaxonomySnapshot struct {
-	Workspaces []Workspace `json:"workspaces"`
-	Projects   []Project   `json:"projects"`
-	Repos      []Repo      `json:"repos"`
-	Worktrees  []Worktree  `json:"worktrees"`
+	ID            string    `json:"id"`
+	SID           string    `json:"sid"`
+	ProjectID     string    `json:"project_id"`
+	Name          string    `json:"name"`
+	RemoteURL     string    `json:"remote_url"`
+	DefaultBranch string    `json:"default_branch,omitempty"`
+	VerifyCmd     string    `json:"verify_cmd,omitempty"`
+	DeliveryMode  string    `json:"delivery_mode,omitempty"`
+	MergeStyle    string    `json:"merge_style,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type Task struct {
@@ -193,11 +157,8 @@ type Task struct {
 	SID            string         `json:"sid"`
 	ExternalID     string         `json:"external_id,omitempty"` // worker's key for a discovered session
 	WorkerID       string         `json:"worker_id"`
-	SpaceID        string         `json:"space_id,omitempty"`
-	WorkspaceID    string         `json:"workspace_id,omitempty"`
 	ProjectID      string         `json:"project_id,omitempty"`
 	RepoID         string         `json:"repo_id,omitempty"`
-	WorktreeID     string         `json:"worktree_id,omitempty"`
 	Agent          string         `json:"agent"`
 	Model          string         `json:"model,omitempty"`
 	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
@@ -526,37 +487,50 @@ type Store interface {
 	// (its link died).
 	MarkWorkerOffline(ctx context.Context, id string) (bool, error)
 
-	CreateSpace(ctx context.Context, sp Space) error
-	GetSpace(ctx context.Context, id string) (Space, error)
-	ListSpaces(ctx context.Context, workerID string) ([]Space, error)
-	DeleteSpace(ctx context.Context, id string) error
-
-	EnsureTaxonomyDefaults(ctx context.Context) error
-	GetTaxonomy(ctx context.Context) (TaxonomySnapshot, error)
-
-	CreateWorkspace(ctx context.Context, ws Workspace) error
-	GetWorkspace(ctx context.Context, id string) (Workspace, error)
-	ListWorkspaces(ctx context.Context) ([]Workspace, error)
-	DeleteWorkspace(ctx context.Context, id string) error
+	EnsureDefaultProject(ctx context.Context) error
 
 	CreateProject(ctx context.Context, p Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
+	UpdateProject(ctx context.Context, p Project) error
 	// SetProjectHeadline sets (or, with "", clears) a project's headline.
 	SetProjectHeadline(ctx context.Context, id, headline string, at time.Time) error
 	UpdateProjectDelivery(ctx context.Context, id, deliveryMode, mergeStyle string) error
-	ListProjects(ctx context.Context, workspaceID string) ([]Project, error)
+	ListProjects(ctx context.Context) ([]Project, error)
 	DeleteProject(ctx context.Context, id string) error
 
 	CreateRepo(ctx context.Context, r Repo) error
 	GetRepo(ctx context.Context, id string) (Repo, error)
+	UpdateRepo(ctx context.Context, r Repo) error
 	UpdateRepoDelivery(ctx context.Context, id, deliveryMode, mergeStyle, remoteURL string) error
-	ListRepos(ctx context.Context, projectID, workerID string) ([]Repo, error)
+	ListRepos(ctx context.Context, projectID string) ([]Repo, error)
 	DeleteRepo(ctx context.Context, id string) error
 
-	CreateWorktree(ctx context.Context, wt Worktree) error
-	GetWorktree(ctx context.Context, id string) (Worktree, error)
-	ListWorktrees(ctx context.Context, repoID string) ([]Worktree, error)
-	DeleteWorktree(ctx context.Context, id string) error
+	// Work model: tickets, DAG edges, repo bindings, external refs, and computed rollups.
+	CreateTicket(ctx context.Context, t Ticket) (Ticket, error)
+	GetTicket(ctx context.Context, id string) (Ticket, error)
+	UpdateTicket(ctx context.Context, t Ticket) (Ticket, error)
+	ListTickets(ctx context.Context, f TicketFilter) ([]Ticket, error)
+	DeleteTicket(ctx context.Context, id string) error
+
+	// AddTicketEdge records that ticketID is blocked by blockedByID, rejecting cycles.
+	AddTicketEdge(ctx context.Context, ticketID, blockedByID string) error
+	RemoveTicketEdge(ctx context.Context, ticketID, blockedByID string) error
+	ListTicketEdges(ctx context.Context, ticketID string) ([]TicketEdge, error)
+	// ListTicketBlocking returns edges where blockedByID blocks other tickets.
+	ListTicketBlocking(ctx context.Context, blockedByID string) ([]TicketEdge, error)
+
+	// Repo bindings per ticket.
+	PutTicketRepoBinding(ctx context.Context, b TicketRepoBinding) error
+	RemoveTicketRepoBinding(ctx context.Context, ticketID, repoID string) error
+	ListTicketRepoBindings(ctx context.Context, ticketID string) ([]TicketRepoBinding, error)
+
+	// External tracker links per ticket.
+	PutExternalRef(ctx context.Context, ref ExternalRef) error
+	RemoveExternalRef(ctx context.Context, ticketID, tracker, externalID string) error
+	ListExternalRefs(ctx context.Context, ticketID string) ([]ExternalRef, error)
+
+	// Computed rollups (done/total, blocked, running) for initiative/epic containers; never stored.
+	GetTicketRollup(ctx context.Context, id string) (TicketRollup, error)
 
 	// Create* insert a record; an empty ID gets a new UUIDv7 and an empty SID a fresh sid.
 	CreateTask(ctx context.Context, t Task) error

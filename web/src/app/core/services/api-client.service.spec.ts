@@ -67,7 +67,7 @@ describe('ApiClientService', () => {
   });
 
   it('sends DELETE with JSON content type and the marker header', async () => {
-    await api.deleteSpace('sp1');
+    await api.deleteProject('p1');
     const { init, headers } = lastCall();
     expect(init.method).toBe('DELETE');
     expect(headers.get('Content-Type')).toBe('application/json');
@@ -87,7 +87,7 @@ describe('ApiClientService', () => {
 
   it('maps error bodies to ApiError with the status code', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(409, { error: 'already exists' }));
-    const err = await api.createWorkspace('x').catch((e: unknown) => e);
+    const err = await api.createProject({ name: 'x' }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).toBe('already exists');
     expect((err as ApiError).status).toBe(409);
