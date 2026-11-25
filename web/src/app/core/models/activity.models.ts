@@ -1,6 +1,6 @@
 /**
- * Live-work data: session activity (KON-NAYVC), machine heat (KON-RJ8P7) and project
- * narration (KON-H5BXK). Wire shapes mirror internal/protocol/activity.go and
+ * Live-work data: session activity (SYR-NAYVC), machine heat (SYR-RJ8P7) and project
+ * narration (SYR-H5BXK). Wire shapes mirror internal/protocol/activity.go and
  * internal/controller/heat.go; see docs/design/activity.md.
  */
 
@@ -76,7 +76,7 @@ export interface ShellInfo {
   dangling?: boolean;
 }
 
-/** What Konsert does about shells a finished session left running (KON-DCEZV). */
+/** What Syre does about shells a finished session left running (SYR-DCEZV). */
 export type ShellPolicyMode = 'remind' | 'ask' | 'stop';
 
 export interface ShellPolicySettings {
@@ -102,7 +102,7 @@ export interface ShellReminder {
   /** The agent can still be asked to clean up. */
   can_ask: boolean;
   mode: ShellPolicyMode;
-  /** Why Konsert reminds instead of acting. */
+  /** Why Syre reminds instead of acting. */
   note?: string;
   created_at: string;
   /** In a fleet.update: the item is gone. */
@@ -190,7 +190,7 @@ export interface WorkCounts {
 }
 
 /** Where a narration line came from. */
-export type NarrationSource = 'orchestrator' | 'activity' | 'title' | 'ticket' | 'prompt' | 'agent' | 'counts' | 'project';
+export type NarrationSource = 'commander' | 'activity' | 'title' | 'ticket' | 'prompt' | 'agent' | 'counts' | 'project';
 
 /** One task or chat in the live-work views. */
 export interface WorkItem {
@@ -201,7 +201,7 @@ export interface WorkItem {
   agent: string;
   /** Short name: task title, ticket title, the prompt's first line or the chat title. */
   title: string;
-  /** The one-line "now": the orchestrator's narration, else the live tool label, else facts. */
+  /** The one-line "now": the commander's narration, else the live tool label, else facts. */
   now: string;
   nowSource: NarrationSource;
   /** The full tool line behind a summarised now (hover title); absent when not working. */
@@ -210,7 +210,7 @@ export interface WorkItem {
   ticketTitle?: string;
   activity: SessionActivity;
   bucket: WorkBucket;
-  /** A session started outside Konsert (observed). */
+  /** A session started outside Syre (observed). */
   observed: boolean;
   createdAt: string;
 }
@@ -221,7 +221,7 @@ export interface ProjectGroup {
   key: string;
   projectId: string | null;
   name: string;
-  /** The orchestrator's headline, else a line made from facts; never blank. */
+  /** The commander's headline, else a line made from facts; never blank. */
   headline: string;
   headlineSource: NarrationSource;
   counts: WorkCounts;

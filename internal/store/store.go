@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/syre/internal/ids"
 )
 
 var (
@@ -41,10 +41,10 @@ type Worker struct {
 	LastSeenAt     time.Time         `json:"last_seen_at"`
 	FactsJSON      string            `json:"facts_json,omitempty"`
 	FactsUpdatedAt *time.Time        `json:"facts_updated_at,omitzero"`
-	// Version is the konsertd build version last reported in worker.hello.
+	// Version is the syred build version last reported in worker.hello.
 	Version string `json:"version,omitempty"`
 
-	// Launch is how the hub (re)starts this machine's konsertd: LaunchManual (""),
+	// Launch is how the hub (re)starts this machine's syred: LaunchManual (""),
 	// LaunchLocal or LaunchSSH, which also picks the transport (local socket, SSH, or
 	// outbound for manual). SSHTarget is what an SSH (re)start and the SSH transport
 	// use. The fields are set by EnsureWorker/SetWorkerLaunchState, never by UpsertWorker,
@@ -60,7 +60,7 @@ type Worker struct {
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
 }
 
-// MachineCredential is one konsertd credential (KON-RK9YD). The secret itself is never
+// MachineCredential is one syred credential (SYR-RK9YD). The secret itself is never
 // stored, only its hash (see internal/auth). A credential authenticates exactly its
 // machine (WorkerID).
 type MachineCredential struct {
@@ -76,8 +76,8 @@ type MachineCredential struct {
 
 // Machine credential sources: how the credential reached the machine.
 const (
-	MachineCredJoin   = "join"   // traded for a join code (konsertd join)
-	MachineCredRotate = "rotate" // pushed to a connected konsertd by a rotation
+	MachineCredJoin   = "join"   // traded for a join code (syred join)
+	MachineCredRotate = "rotate" // pushed to a connected syred by a rotation
 )
 
 // MachineJoinCode is a short-lived, single-use code a machine trades for a credential.
@@ -102,7 +102,7 @@ const (
 	LaunchStateFailed   = "failed"
 )
 
-// MemoryEntry persists compact Orchestrator fleet/thread/project state in SQLite across context resets.
+// MemoryEntry persists compact Commander fleet/thread/project state in SQLite across context resets.
 type MemoryEntry struct {
 	ID        string    `json:"id"`
 	Scope     string    `json:"scope"` // "fleet" | "session:<id>" | "project:<id>"
@@ -122,7 +122,7 @@ type Space struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Workspace is the top-level abstract "Space" in Konsert's Space > Project > Repo > Worktree taxonomy.
+// Workspace is the top-level abstract "Space" in Syre's Space > Project > Repo > Worktree taxonomy.
 type Workspace struct {
 	ID        string    `json:"id"`
 	SID       string    `json:"sid"`
@@ -138,7 +138,7 @@ type Project struct {
 	WorkspaceID string `json:"workspace_id"`
 	Name        string `json:"name"`
 	IsDefault   bool   `json:"is_default"`
-	// Headline is the project's current goal as the orchestrator states it ("" = none;
+	// Headline is the project's current goal as the commander states it ("" = none;
 	// the UI falls back to facts). HeadlineAt is when it was set.
 	Headline     string     `json:"headline,omitempty"`
 	HeadlineAt   *time.Time `json:"headline_at,omitzero"`
@@ -197,7 +197,7 @@ type Task struct {
 	EffectiveDir   string         `json:"effective_dir"`
 	Branch         string         `json:"branch"`
 	Mode           string         `json:"mode"`            // "oneshot" | "interactive"
-	Origin         string         `json:"origin"`          // "orchestrator" | "direct" | "scratch"
+	Origin         string         `json:"origin"`          // "commander" | "direct" | "scratch"
 	PermissionMode PermissionMode `json:"permission_mode"` // "full_access" | "sandboxed"
 	OrphanPolicy   string         `json:"orphan_policy"`   // "fail" | "requeue"
 	Prompt         string         `json:"prompt"`
@@ -209,9 +209,9 @@ type Task struct {
 	Cause *Cause `json:"cause,omitzero"`
 	// SuspendedBy is "user" or "pause" while the task is suspended ("" otherwise).
 	SuspendedBy string `json:"suspended_by"`
-	// ParentChatID is the chat (orchestrator or agent) that dispatched the task.
+	// ParentChatID is the chat (commander or agent) that dispatched the task.
 	ParentChatID string `json:"parent_chat_id,omitempty"`
-	// Title is a short name for the task; Narration the orchestrator's one-line "now"
+	// Title is a short name for the task; Narration the commander's one-line "now"
 	// (NarrationAt when it was set); TicketID/TicketTitle the ka ticket it works on.
 	Title       string     `json:"title,omitempty"`
 	Narration   string     `json:"narration,omitempty"`
@@ -253,7 +253,7 @@ type AuditEvent struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	User      string    `json:"user"`
-	Source    string    `json:"source,omitempty"` // "rest" | "ws" | "mcp" | "orchestrator" | "cli" | "legacy"
+	Source    string    `json:"source,omitempty"` // "rest" | "ws" | "mcp" | "commander" | "cli" | "legacy"
 	Action    string    `json:"action"`           // e.g. "task.steer", "task.cancel", "task.take_control"
 	WorkerID  string    `json:"worker_id,omitempty"`
 	WorkerSID string    `json:"worker_sid,omitempty"`
@@ -265,7 +265,7 @@ type AuditEvent struct {
 	Cause *Cause `json:"cause,omitzero"`
 }
 
-// Machine vitals and heat retention (KON-WY5F2): raw samples, hourly roll-ups and daily
+// Machine vitals and heat retention (SYR-WY5F2): raw samples, hourly roll-ups and daily
 // roll-ups, each kept for a fixed time, so a machine never has more than ~4k rows.
 const (
 	// VitalsBucket is the raw tier's resolution: heartbeats within one bucket merge.
@@ -344,7 +344,7 @@ type AuditFilter struct {
 }
 
 // Chat backends: an agent CLI on a worker (subscription, the default) or the
-// optional API-key orchestrator.
+// optional API-key commander.
 const (
 	ChatBackendAgent = "agent"
 	ChatBackendAPI   = "api"
@@ -382,7 +382,7 @@ type ChatSession struct {
 	// NotesCursor is the last fleet event id delivered to this chat as a note.
 	NotesCursor int64 `json:"-"`
 	// QuestionID marks a hidden side-conversation chat answering about that question;
-	// ForkOf is the chat whose agent session it forked ("" for the orchestrator fallback).
+	// ForkOf is the chat whose agent session it forked ("" for the commander fallback).
 	QuestionID string `json:"question_id,omitempty"`
 	ForkOf     string `json:"fork_of,omitempty"`
 	// Keep: the user pinned the chat, so retention never compacts it. CompactedAt is
@@ -482,7 +482,7 @@ type Store interface {
 	// SetWorkerLaunchState records the outcome of a start attempt ("" clears it).
 	SetWorkerLaunchState(ctx context.Context, id, state, errMsg string, at time.Time) error
 
-	// Machine credentials (KON-RK9YD). CreateMachineCredential stores c (minting its ids)
+	// Machine credentials (SYR-RK9YD). CreateMachineCredential stores c (minting its ids)
 	// with the hex SHA-256 of its secret. GetMachineCredential returns a credential and
 	// its secret hash, or ErrNotFound. ListMachineCredentials lists a machine's
 	// credentials (every machine's when workerID is ""), newest first.
@@ -587,7 +587,7 @@ type Store interface {
 	// the newest maxRows rows. It returns the number of rows deleted.
 	PruneAudit(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
 
-	// Machine vitals and heat (KON-WY5F2). UpsertVitals merges raw samples into stored
+	// Machine vitals and heat (SYR-WY5F2). UpsertVitals merges raw samples into stored
 	// buckets (sample-weighted means, max heat and its cause); samples of machines that
 	// no longer exist are dropped.
 	UpsertVitals(ctx context.Context, samples []VitalsSample) error
@@ -692,7 +692,7 @@ type Store interface {
 	AddQuestionReject(ctx context.Context, r QuestionReject) error
 	ListQuestionRejects(ctx context.Context, since time.Time) ([]QuestionReject, error)
 
-	// Reviews (KON-H50YW): one per task or chat. GetReview takes a task id or a chat id
+	// Reviews (SYR-H50YW): one per task or chat. GetReview takes a task id or a chat id
 	// (the other "") and is ErrNotFound when the session has none. SaveReview inserts or
 	// updates the session's review (id/sid assigned on insert, updated_at bumped).
 	GetReview(ctx context.Context, taskID, chatID string) (Review, error)
@@ -703,7 +703,7 @@ type Store interface {
 	// Returns true if it was not seen before, false if already recorded.
 	MarkReviewCommentSeen(ctx context.Context, taskID, commentID string, at time.Time) (bool, error)
 
-	// Devices (KON-W0P8B). CreateDevice assigns id/sid when empty. GetDeviceBySecretHash
+	// Devices (SYR-W0P8B). CreateDevice assigns id/sid when empty. GetDeviceBySecretHash
 	// returns revoked and expired devices too: callers decide. ListDevices returns the
 	// devices that are not revoked, most recently used first.
 	CreateDevice(ctx context.Context, d Device) (Device, error)
@@ -716,7 +716,7 @@ type Store interface {
 	// RevokeDevice revokes a device; false when it was not active.
 	RevokeDevice(ctx context.Context, id string, at time.Time) (bool, error)
 
-	// Pairing codes (KON-V5JZB, KON-A29CT). CreatePairingCode assigns id/sid when empty.
+	// Pairing codes (SYR-V5JZB, SYR-A29CT). CreatePairingCode assigns id/sid when empty.
 	CreatePairingCode(ctx context.Context, p PairingCode) (PairingCode, error)
 	GetPairingCodeByHash(ctx context.Context, codeHash string) (PairingCode, error)
 	GetPairingCodeByPollHash(ctx context.Context, pollHash string) (PairingCode, error)

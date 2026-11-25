@@ -32,7 +32,7 @@ func feedAll(input string, sizes ...int) (string, []Mark) {
 	return out.String(), marks
 }
 
-func TestParserExtractsMarksAndStripsKonsertOSC(t *testing.T) {
+func TestParserExtractsMarksAndStripsSyreOSC(t *testing.T) {
 	cmd := "echo 'a;b' \\ héllo 🎉\n"
 	input := "prompt" + osc("633;P;Cwd=/home/u/x\\x3by;"+testNonce) + osc("133;A") + "$ " + osc("133;B") +
 		osc("633;E;"+escapeForTest(cmd)+";"+testNonce) + osc("133;C") +

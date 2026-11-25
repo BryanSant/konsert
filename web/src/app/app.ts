@@ -13,7 +13,7 @@ import { PairViewComponent } from './features/auth/pair-view.component';
   template: `
     @if (auth.loading()) {
       <div class="h-screen w-screen flex items-center justify-center bg-[#111214] text-[#8e9098] text-[13px] font-mono-ide" role="status">
-        Connecting to Konsert...
+        Connecting to Syre...
       </div>
     } @else if (!auth.authenticated()) {
       @if (pairCode(); as code) {
@@ -26,7 +26,7 @@ import { PairViewComponent } from './features/auth/pair-view.component';
       <router-outlet />
       @if (routeLoadFailed()) {
         <div class="fixed inset-0 z-[70] flex flex-col gap-3 items-center justify-center bg-[#111214] text-[#f09595] text-[13px]" role="alert">
-          <span>Konsert failed to load. The hub may have been upgraded.</span>
+          <span>Syre failed to load. The hub may have been upgraded.</span>
           <button type="button" (click)="updates.reload()" class="rounded-md border border-[#2c2e36] px-3 py-1.5 text-[#ececed] cursor-pointer">Reload</button>
         </div>
       }
@@ -38,7 +38,7 @@ import { PairViewComponent } from './features/auth/pair-view.component';
         class="fixed bottom-10 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 rounded-lg border border-[#2d3039] bg-[#1b1c20] px-4 py-2.5 text-[12px] text-[#e4e4e7] shadow-2xl"
       >
         <span>
-          {{ updates.unrecoverable() ? 'This version of Konsert can no longer run. Reload to continue.' : 'A new version of Konsert is available.' }}
+          {{ updates.unrecoverable() ? 'This version of Syre can no longer run. Reload to continue.' : 'A new version of Syre is available.' }}
         </span>
         <button type="button" (click)="updates.reload()" class="rounded-md bg-[#ececed] hover:bg-white px-3 py-1 font-medium text-[#111214] cursor-pointer">
           Reload

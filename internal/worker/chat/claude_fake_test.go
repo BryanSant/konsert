@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // ccFakeProc is an in-memory engine process: a handler sees every JSON line written to

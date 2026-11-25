@@ -11,28 +11,28 @@ import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
  * and each subscription's usage (the usage popover has the windows and sign-in).
  */
 @Component({
-  selector: 'ks-fleet-strip',
+  selector: 'sy-fleet-strip',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, HeatAvatarComponent, FooterUsageComponent],
   host: { class: 'hidden md:block shrink-0' },
   template: `
-    <footer class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[12px] text-[var(--ks-text-secondary)] bg-[var(--ks-bg-chrome)] border-t border-[var(--ks-hairline)]" aria-label="Fleet and quota" data-testid="fleet-strip">
+    <footer class="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[12px] text-[var(--sy-text-secondary)] bg-[var(--sy-bg-chrome)] border-t border-[var(--sy-hairline)]" aria-label="Fleet and quota" data-testid="fleet-strip">
       @if (machines().length === 0) {
-        <span class="text-[var(--ks-text-muted)]">No machines yet</span>
+        <span class="text-[var(--sy-text-muted)]">No machines yet</span>
       }
       @for (m of machines(); track m.id) {
         <a
           [routerLink]="['/fleet', m.sid]"
           class="inline-flex items-center gap-1.5 no-underline hover:underline"
-          [class.text-[var(--ks-amber)]]="m.tone === 'warn'"
-          [class.text-[var(--ks-text-muted)]]="m.tone === 'stale'"
-          [class.text-[var(--ks-text-secondary)]]="m.tone === 'muted'"
-          ><span aria-hidden="true" class="inline-flex"><ks-heat-avatar [machine]="m.machine" [size]="14" /></span>{{ m.text }}@if (m.heatPct !== null) {<span class="font-mono-ide text-[11px]" [style.color]="m.heatColor">{{ m.heatPct }}%<span class="ks-sr-only"> heat</span></span>}</a
+          [class.text-[var(--sy-amber)]]="m.tone === 'warn'"
+          [class.text-[var(--sy-text-muted)]]="m.tone === 'stale'"
+          [class.text-[var(--sy-text-secondary)]]="m.tone === 'muted'"
+          ><span aria-hidden="true" class="inline-flex"><sy-heat-avatar [machine]="m.machine" [size]="14" /></span>{{ m.text }}@if (m.heatPct !== null) {<span class="font-mono-ide text-[11px]" [style.color]="m.heatColor">{{ m.heatPct }}%<span class="sy-sr-only"> heat</span></span>}</a
         >
       }
       <span class="flex-1"></span>
-      <ks-footer-usage />
+      <sy-footer-usage />
     </footer>
   `,
 })

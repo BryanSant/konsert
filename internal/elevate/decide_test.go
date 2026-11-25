@@ -80,7 +80,7 @@ func TestSudoModeFrom(t *testing.T) {
 }
 
 func TestMessage(t *testing.T) {
-	cmd := `konsertd.exe install --service --user=.\bob`
+	cmd := `syred.exe install --service --user=.\bob`
 	for _, tc := range []struct {
 		name      string
 		op        Op
@@ -139,8 +139,8 @@ func TestMessage(t *testing.T) {
 }
 
 func TestCommandLine(t *testing.T) {
-	got := CommandLine([]string{`C:\Program Files\konsertd.exe`, "install", "--service", `--user=.\bob`, "--no-elevate", `--tag=a="b c"`, `--config=C:\x y\`})
-	want := `"C:\Program Files\konsertd.exe" install --service --user=.\bob "--tag=a=\"b c\"" "--config=C:\x y\\"`
+	got := CommandLine([]string{`C:\Program Files\syred.exe`, "install", "--service", `--user=.\bob`, "--no-elevate", `--tag=a="b c"`, `--config=C:\x y\`})
+	want := `"C:\Program Files\syred.exe" install --service --user=.\bob "--tag=a=\"b c\"" "--config=C:\x y\\"`
 	if got != want {
 		t.Errorf("CommandLine =\n %s\nwant\n %s", got, want)
 	}

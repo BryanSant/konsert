@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // nextActivity returns the next fleet.update activity frame for key, skipping others.
@@ -35,7 +35,7 @@ func TestSessionActivityFlowsToBrowsersFromItsHostOnly(t *testing.T) {
 	w2 := th.connectWorker(t, testWorkerInfo("w-2", "two"), nil, "w-2")
 	browser := th.dialBrowser(t)
 
-	res, err := th.svc.DispatchTask(ctx, DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w-1"}, Agent: "mock", RepoPath: "/repo", Prompt: "do KON-2Q0CH"})
+	res, err := th.svc.DispatchTask(ctx, DispatchRequest{WorkerSelector: WorkerSelector{WorkerID: "w-1"}, Agent: "mock", RepoPath: "/repo", Prompt: "do SYR-2Q0CH"})
 	if err != nil {
 		t.Fatal(err)
 	}

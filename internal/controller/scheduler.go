@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // WorkerSelector filters eligible worker nodes using both identity/tags and cached Machine Facts.

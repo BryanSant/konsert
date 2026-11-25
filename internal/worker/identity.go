@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
 	"github.com/google/uuid"
 )
 
@@ -33,12 +33,12 @@ func osMachineHash() string {
 	if v == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte("konsert:" + strings.ToLower(v)))
+	sum := sha256.Sum256([]byte("syre:" + strings.ToLower(v)))
 	return hex.EncodeToString(sum[:8])
 }
 
 // ResolveStableWorkerID returns this daemon's persistent identity: a UUIDv7 that is the
-// hub's workers.id, so rerunning konsertd never registers a second machine row.
+// hub's workers.id, so rerunning syred never registers a second machine row.
 //
 // Resolution order:
 //  1. Read <baseDir>/worker-id-<name>-<isolation> (name defaults to the hostname). It is
@@ -82,7 +82,7 @@ func ResolveStableWorkerID(baseDir, name, hostGroup, isolation string) string {
 }
 
 // WorkerIDFor is the identity a daemon running with cfg uses: its explicit worker_id, else
-// the persisted identity for its name and isolation (created on first use). `konsertd id`
+// the persisted identity for its name and isolation (created on first use). `syred id`
 // prints it, so the hub learns a host's workers.id before that daemon ever connects.
 func WorkerIDFor(cfg config.WorkerConfig) string {
 	if id := strings.TrimSpace(cfg.WorkerID); id != "" {
@@ -112,7 +112,7 @@ func workerIDFilename(name, isolation string) string {
 	// Always keyed by name (default: the hostname) and isolation, never "the default
 	// daemon": hosts sharing a home directory (a container, its siblings and its host)
 	// each get their own file, and every host computes the same file for a given name,
-	// so `konsertd uninstall` on one can tell the others' identities apart.
+	// so `syred uninstall` on one can tell the others' identities apart.
 	cleanName := strings.TrimSpace(name)
 	if cleanName == "" {
 		cleanName, _ = os.Hostname()
@@ -149,7 +149,7 @@ func deterministicWorkerID(name, hostGroup, isolation string) string {
 		strings.ToLower(strings.TrimSpace(isolation)),
 		osMachineHash(),
 	}, "|")
-	sum := sha256.Sum256([]byte("konsert-worker:" + key))
+	sum := sha256.Sum256([]byte("syre-worker:" + key))
 	var u uuid.UUID
 	copy(u[:], sum[:16])
 	u[6] = (u[6] & 0x0f) | 0x80 // version 8

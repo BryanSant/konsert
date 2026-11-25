@@ -99,11 +99,11 @@ func safeFileName(workerID string) string {
 	return b.String()
 }
 
-// StateDirEnv overrides konsertd's state directory (worker ID, machine ID, outbound
-// spool). Tests and side-by-side daemons use it to stay out of ~/.konsert.
-const StateDirEnv = "KONSERT_STATE_DIR"
+// StateDirEnv overrides syred's state directory (worker ID, machine ID, outbound
+// spool). Tests and side-by-side daemons use it to stay out of ~/.syre.
+const StateDirEnv = "SYRE_STATE_DIR"
 
-// defaultStateDir is konsertd's per-user state directory: $KONSERT_STATE_DIR, else ~/.konsert.
+// defaultStateDir is syred's per-user state directory: $SYRE_STATE_DIR, else ~/.syre.
 func defaultStateDir() string {
 	if dir := strings.TrimSpace(os.Getenv(StateDirEnv)); dir != "" {
 		return dir
@@ -112,5 +112,5 @@ func defaultStateDir() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".konsert")
+	return filepath.Join(home, ".syre")
 }

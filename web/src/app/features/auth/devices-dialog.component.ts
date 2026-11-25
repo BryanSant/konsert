@@ -35,21 +35,21 @@ export type DevicesView = 'list' | 'add' | 'mcp';
  * Revoke; "Add a device" (QR + link + code) and "Connect an MCP client".
  */
 @Component({
-  selector: 'ks-devices-dialog',
+  selector: 'sy-devices-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, IconComponent, ModalDialogComponent],
   template: `
     <app-modal-dialog
       labelledBy="devices-title"
-      panelClass="w-full max-w-xl max-h-[88vh] flex flex-col rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] overflow-hidden"
+      panelClass="w-full max-w-xl max-h-[88vh] flex flex-col rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] overflow-hidden"
       (close)="close.emit()"
     >
-      <div class="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-[var(--ks-hairline)]">
+      <div class="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-[var(--sy-hairline)]">
         @if (view() !== 'list') {
           <button
             type="button"
-            class="ks-icon-btn"
+            class="sy-icon-btn"
             aria-label="Back to devices"
             (click)="view.set('list')"
           >
@@ -57,7 +57,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
           </button>
         }
         <h2 id="devices-title" class="m-0 flex-1 text-[14px] font-semibold">{{ title() }}</h2>
-        <button type="button" class="ks-icon-btn" aria-label="Close" (click)="close.emit()">
+        <button type="button" class="sy-icon-btn" aria-label="Close" (click)="close.emit()">
           <app-icon name="close" [size]="15" />
         </button>
       </div>
@@ -73,7 +73,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
             <div class="flex flex-wrap gap-2 mb-4">
               <button
                 type="button"
-                class="ks-btn ks-btn-primary"
+                class="sy-btn sy-btn-primary"
                 data-testid="add-device"
                 (click)="openAdd()"
               >
@@ -81,7 +81,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
               </button>
               <button
                 type="button"
-                class="ks-btn"
+                class="sy-btn"
                 data-testid="connect-mcp"
                 (click)="view.set('mcp')"
               >
@@ -94,13 +94,13 @@ export type DevicesView = 'list' | 'add' | 'mcp';
               </p>
             }
             <ul
-              class="list-none m-0 p-0 divide-y divide-[var(--ks-hairline)]"
+              class="list-none m-0 p-0 divide-y divide-[var(--sy-hairline)]"
               aria-label="Signed-in devices"
               data-testid="device-list"
             >
               @for (d of store.devices(); track d.id) {
                 <li class="flex items-start gap-3 py-3" [attr.data-device]="d.sid">
-                  <span class="mt-0.5 text-[var(--ks-text-muted)]"
+                  <span class="mt-0.5 text-[var(--sy-text-muted)]"
                     ><app-icon [name]="kindIcon(d.kind)" [size]="16"
                   /></span>
                   <div class="flex-1 min-w-0">
@@ -113,22 +113,22 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                           maxlength="60"
                           aria-label="Device name"
                           autofocus
-                          class="ks-field flex-1 min-w-0"
+                          class="sy-field flex-1 min-w-0"
                         />
                         <button
                           type="submit"
-                          class="ks-btn ks-btn-sm ks-btn-primary"
+                          class="sy-btn sy-btn-sm sy-btn-primary"
                           [disabled]="!editName().trim()"
                         >
                           Save
                         </button>
-                        <button type="button" class="ks-btn ks-btn-sm" (click)="editingId.set('')">
+                        <button type="button" class="sy-btn sy-btn-sm" (click)="editingId.set('')">
                           Cancel
                         </button>
                       </form>
                     } @else {
                       <div class="flex items-center gap-2 min-w-0">
-                        <span class="truncate font-medium text-[var(--ks-text)]">{{ d.name }}</span>
+                        <span class="truncate font-medium text-[var(--sy-text)]">{{ d.name }}</span>
                         @if (d.current) {
                           <span
                             class="shrink-0 rounded-full bg-[#4a668a]/25 px-2 py-0.5 text-[10.5px] text-[#a9c1e0]"
@@ -143,14 +143,14 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                         }
                       </div>
                     }
-                    <div class="mt-0.5 text-[11.5px] text-[var(--ks-text-muted)] truncate">
+                    <div class="mt-0.5 text-[11.5px] text-[var(--sy-text-muted)] truncate">
                       {{ kindLabel(d.kind) }} · {{ d.sid }} · used {{ ago(d.last_used_at) }}
                       @if (whereFrom(d)) {
                         · {{ whereFrom(d) }}
                       }
                     </div>
                     @if (!d.expired) {
-                      <div class="text-[11px] text-[var(--ks-text-faint,#6b6d75)]">
+                      <div class="text-[11px] text-[var(--sy-text-faint,#6b6d75)]">
                         Signed out if unused {{ expiresIn(d.expires_at) }}
                       </div>
                     }
@@ -168,13 +168,13 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                         <span class="flex-1"></span>
                         <button
                           type="button"
-                          class="ks-btn ks-btn-sm bg-[#e05d5d]/80 text-white"
+                          class="sy-btn sy-btn-sm bg-[#e05d5d]/80 text-white"
                           data-testid="confirm-revoke"
                           (click)="revoke(d.id)"
                         >
                           Revoke
                         </button>
-                        <button type="button" class="ks-btn ks-btn-sm" (click)="confirmId.set('')">
+                        <button type="button" class="sy-btn sy-btn-sm" (click)="confirmId.set('')">
                           Cancel
                         </button>
                       </div>
@@ -184,7 +184,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                     <div class="flex shrink-0 gap-1">
                       <button
                         type="button"
-                        class="ks-btn ks-btn-sm"
+                        class="sy-btn sy-btn-sm"
                         [attr.aria-label]="'Rename ' + d.name"
                         (click)="startRename(d.id, d.name)"
                       >
@@ -192,7 +192,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                       </button>
                       <button
                         type="button"
-                        class="ks-btn ks-btn-sm text-[#f09595]"
+                        class="sy-btn sy-btn-sm text-[#f09595]"
                         [attr.aria-label]="'Revoke ' + d.name"
                         data-testid="revoke"
                         (click)="confirmId.set(d.id)"
@@ -204,13 +204,13 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                 </li>
               } @empty {
                 @if (store.loaded()) {
-                  <li class="py-6 text-center text-[var(--ks-text-muted)]">
+                  <li class="py-6 text-center text-[var(--sy-text-muted)]">
                     No signed-in devices yet.
                   </li>
                 }
               }
             </ul>
-            <p class="mt-4 text-[11.5px] leading-snug text-[var(--ks-text-muted)]">
+            <p class="mt-4 text-[11.5px] leading-snug text-[var(--sy-text-muted)]">
               Devices stay signed in while they are used at least every {{ store.idleDays() }} days
               (change it in Settings). Revoking signs a device out immediately.
             </p>
@@ -235,13 +235,13 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                   <app-icon name="check-circle" [size]="15" /> <b>{{ p.name }}</b> is signed in.
                 </div>
                 <div class="flex gap-2">
-                  <button type="button" class="ks-btn" (click)="openAdd()">Add another</button>
-                  <button type="button" class="ks-btn ks-btn-primary" (click)="view.set('list')">
+                  <button type="button" class="sy-btn" (click)="openAdd()">Add another</button>
+                  <button type="button" class="sy-btn sy-btn-primary" (click)="view.set('list')">
                     Done
                   </button>
                 </div>
               } @else if (pc(); as c) {
-                <p class="text-[var(--ks-text-muted)] max-w-sm">
+                <p class="text-[var(--sy-text-muted)] max-w-sm">
                   Scan with the phone's camera, or open the link on the other device. The code works
                   once.
                 </p>
@@ -256,7 +256,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                   <path [attr.d]="c.qr.path" fill="#000" />
                 </svg>
                 <div
-                  class="font-mono-ide text-[22px] tracking-[0.25em] text-[var(--ks-text)]"
+                  class="font-mono-ide text-[22px] tracking-[0.25em] text-[var(--sy-text)]"
                   data-testid="pair-code-display"
                 >
                   {{ c.code }}
@@ -267,17 +267,17 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                     data-testid="pair-link"
                     >{{ c.url }}</code
                   >
-                  <button type="button" class="ks-btn ks-btn-sm" (click)="copy(c.url, 'link')">
+                  <button type="button" class="sy-btn sy-btn-sm" (click)="copy(c.url, 'link')">
                     {{ copied() === 'link' ? 'Copied' : 'Copy' }}
                   </button>
                 </div>
                 @if (expired()) {
                   <p class="text-[#f0c895]">This code expired.</p>
-                  <button type="button" class="ks-btn ks-btn-primary" (click)="openAdd()">
+                  <button type="button" class="sy-btn sy-btn-primary" (click)="openAdd()">
                     New code
                   </button>
                 } @else {
-                  <p class="text-[11.5px] text-[var(--ks-text-muted)]" aria-live="off">
+                  <p class="text-[11.5px] text-[var(--sy-text-muted)]" aria-live="off">
                     Expires in
                     <span class="font-mono-ide" data-testid="pair-countdown">{{
                       countdown()
@@ -286,7 +286,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                   </p>
                 }
               } @else {
-                <p class="text-[var(--ks-text-muted)]" role="status">Creating a code…</p>
+                <p class="text-[var(--sy-text-muted)]" role="status">Creating a code…</p>
               }
             </div>
           }
@@ -294,7 +294,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
           @case ('mcp') {
             <div class="space-y-3" data-testid="mcp-panel">
               @if (!mcp()) {
-                <p class="text-[var(--ks-text-muted)]">
+                <p class="text-[var(--sy-text-muted)]">
                   Creates a credential that works only on this hub's
                   <code class="font-mono-ide">/mcp</code> endpoint (it cannot change the LLM API
                   key). It appears in Devices, where you can revoke it.
@@ -304,13 +304,13 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                   <input
                     id="mcp-name"
                     name="mcpName"
-                    class="ks-field flex-1 min-w-0"
+                    class="sy-field flex-1 min-w-0"
                     [ngModel]="mcpName()"
                     (ngModelChange)="mcpName.set($event)"
                     maxlength="60"
                     placeholder="Claude Code"
                   />
-                  <button type="submit" class="ks-btn ks-btn-primary" [disabled]="mcpBusy()">
+                  <button type="submit" class="sy-btn sy-btn-primary" [disabled]="mcpBusy()">
                     Create credential
                   </button>
                 </form>
@@ -326,12 +326,12 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                 <div>
                   <div class="flex items-center justify-between mb-1">
                     <span
-                      class="text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]"
+                      class="text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]"
                       >Claude Code</span
                     >
                     <button
                       type="button"
-                      class="ks-btn ks-btn-sm"
+                      class="sy-btn sy-btn-sm"
                       (click)="copy(claudeCommand(), 'claude')"
                     >
                       {{ copied() === 'claude' ? 'Copied' : 'Copy' }}
@@ -345,12 +345,12 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                 <div>
                   <div class="flex items-center justify-between mb-1">
                     <span
-                      class="text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]"
+                      class="text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]"
                       >Other clients (JSON)</span
                     >
                     <button
                       type="button"
-                      class="ks-btn ks-btn-sm"
+                      class="sy-btn sy-btn-sm"
                       (click)="copy(jsonSnippet(), 'json')"
                     >
                       {{ copied() === 'json' ? 'Copied' : 'Copy' }}
@@ -360,7 +360,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                     class="m-0 whitespace-pre-wrap break-all rounded-md bg-black/30 p-2.5 font-mono-ide text-[11.5px]"
                     >{{ jsonSnippet() }}</pre>
                 </div>
-                <button type="button" class="ks-btn" (click)="mcp.set(null); view.set('list')">
+                <button type="button" class="sy-btn" (click)="mcp.set(null); view.set('list')">
                   Done
                 </button>
               }

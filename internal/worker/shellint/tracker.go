@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// HistoryTTL is how long konsertd keeps a full (unredacted) command line in memory.
+// HistoryTTL is how long syred keeps a full (unredacted) command line in memory.
 const HistoryTTL = 30 * time.Minute
 
 // maxHistory bounds the in-memory command history across all terminals.

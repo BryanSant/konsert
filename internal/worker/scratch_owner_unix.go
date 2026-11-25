@@ -9,7 +9,7 @@ import (
 )
 
 func scratchDirName() string {
-	return "konsert-attachments-" + strconv.Itoa(os.Getuid())
+	return "syre-attachments-" + strconv.Itoa(os.Getuid())
 }
 
 func ownedByCurrentUser(info os.FileInfo) bool {

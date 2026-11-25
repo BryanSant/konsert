@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // TestClaudeForkSessionAndMCPTimeout: a side-conversation fork starts with
 // --resume <original> --fork-session --session-id <new>, the original transcript stays,
-// Discard deletes only the fork's transcript; Konsert's MCP server gets the hub's
+// Discard deletes only the fork's transcript; Syre's MCP server gets the hub's
 // tool timeout (per-server "timeout" and MCP_TOOL_TIMEOUT), which claude otherwise caps
 // at 60 s for HTTP servers.
 func TestClaudeForkSessionAndMCPTimeout(t *testing.T) {
@@ -32,7 +32,7 @@ func TestClaudeForkSessionAndMCPTimeout(t *testing.T) {
 	acct := Account{ID: "claude", Env: map[string]string{"CLAUDE_CONFIG_DIR": cfgDir}}
 	opts := protocol.AgentChatOpen{
 		Cwd: cwd, ApprovalMode: "plan", ForkFrom: "orig",
-		MCPServers: []protocol.AgentMCPServer{{Name: "konsert", URL: "http://hub/mcp", ToolTimeoutSeconds: 2400}},
+		MCPServers: []protocol.AgentMCPServer{{Name: "syre", URL: "http://hub/mcp", ToolTimeoutSeconds: 2400}},
 	}
 	s, err := e.Open(context.Background(), acct, opts, rec.emit)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestClaudeForkSessionAndMCPTimeout(t *testing.T) {
 			Timeout int `json:"timeout"`
 		} `json:"mcpServers"`
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil || cfg.MCPServers["konsert"].Timeout != 2400000 {
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg.MCPServers["syre"].Timeout != 2400000 {
 		t.Fatalf("mcp config = %s", b)
 	}
 
@@ -90,19 +90,19 @@ func fileGone(p string) bool {
 	return os.IsNotExist(err)
 }
 
-func TestKonsertToolRunning(t *testing.T) {
+func TestSyreToolRunning(t *testing.T) {
 	tools := map[string]*protocol.AgentToolCall{
 		"a": {Name: "Read", Status: "running"},
-		"b": {Name: "mcp__konsert__ask_user", Status: "completed"},
+		"b": {Name: "mcp__syre__ask_user", Status: "completed"},
 	}
-	if konsertToolRunning(tools) {
-		t.Fatal("no Konsert tool is running")
+	if syreToolRunning(tools) {
+		t.Fatal("no Syre tool is running")
 	}
-	tools["c"] = &protocol.AgentToolCall{Name: "mcp__konsert__ask_user", Status: "running"}
-	if !konsertToolRunning(tools) {
+	tools["c"] = &protocol.AgentToolCall{Name: "mcp__syre__ask_user", Status: "running"}
+	if !syreToolRunning(tools) {
 		t.Fatal("ask_user is running: the watchdog must stay quiet")
 	}
-	if !konsertToolRunning(map[string]*protocol.AgentToolCall{"x": {Title: "Run mcp_konsert_ask_user", Status: "pending"}}) {
+	if !syreToolRunning(map[string]*protocol.AgentToolCall{"x": {Title: "Run mcp_syre_ask_user", Status: "pending"}}) {
 		t.Fatal("ACP-style title not recognized")
 	}
 }
@@ -131,7 +131,7 @@ func TestMockForkRemembersTheOriginal(t *testing.T) {
 		t.Fatalf("fork session id %q", fork.AgentSessionID())
 	}
 	_ = fork.Prompt(context.Background(), protocol.AgentChatPrompt{ChatID: "c2", TurnID: "t2",
-		Text: "[Konsert side conversation] copy.\n\nQuestion q-abcde: Go?\nOption 1: Yes (recommended) — goes\nOption 2: No — stays\n\nThe user asks: why?"})
+		Text: "[Syre side conversation] copy.\n\nQuestion q-abcde: Go?\nOption 1: Yes (recommended) — goes\nOption 2: No — stays\n\nThe user asks: why?"})
 	<-done
 	var reply string
 	for _, ev := range evs {

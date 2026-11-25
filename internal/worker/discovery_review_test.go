@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 type emitLog struct {
@@ -40,7 +40,7 @@ func TestHookPollKeepsPartialLines(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"session_id":"s1","agent":"codex","event":"working","cwd":"/nonexistent-konsert-test","ts":"2026-01-01T00:00:00Z"}` + "\n"
+	line := `{"session_id":"s1","agent":"codex","event":"working","cwd":"/nonexistent-syre-test","ts":"2026-01-01T00:00:00Z"}` + "\n"
 	if err := os.WriteFile(path, []byte(line[:20]), 0o600); err != nil {
 		t.Fatal(err)
 	}

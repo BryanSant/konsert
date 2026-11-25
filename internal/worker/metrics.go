@@ -6,14 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// Heartbeat metrics (KON-G8WA3). Every heartbeat carries vitals read without a
+// Heartbeat metrics (SYR-G8WA3). Every heartbeat carries vitals read without a
 // subprocess (vitals_<os>.go): CPU %, load average, memory and swap. GPU utilization
 // needs one (ioreg / nvidia-smi), so it is read for every heartbeat only while sessions
 // run and otherwise every gpuIdleEvery, the last reading riding along in between.
-// Listening ports (lsof / ss) are not in heartbeats: konsertd sends worker.ports every
+// Listening ports (lsof / ss) are not in heartbeats: syred sends worker.ports every
 // portsEvery and when the hub asks (a machine's Details is open). Disk free is a machine
 // fact (refreshed every FactsInterval).
 

@@ -27,13 +27,13 @@ const (
 	OverrideExpired  = "expired"
 )
 
-// Override is a time-boxed exception to a limit or hold that an orchestrator asked the
-// user for ("allow a 2nd session on mac for 30m"). Once approved Konsert enforces it
+// Override is a time-boxed exception to a limit or hold that a commander asked the
+// user for ("allow a 2nd session on mac for 30m"). Once approved Syre enforces it
 // until ExpiresAt and records whether it was actually used.
 type Override struct {
 	ID  string `json:"id"`
 	SID string `json:"sid"`
-	// ChatID is the requesting orchestrator chat ("" when requested over REST).
+	// ChatID is the requesting commander chat ("" when requested over REST).
 	ChatID       string `json:"chat_id,omitempty"`
 	ScopeKind    string `json:"scope_kind"`
 	WorkerID     string `json:"worker_id,omitempty"`
@@ -44,7 +44,7 @@ type Override struct {
 	// DurationSeconds is how long the override lasts once approved.
 	DurationSeconds int    `json:"duration_seconds"`
 	Reason          string `json:"reason"`
-	// Consequences is Konsert's plain description of what approving allows.
+	// Consequences is Syre's plain description of what approving allows.
 	Consequences string     `json:"consequences"`
 	Status       string     `json:"status"`
 	CreatedAt    time.Time  `json:"created_at"`

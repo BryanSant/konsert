@@ -17,11 +17,11 @@ func TestInstallClaudeHooksQuotesPathAndReplacesOldEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An older install wrote the path unquoted.
-	old := `{"hooks":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"/old/konsertd hook-event --agent claude --event Stop"}]}]}}`
+	old := `{"hooks":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"/old/syred hook-event --agent claude --event Stop"}]}]}}`
 	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bin := "/Users/Some User/Apps/konsert's bin/konsertd"
+	bin := "/Users/Some User/Apps/syre's bin/syred"
 	if err := installClaudeHooks(home, bin); err != nil {
 		t.Fatal(err)
 	}
@@ -38,13 +38,13 @@ func TestInstallClaudeHooksQuotesPathAndReplacesOldEntries(t *testing.T) {
 	}
 	stop := parsed.Hooks["Stop"]
 	if len(stop) != 1 {
-		t.Fatalf("expected the old Konsert Stop hook to be replaced, got %d entries: %s", len(stop), raw)
+		t.Fatalf("expected the old Syre Stop hook to be replaced, got %d entries: %s", len(stop), raw)
 	}
-	want := `'/Users/Some User/Apps/konsert'\''s bin/konsertd' hook-event --agent claude --event Stop`
+	want := `'/Users/Some User/Apps/syre'\''s bin/syred' hook-event --agent claude --event Stop`
 	if got := stop[0].Hooks[0].Command; got != want {
 		t.Fatalf("hook command = %q, want %q", got, want)
 	}
-	if shellQuote("/usr/local/bin/konsertd") != "/usr/local/bin/konsertd" {
+	if shellQuote("/usr/local/bin/syred") != "/usr/local/bin/syred" {
 		t.Fatal("plain paths should stay unquoted")
 	}
 }
@@ -53,7 +53,7 @@ func TestScratchDirIsPerUserAndPrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows uses the per-user TEMP directory")
 	}
-	if got := ResolveScratchDir("linux"); !strings.HasSuffix(got, scratchDirName()) || scratchDirName() == "konsert-attachments" {
+	if got := ResolveScratchDir("linux"); !strings.HasSuffix(got, scratchDirName()) || scratchDirName() == "syre-attachments" {
 		t.Fatalf("scratch dir is not per-user: %q", got)
 	}
 	base := t.TempDir()

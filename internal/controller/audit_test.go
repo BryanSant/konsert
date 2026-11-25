@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/coder/websocket"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -125,7 +125,7 @@ func (e *auditEnv) do(t *testing.T, cred auditCred, method, path, body string) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Konsert-Request", "1")
+	req.Header.Set("X-Syre-Request", "1")
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -240,7 +240,7 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 		t.Fatalf("steer text leaked into the audit log: %+v", got)
 	}
 
-	// The konsert CLI (REST with the admin bearer token, labelled "cli").
+	// The syre CLI (REST with the admin bearer token, labelled "cli").
 	cli := NewRemoteFleetClient(e.api.URL, auditAdminTok)
 	cli.Source = "cli"
 	if _, err := cli.SteerTask(context.Background(), "t1", "y", false); err != nil {
@@ -273,13 +273,13 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 		t.Fatalf("list_audit = %s (%v)", text, err)
 	}
 
-	// The Orchestrator's tool calls are attributed to "orchestrator".
+	// The Commander's tool calls are attributed to "commander".
 	e.seedTask(t, "t5", "w1")
 	args, _ := json.Marshal(map[string]any{"task_id": "t5"})
 	if _, err := e.srv.Service().ExecuteTool(context.Background(), "cancel_task", args); err != nil {
 		t.Fatal(err)
 	}
-	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "orchestrator", "orchestrator", "w1", "t5")
+	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "commander", "commander", "w1", "t5")
 
 	// Per-task control events are still written to the task timeline.
 	evs, _ := e.th.st.ListEvents(context.Background(), "t1", 0, 100)
@@ -520,7 +520,7 @@ func TestAuditActorDefaults(t *testing.T) {
 		t.Fatalf("default actor = %+v", a)
 	}
 	ctx := withAuditActor(context.Background(), "alice", "rest")
-	if a := auditActorFrom(withDefaultAuditActor(ctx, "orchestrator", "orchestrator")); a.User != "alice" {
+	if a := auditActorFrom(withDefaultAuditActor(ctx, "commander", "commander")); a.User != "alice" {
 		t.Fatalf("withDefaultAuditActor overrode an existing actor: %+v", a)
 	}
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

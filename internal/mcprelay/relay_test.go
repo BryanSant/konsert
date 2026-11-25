@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -40,7 +40,7 @@ func newPipe(t *testing.T, local *Local, h http.Handler) *pipe {
 	p.remote = &Remote{
 		Ctx:        ctx,
 		Handler:    h,
-		RemoteAddr: "konsertd:test",
+		RemoteAddr: "syred:test",
 		Send: func(sctx context.Context, msgType string, payload any) error {
 			raw, err := protocol.NewEnvelope(msgType, "", payload)
 			if err != nil {
@@ -78,7 +78,7 @@ func newPipe(t *testing.T, local *Local, h http.Handler) *pipe {
 	})
 	go p.pump(p.toD, func(env protocol.Envelope) {
 		if !local.Deliver(env) {
-			t.Errorf("konsertd got a non-relay frame %s", env.Type)
+			t.Errorf("syred got a non-relay frame %s", env.Type)
 		}
 	})
 	local.SetLink(p.link)
@@ -143,7 +143,7 @@ func TestRelayRoundTrip(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	resp, err := post(t, base+"/mcp/chat/c1", `{"jsonrpc":"2.0"}`, map[string]string{
-		"Authorization": "Bearer tok", "Cookie": "konsert_session=x", "Content-Type": "application/json",
+		"Authorization": "Bearer tok", "Cookie": "syre_session=x", "Content-Type": "application/json",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +398,7 @@ func TestRelayClientCancelCancelsHub(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for p.remote.Inflight() != 0 || l.Inflight() != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("in flight: hub %d, konsertd %d", p.remote.Inflight(), l.Inflight())
+			t.Fatalf("in flight: hub %d, syred %d", p.remote.Inflight(), l.Inflight())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -439,7 +439,7 @@ func TestRelayRemoteRejectsBadRequests(t *testing.T) {
 // real MCP client in front of it (SSE responses included).
 func TestRelayMCPSession(t *testing.T) {
 	l, base := startLocal(t)
-	srv := mcp.NewServer(&mcp.Implementation{Name: "konsert", Version: "test"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "syre", Version: "test"}, nil)
 	type echoIn struct {
 		Text string `json:"text"`
 	}

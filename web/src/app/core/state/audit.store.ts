@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { AuditEvent } from '../models/konsert.models';
+import { AuditEvent } from '../models/syre.models';
 
 type AuditListener = (ev: AuditEvent) => void;
 

@@ -12,17 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // --- validation -------------------------------------------------------------------------
 
 func TestValidateAskRejectsUnderSpecifiedQuestions(t *testing.T) {
 	good := askUserInput{
-		Question: "Accept the shortened exit criteria on KON-2Q0CH?", Context: "KON-2Q0CH 'Questions and steering'", WhyNow: "Closing waits on it",
+		Question: "Accept the shortened exit criteria on SYR-2Q0CH?", Context: "SYR-2Q0CH 'Questions and steering'", WhyNow: "Closing waits on it",
 		Options:   []askOption{{Label: "Yes", Consequence: "Closes today", Recommended: true}, {Label: "No", Consequence: "Stays open"}},
 		Rationale: "e2e covers it",
 	}
@@ -96,7 +96,7 @@ func TestParseDraft(t *testing.T) {
 func TestQuestionQueueOrderAndDedupe(t *testing.T) {
 	cs := newChatServer(t)
 	ctx := context.Background()
-	orch := store.ChatSession{Title: "Orchestrator", Backend: store.ChatBackendAgent, FleetTools: true, Agent: "claude"}
+	orch := store.ChatSession{Title: "Commander", Backend: store.ChatBackendAgent, FleetTools: true, Agent: "claude"}
 	worker := store.ChatSession{Title: "Fix e2e", Backend: store.ChatBackendAgent, Agent: "codex"}
 	for _, c := range []*store.ChatSession{&orch, &worker} {
 		if err := cs.st.CreateChatSession(ctx, *c); err != nil {
@@ -123,7 +123,7 @@ func TestQuestionQueueOrderAndDedupe(t *testing.T) {
 	}
 	old := mk(worker, "Old worker question?", 30*time.Minute, store.QuestionKindQuestion)
 	young := mk(worker, "Young worker question?", time.Minute, store.QuestionKindQuestion)
-	fromOrch := mk(orch, "Orchestrator question?", 2*time.Minute, store.QuestionKindQuestion)
+	fromOrch := mk(orch, "Commander question?", 2*time.Minute, store.QuestionKindQuestion)
 	perm := mk(worker, "Allow rm?", 10*time.Second, store.QuestionKindPermission)
 
 	// Re-asking the same question (any spacing/case) maps to the same card.
@@ -146,13 +146,13 @@ func TestQuestionQueueOrderAndDedupe(t *testing.T) {
 	for _, v := range views {
 		got = append(got, v.Prompt)
 	}
-	// Orchestrator first (impact 1 + 1 derived block + 2), then the permission prompt
+	// Commander first (impact 1 + 1 derived block + 2), then the permission prompt
 	// (agent frozen), then by age; snoozed last.
 	want := []string{fromOrch.Prompt, perm.Prompt, young.Prompt, old.Prompt}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("queue order:\n got %v\nwant %v", got, want)
 	}
-	if views[0].Impact <= views[2].Impact || !views[0].Orchestrator || views[0].GroupLabel != "Orchestrator" {
+	if views[0].Impact <= views[2].Impact || !views[0].Commander || views[0].GroupLabel != "Commander" {
 		t.Fatalf("views: %+v", views[0])
 	}
 
@@ -240,15 +240,15 @@ func TestDetectRefsAndEnrichWithFakeKa(t *testing.T) {
 	}
 }
 
-// --- end to end with a real konsertd and the mock agent ---------------------------------
+// --- end to end with a real syred and the mock agent ---------------------------------
 
-// mockFleet runs a real konsertd with the mock engine against a test hub.
+// mockFleet runs a real syred with the mock engine against a test hub.
 func mockFleet(t *testing.T) (*chatServer, string) {
 	t.Helper()
 	cs := newChatServer(t)
 	cs.h.kaShowFn = func(_ context.Context, id string) ([]byte, error) {
-		if id == "KON-2Q0CH" {
-			return []byte(`{"id":"KON-2Q0CH","title":"Questions and steering","status":"in_progress","body":"Clear, context-rich questions."}`), nil
+		if id == "SYR-2Q0CH" {
+			return []byte(`{"id":"SYR-2Q0CH","title":"Questions and steering","status":"in_progress","body":"Clear, context-rich questions."}`), nil
 		}
 		return nil, errors.New("not found")
 	}
@@ -404,14 +404,14 @@ func TestQuestionReaskAndAbandonedAnswerDeliveredAsNote(t *testing.T) {
 	cs.postQuestion(t, again, "answer", map[string]any{"text": "Do the phone run Friday"})
 	cs.waitReply(t, chat.ID, "Ask result: The user answered: Do the phone run Friday")
 
-	// A new question abandoned, answered later: delivered as a [Konsert] note turn.
+	// A new question abandoned, answered later: delivered as a [Syre] note turn.
 	waitFor(t, 5*time.Second, "chat idle", func() bool { return chatIdle(mustSession(t, cs.st, chat.ID).Status) })
 	cs.h.AskUserTimeout = 300 * time.Millisecond
 	cs.send(t, chat, "question")
 	q2 := cs.waitQuestion(t, chat.ID, "second abandoned question", func(x store.Question) bool { return x.ID != q.ID && x.Pending() && x.Abandoned })
 	waitFor(t, 5*time.Second, "chat idle", func() bool { return chatIdle(mustSession(t, cs.st, chat.ID).Status) })
 	cs.postQuestion(t, q2, "answer", map[string]any{"option_id": "option_1"})
-	cs.waitReply(t, chat.ID, "[Konsert] Answer to your earlier question "+q2.SID, `The user chose: "Yes".`)
+	cs.waitReply(t, chat.ID, "[Syre] Answer to your earlier question "+q2.SID, `The user chose: "Yes".`)
 	q2, _ = cs.st.GetQuestion(context.Background(), q2.ID)
 	if q2.Answer.Delivery != store.DeliveryNote || q2.Answer.DeliveredAt == nil {
 		t.Fatalf("note delivery: %+v", q2.Answer)
@@ -425,7 +425,7 @@ func TestSideConversationForkThenAnswerWithSummary(t *testing.T) {
 	q := cs.waitQuestion(t, chat.ID, "open question", isPending)
 	asker := mustSession(t, cs.st, chat.ID)
 
-	cs.postQuestion(t, q, "ask", map[string]any{"text": "What is KON-2Q0CH and why do you recommend Yes?"})
+	cs.postQuestion(t, q, "ask", map[string]any{"text": "What is SYR-2Q0CH and why do you recommend Yes?"})
 	q = cs.waitQuestion(t, chat.ID, "fork answered", func(x store.Question) bool {
 		return x.Thread != nil && x.Thread.Status == "idle" && x.Thread.Draft != nil
 	})
@@ -457,7 +457,7 @@ func TestSideConversationForkThenAnswerWithSummary(t *testing.T) {
 
 	// Use the draft: the answer reaches the original with the fork's summary.
 	cs.postQuestion(t, q, "answer", map[string]any{"option_id": q.Thread.Draft.OptionID})
-	reply := cs.waitReply(t, chat.ID, `The user chose: "Yes".`, "Side conversation: The user asked what KON-2Q0CH is")
+	reply := cs.waitReply(t, chat.ID, `The user chose: "Yes".`, "Side conversation: The user asked what SYR-2Q0CH is")
 	if !strings.Contains(reply, `chose "Yes"`) {
 		t.Fatalf("summary: %s", reply)
 	}
@@ -474,7 +474,7 @@ func TestSideConversationForkThenAnswerWithSummary(t *testing.T) {
 	}
 }
 
-func TestSideConversationFallsBackToOrchestrator(t *testing.T) {
+func TestSideConversationFallsBackToCommander(t *testing.T) {
 	cs, acct := mockFleet(t)
 	chat := cs.createChat(t, map[string]any{"worker_id": "worker-q", "agent": "mock", "account_id": acct})
 	cs.send(t, chat, "please remember the deploy freeze, then question")
@@ -490,12 +490,12 @@ func TestSideConversationFallsBackToOrchestrator(t *testing.T) {
 		}
 	}
 	cs.postQuestion(t, q, "ask", map[string]any{"text": "Why now?"})
-	q = cs.waitQuestion(t, chat.ID, "orchestrator answered", func(x store.Question) bool { return x.Thread != nil && x.Thread.Status == "idle" })
-	if q.Thread.Answerer != store.AnswererOrchestrator || !strings.Contains(q.Thread.Note, "can't fork") {
+	q = cs.waitQuestion(t, chat.ID, "commander answered", func(x store.Question) bool { return x.Thread != nil && x.Thread.Status == "idle" })
+	if q.Thread.Answerer != store.AnswererCommander || !strings.Contains(q.Thread.Note, "can't fork") {
 		t.Fatalf("thread: %+v", q.Thread)
 	}
 	msgs, _ := cs.st.ListQuestionMessages(context.Background(), q.ID)
-	if !strings.Contains(msgs[len(msgs)-1].Text, "the orchestrator, answering from a context pack") {
+	if !strings.Contains(msgs[len(msgs)-1].Text, "the commander, answering from a context pack") {
 		t.Fatalf("answer: %+v", msgs)
 	}
 	// The context pack carried the asking session's transcript.
@@ -540,19 +540,19 @@ func TestDelegationReceiptAndOverride(t *testing.T) {
 	q = cs.waitQuestion(t, chat.ID, "decided", func(x store.Question) bool {
 		return x.Delegation != nil && x.Delegation.State == store.DelegationDecided
 	})
-	if q.Status != store.QuestionDelegated || q.Delegation.OptionID != "option_1" || !strings.HasPrefix(q.Delegation.Rationale, "Mock orchestrator") || q.Delegation.DeliverAt == nil {
+	if q.Status != store.QuestionDelegated || q.Delegation.OptionID != "option_1" || !strings.HasPrefix(q.Delegation.Rationale, "Mock commander") || q.Delegation.DeliverAt == nil {
 		t.Fatalf("receipt: %+v", q.Delegation)
 	}
 	// After the grace period the decision reaches the agent's pending call.
-	cs.waitReply(t, chat.ID, "The orchestrator answered on the user's behalf", `"Yes"`, "Mock orchestrator")
+	cs.waitReply(t, chat.ID, "The commander answered on the user's behalf", `"Yes"`, "Mock commander")
 	q = cs.waitQuestion(t, chat.ID, "delivered", func(x store.Question) bool { return x.Status == store.QuestionAnswered && x.Answer.DeliveredAt != nil })
-	if q.Answer.By.Actor != store.ActorOrchestrator || q.Delegation.State != store.DelegationDelivered {
+	if q.Answer.By.Actor != store.ActorCommander || q.Delegation.State != store.DelegationDelivered {
 		t.Fatalf("answer: %+v delegation %+v", q.Answer, q.Delegation)
 	}
 	// The user overrides afterwards: a correction note.
 	waitFor(t, 5*time.Second, "chat idle", func() bool { return chatIdle(mustSession(t, cs.st, chat.ID).Status) })
 	cs.postQuestion(t, q, "answer", map[string]any{"option_id": "option_2"})
-	cs.waitReply(t, chat.ID, "[Konsert] Correction to your question "+q.SID, `The orchestrator had answered "Yes"`, `"No, keep the strict exit criteria"`)
+	cs.waitReply(t, chat.ID, "[Syre] Correction to your question "+q.SID, `The commander had answered "Yes"`, `"No, keep the strict exit criteria"`)
 	q, _ = cs.st.GetQuestion(context.Background(), q.ID)
 	if q.Delegation.State != store.DelegationOverridden || !q.Answer.Correction || q.Answer.By.Actor != store.ActorUser {
 		t.Fatalf("override: %+v %+v", q.Delegation, q.Answer)

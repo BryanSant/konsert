@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { RotationResponse } from '../core/models/konsert.models';
+import { RotationResponse } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 
 /**
- * Settings → Security: "Rotate machine credentials" (KON-W1YRP). Machines that joined by
+ * Settings → Security: "Rotate machine credentials" (SYR-W1YRP). Machines that joined by
  * hand lose their credential at once and are listed as needing a new join code;
  * machines the hub installs itself are not affected.
  */
@@ -12,7 +12,7 @@ import { ApiClientService } from '../core/services/api-client.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3" data-testid="security-machine-credentials">
+    <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3" data-testid="security-machine-credentials">
       <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Security</div>
       <div class="flex items-start justify-between gap-3">
         <div>
@@ -23,7 +23,7 @@ import { ApiClientService } from '../core/services/api-client.service';
           </p>
         </div>
         @if (!confirming()) {
-          <button type="button" class="ks-btn ks-btn-sm ks-btn-danger shrink-0" (click)="confirming.set(true)" data-testid="rotate-machine-credentials">
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-danger shrink-0" (click)="confirming.set(true)" data-testid="rotate-machine-credentials">
             Rotate
           </button>
         }
@@ -32,7 +32,7 @@ import { ApiClientService } from '../core/services/api-client.service';
         <div class="rounded-md bg-[#e05d5d]/10 p-2.5 space-y-2" role="alertdialog" aria-label="Confirm rotating machine credentials">
           <p class="text-[11.5px] text-[#e6b8b8]">Disconnect every machine that joined with a code until it joins again?</p>
           <div class="flex justify-end gap-2">
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="confirming.set(false)" [disabled]="busy()">Cancel</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="confirming.set(false)" [disabled]="busy()">Cancel</button>
             <button
               type="button"
               class="rounded-md bg-[#c94a4a] hover:bg-[#d85555] disabled:opacity-50 px-3 py-1 text-[11px] font-medium text-white cursor-pointer"

@@ -1,4 +1,4 @@
-// Package logx builds the slog handlers the konsert and konsertd commands log with.
+// Package logx builds the slog handlers the syre and syred commands log with.
 package logx
 
 import (

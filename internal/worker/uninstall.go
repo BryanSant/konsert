@@ -15,33 +15,33 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/hubkey"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/hubkey"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/install"
 	"gopkg.in/yaml.v3"
 )
 
-// Removing a machine uninstalls konsertd from it (KON-AV0YT, KON-RVNBH). Both the hub
-// (running `konsertd uninstall --worker <id>` over the user's SSH, or locally for its own
+// Removing a machine uninstalls syred from it (SYR-AV0YT, SYR-RVNBH). Both the hub
+// (running `syred uninstall --worker <id>` over the user's SSH, or locally for its own
 // machine) and the daemon itself (on close code 4001, or at start when a removal was
-// interrupted) end up in Uninstaller.RemoveIdentity, which removes everything konsertd
+// interrupted) end up in Uninstaller.RemoveIdentity, which removes everything syred
 // created for one identity and nothing of any other identity on the same account.
 //
 // Several hosts can share one home directory (a container, its siblings and its host),
-// so ~/.konsert, the konsertd config directory, the managed binary and
+// so ~/.syre, the syred config directory, the managed binary and
 // ~/.claude/settings.json are shared. What belongs to an identity is found by worker id,
-// never by "the default instance": each installed config (konsertd*.yaml in the config
+// never by "the default instance": each installed config (syred*.yaml in the config
 // directory, and the nohup configs in the state directory) names the worker it runs,
 // whose id is in worker-id-<name>-<isolation>. Shared files (hooks, hook-events.jsonl,
-// orphaned spools, managed binary, and empty konsert directories) go only when no other
-// konsertd identity remains on the account. Foreign files and ~/.konsert/machine-id are
+// orphaned spools, managed binary, and empty syre directories) go only when no other
+// syred identity remains on the account. Foreign files and ~/.syre/machine-id are
 // never deleted.
 
-// Uninstaller removes what konsertd installed for one identity.
+// Uninstaller removes what syred installed for one identity.
 type Uninstaller struct {
 	Installer *install.Installer
-	// StateDir is konsertd's state directory ("" = ~/.konsert or $KONSERT_STATE_DIR).
+	// StateDir is syred's state directory ("" = ~/.syre or $SYRE_STATE_DIR).
 	StateDir string
 	// Self is set when the daemon being removed runs the removal: services are removed
 	// with the self-safe sequence, and its own nohup process is not signalled.
@@ -60,9 +60,9 @@ type Uninstaller struct {
 	// RemoveService removes one (self: from inside the daemon it runs).
 	ServiceConfigs func() ([]install.InstalledConfig, error)
 	RemoveService  func(ctx context.Context, instance string, self bool) error
-	// Executable returns the running konsertd binary path (default os.Executable).
+	// Executable returns the running syred binary path (default os.Executable).
 	Executable func() (string, error)
-	// OtherRunning reports whether another konsertd daemon process is running.
+	// OtherRunning reports whether another syred daemon process is running.
 	OtherRunning func(binPath string) (bool, error)
 	// ScheduleDelete schedules deletion of a locked executable (and optional empty parent
 	// dir) after exit on Windows.
@@ -90,7 +90,7 @@ func (r UninstallReport) Lines() []string {
 		out = append(out, "Kept "+s)
 	}
 	if !r.Found {
-		out = append(out, "Nothing installed for konsertd identity "+r.WorkerID+" (already removed)")
+		out = append(out, "Nothing installed for syred identity "+r.WorkerID+" (already removed)")
 	}
 	return out
 }
@@ -111,8 +111,8 @@ type installedIdentity struct {
 	config   string
 	nohup    bool
 	// service is a native Windows service (`install --service`), whose config is in
-	// %ProgramData%\konsert. Install granted the account stop and delete on it, so
-	// removing it needs no elevation (KON-28HHD).
+	// %ProgramData%\syre. Install granted the account stop and delete on it, so
+	// removing it needs no elevation (SYR-28HHD).
 	service bool
 }
 
@@ -150,7 +150,7 @@ func (u *Uninstaller) installed() ([]installedIdentity, error) {
 		out = append(out, installedIdentity{workerID: id, name: cfg.Name, instance: c.Instance, config: c.Path, service: true})
 	}
 	if dir != "" {
-		matches, _ := filepath.Glob(filepath.Join(dir, "konsertd-nohup-*.yaml"))
+		matches, _ := filepath.Glob(filepath.Join(dir, "syred-nohup-*.yaml"))
 		for _, p := range matches {
 			cfg, _ := readWorkerConfig(p)
 			id, _ := lookupWorkerIDIn(dir, cfg)
@@ -160,7 +160,7 @@ func (u *Uninstaller) installed() ([]installedIdentity, error) {
 	return out, nil
 }
 
-// readWorkerConfig reads an installed config the way `konsertd run` does: over the
+// readWorkerConfig reads an installed config the way `syred run` does: over the
 // defaults, so an unset isolation is the detected one (a container's identity file is
 // worker-id-<name>-container).
 func readWorkerConfig(path string) (config.WorkerConfig, error) {
@@ -173,10 +173,10 @@ func readWorkerConfig(path string) (config.WorkerConfig, error) {
 	return cfg, err
 }
 
-// RemoveIdentity removes everything konsertd created for workerID: its service or nohup
+// RemoveIdentity removes everything syred created for workerID: its service or nohup
 // daemon, config and logs, its hub key grant (hubID given), its identity file, credential
 // and per-identity state, and shared files (agent hooks, hook-events.jsonl, orphaned
-// spools, managed binary, empty konsert directories) when no other identity on the
+// spools, managed binary, empty syre directories) when no other identity on the
 // account remains.
 func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string) (UninstallReport, error) {
 	rep := UninstallReport{WorkerID: workerID}
@@ -337,7 +337,7 @@ func (u *Uninstaller) removeService(ctx context.Context, instance string) error 
 }
 
 // RemoveSharedIfLast removes the agent hooks and shared files/directories unless another
-// identity on the account remains (`konsertd uninstall --name` or `--service`, which
+// identity on the account remains (`syred uninstall --name` or `--service`, which
 // removes one instance without a worker id).
 func (u *Uninstaller) RemoveSharedIfLast(rep *UninstallReport) error {
 	var errs []error
@@ -345,7 +345,7 @@ func (u *Uninstaller) RemoveSharedIfLast(rep *UninstallReport) error {
 	return errors.Join(errs...)
 }
 
-// otherIdentities returns the sorted, deduplicated labels of all konsertd identities
+// otherIdentities returns the sorted, deduplicated labels of all syred identities
 // other than workerID still present on this account (installed configs, Windows services,
 // nohup configs, or worker-id-* files in stateDir).
 func (u *Uninstaller) otherIdentities(workerID string) ([]string, error) {
@@ -403,7 +403,7 @@ func (u *Uninstaller) removeSharedIfLast(rep *UninstallReport, workerID string, 
 		} else {
 			rep.Kept = append(rep.Kept, "the agent hooks: still used by "+otherList+" on this account")
 		}
-		rep.Kept = append(rep.Kept, "shared files and konsertd binary: still used by "+otherList+" on this account")
+		rep.Kept = append(rep.Kept, "shared files and syred binary: still used by "+otherList+" on this account")
 		return
 	}
 
@@ -426,11 +426,11 @@ func (u *Uninstaller) removeSharedIfLast(rep *UninstallReport, workerID string, 
 		if err != nil {
 			*errs = append(*errs, fmt.Errorf("remove the agent hooks: %w", err))
 		} else if len(notes) > 0 {
-			rep.Removed = append(rep.Removed, "the agent hooks, no other konsertd on this account ("+strings.Join(notes, "; ")+")")
+			rep.Removed = append(rep.Removed, "the agent hooks, no other syred on this account ("+strings.Join(notes, "; ")+")")
 		}
 	}
 
-	// 2. Shared konsertd state files (never machine-id or foreign files).
+	// 2. Shared syred state files (never machine-id or foreign files).
 	dir := u.stateDir()
 	sharedFiles := []string{}
 	if dir != "" {
@@ -457,10 +457,10 @@ func (u *Uninstaller) removeSharedIfLast(rep *UninstallReport, workerID string, 
 		}
 	}
 
-	// 3. Managed konsertd binary (only if konsertd installed it and no other konsertd is running).
+	// 3. Managed syred binary (only if syred installed it and no other syred is running).
 	u.removeManagedBinary(rep, errs)
 
-	// 4. Empty konsertd directories.
+	// 4. Empty syred directories.
 	u.removeEmptyStateSubdirs(rep)
 	if u.Installer != nil {
 		for _, d := range []string{u.Installer.Env.LogDir, u.Installer.Env.ConfigDir} {
@@ -502,18 +502,18 @@ func (u *Uninstaller) removeManagedBinary(rep *UninstallReport, errs *[]error) {
 		if fileExistsPath(managedBin) {
 			otherRunning := u.OtherRunning
 			if otherRunning == nil {
-				otherRunning = otherKonsertdRunning
+				otherRunning = otherSyredRunning
 			}
 			running, rerr := otherRunning(managedBin)
 			if rerr == nil && running {
-				rep.Kept = append(rep.Kept, "the konsertd binary "+managedBin+": another konsertd process is still running")
+				rep.Kept = append(rep.Kept, "the syred binary "+managedBin+": another syred process is still running")
 			} else {
 				emptyDir := ""
-				if strings.EqualFold(filepath.Base(filepath.Dir(managedBin)), "konsertd") {
+				if strings.EqualFold(filepath.Base(filepath.Dir(managedBin)), "syred") {
 					emptyDir = filepath.Dir(managedBin)
 				}
 				if err := os.Remove(managedBin); err == nil {
-					rep.Removed = append(rep.Removed, "the konsertd binary "+managedBin)
+					rep.Removed = append(rep.Removed, "the syred binary "+managedBin)
 					if emptyDir != "" && removeEmptyDir(emptyDir) {
 						rep.Removed = append(rep.Removed, emptyDir)
 					}
@@ -524,9 +524,9 @@ func (u *Uninstaller) removeManagedBinary(rep *UninstallReport, errs *[]error) {
 							sched = install.ScheduleDeleteOnExit
 						}
 						if serr := sched(managedBin, emptyDir); serr == nil {
-							rep.Removed = append(rep.Removed, "the konsertd binary "+managedBin+" (scheduled for deletion on exit)")
+							rep.Removed = append(rep.Removed, "the syred binary "+managedBin+" (scheduled for deletion on exit)")
 						} else {
-							rep.Kept = append(rep.Kept, "the konsertd binary "+managedBin+": in use (delete it manually after exit)")
+							rep.Kept = append(rep.Kept, "the syred binary "+managedBin+": in use (delete it manually after exit)")
 						}
 					} else {
 						*errs = append(*errs, fmt.Errorf("remove %s: %w", managedBin, err))
@@ -536,8 +536,8 @@ func (u *Uninstaller) removeManagedBinary(rep *UninstallReport, errs *[]error) {
 		}
 	}
 
-	if exe != "" && (managedBin == "" || !samePath(exe, managedBin)) && fileExistsPath(exe) && looksLikeKonsertdBin(exe) {
-		rep.Kept = append(rep.Kept, "the konsertd binary "+exe+": not installed by konsertd")
+	if exe != "" && (managedBin == "" || !samePath(exe, managedBin)) && fileExistsPath(exe) && looksLikeSyredBin(exe) {
+		rep.Kept = append(rep.Kept, "the syred binary "+exe+": not installed by syred")
 	}
 }
 
@@ -556,9 +556,9 @@ func (u *Uninstaller) currentExecutable() string {
 	return filepath.Clean(exe)
 }
 
-func looksLikeKonsertdBin(path string) bool {
+func looksLikeSyredBin(path string) bool {
 	base := strings.ToLower(filepath.Base(path))
-	return base == "konsertd" || base == "konsertd.exe" || strings.HasPrefix(base, "konsertd-")
+	return base == "syred" || base == "syred.exe" || strings.HasPrefix(base, "syred-")
 }
 
 func samePath(a, b string) bool {
@@ -644,8 +644,8 @@ func (u *Uninstaller) removeNohup(it installedIdentity) ([]string, error) {
 				if procArgs == nil {
 					procArgs = psArgs
 				}
-				// Only a konsertd run from this very config: the pid may have been reused.
-				if args, err := procArgs(pid); err == nil && strings.Contains(args, "konsertd") && strings.Contains(args, it.config) {
+				// Only a syred run from this very config: the pid may have been reused.
+				if args, err := procArgs(pid); err == nil && strings.Contains(args, "syred") && strings.Contains(args, it.config) {
 					kill := u.Kill
 					if kill == nil {
 						kill = terminate
@@ -731,7 +731,7 @@ func fileExistsPath(p string) bool {
 // lockStale is when a leftover lock (a removal that crashed) is ignored.
 const lockStale = 2 * time.Minute
 
-// lock serializes removals on this account: the hub's `konsertd uninstall` and the
+// lock serializes removals on this account: the hub's `syred uninstall` and the
 // daemon's own removal on 4001 can run at the same moment.
 func (u *Uninstaller) lock(ctx context.Context) (func(), error) {
 	dir := u.stateDir()
@@ -768,7 +768,7 @@ func (u *Uninstaller) lock(ctx context.Context) (func(), error) {
 			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("another konsertd removal is running (%s)", path)
+			return nil, fmt.Errorf("another syred removal is running (%s)", path)
 		}
 		select {
 		case <-ctx.Done():
@@ -780,7 +780,7 @@ func (u *Uninstaller) lock(ctx context.Context) (func(), error) {
 
 // RemovedMarkerPath is the marker a daemon writes when the hub removes it, before it
 // uninstalls itself: if that removal is interrupted, the daemon finishes it when it
-// next starts. `konsertd install` and `konsertd hub-key add` (adding the machine
+// next starts. `syred install` and `syred hub-key add` (adding the machine
 // again) clear it.
 func RemovedMarkerPath(stateDir, workerID string) string {
 	if stateDir == "" {

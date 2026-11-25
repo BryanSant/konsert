@@ -1,12 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, untracked } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
-import { KonsertSocketService } from '../core/services/konsert-socket.service';
+import { SyreSocketService } from '../core/services/syre-socket.service';
 import { ControlStore } from '../core/state/control.store';
 import { FleetStore } from '../core/state/fleet.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { SetupStore } from '../core/state/setup.store';
 import { TakenControlStore } from '../core/state/taken-control.store';
-import { OrchestratorStore } from '../core/state/orchestrator.store';
+import { CommanderStore } from '../core/state/commander.store';
 import { SessionNavService } from '../core/services/session-nav.service';
 import { CommandTabsStore } from './command/command-tabs.store';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
@@ -30,7 +30,7 @@ import { ModeUiStore } from './mode-ui.store';
  * stores, and hosts the dialogs every mode (and the mobile inbox) can open.
  */
 @Component({
-  selector: 'ks-workspace-root',
+  selector: 'sy-workspace-root',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
@@ -48,13 +48,13 @@ import { ModeUiStore } from './mode-ui.store';
     ModalDialogComponent,
     IconComponent,
   ],
-  host: { class: 'block h-dvh w-screen overflow-hidden bg-[var(--ks-bg-canvas)] text-[var(--ks-text)]' },
+  host: { class: 'block h-dvh w-screen overflow-hidden bg-[var(--sy-bg-canvas)] text-[var(--sy-text)]' },
   template: `
     <router-outlet />
 
-    <ks-relogin-dialog />
+    <sy-relogin-dialog />
     @if (needsYou.isOpen()) {
-      <ks-needs-you-dialog />
+      <sy-needs-you-dialog />
     }
     @if (ui.addMachineOpen()) {
       <app-add-machine-modal
@@ -83,22 +83,22 @@ import { ModeUiStore } from './mode-ui.store';
       />
     }
     @if (ui.projectsOpen()) {
-      <ks-projects-dialog (close)="ui.projectsOpen.set(false)" (chat)="ui.projectsOpen.set(false); ui.sessionRequest.set({ kind: 'chat', worker: fleet.workersById()[$event.repo.worker_id] ?? null, repo: $event.repo, worktree: $event.worktree })" />
+      <sy-projects-dialog (close)="ui.projectsOpen.set(false)" (chat)="ui.projectsOpen.set(false); ui.sessionRequest.set({ kind: 'chat', worker: fleet.workersById()[$event.repo.worker_id] ?? null, repo: $event.repo, worktree: $event.worktree })" />
     }
     @if (ui.auditOpen()) {
-      <app-modal-dialog label="Audit log" panelClass="w-full max-w-3xl h-[min(760px,88vh)] flex flex-col rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] overflow-hidden" (close)="ui.auditOpen.set(false)">
-        <div class="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-[var(--ks-hairline)]">
+      <app-modal-dialog label="Audit log" panelClass="w-full max-w-3xl h-[min(760px,88vh)] flex flex-col rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] overflow-hidden" (close)="ui.auditOpen.set(false)">
+        <div class="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-[var(--sy-hairline)]">
           <h2 class="m-0 flex-1 text-[14px] font-semibold">Audit log</h2>
-          <button type="button" class="ks-icon-btn" aria-label="Close" (click)="ui.auditOpen.set(false)"><app-icon name="close" [size]="15" /></button>
+          <button type="button" class="sy-icon-btn" aria-label="Close" (click)="ui.auditOpen.set(false)"><app-icon name="close" [size]="15" /></button>
         </div>
         <app-audit-log class="flex-1 min-h-0" />
       </app-modal-dialog>
     }
     @if (ui.devicesOpen(); as view) {
-      <ks-devices-dialog [initialView]="view" (close)="ui.devicesOpen.set(null)" />
+      <sy-devices-dialog [initialView]="view" (close)="ui.devicesOpen.set(null)" />
     }
     @if (ui.paletteOpen()) {
-      <ks-mode-palette (close)="ui.paletteOpen.set(false)" />
+      <sy-mode-palette (close)="ui.paletteOpen.set(false)" />
     }
   `,
 })
@@ -109,9 +109,9 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
   readonly questions = inject(QuestionsStore);
   readonly needsYou = inject(NeedsYouStore);
   private readonly control = inject(ControlStore);
-  private readonly socket = inject(KonsertSocketService);
+  private readonly socket = inject(SyreSocketService);
   private readonly taken = inject(TakenControlStore);
-  private readonly orch = inject(OrchestratorStore);
+  private readonly orch = inject(CommanderStore);
   private readonly commandTabs = inject(CommandTabsStore);
   private readonly nav = inject(SessionNavService);
   private readonly router = inject(Router);

@@ -81,7 +81,7 @@ export function spinnerStateOf(activity: Pick<SessionActivity, 'state' | 'waitin
 export function spinnerDetailOf(a: Pick<SessionActivity, 'state' | 'shells' | 'shells_busy' | 'subagents'> | undefined | null): SpinnerDetail | null {
   if (!a) return null;
   const shells = a.shells ?? 0;
-  // After the turn only background sub-agents remain (konsertd drops the others).
+  // After the turn only background sub-agents remain (syred drops the others).
   const subs = (a.subagents ?? []).map((s) => s.state);
   if (!shells && !subs.length) return null;
   return { shells, shellsBusy: Math.min(a.shells_busy ?? 0, shells), subs };
@@ -165,7 +165,7 @@ export function heatSolid(h: number | null): string | null {
 
 /** "cool" / "warm" / "hot" text colour (≥ 4.5:1). */
 export function heatTextColor(h: number | null): string {
-  if (h == null) return 'var(--ks-text-muted)';
+  if (h == null) return 'var(--sy-text-muted)';
   const l = heatLevelOf(h);
   return l === 'cool' ? '#9ec5ff' : l === 'warm' ? '#e9c27f' : '#f3a3a3';
 }

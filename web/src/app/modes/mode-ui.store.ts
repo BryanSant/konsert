@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { SessionKind, Worker } from '../core/models/konsert.models';
+import { SessionKind, Worker } from '../core/models/syre.models';
 import { FleetStore } from '../core/state/fleet.store';
 import { WorkItem } from '../core/state/work-logic';
 import { SessionDispatchRequest } from '../layout/session-dispatch-modal.component';
@@ -35,7 +35,7 @@ export class ModeUiStore {
     this.sessionRequest.set({ kind, worker });
   }
 
-  /** Opens a session in Command (a tab next to the orchestrator). */
+  /** Opens a session in Command (a tab next to the commander). */
   openInCommand(item: Pick<WorkItem, 'sid'> | string): void {
     const sid = typeof item === 'string' ? item : item.sid;
     void this.router.navigate(['/command', sid]);

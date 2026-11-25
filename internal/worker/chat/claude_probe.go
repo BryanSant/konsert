@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 const (
 	claudeUsageURL        = "https://api.anthropic.com/api/oauth/usage"
 	claudeOAuthBeta       = "oauth-2025-04-20"
 	claudeUsageMinPeriod  = 5 * time.Minute
-	claudeUsageDisableEnv = "KONSERT_DISABLE_CLAUDE_USAGE"
+	claudeUsageDisableEnv = "SYRE_DISABLE_CLAUDE_USAGE"
 	claudeExpiringWithin  = 24 * time.Hour
 )
 
@@ -520,7 +520,7 @@ func (e *claudeEngine) fetchUsage(ctx context.Context, acct Account) ([]protocol
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", claudeOAuthBeta)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.New("usage endpoint unreachable")

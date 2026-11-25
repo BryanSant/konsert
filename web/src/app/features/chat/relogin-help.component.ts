@@ -7,39 +7,39 @@ import { ReloginService } from './relogin.service';
 
 /** "Run this on <host>" with copy, plus "Open terminal on <host>". */
 @Component({
-  selector: 'ks-relogin-help',
+  selector: 'sy-relogin-help',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective],
   template: `
     <div class="space-y-2.5">
       @if (command()) {
-        <div class="text-[11.5px] text-[var(--ks-text-secondary)]">Run this on {{ hostName() }}:</div>
-        <div class="flex items-center gap-1 rounded-[var(--ks-radius-md)] bg-black/30 pl-3 pr-1 py-1">
+        <div class="text-[11.5px] text-[var(--sy-text-secondary)]">Run this on {{ hostName() }}:</div>
+        <div class="flex items-center gap-1 rounded-[var(--sy-radius-md)] bg-black/30 pl-3 pr-1 py-1">
           <code class="flex-1 min-w-0 truncate font-mono-ide text-[12px] text-[#e6e6e8]" data-testid="relogin-command">{{ command() }}</code>
           <button
             type="button"
-            class="ks-icon-btn ks-icon-btn-sm"
+            class="sy-icon-btn sy-icon-btn-sm"
             [attr.aria-label]="copied() ? 'Copied' : 'Copy command'"
-            [ksTooltip]="copied() ? 'Copied' : 'Copy command'"
+            [syTooltip]="copied() ? 'Copied' : 'Copy command'"
             (click)="copy()"
           >
             <app-icon [name]="copied() ? 'check' : 'copy'" [size]="13" />
           </button>
         </div>
       } @else {
-        <div class="text-[11.5px] text-[var(--ks-text-secondary)]">Sign in to this agent's CLI on {{ hostName() }}.</div>
+        <div class="text-[11.5px] text-[var(--sy-text-secondary)]">Sign in to this agent's CLI on {{ hostName() }}.</div>
       }
       @if (relogin()?.note) {
-        <div class="text-[11.5px] text-[var(--ks-text-muted)]">{{ relogin()!.note }}</div>
+        <div class="text-[11.5px] text-[var(--sy-text-muted)]">{{ relogin()!.note }}</div>
       }
       <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" [disabled]="opening() || !workerId()" (click)="openTerminal()">
+        <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" [disabled]="opening() || !workerId()" (click)="openTerminal()">
           <app-icon name="shell" [size]="12" />
           {{ opening() ? 'Opening…' : 'Open terminal on ' + hostName() }}
         </button>
         @if (relogin()?.url) {
-          <a class="ks-btn ks-btn-sm" [href]="relogin()!.url" target="_blank" rel="noopener noreferrer">
+          <a class="sy-btn sy-btn-sm" [href]="relogin()!.url" target="_blank" rel="noopener noreferrer">
             <app-icon name="globe" [size]="12" />
             Help
           </a>

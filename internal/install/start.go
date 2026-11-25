@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// Starting an installed instance now and waiting for it (`konsertd status --start`). The
-// SSH bootstrap uses it after `konsertd install` on Windows: a logon task registered from
+// Starting an installed instance now and waiting for it (`syred status --start`). The
+// SSH bootstrap uses it after `syred install` on Windows: a logon task registered from
 // an SSH session may not start on /Run right away (the previous version still exiting,
 // Task Scheduler still queuing it), and the task's own state lags behind the daemon. So
 // the daemon itself decides: running means the task runs or the daemon answers on its

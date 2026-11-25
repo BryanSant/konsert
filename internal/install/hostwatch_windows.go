@@ -12,12 +12,12 @@ import (
 )
 
 // StopWithHeadlessHost returns a context that is canceled when the `conhost --headless`
-// hosting this process exits. The logon task runs konsertd under such a conhost; when
+// hosting this process exits. The logon task runs syred under such a conhost; when
 // Task Scheduler ends the task (uninstall, reinstall, `schtasks /End`) it terminates the
-// conhost only, and konsertd would otherwise keep running with no console. Watching the
+// conhost only, and syred would otherwise keep running with no console. Watching the
 // parent turns that into a clean shutdown (sessions stopped, wake lock released).
 //
-// It does nothing unless the parent process is conhost.exe, so konsertd started from a
+// It does nothing unless the parent process is conhost.exe, so syred started from a
 // terminal or shell is unaffected.
 func StopWithHeadlessHost(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(ctx)

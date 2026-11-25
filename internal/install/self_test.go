@@ -29,7 +29,7 @@ func TestLaunchdUninstallSelf(t *testing.T) {
 	if err := in.install(context.Background(), launchdBackend{}, testSpec("")); err != nil {
 		t.Fatal(err)
 	}
-	plist := filepath.Join(in.Env.UnitDir, "dev.konsert.konsertd.plist")
+	plist := filepath.Join(in.Env.UnitDir, "dev.syre.syred.plist")
 	r.calls = nil
 	if err := in.uninstallSelf(context.Background(), launchdBackend{}, ""); err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestLaunchdUninstallSelf(t *testing.T) {
 	if r.called("launchctl") {
 		t.Errorf("launchctl must not run synchronously from the daemon: %v", r.calls)
 	}
-	if !slices.Equal(*spawned, []string{"launchctl bootout gui/501/dev.konsert.konsertd"}) {
+	if !slices.Equal(*spawned, []string{"launchctl bootout gui/501/dev.syre.syred"}) {
 		t.Errorf("spawned = %v", *spawned)
 	}
 }
@@ -53,7 +53,7 @@ func TestSystemdUninstallSelf(t *testing.T) {
 	if err := in.install(context.Background(), systemdBackend{}, testSpec("box")); err != nil {
 		t.Fatal(err)
 	}
-	unit := filepath.Join(in.Env.UnitDir, "konsertd-box.service")
+	unit := filepath.Join(in.Env.UnitDir, "syred-box.service")
 	r.calls = nil
 	if err := in.uninstallSelf(context.Background(), systemdBackend{}, "box"); err != nil {
 		t.Fatal(err)
@@ -61,10 +61,10 @@ func TestSystemdUninstallSelf(t *testing.T) {
 	if fileExists(unit) || fileExists(in.ConfigPath("box")) {
 		t.Error("self-removal left the unit or config behind")
 	}
-	if r.called("systemctl --user disable --now") || r.called("systemctl --user stop konsertd-box.service") {
+	if r.called("systemctl --user disable --now") || r.called("systemctl --user stop syred-box.service") {
 		t.Errorf("a blocking stop from inside the unit: %v", r.calls)
 	}
-	want := []string{"systemctl --user disable konsertd-box.service", "systemctl --user daemon-reload", "systemctl --user stop --no-block konsertd-box.service"}
+	want := []string{"systemctl --user disable syred-box.service", "systemctl --user daemon-reload", "systemctl --user stop --no-block syred-box.service"}
 	last := -1
 	for _, w := range want {
 		i := slices.Index(r.calls, w)
@@ -76,7 +76,7 @@ func TestSystemdUninstallSelf(t *testing.T) {
 }
 
 // Windows: deleting the task removes both triggers, including the every-minute
-// keep-alive that would restart konsertd; /End is not called (it would kill the
+// keep-alive that would restart syred; /End is not called (it would kill the
 // daemon doing the removal).
 func TestSchtasksUninstallSelf(t *testing.T) {
 	in, r := testInstaller(t)
@@ -91,7 +91,7 @@ func TestSchtasksUninstallSelf(t *testing.T) {
 	if err := in.uninstallSelf(context.Background(), schtasksBackend{}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !r.called(`schtasks /Delete /TN \konsertd /F`) || r.called("schtasks /End") {
+	if !r.called(`schtasks /Delete /TN \syred /F`) || r.called("schtasks /End") {
 		t.Errorf("calls = %v", r.calls)
 	}
 	if fileExists(in.ConfigPath("")) {
@@ -125,7 +125,7 @@ func TestSystemdInstallChecksUserManagerBeforeWritingConfig(t *testing.T) {
 
 func TestInstalledConfigs(t *testing.T) {
 	in, _ := testInstaller(t)
-	for _, n := range []string{"konsertd.yaml", "konsertd-box.yaml", "konsertd-box.task.xml", "other.yaml"} {
+	for _, n := range []string{"syred.yaml", "syred-box.yaml", "syred-box.task.xml", "other.yaml"} {
 		if err := writeFile(filepath.Join(in.Env.ConfigDir, n), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -151,11 +151,11 @@ func TestInstalledConfigs(t *testing.T) {
 
 func TestNohupBase(t *testing.T) {
 	for in, want := range map[string]string{
-		"bocabox-1":   "konsertd-nohup-bocabox-1",
-		"BocaBox":     "konsertd-nohup-bocabox",
-		"my box/x":    "konsertd-nohup-my_box_x",
-		"":            "konsertd-nohup-worker",
-		"host.ts.net": "konsertd-nohup-host.ts.net",
+		"bocabox-1":   "syred-nohup-bocabox-1",
+		"BocaBox":     "syred-nohup-bocabox",
+		"my box/x":    "syred-nohup-my_box_x",
+		"":            "syred-nohup-worker",
+		"host.ts.net": "syred-nohup-host.ts.net",
 	} {
 		if got := NohupBase(in); got != want {
 			t.Errorf("NohupBase(%q) = %q, want %q", in, got, want)

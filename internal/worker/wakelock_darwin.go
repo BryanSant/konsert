@@ -7,8 +7,8 @@ import (
 	"strconv"
 )
 
-// defaultWakeBackend on macOS runs `caffeinate -i -w <konsertd pid>`: -i prevents idle
-// sleep (the display may still sleep) and -w makes caffeinate exit by itself if konsertd
+// defaultWakeBackend on macOS runs `caffeinate -i -w <syred pid>`: -i prevents idle
+// sleep (the display may still sleep) and -w makes caffeinate exit by itself if syred
 // dies without releasing, so a crash never pins the host awake.
 func defaultWakeBackend() wakeBackend {
 	pid := strconv.Itoa(os.Getpid())

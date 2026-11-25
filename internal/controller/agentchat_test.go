@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -148,7 +148,7 @@ func TestAgentChatRoundTripPersistenceAndResume(t *testing.T) {
 		t.Fatalf("unexpected open: %+v", open)
 	}
 	mcpSrv := open.MCPServers[0]
-	if mcpSrv.Name != "konsert" || mcpSrv.URL != "/mcp/chat/"+chat.ID || !mcpSrv.Relay || !strings.HasPrefix(mcpSrv.Headers["Authorization"], "Bearer ") {
+	if mcpSrv.Name != "syre" || mcpSrv.URL != "/mcp/chat/"+chat.ID || !mcpSrv.Relay || !strings.HasPrefix(mcpSrv.Headers["Authorization"], "Bearer ") {
 		t.Fatalf("unexpected MCP server: %+v", mcpSrv)
 	}
 	prompt, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
@@ -294,7 +294,7 @@ func TestAgentCapabilitiesBroadcastAndRefresh(t *testing.T) {
 		_ = json.Unmarshal(env.Payload, &p)
 		if p.Kind == "agent_accounts" {
 			// The PWA applies account updates per worker and ignores pushes without
-			// worker_id (KON-PYG35: live login/usage changes never reached the UI).
+			// worker_id (SYR-PYG35: live login/usage changes never reached the UI).
 			if p.WorkerID != "w1" || len(p.Accounts) != 1 || p.Accounts[0].WorkerID != "w1" {
 				t.Fatalf("agent_accounts update: %s", env.Payload)
 			}
@@ -476,7 +476,7 @@ func TestAskUserBlocksUntilAnswerAndTokenAuth(t *testing.T) {
 }
 
 // A chat's MCP token only reaches its own chat's tools, and only through the link of
-// the machine the chat runs on; the hub serves no per-chat MCP over HTTP (KON-DTN92).
+// the machine the chat runs on; the hub serves no per-chat MCP over HTTP (SYR-DTN92).
 func TestRelayedChatMCPAuthIsolation(t *testing.T) {
 	cs := newChatServer(t)
 	w1 := cs.connectAgentWorker(t, "w1", "box", claudeAccount("claude", true))
@@ -667,33 +667,33 @@ func TestDefaultTargetSkipsExhaustedAccount(t *testing.T) {
 	}
 }
 
-func TestOrchestratorIsAgentChatWithFleetTools(t *testing.T) {
+func TestCommanderIsAgentChatWithFleetTools(t *testing.T) {
 	cs := newChatServer(t)
 	w := cs.connectAgentWorker(t, "w1", "box", claudeAccount("claude", true))
-	code, raw := cs.api(t, http.MethodPost, "/api/chats/orchestrator", nil)
+	code, raw := cs.api(t, http.MethodPost, "/api/chats/commander", nil)
 	var orch store.ChatSession
 	_ = json.Unmarshal(raw, &orch)
 	if code != 200 || orch.Backend != store.ChatBackendAgent || !orch.FleetTools || orch.WorkerID != "w1" || orch.Agent != "claude" {
-		t.Fatalf("orchestrator chat: %d %s", code, raw)
+		t.Fatalf("commander chat: %d %s", code, raw)
 	}
-	_, raw = cs.api(t, http.MethodPost, "/api/chats/orchestrator", nil)
+	_, raw = cs.api(t, http.MethodPost, "/api/chats/commander", nil)
 	var again store.ChatSession
 	_ = json.Unmarshal(raw, &again)
 	if again.ID != orch.ID {
-		t.Fatal("orchestrator chat not reused")
+		t.Fatal("commander chat not reused")
 	}
 	_, raw = cs.api(t, http.MethodGet, "/api/settings", nil)
 	var settings settingsResponse
 	_ = json.Unmarshal(raw, &settings)
-	if settings.APIKeyRequired || settings.OrchestratorBackend != "agent" || settings.OrchestratorChatID != orch.ID || settings.LLMModel != "" {
+	if settings.APIKeyRequired || settings.CommanderBackend != "agent" || settings.CommanderChatID != orch.ID || settings.LLMModel != "" {
 		t.Fatalf("settings: %s", raw)
 	}
 
 	b := cs.dialBrowser(t)
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: orch.ID, Content: "status?"})
 	open := decodeOpen(t, w)
-	if !strings.Contains(open.SystemPrompt, "Konsert Orchestrator") || !strings.Contains(open.SystemPrompt, "ask_user") {
-		t.Fatalf("orchestrator system prompt: %q", open.SystemPrompt)
+	if !strings.Contains(open.SystemPrompt, "Syre Commander") || !strings.Contains(open.SystemPrompt, "ask_user") {
+		t.Fatalf("commander system prompt: %q", open.SystemPrompt)
 	}
 	tok := strings.TrimPrefix(open.MCPServers[0].Headers["Authorization"], "Bearer ")
 	sess, err := connectChatMCP(t, w.mcpURL(open.MCPServers[0]), tok)
@@ -710,7 +710,7 @@ func TestOrchestratorIsAgentChatWithFleetTools(t *testing.T) {
 		names[tl.Name] = true
 	}
 	if !names["ask_user"] || !names["dispatch_task"] || !names["fleet_status"] {
-		t.Fatalf("orchestrator tools: %v", names)
+		t.Fatalf("commander tools: %v", names)
 	}
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "fleet_status", Arguments: map[string]any{}})
 	if err != nil || res.IsError || !strings.Contains(toolText(res), "w1") {

@@ -15,7 +15,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "/old/konsertd hook-event --agent claude --event Stop"
+						"command": "/old/syred hook-event --agent claude --event Stop"
 					}
 				]
 			}

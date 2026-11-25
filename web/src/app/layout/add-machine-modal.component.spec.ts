@@ -1,13 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalHostInfo, SetupStatus, Worker } from '../core/models/konsert.models';
+import { LocalHostInfo, SetupStatus, Worker } from '../core/models/syre.models';
 import { FleetStore } from '../core/state/fleet.store';
 import { AddMachineModalComponent, localHostSummary } from './add-machine-modal.component';
 
 function setupWith(local: Partial<LocalHostInfo>): SetupStatus {
   return {
     needs_setup: true,
-    local: { hostname: 'studio', konsertd_found: true, worker_id: 'w-local', connected: false, added: false, ...local },
+    local: { hostname: 'studio', syred_found: true, worker_id: 'w-local', connected: false, added: false, ...local },
   };
 }
 
@@ -91,7 +91,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     const stages: string[] = [];
     fetchMock.mockImplementationOnce(async () =>
       sseResponse([
-        { type: 'stage', label: 'Uploading', detail: 'konsertd' },
+        { type: 'stage', label: 'Uploading', detail: 'syred' },
         { type: 'done', result: { ok: true, target: 'box', message: 'ready' } },
       ]),
     );
@@ -106,7 +106,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     const headers = new Headers(init.headers);
     expect(url).toBe('/api/ssh/bootstrap?stream=1');
     expect(headers.get('Content-Type')).toBe('application/json');
-    expect(headers.get('X-Konsert-Request')).toBe('1');
+    expect(headers.get('X-Syre-Request')).toBe('1');
     expect(JSON.parse(init.body as string)).toMatchObject({ target: 'box' });
     expect(stages).toContain('Uploading');
     expect(cmp.sshStatusMsg()).toBe('ready');
@@ -259,13 +259,13 @@ describe('AddMachineModalComponent this machine', () => {
   }
 
   it('summarizes each local state', () => {
-    expect(localHostSummary(setupWith({ connected: true }).local)).toBe('konsertd is running — will attach');
-    expect(localHostSummary(setupWith({}).local)).toMatch(/^Will start konsertd/);
-    expect(localHostSummary(setupWith({ konsertd_found: false, fix: 'Put konsertd on PATH.' }).local)).toBe(
-      'konsertd not found: Put konsertd on PATH.',
+    expect(localHostSummary(setupWith({ connected: true }).local)).toBe('syred is running — will attach');
+    expect(localHostSummary(setupWith({}).local)).toMatch(/^Will start syred/);
+    expect(localHostSummary(setupWith({ syred_found: false, fix: 'Put syred on PATH.' }).local)).toBe(
+      'syred not found: Put syred on PATH.',
     );
     expect(localHostSummary(setupWith({ launch_state: 'failed', launch_error: 'boom' }).local)).toBe(
-      'Could not start konsertd: boom',
+      'Could not start syred: boom',
     );
   });
 
@@ -275,13 +275,13 @@ describe('AddMachineModalComponent this machine', () => {
     expect(t).toContain('Add your first machine');
     expect(t).toContain('This machine (studio)');
     expect(t.indexOf('This machine (studio)')).toBeLessThan(t.indexOf('From your ssh config'));
-    expect(t).toContain('Will start konsertd');
+    expect(t).toContain('Will start syred');
   });
 
-  it('attaches a running konsertd without starting another', async () => {
+  it('attaches a running syred without starting another', async () => {
     setup = setupWith({ connected: true, worker_id: 'w-custom' });
     const fixture = await create();
-    expect(text(fixture)).toContain('konsertd is running — will attach');
+    expect(text(fixture)).toContain('syred is running — will attach');
     const btn = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="add-local"]');
     expect(btn?.textContent?.trim()).toBe('Attach');
     fleetWorkers = [localWorker('online', { id: 'w-custom' })];
@@ -289,16 +289,16 @@ describe('AddMachineModalComponent this machine', () => {
     fixture.detectChanges();
     expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/workers/local')).toHaveLength(1);
     expect(fixture.componentInstance.localPhase()).toBe('online');
-    expect(text(fixture)).toContain('Attached the konsertd running on studio');
+    expect(text(fixture)).toContain('Attached the syred running on studio');
   });
 
-  it('starts konsertd and follows the machine until it is online', async () => {
+  it('starts syred and follows the machine until it is online', async () => {
     const fixture = await create();
     fleetWorkers = [localWorker('offline', { launch_state: 'starting' })];
     await fixture.componentInstance.addLocal();
     fixture.detectChanges();
     expect(fixture.componentInstance.localPhase()).toBe('starting');
-    expect(text(fixture)).toContain('Starting konsertd...');
+    expect(text(fixture)).toContain('Starting syred...');
 
     // The hub reports the daemon connected (over the socket in the app).
     TestBed.inject(FleetStore).upsertWorker(localWorker('online'));
@@ -317,10 +317,10 @@ describe('AddMachineModalComponent this machine', () => {
     expect(btn?.textContent?.trim()).toBe('Retry');
   });
 
-  it('explains how to fix a missing konsertd and offers no add button', async () => {
-    setup = setupWith({ konsertd_found: false, worker_id: undefined, fix: 'Put konsertd next to the konsert binary.' });
+  it('explains how to fix a missing syred and offers no add button', async () => {
+    setup = setupWith({ syred_found: false, worker_id: undefined, fix: 'Put syred next to the syre binary.' });
     const fixture = await create();
-    expect(text(fixture)).toContain('konsertd not found: Put konsertd next to the konsert binary.');
+    expect(text(fixture)).toContain('syred not found: Put syred next to the syre binary.');
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="add-local"]')).toBeNull();
   });
 });

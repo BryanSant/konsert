@@ -19,12 +19,12 @@ import { MarkdownViewComponent } from '../../shared/markdown-view.component';
 
 /**
  * "Ask about this" (PRD §5.8b): a side conversation with a read-only fork of the asking
- * agent (or the orchestrator when it can't fork). Shows who answers and on which account,
+ * agent (or the commander when it can't fork). Shows who answers and on which account,
  * the thread, the answerer's draft answer ("Use this answer"), a follow-up input with
  * dictation, and the ORIGINAL OPTIONS pinned at the bottom (still answerable).
  */
 @Component({
-  selector: 'ks-side-conversation',
+  selector: 'sy-side-conversation',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, MarkdownViewComponent, DictateButtonComponent],
@@ -33,50 +33,50 @@ import { MarkdownViewComponent } from '../../shared/markdown-view.component';
     @let q = question();
     <header class="flex items-start gap-2 px-4 pt-3 pb-2 shrink-0">
       <div class="flex-1 min-w-0">
-        <h3 class="text-[12.5px] font-semibold text-[var(--ks-text)]">Side conversation</h3>
-        <p class="text-[11px] text-[var(--ks-text-muted)]" data-testid="thread-answerer">{{ answererText() }}</p>
+        <h3 class="text-[12.5px] font-semibold text-[var(--sy-text)]">Side conversation</h3>
+        <p class="text-[11px] text-[var(--sy-text-muted)]" data-testid="thread-answerer">{{ answererText() }}</p>
       </div>
-      <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Close side conversation" data-testid="thread-close" (click)="closed.emit()">
+      <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Close side conversation" data-testid="thread-close" (click)="closed.emit()">
         <app-icon name="close" [size]="13" />
       </button>
     </header>
 
     <div #scroller class="flex-1 min-h-0 overflow-y-auto px-4 space-y-2.5 pb-3" data-testid="thread-messages" aria-live="polite">
       @if (!q.messages.length) {
-        <p class="text-[12px] text-[var(--ks-text-muted)] pt-2">
+        <p class="text-[12px] text-[var(--sy-text-muted)] pt-2">
           Ask what you need to know before answering — “What is {{ firstRef() || 'this' }}, why now, and why do you recommend it?”
           The agent stays paused; a read-only copy of it answers.
         </p>
       }
       @for (m of q.messages; track m.seq) {
         @if (m.role === 'user') {
-          <div class="ml-8 rounded-[var(--ks-radius-lg)] bg-[var(--ks-raised)] px-3 py-2 text-[12.5px] text-[var(--ks-text)]" data-testid="thread-user">{{ m.text }}</div>
+          <div class="ml-8 rounded-[var(--sy-radius-lg)] bg-[var(--sy-raised)] px-3 py-2 text-[12.5px] text-[var(--sy-text)]" data-testid="thread-user">{{ m.text }}</div>
         } @else {
-          <div class="mr-4 text-[12.5px] text-[var(--ks-text-secondary)]" data-testid="thread-answer">
+          <div class="mr-4 text-[12.5px] text-[var(--sy-text-secondary)]" data-testid="thread-answer">
             <app-markdown-view [content]="m.text" />
           </div>
         }
       }
       @if (q.thread?.status === 'working') {
-        <div class="flex items-center gap-2 text-[11.5px] text-[var(--ks-text-muted)]" role="status" data-testid="thread-working">
-          <span class="ks-spinner" style="width: 10px; height: 10px"></span>
-          {{ q.thread?.answerer === 'orchestrator' ? 'The orchestrator is answering…' : 'The agent is answering…' }}
+        <div class="flex items-center gap-2 text-[11.5px] text-[var(--sy-text-muted)]" role="status" data-testid="thread-working">
+          <span class="sy-spinner" style="width: 10px; height: 10px"></span>
+          {{ q.thread?.answerer === 'commander' ? 'The commander is answering…' : 'The agent is answering…' }}
         </div>
       }
       @if (q.thread?.status === 'failed') {
-        <p class="text-[11.5px] text-[var(--ks-red)]" role="alert">{{ q.thread?.note || 'The side conversation failed.' }}</p>
+        <p class="text-[11.5px] text-[var(--sy-red)]" role="alert">{{ q.thread?.note || 'The side conversation failed.' }}</p>
       }
       @if (draft(); as d) {
         @if (pending()) {
-          <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-blue-soft)] px-3 py-2 space-y-1.5" data-testid="thread-draft">
-            <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ks-blue)]">Suggested answer</div>
-            <div class="text-[12.5px] text-[var(--ks-text)]">{{ draftText() }}</div>
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-primary" data-testid="thread-use-draft" [disabled]="store.isBusy(q.id)" (click)="useDraft()">Use this answer</button>
+          <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-blue-soft)] px-3 py-2 space-y-1.5" data-testid="thread-draft">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--sy-blue)]">Suggested answer</div>
+            <div class="text-[12.5px] text-[var(--sy-text)]">{{ draftText() }}</div>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-primary" data-testid="thread-use-draft" [disabled]="store.isBusy(q.id)" (click)="useDraft()">Use this answer</button>
           </div>
         }
       }
       @if (q.answer && !pending()) {
-        <p class="flex items-start gap-1.5 text-[12px] text-[var(--ks-green)]" data-testid="thread-receipt" role="status">
+        <p class="flex items-start gap-1.5 text-[12px] text-[var(--sy-green)]" data-testid="thread-receipt" role="status">
           <app-icon name="check" [size]="13" /><span>{{ receipt() }}</span>
         </p>
       }
@@ -84,42 +84,42 @@ import { MarkdownViewComponent } from '../../shared/markdown-view.component';
 
     @if (pending()) {
       <form class="shrink-0 flex items-end gap-1.5 px-3 pb-2" (submit)="$event.preventDefault(); send()">
-        <label class="ks-sr-only" for="ks-thread-input">Ask about this question</label>
+        <label class="sy-sr-only" for="sy-thread-input">Ask about this question</label>
         <textarea
           #input
-          id="ks-thread-input"
+          id="sy-thread-input"
           rows="1"
           data-testid="thread-input"
-          class="ks-field flex-1 min-w-0 resize-none text-[12.5px] py-2 max-h-32"
+          class="sy-field flex-1 min-w-0 resize-none text-[12.5px] py-2 max-h-32"
           [placeholder]="q.messages.length ? 'Ask a follow-up…' : 'What would you like to know?'"
           [value]="draftInput()"
           (input)="draftInput.set($any($event.target).value)"
           (keydown.enter)="onEnter($event)"
           [disabled]="q.thread?.status === 'working'"
         ></textarea>
-        <ks-dictate-button [base]="draftInput()" (text)="draftInput.set($event)" />
-        <button type="submit" class="ks-send-btn" aria-label="Ask" data-testid="thread-send" [disabled]="!draftInput().trim() || q.thread?.status === 'working' || store.isBusy(q.id)">
+        <sy-dictate-button [base]="draftInput()" (text)="draftInput.set($event)" />
+        <button type="submit" class="sy-send-btn" aria-label="Ask" data-testid="thread-send" [disabled]="!draftInput().trim() || q.thread?.status === 'working' || store.isBusy(q.id)">
           <app-icon name="send-up" [size]="14" />
         </button>
       </form>
 
       <!-- The original options stay pinned and answerable. -->
-      <section class="shrink-0 border-t border-[var(--ks-hairline)] px-3 pt-2 pb-3 space-y-1.5" aria-label="Original options" data-testid="thread-pinned-options">
-        <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]">Original options</div>
+      <section class="shrink-0 border-t border-[var(--sy-hairline)] px-3 pt-2 pb-3 space-y-1.5" aria-label="Original options" data-testid="thread-pinned-options">
+        <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]">Original options</div>
         <div class="flex flex-wrap gap-1.5">
           @for (o of q.options ?? []; track o.id) {
             <button
               type="button"
-              class="ks-btn ks-btn-sm"
-              [class.ks-btn-soft]="!o.recommended"
-              [class.bg-[var(--ks-green-soft)]]="o.recommended"
+              class="sy-btn sy-btn-sm"
+              [class.sy-btn-soft]="!o.recommended"
+              [class.bg-[var(--sy-green-soft)]]="o.recommended"
               [attr.data-testid]="'thread-option-' + o.id"
               [disabled]="store.isBusy(q.id)"
               (click)="choose(o)"
             >
               {{ o.label }}
               @if (o.recommended) {
-                <span class="text-[10px] text-[var(--ks-green)]">Recommended</span>
+                <span class="text-[10px] text-[var(--sy-green)]">Recommended</span>
               }
             </button>
           }
@@ -151,10 +151,10 @@ export class SideConversationComponent {
     const t = q.thread;
     const where = [q.thread_account_label || t?.account_id || q.account_label, q.thread_machine_name || q.machine_name].filter(Boolean).join(' on ');
     if (!t || t.discarded) {
-      return `Answered by a read-only copy of the asking agent${where ? ` (${where})` : ''}, or the orchestrator if it can't be copied.`;
+      return `Answered by a read-only copy of the asking agent${where ? ` (${where})` : ''}, or the commander if it can't be copied.`;
     }
     if (t.answerer === 'fork') return `Read-only copy of ${q.agent || 'the agent'}'s session · ${where}`;
-    return `The orchestrator (${t.agent || 'agent'} · ${where})${t.note ? ` — ${t.note}` : ''}`;
+    return `The commander (${t.agent || 'agent'} · ${where})${t.note ? ` — ${t.note}` : ''}`;
   });
 
   constructor() {

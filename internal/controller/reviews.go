@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Reviews and delivery (KON-H50YW): the Work board is private between the user and their
+// Reviews and delivery (SYR-H50YW): the Work board is private between the user and their
 // agents. Review decisions (approve / request changes) and Expedite live on the hub.
 // Request changes returns the note to the agent; Approve delivers the branch according to
 // the repo's delivery mode (direct / pr_merge / pr_open / keep_branch). Expedited queued

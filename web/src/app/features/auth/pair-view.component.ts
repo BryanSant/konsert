@@ -19,10 +19,10 @@ import { defaultDeviceName } from './device-name';
         aria-labelledby="pair-title"
       >
         <div class="flex items-center gap-3">
-          <img src="icon.svg" alt="" class="h-9 w-9 rounded-lg" />
+          <img src="logo.svg" alt="" class="h-9 w-9 rounded-lg" />
           <div>
             <h1 id="pair-title" class="text-[15px] font-semibold tracking-tight text-[#ececed]">
-              Sign in to Konsert
+              Sign in to Syre
             </h1>
             <p class="text-[12px] text-[#8e9098]">
               Code

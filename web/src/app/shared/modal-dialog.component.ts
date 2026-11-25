@@ -27,7 +27,7 @@ const FOCUSABLE =
   template: `
     <dialog
       #dialog
-      class="ks-dialog"
+      class="sy-dialog"
       aria-modal="true"
       [attr.aria-labelledby]="labelledBy() || null"
       [attr.aria-label]="label() || null"
@@ -35,13 +35,13 @@ const FOCUSABLE =
       (cancel)="onCancel($event)"
     >
       <div
-        class="ks-backdrop fixed inset-0 flex justify-center px-4"
+        class="sy-backdrop fixed inset-0 flex justify-center px-4"
         [class.items-center]="align() === 'center'"
         [class.items-start]="align() === 'top'"
         [class.pt-[12vh]]="align() === 'top'"
         (click)="close.emit()"
       >
-        <div [class]="'ks-modal ' + panelClass()" (click)="$event.stopPropagation()">
+        <div [class]="'sy-modal ' + panelClass()" (click)="$event.stopPropagation()">
           <ng-content />
         </div>
       </div>

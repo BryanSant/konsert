@@ -1,11 +1,11 @@
 # Agent chat on subscriptions (design)
 
-Status: active (pre-alpha, initiative KON-TY1XP). Evidence: `docs/research/agent-cli-capabilities.md`.
+Status: active (pre-alpha, initiative SYR-TY1XP). Evidence: `docs/research/agent-cli-capabilities.md`.
 
 ## Goal
 
 Chat with the user's subscription-backed agent CLIs (claude, claude2, grok, agy, cursor,
-copilot, codex) from the Konsert UI, on any worker, with no API key. The chat must look and
+copilot, codex) from the Syre UI, on any worker, with no API key. The chat must look and
 behave like a real chat: streaming replies, tool-call cards, "working / needs you / done /
 failed" status, the agent asking for decisions, and failures explained (exit code, re-login
 needed, usage window exhausted until a time, ...).
@@ -15,7 +15,7 @@ the hub's own machine returns an error or asks for an API key.
 
 ## Core idea: drive structured protocols, not TTYs
 
-Every supported CLI has a structured headless protocol that gives us real signals. konsertd
+Every supported CLI has a structured headless protocol that gives us real signals. syred
 runs **one long-lived engine process per chat** and normalizes its output into
 `protocol.AgentChatEvent` (`internal/protocol/agentchat.go`).
 
@@ -27,25 +27,25 @@ runs **one long-lived engine process per chat** and normalizes its output into
 | mock | `mockEngine` | in-process | deterministic events for tests (accounts, models, elicitations, errors) |
 
 A "chat session" therefore is a persistent agent session, not a series of disconnected
-command lines; when the engine process has to restart (idle timeout, crash, konsertd restart,
+command lines; when the engine process has to restart (idle timeout, crash, syred restart,
 model change that can't be applied live) it resumes the CLI's own session id
 (`AgentChatOpen.AgentSessionID`).
 
 ## Flow
 
 ```
-PWA ──ws chat.send/respond/control──▶ hub ──agent.chat.prompt/respond/control──▶ konsertd
-PWA ◀──ws agent.chat.event (fan-out)── hub ◀────────── agent.chat.event ────────── konsertd
+PWA ──ws chat.send/respond/control──▶ hub ──agent.chat.prompt/respond/control──▶ syred
+PWA ◀──ws agent.chat.event (fan-out)── hub ◀────────── agent.chat.event ────────── syred
                                         │ persists events + transcript
                                         └ per-chat MCP (fleet tools + ask_user, per-chat token)
-                                          relayed by konsertd over its link: agent ──http──▶
+                                          relayed by syred over its link: agent ──http──▶
                                           127.0.0.1:<port>/mcp/chat/<id> ──mcp.* frames──▶ hub
 ```
 
 * The hub owns chat persistence (sessions, transcript, events) and routing to the worker that
   hosts the chat. On `chat.send` it ensures the engine is open (`agent.chat.open`, idempotent)
   then sends `agent.chat.prompt`.
-* konsertd's `chat.Manager` maps ChatID → Session, assigns per-chat `Seq`, enforces one turn
+* syred's `chat.Manager` maps ChatID → Session, assigns per-chat `Seq`, enforces one turn
   at a time, closes idle engines after 15 min (resume on next prompt), and closes everything
   on shutdown. Events are queued as control messages (never dropped like PTY frames).
 * Browser subscriptions use the existing `chat.subscribe` scoping.
@@ -74,7 +74,7 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
 2. **Questions**: the hub exposes an `ask_user` MCP tool on a per-chat Streamable HTTP
    endpoint handed to the agent via `AgentChatOpen.MCPServers` (claude `--mcp-config`, ACP
    `session/new mcpServers`, codex `-c mcp_servers`). The endpoint is relayed (see "Per-chat
-   MCP relay" below), so the agent talks to konsertd on loopback, never to the hub. The tool call blocks until the user
+   MCP relay" below), so the agent talks to syred on loopback, never to the hub. The tool call blocks until the user
    answers; the agent's system prompt tells it to use `ask_user` and how to ask well. A turn
    that simply ends with a question is `done` (the user replies normally) — the UI highlights
    it as "replied with a question". Questions are hub objects in a fleet-wide queue; see
@@ -95,11 +95,11 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
   from the same chat maps to the same card (blocked time keeps running, `ask_count` grows).
   When the agent's tool call ends without an answer (its MCP client timed out, the hub
   restarted, the engine was restarted) the question stays open and the answer is delivered
-  as a `[Konsert]` note: as a new turn when the chat is idle, otherwise with its next prompt.
+  as a `[Syre]` note: as a new turn when the chat is idle, otherwise with its next prompt.
 * **MCP tool-call timeouts** (the hub passes `AgentMCPServer.ToolTimeoutSeconds` = ask_user
   wait + 10 min; the hub's own wait is 30 min by default):
 
-  | Agent | Default tool-call limit | How Konsert raises it |
+  | Agent | Default tool-call limit | How Syre raises it |
   |---|---|---|
   | claude 2.1.x | 60 s for HTTP servers: the fetch first-byte budget is `max(server timeout or MCP_TOOL_TIMEOUT, 60 s)` — this is what ended ask_user after ~60 s | `MCP_TOOL_TIMEOUT` (ms) in the child env and per-server `"timeout"` (ms) in `--mcp-config`. Verified live: a question stayed open 3 min 40 s and was answered in-turn. `-p` sessions don't auto-background MCP calls. |
   | codex | `mcp_servers.<name>.tool_timeout_sec`, 60 s default | `tool_timeout_sec` in the `config` of `thread/start`/`thread/resume`/`thread/fork` |
@@ -108,13 +108,13 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
   | agy | 180 s (`timeoutSeconds` in its `mcp_config.json` only) | the hub returns "still open" after 170 s |
   | cursor-agent | 60 s fixed (MCP SDK default; no override for HTTP servers) | the hub returns "still open" after 55 s |
 
-  While a Konsert tool (`ask_user`, `request_user_action`) runs, the engines' no-progress
+  While a Syre tool (`ask_user`, `request_user_action`) runs, the engines' no-progress
   watchdog stays quiet.
 * **Side conversation ("Ask about this").** A hidden agent chat (`chat_sessions.question_id`)
   answers the user's clarifying questions; it runs through the normal chat machinery and is
   never listed. When the asking account reports `AgentAccount.Fork`, it is a read-only fork
   of the asking session on the same machine and account (`AgentChatOpen.ForkFrom`, read-only
-  approval mode, no Konsert tools), so the original stays blocked and undisturbed:
+  approval mode, no Syre tools), so the original stays blocked and undisturbed:
 
   | Agent | Fork |
   |---|---|
@@ -125,19 +125,19 @@ the user can cancel or wait). "Working" also shows the latest tool-call title as
   | agy, copilot, cursor | none over ACP → fallback |
   | mock | in-process fork that inherits the original's prompts |
 
-  Otherwise (or when the fork fails before answering) the orchestrator's agent answers with a
+  Otherwise (or when the fork fails before answering) the commander's agent answers with a
   context pack: the question, the asking chat's goal, recent transcript excerpt (from the
   hub's own chat events), files it touched and the resolved references. The answerer may end
   with `DRAFT ANSWER: …` ("Use this answer"). On answering, it writes the one-sentence summary
   delivered with the answer ("The user asked …; after learning …, chose … because …"); the
   hidden chat is then discarded.
-* **Delegation.** "Let the orchestrator decide" hands the question to the orchestrator chat,
+* **Delegation.** "Let the commander decide" hands the question to the commander chat,
   which must call `answer_question` (choice + rationale). The decision is held for a grace
   period (default 30 s) so the user can override it; a later override reaches the agent as a
   correction note. Per-category auto-delegation rules are off by default.
 * **References.** ka ids (`ka show <id> --json --offline` on the hub host), PR numbers (`gh pr
   view` when the chat's repo has a GitHub remote), file paths (what the session did with them)
-  and Konsert sids become cards, resolved after the question is shown and cached 2 min.
+  and Syre sids become cards, resolved after the question is shown and cached 2 min.
 
 ## Failure classification
 
@@ -159,7 +159,7 @@ failure: classification looks at the stream, not just the exit code.
 
 ## Accounts (multiple subscriptions)
 
-`AgentAccount` = one agent CLI + an environment profile. konsertd discovers each installed
+`AgentAccount` = one agent CLI + an environment profile. syred discovers each installed
 CLI's default account and loads extras from its YAML config:
 
 ```yaml
@@ -183,32 +183,32 @@ Capabilities (`agent.capabilities`) are probed at startup, every 10 min, on dema
 claude `GET /api/oauth/usage` (opt-out; falls back to stream `rate_limit_event`), codex
 `account/rateLimits/read`, copilot cache file; others report `usage_note`.
 
-## Orchestrator = an agent chat with fleet tools
+## Commander = an agent chat with fleet tools
 
-The orchestrator is just an agent chat whose `MCPServers` include Konsert's fleet tools
-(dispatch, status, steer, ...) and whose `SystemPrompt` sets the orchestrator role. The
+The commander is just an agent chat whose `MCPServers` include Syre's fleet tools
+(dispatch, status, steer, ...) and whose `SystemPrompt` sets the commander role. The
 API-key provider backend remains as an optional engine for users who want it, but it is never
 the default and never required.
 
-## Per-chat MCP relay (KON-DTN92)
+## Per-chat MCP relay (SYR-DTN92)
 
-Agents reach their chat's Konsert tools through konsertd, over the link konsertd already
+Agents reach their chat's Syre tools through syred, over the link syred already
 has with the hub (outbound WebSocket, SSH or the local socket), so no machine needs a
 network path to the hub's port and the hub can stay on 127.0.0.1.
 
-* **Open.** The hub sends the server as `{name: konsert, url: /mcp/chat/<chat id>, relay:
-  true, headers: {Authorization: Bearer <chat token>}}`. konsertd starts its relay (once per
+* **Open.** The hub sends the server as `{name: syre, url: /mcp/chat/<chat id>, relay:
+  true, headers: {Authorization: Bearer <chat token>}}`. syred starts its relay (once per
   daemon: `127.0.0.1`, an ephemeral port, kept for the daemon's lifetime so engines that
   outlive a link keep a working URL) and rewrites the URL to
   `http://127.0.0.1:<port>/mcp/chat/<chat id>` before the engine sees it. The relay answers
   nothing but `GET`/`POST`/`DELETE` on `/mcp/chat/<id>`.
 * **Frames.** Each request becomes `mcp.request {id, chat_id, method, header, body}` on the
-  link (`id`: 128 random bits chosen by konsertd; only the MCP headers cross: Authorization,
+  link (`id`: 128 random bits chosen by syred; only the MCP headers cross: Authorization,
   Accept, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID, User-Agent;
   body up to 4 MiB). The hub runs it through the chat's MCP handler and answers
   `mcp.head {id, status, header}`, `mcp.body {id, data}` chunks (sent whenever the handler
   flushes, at most 32 KiB each, so SSE streams flow as they are written) and
-  `mcp.end {id, error}`. konsertd sends `mcp.cancel {id}` when the agent goes away, which
+  `mcp.end {id, error}`. syred sends `mcp.cancel {id}` when the agent goes away, which
   cancels the handler (e.g. a pending `ask_user`). Requests are multiplexed by id; hub frames
   wait for room in the link's send queue rather than being dropped.
 * **Auth.** Unchanged in strength, narrower in reach: the chat's bearer token is checked
@@ -217,7 +217,7 @@ network path to the hub's port and the hub can stay on 127.0.0.1.
   on its HTTP listener any more.
 * **Link drops.** A request in flight when its link ends fails at once: `503` with
   `Retry-After` if the response had not started, a cut connection if it had (so the agent
-  sees an error, not a short answer). A request made while konsertd has no link waits up to
+  sees an error, not a short answer). A request made while syred has no link waits up to
   20 s for the next one, then gets `503`. MCP clients retry; the hub's MCP sessions are
   in-memory, so after a hub restart the client re-initializes as it would on any `404`.
 * **Every transport.** Outbound machines use the relay too: one path for all machines, and

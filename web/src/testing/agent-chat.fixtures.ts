@@ -172,7 +172,7 @@ export function sampleTurn(): AgentChatEvent[] {
       tool_call: { id: 'tc1', name: 'Bash', kind: 'execute', title: 'Run: go test ./...', status: 'running', input: '{"command":"go test ./..."}' },
     }),
     ev('tool_call', {
-      tool_call: { id: 'tc1', name: 'Bash', status: 'completed', output: 'ok  \tkonsert/internal\t0.42s' },
+      tool_call: { id: 'tc1', name: 'Bash', status: 'completed', output: 'ok  \tsyre/internal\t0.42s' },
     }),
     ev('plan', {
       plan: [

@@ -12,7 +12,7 @@ import {
   WorkCounts,
   WorkItem,
 } from '../models/activity.models';
-import { ChatSession, Project, Repo, Task } from '../models/konsert.models';
+import { ChatSession, Project, Repo, Task } from '../models/syre.models';
 
 /** Pure live-work logic (activity fallbacks, buckets, narration, grouping); see work.store.ts. */
 
@@ -152,11 +152,11 @@ export function taskTitle(t: Task): { text: string; source: NarrationSource } {
 }
 
 /**
- * A task's one-line "now": the orchestrator's narration, else the live tool label (or
+ * A task's one-line "now": the commander's narration, else the live tool label (or
  * question / error), else its title. Never blank.
  */
 export function taskNow(t: Task, a: SessionActivity): { text: string; source: NarrationSource } {
-  if (t.narration?.trim()) return { text: firstLine(t.narration), source: 'orchestrator' };
+  if (t.narration?.trim()) return { text: firstLine(t.narration), source: 'commander' };
   const live = liveLine(a);
   if (live) return { text: live, source: 'activity' };
   return taskTitle(t);
@@ -229,7 +229,7 @@ export interface GroupInputs {
 /**
  * Groups tasks and chats by project with counts and narration. Sessions with no project
  * (or the default project) go under "Other work"; chats and observed sessions are placed by
- * their cwd when it maps to a project's repo. Scratch terminals, shells, the orchestrator
+ * their cwd when it maps to a project's repo. Scratch terminals, shells, the commander
  * chat itself and API-backend chats are not work items.
  */
 export function groupWork(inp: GroupInputs): ProjectGroup[] {
@@ -324,9 +324,9 @@ function byAttention(a: WorkItem, b: WorkItem): number {
   return Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '') || a.id.localeCompare(b.id);
 }
 
-/** The project's headline: the orchestrator's, else the most pressing item, else counts. */
+/** The project's headline: the commander's, else the most pressing item, else counts. */
 export function headlineFor(project: Project | null, items: WorkItem[], counts: WorkCounts): { text: string; source: NarrationSource } {
-  if (project?.headline?.trim()) return { text: firstLine(project.headline, 140), source: 'orchestrator' };
+  if (project?.headline?.trim()) return { text: firstLine(project.headline, 140), source: 'commander' };
   const lead = items.find((i) => i.bucket === 'needs_you') ?? items.find((i) => i.bucket === 'running');
   if (lead) {
     const src: NarrationSource = lead.ticketTitle ? 'ticket' : 'title';

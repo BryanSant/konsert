@@ -4,7 +4,7 @@
 //
 // It is the one place this happens: the hub fills SessionActivity.Summary with it (see
 // internal/controller/activity.go) and the web app shows the summary, keeping the raw
-// label as the line's hover title. It understands the label shapes every engine Konsert
+// label as the line's hover title. It understands the label shapes every engine Syre
 // drives produces (docs/design/activity.md): claude stream-json titles ("Run: …",
 // "Read: …", "Search: …"), codex items ("Run: …", "Edit: a, b") and PTY lines ("exec …",
 // "Edited …"), ACP titles from grok, copilot, cursor-agent and agy/gemini, PTY session-log

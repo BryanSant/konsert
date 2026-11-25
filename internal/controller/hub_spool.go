@@ -6,11 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Idempotent ingestion of a daemon's durable spool (KON-VZR9F, docs/design/spool.md).
+// Idempotent ingestion of a daemon's durable spool (SYR-VZR9F, docs/design/spool.md).
 //
 // Every spooled record carries the daemon's seq (Envelope.Seq). Per machine the hub keeps
 // the highest seq it applied (in memory, and in worker_spool): a record at or below it is

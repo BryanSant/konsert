@@ -40,16 +40,16 @@ export function whereFrom(d: Pick<Device, 'last_user_agent' | 'last_ip'>): strin
   return [d.last_user_agent, d.last_ip].filter(Boolean).join(' · ');
 }
 
-/** The Claude Code command that adds Konsert as an HTTP MCP server. */
+/** The Claude Code command that adds Syre as an HTTP MCP server. */
 export function claudeMcpCommand(url: string, token: string): string {
-  return `claude mcp add --transport http konsert ${url} --header "Authorization: Bearer ${token}"`;
+  return `claude mcp add --transport http syre ${url} --header "Authorization: Bearer ${token}"`;
 }
 
 /** A generic mcpServers JSON snippet (Claude Desktop, Cursor and other clients). */
 export function mcpJsonSnippet(url: string, token: string): string {
   return JSON.stringify(
     {
-      mcpServers: { konsert: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } },
+      mcpServers: { syre: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } },
     },
     null,
     2,

@@ -2,13 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_CHAT_ID, FIXTURE_WORKER_ID, claudeAccount, ev, resetSeq, sampleTurn } from '../../../testing/agent-chat.fixtures';
 import { FakeWebSocket } from '../../../testing/fake-websocket';
-import { ChatSession } from '../models/konsert.models';
+import { ChatSession } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 import { CHAT_PROTOCOL } from '../services/chat-protocol';
-import { KonsertSocketService } from '../services/konsert-socket.service';
+import { SyreSocketService } from '../services/syre-socket.service';
 import { AgentAccountsStore } from './agent-accounts.store';
 import { AgentChatStore } from './agent-chat.store';
-import { OrchestratorStore } from './orchestrator.store';
+import { CommanderStore } from './commander.store';
 
 const chat: ChatSession = {
   id: FIXTURE_CHAT_ID,
@@ -28,7 +28,7 @@ describe('AgentChatStore', () => {
   let restoreWs: () => void;
   let listAgentChatEvents: ReturnType<typeof vi.fn>;
   let store: AgentChatStore;
-  let socket: KonsertSocketService;
+  let socket: SyreSocketService;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -50,8 +50,8 @@ describe('AgentChatStore', () => {
       ],
     });
     store = TestBed.inject(AgentChatStore);
-    socket = TestBed.inject(KonsertSocketService);
-    TestBed.inject(OrchestratorStore).sessions.set([chat]);
+    socket = TestBed.inject(SyreSocketService);
+    TestBed.inject(CommanderStore).sessions.set([chat]);
   });
 
   afterEach(() => {
@@ -76,7 +76,7 @@ describe('AgentChatStore', () => {
     const t = store.transcript(FIXTURE_CHAT_ID);
     expect(t.status).toBe('done');
     expect(t.items.map((i) => i.type)).toEqual(['user', 'thought', 'tool', 'plan', 'assistant', 'turn_end']);
-    expect(TestBed.inject(OrchestratorStore).sessions()[0].status).toBe('done');
+    expect(TestBed.inject(CommanderStore).sessions()[0].status).toBe('done');
   });
 
   it('loads the log, then catches up after_seq on a gap and on reconnect', async () => {
@@ -97,7 +97,7 @@ describe('AgentChatStore', () => {
     store.onEvent(events[3]);
     expect(store.transcript(FIXTURE_CHAT_ID).lastSeq).toBe(9);
 
-    TestBed.inject(OrchestratorStore).activeSessionId.set(FIXTURE_CHAT_ID);
+    TestBed.inject(CommanderStore).activeSessionId.set(FIXTURE_CHAT_ID);
     listAgentChatEvents.mockResolvedValueOnce(events.slice(9));
     await store.onReconnected();
     expect(listAgentChatEvents).toHaveBeenLastCalledWith(FIXTURE_CHAT_ID, 9);
@@ -137,7 +137,7 @@ describe('AgentChatStore', () => {
       { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, cancel: true },
       { chat_id: FIXTURE_CHAT_ID, session_id: FIXTURE_CHAT_ID, model: 'opus', effort: 'high' },
     ]);
-    expect(TestBed.inject(OrchestratorStore).sessions()[0]).toMatchObject({ model: 'opus', effort: 'high' });
+    expect(TestBed.inject(CommanderStore).sessions()[0]).toMatchObject({ model: 'opus', effort: 'high' });
   });
 
   it('retries the last user message', () => {
@@ -166,7 +166,7 @@ describe('AgentChatStore', () => {
 
     it('adds chats created elsewhere to the top and merges updates in place', () => {
       const ws = connect();
-      const orch = TestBed.inject(OrchestratorStore);
+      const orch = TestBed.inject(CommanderStore);
       ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
       expect(orch.sessions().map((s) => s.id)).toEqual(['chat-other', FIXTURE_CHAT_ID]);
       expect(store.statusOf('chat-other')).toBe('working');
@@ -185,7 +185,7 @@ describe('AgentChatStore', () => {
 
     it('updates the status of chats that are not open, even with a cached transcript', async () => {
       const ws = connect();
-      const orch = TestBed.inject(OrchestratorStore);
+      const orch = TestBed.inject(CommanderStore);
       ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
       await store.open('chat-other');
       orch.activeSessionId.set(FIXTURE_CHAT_ID);
@@ -197,7 +197,7 @@ describe('AgentChatStore', () => {
 
     it("leaves the open chat's status to its event stream", () => {
       const ws = connect();
-      const orch = TestBed.inject(OrchestratorStore);
+      const orch = TestBed.inject(CommanderStore);
       orch.activeSessionId.set(FIXTURE_CHAT_ID);
       store.send(chat, 'hi');
       expect(store.statusOf(FIXTURE_CHAT_ID)).toBe('working');
@@ -208,7 +208,7 @@ describe('AgentChatStore', () => {
 
     it('removes deleted chats and their transcript, selecting another when the open one goes', async () => {
       const ws = connect();
-      const orch = TestBed.inject(OrchestratorStore);
+      const orch = TestBed.inject(CommanderStore);
       ws.receiveJSON('fleet.update', { kind: CHAT_PROTOCOL.fleetChatSessionKind, chat_session: other });
       await store.open('chat-other');
       orch.activeSessionId.set('chat-other');

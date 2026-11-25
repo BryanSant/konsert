@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Holds (PRD §5.8a): an intervention no agent asked for places a hold on its scope (a
 // session, a machine, or a resource such as a service or port on a machine). While a
 // hold is active nothing automatic happens there: the scheduler doesn't place work,
-// requeue/orphan logic doesn't restart it, fan-out skips it, and the orchestrator's
+// requeue/orphan logic doesn't restart it, fan-out skips it, and the commander's
 // dispatch/steer tools refuse with an error that tells the agent to ask the user. The
 // user releases a hold in the UI (or tells an agent to call release_hold). Holds never
 // suspend anything by themselves.
@@ -41,7 +41,7 @@ type holdCheck struct {
 	// restart marks an automatic restart (requeue after a lost worker): every hold on
 	// the machine blocks it.
 	restart bool
-	// sessionOnly checks only session-scope holds (e.g. an orchestrator cancel).
+	// sessionOnly checks only session-scope holds (e.g. a commander cancel).
 	sessionOnly bool
 }
 
@@ -150,7 +150,7 @@ func holdError(hd store.Hold, where string) error {
 		scope = describeResource(hd.Resource) + " on " + where
 	}
 	return fmt.Errorf("%s is on hold since %s: %s (hold %s). Nothing automatic may happen there until the user releases it: "+
-		"do not retry, restart or work around it — ask the user (ask_user) what to do. They can release the hold in Konsert, or tell you to call release_hold",
+		"do not retry, restart or work around it — ask the user (ask_user) what to do. They can release the hold in Syre, or tell you to call release_hold",
 		scope, hd.CreatedAt.Local().Format("15:04"), hd.Summary, hd.SID)
 }
 

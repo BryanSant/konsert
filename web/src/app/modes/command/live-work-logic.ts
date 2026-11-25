@@ -1,10 +1,10 @@
 import { OTHER_WORK_KEY, OTHER_WORK_NAME, ProjectGroup, WorkItem as ActivityItem, WorkerHeat } from '../../core/models/activity.models';
-import { Worker } from '../../core/models/konsert.models';
+import { Worker } from '../../core/models/syre.models';
 import { WorkItem } from '../../core/state/work-logic';
 import { SpinnerDetail, SpinnerMachine, SpinnerState, activityPhrase, spinnerDetailOf, spinnerMachine, spinnerStateOf, withDetail } from '../../shared/spinner-logic';
 
 /**
- * Command's "Live work" story (signed-off design): per project its name, the orchestrator's
+ * Command's "Live work" story (signed-off design): per project its name, the commander's
  * headline, a segmented progress bar, "N in flight on M machines · K queued", the in-flight
  * lines, the queue collapsed, and done lines that fade out over a few minutes. Pure; the
  * component wires it to WorkStore / FleetStore.
@@ -22,8 +22,8 @@ export interface StoryLine {
   now: string;
   /** The full tool line behind a summarised now (hover title). */
   nowTitle?: string;
-  /** The narration line was written by the orchestrator. */
-  nowByOrchestrator: boolean;
+  /** The narration line was written by the commander. */
+  nowByCommander: boolean;
   state: SpinnerState;
   coarse: boolean;
   tps?: number;
@@ -43,7 +43,7 @@ export interface StoryProject {
   key: string;
   name: string;
   headline: string;
-  headlineByOrchestrator: boolean;
+  headlineByCommander: boolean;
   /** Segment counts for the bar: done (recent), running (incl. held), needs you, queued. */
   bar: { done: number; running: number; needsYou: number; queued: number };
   total: number;
@@ -86,10 +86,10 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
   }
   const tps = it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined;
   let now = it.now;
-  if (state === 'queued' && !it.workerId && it.nowSource !== 'orchestrator') now = it.activity.label || 'Waiting for a machine';
-  else if (it.nowSource !== 'orchestrator' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.summary || it.activity.label, inp.now - doneAt(it, mi)) || now;
+  if (state === 'queued' && !it.workerId && it.nowSource !== 'commander') now = it.activity.label || 'Waiting for a machine';
+  else if (it.nowSource !== 'commander' && it.nowSource !== 'activity') now = activityPhrase(state, tps, it.activity.summary || it.activity.label, inp.now - doneAt(it, mi)) || now;
   const detail = spinnerDetailOf(it.activity);
-  if (it.nowSource !== 'orchestrator') now = withDetail(now, state, detail);
+  if (it.nowSource !== 'commander') now = withDetail(now, state, detail);
   return {
     key: `${it.kind}:${it.id}`,
     id: it.id,
@@ -98,7 +98,7 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
     title: it.title,
     now,
     nowTitle: it.nowTitle,
-    nowByOrchestrator: it.nowSource === 'orchestrator',
+    nowByCommander: it.nowSource === 'commander',
     state,
     coarse: !!it.activity.coarse && it.observed,
     tps: it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined,
@@ -121,7 +121,7 @@ function terminalLine(mi: WorkItem, inp: StoryInputs): StoryLine {
     kind: 'task',
     title: mi.title,
     now: you ? 'you have control' : mi.stale ? 'machine not reporting' : 'shell open',
-    nowByOrchestrator: false,
+    nowByCommander: false,
     state: you ? 'you' : mi.control === 'SUSPENDED' || mi.control === 'HELD' ? 'held' : 'working',
     coarse: !you,
     agent: 'terminal',
@@ -150,7 +150,7 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
     for (const it of g.items) {
       if (it.bucket === 'done') {
         const at = doneAt(it, inp.items[it.id]);
-        // Only work Konsert ran counts toward the bar (an idle observed session isn't "done").
+        // Only work Syre ran counts toward the bar (an idle observed session isn't "done").
         if (at >= inp.today && !it.observed) doneToday++;
         // Shells still running after the end keep the line until they exit.
         const running = (it.activity.shells ?? 0) > 0 || !!it.activity.subagents?.length;
@@ -166,7 +166,7 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
       key: g.key,
       name: g.name,
       headline: g.headline,
-      headlineByOrchestrator: g.headlineSource === 'orchestrator',
+      headlineByCommander: g.headlineSource === 'commander',
       bar: { done: doneToday, running: inFlight.length - needsYou, needsYou, queued: queued.length },
       total: 0,
       summary: '',
@@ -185,7 +185,7 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
       key: OTHER_WORK_KEY,
       name: OTHER_WORK_NAME,
       headline: '',
-      headlineByOrchestrator: false,
+      headlineByCommander: false,
       bar: { done: 0, running: 0, needsYou: 0, queued: 0 },
       total: 0,
       summary: '',
@@ -197,7 +197,7 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
     other.bar.running += terms.length;
   }
   if (other) {
-    if (!other.headlineByOrchestrator) other.headline = 'Sessions you started yourself, plus your terminals';
+    if (!other.headlineByCommander) other.headline = 'Sessions you started yourself, plus your terminals';
     out.push(other);
   }
 

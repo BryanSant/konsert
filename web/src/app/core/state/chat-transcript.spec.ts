@@ -82,7 +82,7 @@ describe('transcript reducer', () => {
       title: 'Run: go test ./...',
       status: 'completed',
       input: '{"command":"go test ./..."}',
-      output: 'ok  \tkonsert/internal\t0.42s',
+      output: 'ok  \tsyre/internal\t0.42s',
     });
   });
 

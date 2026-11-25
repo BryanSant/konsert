@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func seedAudit(t *testing.T, st *SQLiteStore, e store.AuditEvent) int64 {

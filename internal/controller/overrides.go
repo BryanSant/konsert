@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Override requests (break-glass, PRD §5.8a): an orchestrator asks the user for a
+// Override requests (break-glass, PRD §5.8a): a commander asks the user for a
 // time-boxed exception — one more session on a machine than its slot limit, or a hold
 // lifted for a while — with request_override. The request shows in Needs you with what
 // approving allows. Approval is enforced (the scheduler, dispatch, steer, cancel,
 // restarts and fan-out honour it for its scope) until it expires, and measured (every
 // action it lets through is counted). The decision, and the expiry, reach the
-// orchestrator as fleet events through the normal delivery path.
+// commander as fleet events through the normal delivery path.
 
 // EventKindOverride is the fleet event kind of override requests (Action: created |
 // approved | denied | used | expired).
@@ -113,9 +113,9 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 		return o, err
 	}
 	h.broadcastFleetUpdate("override", o)
-	who := "The orchestrator"
+	who := "The commander"
 	if cs, err := h.store.GetChatSession(ctx, chatID); err == nil {
-		who = fmt.Sprintf("The orchestrator (chat %s)", cs.SID)
+		who = fmt.Sprintf("The commander (chat %s)", cs.SID)
 	} else if chatID == "" {
 		who = capitalize(describeActor(causeFrom(ctx)))
 	}
@@ -173,9 +173,9 @@ func (h *Hub) overrideConsequences(ctx context.Context, o store.Override) string
 		if hd, err := h.store.GetHold(ctx, o.HoldID); err == nil {
 			label = fmt.Sprintf("%s (%s)", hd.SID, hd.Summary)
 		}
-		return fmt.Sprintf("For %s, hold %s stops blocking automatic actions: the orchestrator may dispatch, steer, cancel or restart work it covers. The hold stays in place and blocks again when the override expires.", dur, label)
+		return fmt.Sprintf("For %s, hold %s stops blocking automatic actions: the commander may dispatch, steer, cancel or restart work it covers. The hold stays in place and blocks again when the override expires.", dur, label)
 	case store.OverrideScopeSession:
-		return fmt.Sprintf("For %s, the orchestrator may steer, cancel or restart this session automatically despite its holds. They stay in place and block again when the override expires.", dur)
+		return fmt.Sprintf("For %s, the commander may steer, cancel or restart this session automatically despite its holds. They stay in place and block again when the override expires.", dur)
 	case store.OverrideScopeMachine:
 		n := 0
 		if holds, err := h.store.ListHolds(ctx, store.HoldFilter{ActiveOnly: true, WorkerID: o.WorkerID}); err == nil {
@@ -210,7 +210,7 @@ func formatMinutes(secs int) string {
 }
 
 // decideOverride approves or denies a pending override (user only) and reports the
-// decision to the orchestrator.
+// decision to the commander.
 func (h *Hub) decideOverride(ctx context.Context, id string, approve bool, note string) (store.Override, error) {
 	o, err := h.store.GetOverride(ctx, id)
 	if err != nil {
@@ -254,7 +254,7 @@ func (h *Hub) decideOverride(ctx context.Context, id string, approve bool, note 
 		if note != "" {
 			msg += ` ("` + note + `")`
 		}
-		msg += ". Konsert enforces it until then; afterwards the limit or hold applies again."
+		msg += ". Syre enforces it until then; afterwards the limit or hold applies again."
 	} else {
 		msg = fmt.Sprintf("The user denied override %s (%s)", o.SID, scope)
 		if note != "" {
@@ -373,7 +373,7 @@ func (h *Hub) placed(ctx context.Context, p slotPlan, workerID string, active in
 }
 
 // expireOverrides ends the approved overrides whose time is up and tells the
-// orchestrator (enforcement already stopped at expires_at).
+// commander (enforcement already stopped at expires_at).
 func (h *Hub) expireOverrides(ctx context.Context, now time.Time) {
 	list, err := h.store.ListOverrides(ctx, store.OverrideFilter{Status: store.OverrideApproved})
 	if err != nil {
@@ -405,10 +405,10 @@ func (h *Hub) expireOverrides(ctx context.Context, now time.Time) {
 	}
 }
 
-// requestOverrideReply tells the orchestrator what happens next.
+// requestOverrideReply tells the commander what happens next.
 func requestOverrideReply(o store.Override) string {
-	return fmt.Sprintf("Override request %s is waiting for the user in Konsert (Needs you): %s "+
-		"Don't act as if it were approved. Konsert tells you the decision (approved, denied, and later when it expires) "+
+	return fmt.Sprintf("Override request %s is waiting for the user in Syre (Needs you): %s "+
+		"Don't act as if it were approved. Syre tells you the decision (approved, denied, and later when it expires) "+
 		"in a note before your next turn, or starts a turn if you are idle. Continue with other work or end your turn.", o.SID, o.Consequences)
 }
 
@@ -434,8 +434,8 @@ func (s *Server) handleListOverrides(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"overrides": list})
 }
 
-// handleCreateOverride files an override request over REST (konsert mcp, scripts); the
-// orchestrator's own requests come through its request_override tool.
+// handleCreateOverride files an override request over REST (syre mcp, scripts); the
+// commander's own requests come through its request_override tool.
 func (s *Server) handleCreateOverride(w http.ResponseWriter, r *http.Request) {
 	var body requestOverrideInput
 	if !decodeJSON(w, r, &body) {

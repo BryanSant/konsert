@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // idTables maps each entity kind to its table (id UUIDv7 primary key + unique sid).

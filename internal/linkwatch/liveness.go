@@ -1,9 +1,9 @@
-// Package linkwatch keeps the hub <-> konsertd link honest (KON-G8WA3).
+// Package linkwatch keeps the hub <-> syred link honest (SYR-G8WA3).
 //
 // Liveness: each side records when it last sent and last received anything on a link.
 // When a side has sent nothing for QuietAfter it sends a keepalive (the hub a WebSocket
-// ping, konsertd a small vitals heartbeat); regular traffic suppresses them. When a side
-// has received nothing for DeadAfter the link is dead: konsertd redials, the hub drops
+// ping, syred a small vitals heartbeat); regular traffic suppresses them. When a side
+// has received nothing for DeadAfter the link is dead: syred redials, the hub drops
 // the connection and marks the machine offline. Both sides keep the link busy at least
 // every QuietAfter, so a live link never goes DeadAfter without a frame either way.
 //

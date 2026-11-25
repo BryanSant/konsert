@@ -10,23 +10,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// TestRetentionScale is a manual scale check, skipped unless KONSERT_RETENTION_SCALE_DIR
+// TestRetentionScale is a manual scale check, skipped unless SYRE_RETENTION_SCALE_DIR
 // names a directory for the database (it is large: use /var/tmp, not a RAM-backed /tmp).
-// It builds KONSERT_RETENTION_SCALE_SESSIONS (default 2000) finished chat sessions dated
+// It builds SYRE_RETENTION_SCALE_SESSIONS (default 2000) finished chat sessions dated
 // 60 days ago with a realistic event mix, runs one full compaction pass the way the hub
 // does (500-row batches, then 1024-page incremental vacuum steps) and reports the file
 // size before and after, the pass duration and the longest single write transaction.
 func TestRetentionScale(t *testing.T) {
-	dir := os.Getenv("KONSERT_RETENTION_SCALE_DIR")
+	dir := os.Getenv("SYRE_RETENTION_SCALE_DIR")
 	if dir == "" {
-		t.Skip("set KONSERT_RETENTION_SCALE_DIR to run the retention scale check")
+		t.Skip("set SYRE_RETENTION_SCALE_DIR to run the retention scale check")
 	}
 	sessions := 2000
-	if v, err := strconv.Atoi(os.Getenv("KONSERT_RETENTION_SCALE_SESSIONS")); err == nil && v > 0 {
+	if v, err := strconv.Atoi(os.Getenv("SYRE_RETENTION_SCALE_SESSIONS")); err == nil && v > 0 {
 		sessions = v
 	}
 	ctx := context.Background()

@@ -16,7 +16,7 @@ func TestResolveScratchDirByOS(t *testing.T) {
 	if got := ResolveScratchDir("linux"); !strings.HasPrefix(got, "/var/tmp/") {
 		t.Fatalf("expected Linux /var/tmp/ scratch path, got %q", got)
 	}
-	if got := ResolveScratchDir("windows"); !strings.HasSuffix(got, "konsert-attachments") {
+	if got := ResolveScratchDir("windows"); !strings.HasSuffix(got, "syre-attachments") {
 		t.Fatalf("expected Windows temp scratch path, got %q", got)
 	}
 }

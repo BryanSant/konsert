@@ -7,7 +7,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "konsert-web": {
+    "syre-web": {
       "projectType": "application",
       "schematics": {},
       "root": "",
@@ -58,10 +58,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "konsert-web:build:production"
+              "buildTarget": "syre-web:build:production"
             },
             "development": {
-              "buildTarget": "konsert-web:build:development"
+              "buildTarget": "syre-web:build:development"
             }
           },
           "defaultConfiguration": "development"

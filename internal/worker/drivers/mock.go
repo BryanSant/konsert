@@ -82,7 +82,7 @@ func (d *MockDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	}
 
 	var script strings.Builder
-	script.WriteString("printf '\\033[1;36m[konsert-mock]\\033[0m Starting task (permission=" + opts.PermissionMode + ")\\n'\n")
+	script.WriteString("printf '\\033[1;36m[syre-mock]\\033[0m Starting task (permission=" + opts.PermissionMode + ")\\n'\n")
 	script.WriteString("echo '[MOCK:MILESTONE] Analyzing workspace'\n")
 	script.WriteString("echo '[MOCK:TOOL] Running workspace checks'\n")
 

@@ -1,6 +1,6 @@
 import { Injectable, Injector, inject } from '@angular/core';
 import { CHAT_PROTOCOL } from './chat-protocol';
-import { KonsertSocketService } from './konsert-socket.service';
+import { SyreSocketService } from './syre-socket.service';
 
 export interface ChatSendFrame {
   session_id: string;
@@ -33,8 +33,8 @@ export interface ChatControlFrame {
 export class ChatTransportService {
   // Resolved lazily: the socket service itself depends on the chat stores.
   private readonly injector = inject(Injector);
-  private get socket(): KonsertSocketService {
-    return this.injector.get(KonsertSocketService);
+  private get socket(): SyreSocketService {
+    return this.injector.get(SyreSocketService);
   }
 
   get isOpen(): boolean {

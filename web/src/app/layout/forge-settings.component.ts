@@ -18,7 +18,7 @@ export function forgeKindLabel(kind: string): string {
   }
 }
 
-/** Plain-word description of where Konsert gets credentials for a forge host. */
+/** Plain-word description of where Syre gets credentials for a forge host. */
 export function credentialSourceLabel(source: string, kind: string): string {
   switch (source) {
     case 'git-credential':
@@ -65,63 +65,63 @@ interface ActiveDeviceFlow {
 }
 
 /**
- * Settings → Forges (KON-CK7S2): lists every forge host Konsert has seen with its kind
+ * Settings → Forges (SYR-CK7S2): lists every forge host Syre has seen with its kind
  * and credential source, lets you add a host with detection, paste or remove an encrypted
  * token, and sign in via OAuth device flow when configured on the hub.
  */
 @Component({
-  selector: 'ks-forge-settings',
+  selector: 'sy-forge-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective],
   template: `
     <section
       id="settings-forges"
-      class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]"
+      class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]"
       data-testid="settings-forges"
-      aria-labelledby="ks-forges-title"
+      aria-labelledby="sy-forges-title"
     >
       <div class="flex items-baseline justify-between gap-2">
-        <div id="ks-forges-title" class="text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)]">
+        <div id="sy-forges-title" class="text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)]">
           Forges
         </div>
         @if (forges().length > 0) {
-          <span class="text-[10.5px] text-[var(--ks-text-muted)]">
+          <span class="text-[10.5px] text-[var(--sy-text-muted)]">
             {{ forges().length }} {{ forges().length === 1 ? 'host' : 'hosts' }}
           </span>
         }
       </div>
 
-      <p class="m-0 text-[11.5px] text-[var(--ks-text-secondary)]">
+      <p class="m-0 text-[11.5px] text-[var(--sy-text-secondary)]">
         Used to open and merge PRs/MRs when you approve work (delivery modes).
       </p>
 
       @if (loading()) {
-        <p class="m-0 text-[var(--ks-text-muted)]">Loading forges…</p>
+        <p class="m-0 text-[var(--sy-text-muted)]">Loading forges…</p>
       } @else if (forges().length === 0) {
-        <p class="m-0 rounded-[var(--ks-radius-md)] bg-black/20 px-3 py-2.5 text-[11.5px] text-[var(--ks-text-muted)]" data-testid="forges-empty">
+        <p class="m-0 rounded-[var(--sy-radius-md)] bg-black/20 px-3 py-2.5 text-[11.5px] text-[var(--sy-text-muted)]" data-testid="forges-empty">
           No forge hosts seen yet. Add a host below, or connect a repo with a git remote.
         </p>
       } @else {
         <ul class="m-0 p-0 list-none space-y-2" data-testid="forges-list">
           @for (f of forges(); track f.host) {
             <li
-              class="rounded-[var(--ks-radius-md)] bg-black/25 border border-[var(--ks-hairline)] p-3 space-y-2.5"
+              class="rounded-[var(--sy-radius-md)] bg-black/25 border border-[var(--sy-hairline)] p-3 space-y-2.5"
               [attr.data-forge-host]="f.host"
             >
               <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <div class="flex items-center gap-2 min-w-0">
                   <span
                     class="h-2 w-2 shrink-0 rounded-full"
-                    [class.bg-[var(--ks-green)]]="f.credential_source !== 'none'"
-                    [class.bg-[var(--ks-text-muted)]]="f.credential_source === 'none'"
+                    [class.bg-[var(--sy-green)]]="f.credential_source !== 'none'"
+                    [class.bg-[var(--sy-text-muted)]]="f.credential_source === 'none'"
                     aria-hidden="true"
                   ></span>
-                  <span class="font-mono-ide text-[12.5px] font-medium text-[var(--ks-text)] break-all" data-testid="forge-host">
+                  <span class="font-mono-ide text-[12.5px] font-medium text-[var(--sy-text)] break-all" data-testid="forge-host">
                     {{ f.host }}
                   </span>
                   <span
-                    class="shrink-0 rounded-[var(--ks-radius-sm)] bg-[var(--ks-raised)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--ks-text-secondary)]"
+                    class="shrink-0 rounded-[var(--sy-radius-sm)] bg-[var(--sy-raised)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--sy-text-secondary)]"
                     data-testid="forge-kind"
                   >
                     {{ kindLabel(f.kind) }}
@@ -129,8 +129,8 @@ interface ActiveDeviceFlow {
                 </div>
                 <span
                   class="text-[11.5px]"
-                  [class.text-[var(--ks-green)]]="f.credential_source !== 'none'"
-                  [class.text-[var(--ks-text-muted)]]="f.credential_source === 'none'"
+                  [class.text-[var(--sy-green)]]="f.credential_source !== 'none'"
+                  [class.text-[var(--sy-text-muted)]]="f.credential_source === 'none'"
                   data-testid="forge-source"
                 >
                   {{ sourceLabel(f.credential_source, f.kind) }}
@@ -140,9 +140,9 @@ interface ActiveDeviceFlow {
               <div class="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  class="ks-btn ks-btn-sm"
+                  class="sy-btn sy-btn-sm"
                   data-testid="forge-paste-btn"
-                  [ksTooltip]="isStored(f.credential_source) ? 'Replace the token stored on the hub' : 'Store an encrypted personal access token on the hub'"
+                  [syTooltip]="isStored(f.credential_source) ? 'Replace the token stored on the hub' : 'Store an encrypted personal access token on the hub'"
                   (click)="openPaste(f.host)"
                 >
                   <app-icon name="key" [size]="12" />
@@ -152,9 +152,9 @@ interface ActiveDeviceFlow {
                 @if (isStored(f.credential_source)) {
                   <button
                     type="button"
-                    class="ks-btn ks-btn-sm text-[#f09595]"
+                    class="sy-btn sy-btn-sm text-[#f09595]"
                     data-testid="forge-remove-btn"
-                    ksTooltip="Delete the stored token from the hub"
+                    syTooltip="Delete the stored token from the hub"
                     (click)="askRemove(f.host)"
                   >
                     <app-icon name="trash" [size]="12" />
@@ -165,19 +165,19 @@ interface ActiveDeviceFlow {
                 @if (f.device_flow_available) {
                   <button
                     type="button"
-                    class="ks-btn ks-btn-sm ks-btn-primary"
+                    class="sy-btn sy-btn-sm sy-btn-primary"
                     data-testid="forge-connect-btn"
                     [disabled]="startingDeviceHost() === f.host"
-                    [ksTooltip]="'Sign in with ' + kindLabel(f.kind) + ' using a one-time device code'"
+                    [syTooltip]="'Sign in with ' + kindLabel(f.kind) + ' using a one-time device code'"
                     (click)="startDevice(f)"
                   >
                     {{ startingDeviceHost() === f.host ? 'Starting…' : 'Connect' }}
                   </button>
                 } @else {
                   <span
-                    class="text-[11px] text-[var(--ks-text-muted)]"
+                    class="text-[11px] text-[var(--sy-text-muted)]"
                     data-testid="forge-device-unavailable"
-                    [ksTooltip]="deviceUnavailableTooltip(f.kind)"
+                    [syTooltip]="deviceUnavailableTooltip(f.kind)"
                   >
                     {{ deviceUnavailableText(f.kind) }}
                   </span>
@@ -185,31 +185,31 @@ interface ActiveDeviceFlow {
               </div>
 
               @if (pasteHost() === f.host) {
-                <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-1)] border border-[var(--ks-hairline)] p-2.5 space-y-2" data-testid="forge-paste-panel">
-                  <label [for]="'ks-forge-tok-' + f.host" class="block text-[11px] text-[var(--ks-text-secondary)]">
-                    Personal access token for <span class="font-mono-ide text-[var(--ks-text)]">{{ f.host }}</span>
+                <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] border border-[var(--sy-hairline)] p-2.5 space-y-2" data-testid="forge-paste-panel">
+                  <label [for]="'sy-forge-tok-' + f.host" class="block text-[11px] text-[var(--sy-text-secondary)]">
+                    Personal access token for <span class="font-mono-ide text-[var(--sy-text)]">{{ f.host }}</span>
                   </label>
                   <input
-                    [id]="'ks-forge-tok-' + f.host"
+                    [id]="'sy-forge-tok-' + f.host"
                     type="password"
                     autocomplete="off"
                     spellcheck="false"
                     data-testid="forge-token-input"
                     placeholder="Paste token…"
-                    class="ks-field ks-field-sm w-full font-mono-ide"
+                    class="sy-field sy-field-sm w-full font-mono-ide"
                     [value]="tokenDraft()"
                     (input)="tokenDraft.set($any($event.target).value)"
                     (keydown.enter)="$event.preventDefault(); saveToken(f)"
                   />
                   <div class="flex flex-wrap items-center justify-between gap-2">
-                    <span class="text-[10.5px] text-[var(--ks-text-muted)]">
+                    <span class="text-[10.5px] text-[var(--sy-text-muted)]">
                       Encrypted at rest on the hub; never shown again.
                     </span>
                     <div class="flex items-center gap-1.5">
-                      <button type="button" class="ks-btn ks-btn-sm" (click)="cancelPaste()">Cancel</button>
+                      <button type="button" class="sy-btn sy-btn-sm" (click)="cancelPaste()">Cancel</button>
                       <button
                         type="button"
-                        class="ks-btn ks-btn-sm ks-btn-primary"
+                        class="sy-btn sy-btn-sm sy-btn-primary"
                         data-testid="forge-token-save"
                         [disabled]="savingToken() || !tokenDraft().trim()"
                         (click)="saveToken(f)"
@@ -223,7 +223,7 @@ interface ActiveDeviceFlow {
 
               @if (confirmRemoveHost() === f.host) {
                 <div
-                  class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--ks-radius-md)] bg-[var(--ks-red-soft)] border border-[#e86b6b]/25 px-3 py-2"
+                  class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] border border-[#e86b6b]/25 px-3 py-2"
                   data-testid="forge-remove-confirm-panel"
                   role="alert"
                 >
@@ -231,10 +231,10 @@ interface ActiveDeviceFlow {
                     Remove the stored token for <span class="font-mono-ide">{{ f.host }}</span>?
                   </span>
                   <div class="flex items-center gap-1.5">
-                    <button type="button" class="ks-btn ks-btn-sm" (click)="confirmRemoveHost.set(null)">Cancel</button>
+                    <button type="button" class="sy-btn sy-btn-sm" (click)="confirmRemoveHost.set(null)">Cancel</button>
                     <button
                       type="button"
-                      class="ks-btn ks-btn-sm bg-[#e86b6b]/20 text-[#f8b4b4] hover:bg-[#e86b6b]/30"
+                      class="sy-btn sy-btn-sm bg-[#e86b6b]/20 text-[#f8b4b4] hover:bg-[#e86b6b]/30"
                       data-testid="forge-remove-confirm"
                       [disabled]="removingHost() === f.host"
                       (click)="confirmRemove(f.host)"
@@ -248,22 +248,22 @@ interface ActiveDeviceFlow {
               @if (deviceFlow(); as flow) {
                 @if (flow.host === f.host) {
                   <div
-                    class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-1)] border border-[var(--ks-hairline)] p-3 space-y-2.5"
+                    class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] border border-[var(--sy-hairline)] p-3 space-y-2.5"
                     data-testid="forge-device-panel"
                   >
                     @if (flow.status === 'pending') {
                       <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <div class="text-[10.5px] text-[var(--ks-text-muted)]">Enter this code on {{ kindLabel(flow.kind) }}</div>
-                          <div class="font-mono-ide text-[16px] font-semibold tracking-widest text-[var(--ks-text)]" data-testid="forge-device-code">
+                          <div class="text-[10.5px] text-[var(--sy-text-muted)]">Enter this code on {{ kindLabel(flow.kind) }}</div>
+                          <div class="font-mono-ide text-[16px] font-semibold tracking-widest text-[var(--sy-text)]" data-testid="forge-device-code">
                             {{ flow.userCode }}
                           </div>
                         </div>
                         <button
                           type="button"
-                          class="ks-btn ks-btn-sm"
+                          class="sy-btn sy-btn-sm"
                           data-testid="forge-device-copy"
-                          ksTooltip="Copy device code"
+                          syTooltip="Copy device code"
                           (click)="copyDeviceCode(flow.userCode)"
                         >
                           <app-icon name="copy" [size]="12" />
@@ -275,28 +275,28 @@ interface ActiveDeviceFlow {
                           [href]="flow.verificationUriComplete || flow.verificationUri"
                           target="_blank"
                           rel="noopener noreferrer"
-                          class="text-[11.5px] text-[var(--ks-blue)] hover:underline break-all"
+                          class="text-[11.5px] text-[var(--sy-blue)] hover:underline break-all"
                           data-testid="forge-device-link"
                         >
                           Open {{ flow.verificationUri }} ↗
                         </a>
-                        <button type="button" class="ks-btn ks-btn-sm" (click)="cancelDevice()">Cancel</button>
+                        <button type="button" class="sy-btn sy-btn-sm" (click)="cancelDevice()">Cancel</button>
                       </div>
-                      <p class="m-0 text-[11px] text-[var(--ks-text-secondary)]" role="status" data-testid="forge-device-status">
+                      <p class="m-0 text-[11px] text-[var(--sy-text-secondary)]" role="status" data-testid="forge-device-status">
                         Waiting for you to finish signing in…
                       </p>
                     } @else if (flow.status === 'authorized') {
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-[11.5px] text-[var(--ks-green)]" role="status" data-testid="forge-device-status">
+                        <span class="text-[11.5px] text-[var(--sy-green)]" role="status" data-testid="forge-device-status">
                           Signed in to {{ flow.host }}.
                         </span>
-                        <button type="button" class="ks-btn ks-btn-sm" (click)="cancelDevice()">Done</button>
+                        <button type="button" class="sy-btn sy-btn-sm" (click)="cancelDevice()">Done</button>
                       </div>
                     } @else {
                       <div class="flex flex-wrap items-center justify-between gap-2">
                         <span
                           class="text-[11.5px]"
-                          [class.text-[var(--ks-amber)]]="flow.status === 'expired'"
+                          [class.text-[var(--sy-amber)]]="flow.status === 'expired'"
                           [class.text-[#f3a5a5]]="flow.status !== 'expired'"
                           role="alert"
                           data-testid="forge-device-status"
@@ -304,8 +304,8 @@ interface ActiveDeviceFlow {
                           {{ flow.message }}
                         </span>
                         <div class="flex items-center gap-1.5">
-                          <button type="button" class="ks-btn ks-btn-sm" (click)="cancelDevice()">Close</button>
-                          <button type="button" class="ks-btn ks-btn-sm ks-btn-primary" (click)="startDevice(f)">Try again</button>
+                          <button type="button" class="sy-btn sy-btn-sm" (click)="cancelDevice()">Close</button>
+                          <button type="button" class="sy-btn sy-btn-sm sy-btn-primary" (click)="startDevice(f)">Try again</button>
                         </div>
                       </div>
                     }
@@ -319,28 +319,28 @@ interface ActiveDeviceFlow {
 
       <!-- Add a forge -->
       <div class="pt-1 space-y-1.5" data-testid="forge-add-form">
-        <label for="ks-forge-add-input" class="block text-[11px] text-[var(--ks-text-secondary)]">
+        <label for="sy-forge-add-input" class="block text-[11px] text-[var(--sy-text-secondary)]">
           Add a forge
         </label>
         <div class="flex flex-col sm:flex-row gap-2">
           <input
-            id="ks-forge-add-input"
+            id="sy-forge-add-input"
             type="text"
             autocomplete="off"
             spellcheck="false"
             data-testid="forge-add-input"
             placeholder="github.com or https://git.example.com/org/repo"
-            class="ks-field ks-field-sm flex-1 min-w-0 font-mono-ide"
+            class="sy-field sy-field-sm flex-1 min-w-0 font-mono-ide"
             [value]="addInput()"
             (input)="addInput.set($any($event.target).value)"
             (keydown.enter)="$event.preventDefault(); addForge()"
           />
           <button
             type="button"
-            class="ks-btn ks-btn-sm shrink-0"
+            class="sy-btn sy-btn-sm shrink-0"
             data-testid="forge-add-submit"
             [disabled]="detecting() || !addInput().trim()"
-            ksTooltip="Detect the forge kind from a git remote URL or hostname"
+            syTooltip="Detect the forge kind from a git remote URL or hostname"
             (click)="addForge()"
           >
             {{ detecting() ? 'Detecting…' : 'Detect & add' }}
@@ -349,7 +349,7 @@ interface ActiveDeviceFlow {
       </div>
 
       @if (notice()) {
-        <p class="m-0 text-[11.5px] text-[var(--ks-green)]" role="status" data-testid="forge-notice">{{ notice() }}</p>
+        <p class="m-0 text-[11.5px] text-[var(--sy-green)]" role="status" data-testid="forge-notice">{{ notice() }}</p>
       }
       @if (error()) {
         <p class="m-0 text-[11.5px] text-[#f3a5a5]" role="alert" data-testid="forge-error">{{ error() }}</p>

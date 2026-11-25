@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // endedWithShells finishes the shellHub task (status) and returns when its activity
-// turned terminal, with the shells konsertd reported still listed.
+// turned terminal, with the shells syred reported still listed.
 func endedWithShells(t *testing.T, cs *chatServer, taskID, status string) time.Time {
 	t.Helper()
 	code := 0
@@ -166,7 +166,7 @@ func TestShellPolicyStopAfterIdle(t *testing.T) {
 	if n := len(cs.h.ShellReminders()); n != 0 {
 		t.Fatalf("%d reminders after the automatic kill", n)
 	}
-	// Not repeated on every tick while konsertd reports the kill.
+	// Not repeated on every tick while syred reports the kill.
 	cs.h.shellPolicyTick(ctx, since.Add(13*time.Minute))
 	if kills := w.drain(protocol.MsgSessionShellKill, 150*time.Millisecond); len(kills) != 0 {
 		t.Fatal("killed again right away")
@@ -187,7 +187,7 @@ func TestShellPolicyStopAfterIdle(t *testing.T) {
 	evs, _ := cs.st.ListFleetEvents(ctx, store.FleetEventFilter{Limit: 50})
 	found := false
 	for _, e := range evs {
-		if e.Action == "shell_kill" && e.Cause.Source == "shell_policy" && strings.HasPrefix(e.Summary, "Konsert killed") {
+		if e.Action == "shell_kill" && e.Cause.Source == "shell_policy" && strings.HasPrefix(e.Summary, "Syre killed") {
 			found = true
 		}
 	}

@@ -15,7 +15,7 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata/claude-settings")
 
-const testKonsertd = "/opt/konsert/bin/konsertd"
+const testSyred = "/opt/syre/bin/syred"
 
 // scratchHome is a temporary HOME under /var/tmp (never the real one; /tmp is RAM-backed
 // on the fleet's Linux boxes).
@@ -24,7 +24,7 @@ func scratchHome(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		return t.TempDir()
 	}
-	dir, err := os.MkdirTemp("/var/tmp", "konsert-hooks-test-")
+	dir, err := os.MkdirTemp("/var/tmp", "syre-hooks-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestClaudeSettingsGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			out, err := installClaudeHookText(in, testKonsertd)
+			out, err := installClaudeHookText(in, testSyred)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func TestClaudeSettingsGolden(t *testing.T) {
 				t.Fatalf("installed settings are not valid JSON:\n%s", out)
 			}
 			golden(t, name+".installed.json", out)
-			again, err := installClaudeHookText(out, testKonsertd)
+			again, err := installClaudeHookText(out, testSyred)
 			if err != nil || !bytes.Equal(again, out) {
 				t.Fatalf("second install changed the file (err %v):\n%s", err, again)
 			}
@@ -74,11 +74,11 @@ func TestClaudeSettingsGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bytes.Contains(in, []byte(konsertHookMarker)) {
-				// Had an old Konsert entry: removal leaves the user's settings only.
+			if bytes.Contains(in, []byte(syreHookMarker)) {
+				// Had an old Syre entry: removal leaves the user's settings only.
 				golden(t, name+".removed.json", removed)
-				if bytes.Contains(removed, []byte(konsertHookMarker)) {
-					t.Fatal("a Konsert entry survived removal")
+				if bytes.Contains(removed, []byte(syreHookMarker)) {
+					t.Fatal("a Syre entry survived removal")
 				}
 			} else if !bytes.Equal(removed, in) {
 				t.Fatalf("removal did not restore the original:\n--- got\n%s\n--- want\n%s", removed, in)
@@ -89,12 +89,12 @@ func TestClaudeSettingsGolden(t *testing.T) {
 
 func TestClaudeSettingsKeepsKeyOrderAndUserHooks(t *testing.T) {
 	in, _ := os.ReadFile(filepath.Join("testdata", "claude-settings", "typical.json"))
-	out, err := installClaudeHookText(in, testKonsertd)
+	out, err := installClaudeHookText(in, testSyred)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(out)
-	order := []string{`"model"`, `"permissions"`, `"hooks"`, `"PreToolUse"`, `echo \"pre — ✓\"`, testKonsertd + " hook-event --agent claude --event PreToolUse", `"SessionStart"`, `"PostToolUse"`, `"Notification"`, `"Stop"`, `"env"`, `"alwaysThinkingEnabled"`}
+	order := []string{`"model"`, `"permissions"`, `"hooks"`, `"PreToolUse"`, `echo \"pre — ✓\"`, testSyred + " hook-event --agent claude --event PreToolUse", `"SessionStart"`, `"PostToolUse"`, `"Notification"`, `"Stop"`, `"env"`, `"alwaysThinkingEnabled"`}
 	at := 0
 	for _, want := range order {
 		i := strings.Index(s[at:], want)
@@ -111,7 +111,7 @@ func TestClaudeSettingsKeepsKeyOrderAndUserHooks(t *testing.T) {
 
 func TestClaudeSettingsCRLFAndEmpty(t *testing.T) {
 	in := []byte("{\r\n  \"theme\": \"dark\"\r\n}\r\n")
-	out, err := installClaudeHookText(in, testKonsertd)
+	out, err := installClaudeHookText(in, testSyred)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,15 +122,15 @@ func TestClaudeSettingsCRLFAndEmpty(t *testing.T) {
 		t.Fatalf("CRLF removal: %q", back)
 	}
 	for _, empty := range [][]byte{nil, []byte("  \n"), []byte("{}")} {
-		out, err := installClaudeHookText(empty, testKonsertd)
+		out, err := installClaudeHookText(empty, testSyred)
 		if err != nil || !jsontext.Value(out).IsValid() || !strings.HasPrefix(string(out), "{\n  \"hooks\": {\n    \"PreToolUse\": [\n") {
 			t.Fatalf("install into %q: %v\n%s", empty, err, out)
 		}
 	}
-	if _, err := installClaudeHookText([]byte(`{"hooks": [] }`), testKonsertd); err == nil {
+	if _, err := installClaudeHookText([]byte(`{"hooks": [] }`), testSyred); err == nil {
 		t.Fatal("a non-object hooks member was overwritten")
 	}
-	if _, err := installClaudeHookText([]byte(`{"a": 1,}`), testKonsertd); err == nil {
+	if _, err := installClaudeHookText([]byte(`{"a": 1,}`), testSyred); err == nil {
 		t.Fatal("invalid JSON was edited")
 	}
 }
@@ -156,11 +156,11 @@ func TestClaudeSettingsFileBackupsAndIdempotence(t *testing.T) {
 	settingsNow = func() time.Time { return clock }
 	t.Cleanup(func() { settingsNow = time.Now })
 
-	if err := installClaudeHooks(home, testKonsertd); err != nil {
+	if err := installClaudeHooks(home, testSyred); err != nil {
 		t.Fatal(err)
 	}
 	baks, _ := claudeSettingsBackupList(path)
-	if len(baks) != 1 || filepath.Base(baks[0]) != "settings.json.konsert-bak-20261124-090000" {
+	if len(baks) != 1 || filepath.Base(baks[0]) != "settings.json.syre-bak-20261124-090000" {
 		t.Fatalf("backups %v", baks)
 	}
 	if b, _ := os.ReadFile(baks[0]); !bytes.Equal(b, orig) {
@@ -176,7 +176,7 @@ func TestClaudeSettingsFileBackupsAndIdempotence(t *testing.T) {
 
 	// Already installed: nothing written, no backup.
 	clock = clock.Add(time.Minute)
-	if err := installClaudeHooks(home, testKonsertd); err != nil {
+	if err := installClaudeHooks(home, testSyred); err != nil {
 		t.Fatal(err)
 	}
 	if baks, _ := claudeSettingsBackupList(path); len(baks) != 1 {
@@ -186,13 +186,13 @@ func TestClaudeSettingsFileBackupsAndIdempotence(t *testing.T) {
 		t.Fatal("a no-op install rewrote the file")
 	}
 
-	// Moving konsertd changes the entries each time: one backup per change, last 3 kept
+	// Moving syred changes the entries each time: one backup per change, last 3 kept
 	// (two in the same second get a counter).
 	for i := range 4 {
 		if i != 2 {
 			clock = clock.Add(time.Second)
 		}
-		if err := installClaudeHooks(home, fmt.Sprintf("/opt/konsert-%d/konsertd", i)); err != nil {
+		if err := installClaudeHooks(home, fmt.Sprintf("/opt/syre-%d/syred", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -201,7 +201,7 @@ func TestClaudeSettingsFileBackupsAndIdempotence(t *testing.T) {
 	for _, b := range baks {
 		names = append(names, filepath.Base(b))
 	}
-	want := []string{"settings.json.konsert-bak-20261124-090102", "settings.json.konsert-bak-20261124-090102-2", "settings.json.konsert-bak-20261124-090103"}
+	want := []string{"settings.json.syre-bak-20261124-090102", "settings.json.syre-bak-20261124-090102-2", "settings.json.syre-bak-20261124-090103"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("backups %v, want %v", names, want)
 	}
@@ -246,13 +246,13 @@ func TestClaudeSettingsFollowsSymlink(t *testing.T) {
 	if err := os.Symlink(shared, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := installClaudeHooks(home, testKonsertd); err != nil {
+	if err := installClaudeHooks(home, testSyred); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("settings.json is no longer a symlink")
 	}
-	if b, _ := os.ReadFile(shared); !bytes.Contains(b, []byte(konsertHookMarker)) {
+	if b, _ := os.ReadFile(shared); !bytes.Contains(b, []byte(syreHookMarker)) {
 		t.Fatalf("the shared file was not edited:\n%s", b)
 	}
 }

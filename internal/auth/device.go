@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // DeviceStore is the slice of the store the Manager needs for device credentials.
@@ -23,7 +23,7 @@ type DeviceStore interface {
 
 // DeviceSecretPrefix starts every device credential, so one is recognizable in a
 // config file or a secret scanner.
-const DeviceSecretPrefix = "kdv_"
+const DeviceSecretPrefix = "sdv_"
 
 const (
 	// cacheTTL bounds how long a looked-up device is trusted without re-reading the
@@ -198,21 +198,21 @@ func NormalizePairingCode(s string) (string, error) {
 
 // HashPairingCode returns the stored hash of a canonical code.
 func HashPairingCode(canonical string) string {
-	sum := sha256.Sum256([]byte("konsert-pairing-code:" + canonical))
+	sum := sha256.Sum256([]byte("syre-pairing-code:" + canonical))
 	return hex.EncodeToString(sum[:])
 }
 
 // --- User agents ---
 
 // UserAgentSummary reduces a User-Agent header to "Browser on OS" (or a short tool
-// name such as "konsert/1.2"), so the hub never stores the raw header.
+// name such as "syre/1.2"), so the hub never stores the raw header.
 func UserAgentSummary(ua string) string {
 	ua = strings.TrimSpace(ua)
 	if ua == "" {
 		return ""
 	}
 	if !strings.Contains(ua, "Mozilla/") {
-		// Non-browser clients ("konsert-cli/dev", "Go-http-client/1.1", "curl/8.4").
+		// Non-browser clients ("syre-cli/dev", "Go-http-client/1.1", "curl/8.4").
 		name, _, _ := strings.Cut(ua, " ")
 		if len(name) > 40 {
 			name = name[:40]

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/secrets"
+	"github.com/BryanSant/syre/internal/secrets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -268,7 +268,7 @@ func (c *CredDiscovery) Discover(ctx context.Context, host string, kind Kind) (C
 }
 
 // fromGitCredential performs a strictly read-only lookup via `git credential fill`.
-// Konsert must never invoke `git credential approve` or `git credential reject` or
+// Syre must never invoke `git credential approve` or `git credential reject` or
 // cause git to store/mutate credentials. All interactive/GUI/askpass prompts are
 // disabled via config and environment variables so headless hub runs never block.
 func (c *CredDiscovery) fromGitCredential(ctx context.Context, host string) string {

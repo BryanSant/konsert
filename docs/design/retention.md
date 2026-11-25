@@ -1,6 +1,6 @@
-# Data retention (KON-CSCWP)
+# Data retention (SYR-CSCWP)
 
-Konsert keeps what people come back for and drops the bulk. Live and recent work keeps
+Syre keeps what people come back for and drops the bulk. Live and recent work keeps
 every detail; older finished work is summarised rather than deleted; time series are
 rolled up. The hub enforces this itself, in small steps, and shows it in
 **Settings → Storage** (database size, a breakdown by kind, the policy in plain words,
@@ -11,13 +11,13 @@ editable periods and **Compact now**).
 | Table | Policy |
 | --- | --- |
 | `tasks`, `chat_sessions` | Kept until the user deletes them (deleting a project, chat or task cascades to its history). |
-| `chat_messages` (API-key orchestrator transcripts) | Kept with the chat. |
-| `chat_events` (agent chat stream, also the agent chat transcript) | Turns that ended more than **30 days** ago (`retention_detail_days`) keep only the transcript kinds (`store.ChatEventKeepKinds`: `user_message`, `konsert_note`, `message`, `session_ready`, `turn_end`, `error`, `elicitation`, `elicitation_resolved`). Tool calls, reasoning, plans, usage, rate limits, sub-agent activity and status events are dropped. |
-| `task_events` | Tasks that finished more than **30 days** ago keep only milestones (`store.TaskEventKeepKinds`: `milestone`, `summary`, `exit`, `error`, `waiting_input`, `control`, `steer`, `review`, `delivery`, `command`, `konsert_worktree`, `git_worktree`). Tool calls, file edits, usage, quota and other telemetry are dropped. |
+| `chat_messages` (API-key commander transcripts) | Kept with the chat. |
+| `chat_events` (agent chat stream, also the agent chat transcript) | Turns that ended more than **30 days** ago (`retention_detail_days`) keep only the transcript kinds (`store.ChatEventKeepKinds`: `user_message`, `syre_note`, `message`, `session_ready`, `turn_end`, `error`, `elicitation`, `elicitation_resolved`). Tool calls, reasoning, plans, usage, rate limits, sub-agent activity and status events are dropped. |
+| `task_events` | Tasks that finished more than **30 days** ago keep only milestones (`store.TaskEventKeepKinds`: `milestone`, `summary`, `exit`, `error`, `waiting_input`, `control`, `steer`, `review`, `delivery`, `command`, `syre_worktree`, `git_worktree`). Tool calls, file edits, usage, quota and other telemetry are dropped. |
 | `fleet_events` (fleet timeline) | Everything for **90 days** (`retention_fleet_days`), then only human actions and failures (`store.FleetEventKeepSQL`: actor `user`, vetoes, `to_status = failed`) until **365 days** (`retention_fleet_summary_days`), then deleted. |
 | `usage_events` | Per call for **30 days** (`retention_usage_days`), then folded into `usage_daily`. |
 | `usage_daily` | Daily totals per provider, model and account, kept **365 days** (`retention_usage_daily_days`). Usage views read both tables. |
-| `machine_vitals`, `machine_vitals_rollup` | Raw 15-second samples 12 hours, hourly roll-ups 30 days, daily roll-ups 365 days (KON-WY5F2, `RollupVitals`). |
+| `machine_vitals`, `machine_vitals_rollup` | Raw 15-second samples 12 hours, hourly roll-ups 30 days, daily roll-ups 365 days (SYR-WY5F2, `RollupVitals`). |
 | `audit_log` | 90 days, at most 100,000 rows (`AuditRetention`, pruned inline). |
 | `devices`, `pairing_codes`, `machine_join_codes` | Expired codes and revoked devices pruned after a day (`PruneAuth`, join-code creation). |
 | Everything else (questions, holds, requests, overrides, vetoes, reviews, settings, memory) | Small; kept until the related work or machine is deleted. |
@@ -70,7 +70,7 @@ lacks it.
 
 The breakdown follows what compaction does rather than table names:
 
-- **Conversations**: `chat_messages` (orchestrator transcripts) plus the `chat_events` of
+- **Conversations**: `chat_messages` (commander transcripts) plus the `chat_events` of
   the transcript kinds compaction keeps (`store.ChatEventKeepKinds`). Agent-chat
   conversations live in `chat_events`, so counting only `chat_messages` would make them
   look tiny.
@@ -88,4 +88,4 @@ tool calls with ~1.4 KB of output per turn: 360,000 events, 415 MB) compacts to 
 288,000 rows dropped in 584 batches, 95 vacuum steps; about 2 s of database work (plus
 the 20 ms yields when the hub paces it), and the longest single write transaction was
 19 ms (a vacuum step). Run it with
-`KONSERT_RETENTION_SCALE_DIR=/var/tmp go test ./internal/store/sqlite -run TestRetentionScale -v`.
+`SYRE_RETENTION_SCALE_DIR=/var/tmp go test ./internal/store/sqlite -run TestRetentionScale -v`.

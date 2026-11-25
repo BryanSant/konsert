@@ -5,8 +5,8 @@ import { expect, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE, spawnJoin } from './global-setup';
 
 /**
- * Manual machines join with a one-time code (KON-RK9YD): Add machine → Manual shows one
- * `konsertd join` command; a konsertd started with it appears live; Fleet → Details →
+ * Manual machines join with a one-time code (SYR-RK9YD): Add machine → Manual shows one
+ * `syred join` command; a syred started with it appears live; Fleet → Details →
  * Revoke credential disconnects it; Settings → Security rotation lists joined machines.
  */
 
@@ -15,7 +15,7 @@ interface E2EEnv {
   adminToken: string;
   workerName: string;
   workerSid: string;
-  konsertdBin: string;
+  syredBin: string;
   repoRoot: string;
   tmpDir: string;
 }
@@ -32,7 +32,7 @@ async function login(page: Page, env: E2EEnv): Promise<void> {
   await expect(page.locator('#token')).toBeHidden();
 }
 
-const shots = process.env['KONSERT_UI_SHOTS'];
+const shots = process.env['SYRE_UI_SHOTS'];
 if (shots) fs.mkdirSync(shots, { recursive: true });
 async function shot(page: Page, name: string): Promise<void> {
   if (shots) await page.screenshot({ path: path.join(shots, name) });
@@ -44,7 +44,7 @@ test.describe('Manual machine join', () => {
     for (const p of procs) p.kill('SIGTERM');
   });
 
-  test('Manual shows a join command; a konsertd started with it appears; revoke disconnects it', async ({ page }) => {
+  test('Manual shows a join command; a syred started with it appears; revoke disconnects it', async ({ page }) => {
     const env = loadEnv();
     await login(page, env);
     await page.goto(`${env.baseURL}/fleet`);
@@ -52,7 +52,7 @@ test.describe('Manual machine join', () => {
     const modal = page.locator('app-add-machine-modal');
     await modal.getByTestId('add-machine-tab-manual').click();
     const cmd = modal.getByTestId('join-command');
-    await expect(cmd).toHaveText(/^konsertd join http:\/\/\S+ [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
+    await expect(cmd).toHaveText(/^syred join http:\/\/\S+ [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
     await expect(modal.getByTestId('join-expiry')).toHaveText(/expires in 1[45] min/);
     await shot(page, 'add-machine-manual.png');
 
@@ -60,7 +60,7 @@ test.describe('Manual machine join', () => {
     const code = (await cmd.textContent())!.trim().split(' ').pop()!;
     const name = 'e2e-joined';
     procs.push(
-      spawnJoin(env.konsertdBin, env.repoRoot, env.baseURL, code, path.join(env.tmpDir, 'joined-state'), [
+      spawnJoin(env.syredBin, env.repoRoot, env.baseURL, code, path.join(env.tmpDir, 'joined-state'), [
         '--name',
         name,
         '--enable-mock-driver',
@@ -76,7 +76,7 @@ test.describe('Manual machine join', () => {
 
     // Fleet → Details → Revoke credential (confirmed) disconnects it.
     await page.getByTestId(`machine-details-${sid}`).click();
-    const details = page.locator('app-machine-detail-modal .ks-modal');
+    const details = page.locator('app-machine-detail-modal .sy-modal');
     const cred = details.getByTestId('machine-credential');
     await expect(cred).toContainText('joined with a code');
     await cred.getByTestId('revoke-credential').click();
@@ -93,7 +93,7 @@ test.describe('Manual machine join', () => {
     // Remove the revoked machine so later specs see only the suite's worker.
     for (const p of procs.splice(0)) p.kill('SIGTERM');
     await page.evaluate(async (ref) => {
-      const res = await fetch(`/api/workers/${ref}`, { method: 'DELETE', headers: { 'X-Konsert-Request': '1' } });
+      const res = await fetch(`/api/workers/${ref}`, { method: 'DELETE', headers: { 'X-Syre-Request': '1' } });
       if (!res.ok) throw new Error(`remove ${ref}: ${res.status}`);
     }, sid);
   });

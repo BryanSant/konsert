@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/install"
 )
 
 // selfRemoveStopWait bounds the wait for the service manager to stop this daemon after
@@ -36,7 +36,7 @@ func (d *Daemon) removedByHub(ctx context.Context, hubID string) {
 	}
 	stopPending, err := remove(ctx, hubID)
 	if err != nil {
-		d.logger.Warn("removed from the hub, but uninstalling konsertd failed; it retries at the next start", "err", err)
+		d.logger.Warn("removed from the hub, but uninstalling syred failed; it retries at the next start", "err", err)
 		return
 	}
 	if stopPending {

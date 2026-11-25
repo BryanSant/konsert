@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Every entity has a UUIDv7 id (used internally and by the worker protocol) and a short sid

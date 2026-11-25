@@ -13,25 +13,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/hubkey"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/linkwatch"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker"
+	"github.com/BryanSant/syre/internal/hubkey"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/linkwatch"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/worker"
 	"github.com/coder/websocket"
 )
 
-// Transports (KON-K1B60). One worker protocol, three ways to carry it:
+// Transports (SYR-K1B60). One worker protocol, three ways to carry it:
 //
-//   - ssh: machines the hub added over SSH. konsertd serves the hub on its local socket;
+//   - ssh: machines the hub added over SSH. syred serves the hub on its local socket;
 //     the hub keeps one long-lived `ssh` per machine, authenticated with the hub's own
-//     key, whose forced command (`konsertd attach`) bridges the session to that socket.
+//     key, whose forced command (`syred attach`) bridges the session to that socket.
 //     SSH is the auth: no machine credential, and the hub's port never has to be
 //     reachable from the machine.
-//   - local: the hub's own machine. The hub dials konsertd's socket directly.
-//   - outbound: machines the hub cannot reach (joined with a code). konsertd dials
+//   - local: the hub's own machine. The hub dials syred's socket directly.
+//   - outbound: machines the hub cannot reach (joined with a code). syred dials
 //     /ws/worker with its machine credential, as before.
 //
 // For ssh and local the hub is the one dialing: an attach loop per machine re-dials with
@@ -72,10 +72,10 @@ func workerTransportFrom(ctx context.Context) string {
 
 // HubKeyFileName is the hub's SSH private key, next to the database (0600); the public
 // key is HubKeyFileName + ".pub".
-const HubKeyFileName = "konsert-hub-ssh-key"
+const HubKeyFileName = "syre-hub-ssh-key"
 
 // hubIDSetting is the settings key of the hub's id, the marker of its authorized_keys
-// lines (konsert-hub:<id>).
+// lines (syre-hub:<id>).
 const hubIDSetting = "hub_id"
 
 // hubKeyPath is where the hub key lives: next to the database, or "" without one
@@ -144,7 +144,7 @@ func (s *Server) hubKeyGrant(ctx context.Context) (*sshutil.HubKeyGrant, error) 
 type attacher struct {
 	s *Server
 
-	// dialSSH and dialLocal open the byte stream to a machine's konsertd socket; tests
+	// dialSSH and dialLocal open the byte stream to a machine's syred socket; tests
 	// replace them. dialSSH's error carries ssh's own message when it fails early.
 	dialSSH   func(ctx context.Context, target, keyPath, workerID string) (net.Conn, error)
 	dialLocal func(ctx context.Context, workerID string) (net.Conn, error)
@@ -375,7 +375,7 @@ func (a *attacher) run(ctx context.Context, workerID string, loop *attachLoop) {
 	}
 }
 
-// attachOnce opens one link to w's konsertd and serves it until it ends. up reports
+// attachOnce opens one link to w's syred and serves it until it ends. up reports
 // whether the WebSocket was established.
 func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err error) {
 	t := transportFor(w.Launch)
@@ -414,7 +414,7 @@ func (a *attacher) attachOnce(ctx context.Context, w store.Worker) (up bool, err
 		DisableKeepAlives: true,
 	}}
 	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	ws, _, err := websocket.Dial(dialCtx, "ws://konsertd"+protocol.AttachPath, &websocket.DialOptions{
+	ws, _, err := websocket.Dial(dialCtx, "ws://syred"+protocol.AttachPath, &websocket.DialOptions{
 		HTTPClient: hc,
 		HTTPHeader: http.Header{protocol.HubIDHeader: []string{hubID}, protocol.TransportHeader: []string{t}},
 	})

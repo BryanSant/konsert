@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -546,7 +546,7 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 		t.Mode = protocol.TaskModeOneshot
 	}
 	if t.Origin == "" {
-		t.Origin = protocol.TaskOriginOrchestrator
+		t.Origin = protocol.TaskOriginCommander
 	}
 	if t.PermissionMode == "" {
 		t.PermissionMode = store.PermissionFullAccess
@@ -1310,7 +1310,7 @@ func (s *SQLiteStore) UpsertMemory(ctx context.Context, m store.MemoryEntry) err
 		m.UpdatedAt = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO orchestrator_memory (id, scope, mem_key, summary, meta_json, updated_at)
+		INSERT INTO commander_memory (id, scope, mem_key, summary, meta_json, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(scope, mem_key) DO UPDATE SET
 			summary = excluded.summary,
@@ -1331,13 +1331,13 @@ func (s *SQLiteStore) ListMemory(ctx context.Context, scope string, limit int) (
 	if scope != "" {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, scope, mem_key, summary, meta_json, updated_at
-			FROM orchestrator_memory WHERE scope = ?
+			FROM commander_memory WHERE scope = ?
 			ORDER BY updated_at DESC LIMIT ?
 		`, scope, limit)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT id, scope, mem_key, summary, meta_json, updated_at
-			FROM orchestrator_memory
+			FROM commander_memory
 			ORDER BY updated_at DESC LIMIT ?
 		`, limit)
 	}
@@ -1360,7 +1360,7 @@ func (s *SQLiteStore) ListMemory(ctx context.Context, scope string, limit int) (
 }
 
 func (s *SQLiteStore) DeleteMemory(ctx context.Context, scope, key string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM orchestrator_memory WHERE scope = ? AND mem_key = ?`, scope, key)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM commander_memory WHERE scope = ? AND mem_key = ?`, scope, key)
 	if err != nil {
 		return err
 	}

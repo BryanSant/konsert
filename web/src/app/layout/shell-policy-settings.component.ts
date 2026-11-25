@@ -14,7 +14,7 @@ export const SHELL_POLICY_MODES: ReadonlyArray<{ id: ShellPolicyMode; label: str
   {
     id: 'ask',
     label: 'Ask the agent',
-    hint: () => 'When a session ends with shells left, Konsert asks its agent once to stop what it started (not while you are in control).',
+    hint: () => 'When a session ends with shells left, Syre asks its agent once to stop what it started (not while you are in control).',
   },
   {
     id: 'stop',
@@ -28,44 +28,44 @@ export function shellModeLabel(mode: string): string {
 }
 
 /**
- * Settings → Shells left running (KON-DCEZV): what Konsert does about shells (dev servers,
+ * Settings → Shells left running (SYR-DCEZV): what Syre does about shells (dev servers,
  * watchers) a finished session leaves running: a global mode and idle period, and a mode
  * per project.
  */
 @Component({
-  selector: 'ks-shell-policy-settings',
+  selector: 'sy-shell-policy-settings',
   imports: [TooltipDirective],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="settings-shells" aria-labelledby="ks-shells-title">
-      <div id="ks-shells-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Shells left running</div>
+    <section class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="settings-shells" aria-labelledby="sy-shells-title">
+      <div id="sy-shells-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Shells left running</div>
       <p class="m-0 text-[11.5px] text-[#8e9098]">Dev servers and watchers a session started and left running after it ended.</p>
       @if (draft(); as d) {
         <div class="grid grid-cols-[1fr_auto] items-center gap-2">
-          <label for="ks-shells-mode" class="text-[#d4d4d8]">By default</label>
-          <select id="ks-shells-mode" class="ks-field ks-field-sm w-44" data-testid="shells-mode" [value]="d.mode" (change)="setMode($any($event.target).value)">
+          <label for="sy-shells-mode" class="text-[#d4d4d8]">By default</label>
+          <select id="sy-shells-mode" class="sy-field sy-field-sm w-44" data-testid="shells-mode" [value]="d.mode" (change)="setMode($any($event.target).value)">
             @for (m of modes; track m.id) {
               <option [value]="m.id" [selected]="m.id === d.mode">{{ m.label }}</option>
             }
           </select>
-          <label for="ks-shells-idle" class="text-[#d4d4d8]">Idle period</label>
+          <label for="sy-shells-idle" class="text-[#d4d4d8]">Idle period</label>
           <span class="flex items-center gap-1.5">
-            <input id="ks-shells-idle" type="number" min="1" max="10080" class="ks-field ks-field-sm w-20 font-mono-ide" data-testid="shells-idle" [value]="d.idle_minutes" (input)="setIdle($any($event.target).value)" />
+            <input id="sy-shells-idle" type="number" min="1" max="10080" class="sy-field sy-field-sm w-20 font-mono-ide" data-testid="shells-idle" [value]="d.idle_minutes" (input)="setIdle($any($event.target).value)" />
             <span class="text-[10.5px] text-[#8e9098]">min</span>
           </span>
         </div>
         <p class="m-0 text-[11.5px] leading-relaxed text-[#a1a3ab]" data-testid="shells-hint">{{ hint() }}</p>
         @if (projects().length) {
-          <details class="rounded-[var(--ks-radius-md)] bg-black/20" data-testid="shells-projects" [open]="overrides() > 0">
+          <details class="rounded-[var(--sy-radius-md)] bg-black/20" data-testid="shells-projects" [open]="overrides() > 0">
             <summary class="cursor-pointer list-none px-3 py-2 text-[12px] text-[#a1a3ab] hover:text-[#ececed]">
               Per project{{ overrides() ? ' (' + overrides() + ' set)' : '' }}
             </summary>
             <div class="px-3 pb-3 space-y-1.5">
               @for (p of projects(); track p.id) {
                 <label class="flex items-center gap-2">
-                  <span class="flex-1 truncate text-[#d4d4d8]" [ksTooltip]="p.name">{{ p.name }}</span>
-                  <select class="ks-field ks-field-sm w-44" [attr.data-testid]="'shells-project-' + p.sid" [value]="d.projects[p.id] || ''" (change)="setProject(p.id, $any($event.target).value)">
+                  <span class="flex-1 truncate text-[#d4d4d8]" [syTooltip]="p.name">{{ p.name }}</span>
+                  <select class="sy-field sy-field-sm w-44" [attr.data-testid]="'shells-project-' + p.sid" [value]="d.projects[p.id] || ''" (change)="setProject(p.id, $any($event.target).value)">
                     <option value="" [selected]="!d.projects[p.id]">Default ({{ label(d.mode) }})</option>
                     @for (m of modes; track m.id) {
                       <option [value]="m.id" [selected]="d.projects[p.id] === m.id">{{ m.label }}</option>
@@ -77,7 +77,7 @@ export function shellModeLabel(mode: string): string {
           </details>
         }
         <div class="flex items-center gap-2">
-          <button type="button" class="ks-btn ks-btn-sm ks-btn-primary" data-testid="shells-save" [disabled]="saving()" (click)="save()">Save</button>
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-primary" data-testid="shells-save" [disabled]="saving()" (click)="save()">Save</button>
           @if (note()) {
             <span class="text-[11px] text-[#9ece6a]" role="status">{{ note() }}</span>
           }

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestSelectWorkerCapabilitiesAndIsolation(t *testing.T) {

@@ -1,10 +1,10 @@
-// Package secrets encrypts small secrets (such as the orchestrator LLM API key) before
-// they are written to the database, so a copied or backed-up konsert.db does not leak
+// Package secrets encrypts small secrets (such as the commander LLM API key) before
+// they are written to the database, so a copied or backed-up syre.db does not leak
 // them.
 //
 // Values are sealed with AES-256-GCM under a 32-byte master key and stored as
-// "enc:v1:<base64(nonce || ciphertext)>". The master key comes from $KONSERT_SECRET_KEY
-// (base64) when set, otherwise from a key file (default konsert-secret.key next to the
+// "enc:v1:<base64(nonce || ciphertext)>". The master key comes from $SYRE_SECRET_KEY
+// (base64) when set, otherwise from a key file (default syre-secret.key next to the
 // database) that is created with mode 0600 on first use.
 //
 // This protects the database at rest. It does not protect against an attacker who can
@@ -25,7 +25,7 @@ import (
 )
 
 // KeyEnv supplies the master key directly (base64 of 32 bytes), instead of a key file.
-const KeyEnv = "KONSERT_SECRET_KEY"
+const KeyEnv = "SYRE_SECRET_KEY"
 
 const prefix = "enc:v1:"
 
@@ -50,7 +50,7 @@ func New(key []byte) (*Box, error) {
 	return &Box{aead: aead}, nil
 }
 
-// Load returns a Box using $KONSERT_SECRET_KEY if set, otherwise the key in keyFile,
+// Load returns a Box using $SYRE_SECRET_KEY if set, otherwise the key in keyFile,
 // creating that file (0600, parent directories 0700) with a fresh random key if it does
 // not exist yet.
 func Load(keyFile string) (*Box, error) {

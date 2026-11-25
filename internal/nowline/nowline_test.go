@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-const live = "/private/var/tmp/konsert-live/run-1/wc"
+const live = "/private/var/tmp/syre-live/run-1/wc"
 
 func TestSummarize(t *testing.T) {
-	ctx := Context{Dir: "/var/tmp/konsert-live/run-1/wc", Home: "/Users/me"}
+	ctx := Context{Dir: "/var/tmp/syre-live/run-1/wc", Home: "/Users/me"}
 	cases := []struct {
 		name, tool, label, want string
 	}{
@@ -18,9 +18,9 @@ func TestSummarize(t *testing.T) {
 		{"go test scoped", "Bash", "Run: go test -race ./internal/store/...", "running tests in internal/store"},
 		{"go test -run", "Bash", "Run: go test -run TestFoo ./internal/x", "running tests in internal/x"},
 		{"edit relative", "Edit", "Edit: " + live + "/wc.py", "editing wc.py"},
-		{"edit nested", "Edit", "Edit: /var/tmp/konsert-live/run-1/wc/src/lib/a.ts", "editing src/lib/a.ts"},
+		{"edit nested", "Edit", "Edit: /var/tmp/syre-live/run-1/wc/src/lib/a.ts", "editing src/lib/a.ts"},
 		{"write new file", "Write", "Write: " + live + "/test_wc.py", "writing test_wc.py"},
-		{"read home", "Read", "Read: /Users/me/.config/konsert/config.toml", "reading ~/.config/konsert/config.toml"},
+		{"read home", "Read", "Read: /Users/me/.config/syre/config.toml", "reading ~/.config/syre/config.toml"},
 		{"read elsewhere", "Read", "Read: /etc/hosts", "reading /etc/hosts"},
 		{"search", "Grep", "Search: func main", "searching for func main"},
 		{"glob", "Glob", "Search: **/*.go", "searching for **/*.go"},
@@ -28,9 +28,9 @@ func TestSummarize(t *testing.T) {
 		{"fetch", "WebFetch", "Fetch: https://www.example.com/docs/x", "fetching example.com"},
 		{"subagent", "Task", "Agent: Find the flaky test", "subagent: find the flaky test"},
 		{"plan", "TodoWrite", "Update plan", "updating the plan"},
-		{"mcp", "mcp__konsert__set_narration", "konsert: set_narration", "set narration (konsert)"},
+		{"mcp", "mcp__syre__set_narration", "syre: set_narration", "set narration (syre)"},
 		// codex
-		{"codex exec", "exec", "Run: bash -lc 'cd /var/tmp/konsert-live/run-1/wc && npm test'", "running tests"},
+		{"codex exec", "exec", "Run: bash -lc 'cd /var/tmp/syre-live/run-1/wc && npm test'", "running tests"},
 		{"codex zsh", "exec", "Run: /bin/zsh -lc \"cargo build --release\"", "building"},
 		{"codex patch many", "patch", "Edit: " + live + "/a.go, " + live + "/b.go", "editing 2 files"},
 		{"codex patch one", "patch", "Edit: " + live + "/a.go", "editing a.go"},
@@ -70,7 +70,7 @@ func TestSummarize(t *testing.T) {
 		{"mixed", "Bash", "Read: a.go · Run: go test ./...", "running tests (+1 more)"},
 		{"two searches", "Grep", "Search: foo · Search: bar", "running 2 searches"},
 		// Truncated labels
-		{"truncated", "Bash", "Bash: cd /var/tmp/konsert-live/run-1/wc && go test ./... 2>&1 | tail -30 && echo do...", "running tests"},
+		{"truncated", "Bash", "Bash: cd /var/tmp/syre-live/run-1/wc && go test ./... 2>&1 | tail -30 && echo do...", "running tests"},
 		{"truncated unicode", "Bash", "Run: npm run lint …", "linting"},
 		{"empty", "", "", ""},
 	}
@@ -122,7 +122,7 @@ func TestCommand(t *testing.T) {
 		// Go
 		{"go mod tidy", "tidying go modules"},
 		{"go get github.com/x/y@latest", "installing deps"},
-		{"go run ./cmd/konsert serve", "running cmd/konsert"},
+		{"go run ./cmd/syre serve", "running cmd/syre"},
 		{"go run .", "running the program"},
 		{"gofmt -l .", "formatting"},
 		{"go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...", "running honnef.co/go/tools/cmd/staticcheck@v0.8.2"},
@@ -248,10 +248,10 @@ func TestCommand(t *testing.T) {
 		{"curl -fsSL https://api.github.com/repos/x/y", "fetching api.github.com"},
 		{"wget -q example.org/file.tgz", "fetching example.org/file.tgz"},
 		{"sleep 5", "waiting"},
-		{"pkill -f konsertd", "stopping processes"},
+		{"pkill -f syred", "stopping processes"},
 		{"echo done", "printing"},
 		{"./scripts/release.sh v1", "running scripts/release.sh"},
-		{"/home/dev/proj/bin/konsert serve", "running bin/konsert"},
+		{"/home/dev/proj/bin/syre serve", "running bin/syre"},
 		{"/usr/local/bin/foo", "running /usr/local/bin/foo"},
 		{"jqx --flag", "running jqx"},
 		// Only setup

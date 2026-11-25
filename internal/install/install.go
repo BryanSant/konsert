@@ -1,4 +1,4 @@
-// Package install registers konsertd to start automatically as the current user: a
+// Package install registers syred to start automatically as the current user: a
 // systemd user unit on Linux, a LaunchAgent on macOS, and a logon Scheduled Task (or,
 // with --service, a native service) on Windows.
 //
@@ -22,14 +22,14 @@ import (
 
 // BaseName is the name of the default (unnamed) instance: the unit, task and service
 // name, and the stem of its config and log files.
-const BaseName = "konsertd"
+const BaseName = "syred"
 
 // DryRunEnv, when set to a true value, keeps the hub from registering any service and
-// konsertd from uninstalling itself: the e2e suite runs daemons as hub children.
-const DryRunEnv = "KONSERT_INSTALL_DRY_RUN"
+// syred from uninstalling itself: the e2e suite runs daemons as hub children.
+const DryRunEnv = "SYRE_INSTALL_DRY_RUN"
 
 // LaunchdLabelPrefix is the launchd label of the default instance.
-const LaunchdLabelPrefix = "dev.konsert.konsertd"
+const LaunchdLabelPrefix = "dev.syre.syred"
 
 // Runner runs an external command and returns its combined output.
 type Runner interface {
@@ -64,8 +64,8 @@ func (ExecRunner) Run(ctx context.Context, stdin string, name string, args ...st
 // at a temp dir.
 type Env struct {
 	Home string
-	// ConfigDir holds the per-user konsertd config (0600): ~/.config/konsert on Linux,
-	// ~/Library/Application Support/konsert on macOS, %LOCALAPPDATA%\konsert on Windows.
+	// ConfigDir holds the per-user syred config (0600): ~/.config/syre on Linux,
+	// ~/Library/Application Support/syre on macOS, %LOCALAPPDATA%\syre on Windows.
 	ConfigDir string
 	// LogDir holds log files for mechanisms without a journal (macOS, Windows).
 	LogDir string
@@ -85,8 +85,8 @@ type Env struct {
 	// PATH is persisted into launchd/systemd definitions, whose default PATH lacks
 	// Homebrew, ~/.local/bin and friends where agent CLIs live.
 	PATH string
-	// ManagedBin is the konsertd binary path that konsertd / SSH bootstrap installs
-	// (~/.local/bin/konsertd on Unix, %LOCALAPPDATA%\Programs\konsertd\konsertd.exe on Windows).
+	// ManagedBin is the syred binary path that syred / SSH bootstrap installs
+	// (~/.local/bin/syred on Unix, %LOCALAPPDATA%\Programs\syred\syred.exe on Windows).
 	ManagedBin string
 }
 
@@ -94,7 +94,7 @@ type Env struct {
 type Spec struct {
 	// Instance is "" for the default daemon, or a slug from InstanceFor(--name).
 	Instance string
-	// Exe is the absolute path of the konsertd binary.
+	// Exe is the absolute path of the syred binary.
 	Exe string
 	// Config is the YAML written to ConfigPath (0600 / user-only ACL).
 	Config []byte
@@ -120,7 +120,7 @@ type Status struct {
 	Detail         string
 }
 
-// Installer installs, removes and inspects konsertd registrations.
+// Installer installs, removes and inspects syred registrations.
 type Installer struct {
 	Runner Runner
 	Env    Env
@@ -165,7 +165,7 @@ func InstanceFor(name, hostname string) string {
 	return slug
 }
 
-// unitBase is the instance's base name: konsertd or konsertd-<instance>.
+// unitBase is the instance's base name: syred or syred-<instance>.
 func unitBase(instance string) string {
 	if instance == "" {
 		return BaseName
@@ -183,8 +183,8 @@ func (in *Installer) LogPath(instance string) string {
 	return filepath.Join(in.Env.LogDir, unitBase(instance)+".log")
 }
 
-// ManagedBinPath is the path where konsertd installs its own binary on this OS
-// (~/.local/bin/konsertd on Unix, %LOCALAPPDATA%\Programs\konsertd\konsertd.exe on Windows).
+// ManagedBinPath is the path where syred installs its own binary on this OS
+// (~/.local/bin/syred on Unix, %LOCALAPPDATA%\Programs\syred\syred.exe on Windows).
 func (in *Installer) ManagedBinPath() string {
 	if in.Env.ManagedBin != "" {
 		return in.Env.ManagedBin
@@ -197,9 +197,9 @@ func (in *Installer) ManagedBinPath() string {
 		if in.Env.ConfigDir != "" {
 			local = filepath.Dir(in.Env.ConfigDir)
 		}
-		return filepath.Join(local, "Programs", "konsertd", "konsertd.exe")
+		return filepath.Join(local, "Programs", "syred", "syred.exe")
 	}
-	return filepath.Join(in.Env.Home, ".local", "bin", "konsertd")
+	return filepath.Join(in.Env.Home, ".local", "bin", "syred")
 }
 
 // runArgs is the argv after the binary: run --config <path> [extra...].
@@ -220,7 +220,7 @@ func (in *Installer) printf(format string, a ...any) {
 // Install writes the config and registers the instance with backend b.
 func (in *Installer) install(ctx context.Context, b backend, spec Spec) error {
 	if !filepath.IsAbs(spec.Exe) {
-		return fmt.Errorf("konsertd binary path %q is not absolute", spec.Exe)
+		return fmt.Errorf("syred binary path %q is not absolute", spec.Exe)
 	}
 	if pc, ok := b.(prechecker); ok {
 		if err := pc.precheck(ctx, in); err != nil {

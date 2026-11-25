@@ -1,4 +1,4 @@
-// Package chat runs agent chat sessions on konsertd: one long-lived engine process per
+// Package chat runs agent chat sessions on syred: one long-lived engine process per
 // chat, speaking the agent CLI's structured headless protocol (claude stream-json, ACP,
 // codex app-server), normalized into protocol.AgentChatEvent. See docs/design/agent-chat.md.
 package chat
@@ -7,7 +7,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Account is a resolved agent account: which CLI binary to run and the environment that
@@ -66,16 +66,16 @@ type Session interface {
 	Close() error
 }
 
-// konsertToolRunning reports whether one of Konsert's own MCP tools (ask_user,
+// syreToolRunning reports whether one of Syre's own MCP tools (ask_user,
 // request_user_action) is still running in a turn: it waits for the user, which is not
 // a stalled turn, so the watchdog stays quiet.
-func konsertToolRunning(tools map[string]*protocol.AgentToolCall) bool {
+func syreToolRunning(tools map[string]*protocol.AgentToolCall) bool {
 	for _, tc := range tools {
 		if tc == nil || (tc.Status != "pending" && tc.Status != "running" && tc.Status != "") {
 			continue
 		}
 		name := strings.ToLower(tc.Name + " " + tc.Title)
-		if strings.Contains(name, "konsert") && (strings.Contains(name, "ask_user") || strings.Contains(name, "request_user_action")) {
+		if strings.Contains(name, "syre") && (strings.Contains(name, "ask_user") || strings.Contains(name, "request_user_action")) {
 			return true
 		}
 	}

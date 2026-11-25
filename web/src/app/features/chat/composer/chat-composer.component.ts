@@ -44,14 +44,14 @@ export interface ComposerSubmit {
  * account's capabilities.
  */
 @Component({
-  selector: 'ks-chat-composer',
+  selector: 'sy-chat-composer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective, AccountPickerComponent, ApprovalPickerComponent, ModelPickerComponent, ContextBarComponent],
   template: `
     <form
-      class="relative rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-1)] transition-shadow"
-      [class.shadow-[var(--ks-shadow-composer)]]="!dragOver()"
+      class="relative rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-1)] transition-shadow"
+      [class.shadow-[var(--sy-shadow-composer)]]="!dragOver()"
       [class.shadow-[0_0_0_1.5px_#6d8fbf]]="dragOver()"
       (submit)="$event.preventDefault(); submit()"
       (dragover)="allowAttachments() && onDragOver($event)"
@@ -60,7 +60,7 @@ export interface ComposerSubmit {
       (keydown.escape)="onEscape($event)"
     >
       @if (dragOver()) {
-        <div class="absolute inset-0 z-10 rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-1)]/95 flex items-center justify-center pointer-events-none">
+        <div class="absolute inset-0 z-10 rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-1)]/95 flex items-center justify-center pointer-events-none">
           <span class="inline-flex items-center gap-2 text-[12.5px] text-[#a9c9f7]">
             <app-icon name="paperclip" [size]="14" />
             Drop files to attach them on {{ machineLabel() }}
@@ -71,10 +71,10 @@ export interface ComposerSubmit {
       <!-- Inline account warnings (before sending) -->
       @if (warning(); as w) {
         <div
-          class="flex flex-wrap items-center gap-2 mx-2 mt-2 rounded-[var(--ks-radius-lg)] px-3 py-2 text-[12px]"
-          [class.bg-[var(--ks-red-soft)]]="w.kind === 'logged_out'"
+          class="flex flex-wrap items-center gap-2 mx-2 mt-2 rounded-[var(--sy-radius-lg)] px-3 py-2 text-[12px]"
+          [class.bg-[var(--sy-red-soft)]]="w.kind === 'logged_out'"
           [class.text-[#f6c0c0]]="w.kind === 'logged_out'"
-          [class.bg-[var(--ks-amber-soft)]]="w.kind !== 'logged_out'"
+          [class.bg-[var(--sy-amber-soft)]]="w.kind !== 'logged_out'"
           [class.text-[#f3d29b]]="w.kind !== 'logged_out'"
           role="status"
           data-testid="composer-warning"
@@ -82,13 +82,13 @@ export interface ComposerSubmit {
           <app-icon [name]="w.kind === 'logged_out' ? 'key' : 'clock'" [size]="13" />
           <span class="flex-1 min-w-[180px]">{{ w.text }}</span>
           @if (w.alternative; as alt) {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" data-testid="switch-account" (click)="chooseAccount(alt)">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="switch-account" (click)="chooseAccount(alt)">
               <app-icon [name]="alt.agent" [size]="12" />
               Use {{ alt.label }}
             </button>
           }
           @if (w.kind === 'logged_out') {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="showRelogin.emit(selectedAccount()!)">How to sign in</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="showRelogin.emit(selectedAccount()!)">How to sign in</button>
           }
         </div>
       }
@@ -98,7 +98,7 @@ export interface ComposerSubmit {
         <div role="alert" class="flex items-center gap-2 px-4 pt-3 text-[11.5px] text-[#f3a5a5]" data-testid="speech-error">
           <app-icon name="mic" [size]="12" />
           <span class="flex-1">{{ speechError() }}</span>
-          <button type="button" class="ks-icon-btn ks-icon-btn-sm !w-5 !h-5" aria-label="Dismiss" (click)="speechError.set('')">
+          <button type="button" class="sy-icon-btn sy-icon-btn-sm !w-5 !h-5" aria-label="Dismiss" (click)="speechError.set('')">
             <app-icon name="close" [size]="10" />
           </button>
         </div>
@@ -107,18 +107,18 @@ export interface ComposerSubmit {
       @if (attachments().length > 0 || uploadingCount() > 0 || uploadError()) {
         <div class="flex flex-wrap items-center gap-1.5 px-4 pt-3">
           @for (att of attachments(); track att.remotePath) {
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ks-raised)] pl-2.5 pr-1 py-0.5 text-[11.5px] text-[var(--ks-text)]">
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--sy-raised)] pl-2.5 pr-1 py-0.5 text-[11.5px] text-[var(--sy-text)]">
               <app-icon name="paperclip" [size]="11" />
-              <span class="max-w-[180px] truncate" [ksTooltip]="att.remotePath">{{ att.filename }}</span>
-              <span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)]">{{ formatBytes(att.size) }}</span>
-              <button type="button" class="ks-icon-btn ks-icon-btn-sm !w-5 !h-5" [attr.aria-label]="'Remove ' + att.filename" (click)="removeAttachment(att.remotePath)">
+              <span class="max-w-[180px] truncate" [syTooltip]="att.remotePath">{{ att.filename }}</span>
+              <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)]">{{ formatBytes(att.size) }}</span>
+              <button type="button" class="sy-icon-btn sy-icon-btn-sm !w-5 !h-5" [attr.aria-label]="'Remove ' + att.filename" (click)="removeAttachment(att.remotePath)">
                 <app-icon name="close" [size]="10" />
               </button>
             </span>
           }
           @if (uploadingCount() > 0) {
-            <span class="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--ks-text-secondary)]">
-              <span class="ks-spinner" style="width: 10px; height: 10px"></span>
+            <span class="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--sy-text-secondary)]">
+              <span class="sy-spinner" style="width: 10px; height: 10px"></span>
               Uploading {{ uploadingCount() }}…
             </span>
           }
@@ -128,13 +128,13 @@ export interface ComposerSubmit {
         </div>
       }
 
-      <label class="ks-sr-only" [attr.for]="inputId">Message</label>
+      <label class="sy-sr-only" [attr.for]="inputId">Message</label>
       <textarea
         #textarea
         [id]="inputId"
         rows="2"
         data-testid="composer-input"
-        class="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[13.5px] leading-relaxed text-[var(--ks-text)] placeholder-[#80828a] outline-none max-h-[40vh]"
+        class="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[13.5px] leading-relaxed text-[var(--sy-text)] placeholder-[#80828a] outline-none max-h-[40vh]"
         [placeholder]="placeholder()"
         [value]="draft()"
         (input)="onInput($event)"
@@ -146,35 +146,35 @@ export interface ComposerSubmit {
       <!-- Control row -->
       <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2.5 pt-0.5">
         @if (allowAttachments()) {
-          <button type="button" class="ks-icon-btn" aria-label="Attach file" ksTooltip="Attach file" (click)="fileInput.click()">
+          <button type="button" class="sy-icon-btn" aria-label="Attach file" syTooltip="Attach file" (click)="fileInput.click()">
             <app-icon name="plus" [size]="16" />
           </button>
         }
 
         @if (mode() === 'agent') {
-          <ks-approval-picker
+          <sy-approval-picker
             [modes]="approvalModes()"
             [selectedId]="selection().approvalMode"
             [note]="approvalNote()"
             (selected)="chooseApproval($event)"
           />
         } @else {
-          <span class="inline-flex items-center gap-1.5 px-2 text-[11.5px] text-[var(--ks-text-muted)]">
+          <span class="inline-flex items-center gap-1.5 px-2 text-[11.5px] text-[var(--sy-text-muted)]">
             <app-icon name="key" [size]="12" />
-            API-key orchestrator
+            API-key commander
           </span>
         }
 
         <span class="flex-1"></span>
 
         @if (mode() === 'agent') {
-          <ks-account-picker
+          <sy-account-picker
             [accounts]="accounts()"
             [selectedId]="selection().accountId"
             (selected)="chooseAccount($event)"
             (refresh)="refreshAccounts.emit()"
           />
-          <ks-model-picker
+          <sy-model-picker
             [models]="models()"
             [selectedId]="selection().model"
             [effort]="selection().effort"
@@ -186,31 +186,31 @@ export interface ComposerSubmit {
         @if (speechSupported) {
           <button
             type="button"
-            class="ks-icon-btn"
+            class="sy-icon-btn"
             data-testid="mic-button"
-            [class.ks-mic-recording]="dictating()"
+            [class.sy-mic-recording]="dictating()"
             [attr.aria-pressed]="dictating()"
             [attr.aria-label]="dictating() ? 'Stop dictation' : 'Dictate'"
-            [ksTooltip]="dictating() ? 'Stop dictation (Esc cancels)' : 'Dictate'"
+            [syTooltip]="dictating() ? 'Stop dictation (Esc cancels)' : 'Dictate'"
             (click)="toggleDictation()"
           >
             <app-icon name="mic" [size]="15" />
           </button>
-          <span class="ks-sr-only" role="status" aria-live="polite">{{ dictating() ? 'Listening. Press Escape to cancel.' : '' }}</span>
+          <span class="sy-sr-only" role="status" aria-live="polite">{{ dictating() ? 'Listening. Press Escape to cancel.' : '' }}</span>
         }
 
         @if (busy()) {
-          <button type="button" class="ks-send-btn ml-auto" data-testid="stop-button" aria-label="Stop" ksTooltip="Stop" (click)="stop.emit()">
+          <button type="button" class="sy-send-btn ml-auto" data-testid="stop-button" aria-label="Stop" syTooltip="Stop" (click)="stop.emit()">
             <app-icon name="stop" [size]="14" />
           </button>
         } @else if (!hideSend()) {
           <button
             type="submit"
-            class="ks-send-btn ml-auto"
+            class="sy-send-btn ml-auto"
             data-testid="send-button"
             [disabled]="!canSend()"
             [attr.aria-label]="sendLabel()"
-            [ksTooltip]="sendBlockedReason() || sendLabel()"
+            [syTooltip]="sendBlockedReason() || sendLabel()"
           >
             <app-icon name="send-up" [size]="15" />
           </button>
@@ -219,7 +219,7 @@ export interface ComposerSubmit {
     </form>
 
     @if (mode() === 'agent') {
-      <ks-context-bar
+      <sy-context-bar
         [workerId]="selection().workerId"
         [cwd]="selection().cwd"
         [branch]="selection().branch"
@@ -267,7 +267,7 @@ export class ChatComposerComponent {
   private recognition: SpeechRecognitionLike | null = null;
   /** The prompt before dictation started (restored on Esc). */
   private dictationBase = '';
-  readonly inputId = `ks-composer-${Math.random().toString(36).slice(2, 8)}`;
+  readonly inputId = `sy-composer-${Math.random().toString(36).slice(2, 8)}`;
   readonly draft = signal('');
   readonly attachments = signal<UploadedAttachment[]>([]);
   readonly uploadingCount = signal(0);

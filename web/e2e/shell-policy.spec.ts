@@ -4,15 +4,15 @@ import { expect, Page, WebSocketRoute, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Shells left running by finished sessions (KON-DCEZV), against the suite's hub and
- * konsertd: Settings → Shells left running saves the global mode, idle period and a
+ * Shells left running by finished sessions (SYR-DCEZV), against the suite's hub and
+ * syred: Settings → Shells left running saves the global mode, idle period and a
  * per-project mode; a "shells left running" Needs-you item offers Kill all, which really
  * terminates the shell a finished mock task left behind (BG_SHELL).
  *
  * The hub raises the item after the idle period (30 min by default, at least 1 min), so
  * the test pushes the hub's fleet.update frame for the real session into the page's socket;
  * the hub's timing (remind, ask, stop after idle, Keep, holds) is covered by the Go tests
- * with an injected clock. Set KONSERT_SHOTS_DIR to save screenshots.
+ * with an injected clock. Set SYRE_SHOTS_DIR to save screenshots.
  */
 
 interface E2EEnv {
@@ -32,7 +32,7 @@ async function api<T>(page: Page, method: string, p: string, body?: unknown): Pr
       const res = await fetch(p, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${await res.text()}`);
@@ -43,7 +43,7 @@ async function api<T>(page: Page, method: string, p: string, body?: unknown): Pr
 }
 
 async function shot(page: Page, name: string): Promise<void> {
-  const dir = process.env['KONSERT_SHOTS_DIR'];
+  const dir = process.env['SYRE_SHOTS_DIR'];
   if (!dir) return;
   fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, name) });
@@ -125,7 +125,7 @@ test.describe('Shells left running', () => {
       repo_path: env.workdir,
       prompt: 'Leave a dev server running BG_SHELL=300 SLEEP=3',
       mode: 'oneshot',
-      origin: 'orchestrator',
+      origin: 'commander',
     });
     const id = res.task_id;
     await expect
@@ -174,7 +174,7 @@ test.describe('Shells left running', () => {
     await card.getByTestId('shells-kill').click();
     await kill;
     await expect(page.getByTestId('needs-you-rail').locator(`[data-shells="task-${id}"]`)).toHaveCount(0);
-    // konsertd really terminated it.
+    // syred really terminated it.
     await expect
       .poll(async () => (await api<{ activity?: Activity[] }>(page, 'GET', '/api/fleet')).activity?.find((a) => a.task_id === id)?.shells ?? 0, {
         timeout: 15_000,

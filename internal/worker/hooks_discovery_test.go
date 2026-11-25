@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func TestInstallAgentHooksIdempotentAndPreservesExistingSettings(t *testing.T) {
@@ -23,11 +23,11 @@ func TestInstallAgentHooksIdempotentAndPreservesExistingSettings(t *testing.T) {
 	}
 
 	// Run twice to verify idempotency
-	rep1, err := InstallAgentHooks(home, "/usr/local/bin/konsertd")
+	rep1, err := InstallAgentHooks(home, "/usr/local/bin/syred")
 	if err != nil || !rep1.ClaudeHooksInstalled || !rep1.AgySkillInstalled {
 		t.Fatalf("InstallAgentHooks #1 failed: rep=%+v err=%v", rep1, err)
 	}
-	rep2, err := InstallAgentHooks(home, "/usr/local/bin/konsertd")
+	rep2, err := InstallAgentHooks(home, "/usr/local/bin/syred")
 	if err != nil || !rep2.ClaudeHooksInstalled {
 		t.Fatalf("InstallAgentHooks #2 failed: rep=%+v err=%v", rep2, err)
 	}
@@ -50,8 +50,8 @@ func TestInstallAgentHooksIdempotentAndPreservesExistingSettings(t *testing.T) {
 	}
 	hooks := parsed["hooks"].(map[string]any)
 	pre := hooks["PreToolUse"].([]any)
-	if len(pre) != 2 { // 1 user hook + 1 Konsert hook (no duplicate on second install!)
-		t.Fatalf("expected 2 PreToolUse hooks (1 user + 1 konsert), got %d: %+v", len(pre), pre)
+	if len(pre) != 2 { // 1 user hook + 1 Syre hook (no duplicate on second install!)
+		t.Fatalf("expected 2 PreToolUse hooks (1 user + 1 syre), got %d: %+v", len(pre), pre)
 	}
 }
 

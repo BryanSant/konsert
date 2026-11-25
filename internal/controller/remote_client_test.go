@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 )
 
 // TestRemoteClientPassesCSRFGuard checks that state-changing CLI calls get past
 // the hub's guard (no 403/415) and that errors surface as *APIError.
 func TestRemoteClientPassesCSRFGuard(t *testing.T) {
 	ctx := context.Background()
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

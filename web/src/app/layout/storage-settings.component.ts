@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { CompactionRun, RetentionDays, StorageResponse } from '../core/models/konsert.models';
+import { CompactionRun, RetentionDays, StorageResponse } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { TooltipDirective } from '../shared/tooltip.directive';
 
@@ -31,7 +31,7 @@ const KIND_COLORS: Record<string, string> = {
 /** What each breakdown kind holds (the line's tooltip). */
 export const KIND_HINTS: Record<string, string> = {
   conversations:
-    'Agent chat conversations (your prompts, the agent’s replies, questions and errors) plus orchestrator transcripts. Compaction keeps these.',
+    'Agent chat conversations (your prompts, the agent’s replies, questions and errors) plus commander transcripts. Compaction keeps these.',
   session_detail:
     'Tool calls with their output, reasoning, plans and other streamed events of agent chats. Compaction drops these from finished work after the detail period.',
   task_events: 'Events of tasks: tool calls and file edits (dropped by compaction), milestones and outcomes (kept).',
@@ -55,19 +55,19 @@ interface PeriodField {
 }
 
 /**
- * Settings → Storage (KON-CSCWP): the database file size, what each kind of history
+ * Settings → Storage (SYR-CSCWP): the database file size, what each kind of history
  * uses, the retention policy in plain words and as editable periods, and Compact now
  * (a full pass in the background, with progress).
  */
 @Component({
-  selector: 'ks-storage-settings',
+  selector: 'sy-storage-settings',
   imports: [TooltipDirective],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="settings-storage" aria-labelledby="ks-storage-title">
+    <section class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3 text-[12px]" data-testid="settings-storage" aria-labelledby="sy-storage-title">
       <div class="flex items-baseline justify-between gap-2">
-        <div id="ks-storage-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Storage</div>
+        <div id="sy-storage-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Storage</div>
         @if (data(); as d) {
           <span class="text-[10.5px] text-[#8e9098]" [title]="d.stats.path">{{ d.stats.method === 'dbstat' ? 'Measured' : 'Estimated' }} {{ measuredAgo() }}</span>
         }
@@ -76,23 +76,23 @@ interface PeriodField {
       @if (data(); as d) {
         <div class="flex flex-wrap items-baseline gap-x-5 gap-y-1" data-testid="storage-size">
           <div>
-            <span class="text-[18px] font-semibold text-[var(--ks-text)]" data-testid="storage-total">{{ fmt(d.stats.file_bytes + d.stats.wal_bytes) }}</span>
+            <span class="text-[18px] font-semibold text-[var(--sy-text)]" data-testid="storage-total">{{ fmt(d.stats.file_bytes + d.stats.wal_bytes) }}</span>
             <span class="ml-1 text-[#8e9098]">database</span>
           </div>
           <span class="text-[#a1a3ab]">file {{ fmt(d.stats.file_bytes) }} · WAL {{ fmt(d.stats.wal_bytes) }} · free inside {{ fmt(d.stats.free_bytes) }}</span>
         </div>
 
-        <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--ks-surface-2)]" role="img" [attr.aria-label]="barLabel()">
+        <div class="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--sy-surface-2)]" role="img" [attr.aria-label]="barLabel()">
           @for (k of bar(); track k.kind) {
             <span class="h-full" [style.width.%]="k.pct" [style.background]="k.color"></span>
           }
         </div>
         <ul class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 m-0 p-0 list-none" data-testid="storage-breakdown">
           @for (k of d.stats.breakdown; track k.kind) {
-            <li class="flex items-center gap-2" [attr.data-kind]="k.kind" [ksTooltip]="hint(k.kind)">
+            <li class="flex items-center gap-2" [attr.data-kind]="k.kind" [syTooltip]="hint(k.kind)">
               <span class="inline-block h-2 w-2 shrink-0 rounded-full" [style.background]="color(k.kind)"></span>
               <span class="flex-1 text-[#d4d4d8]">{{ k.label }}</span>
-              <span class="font-mono-ide text-[11px] text-[var(--ks-text)]">{{ fmt(k.bytes) }}</span>
+              <span class="font-mono-ide text-[11px] text-[var(--sy-text)]">{{ fmt(k.bytes) }}</span>
             </li>
           }
         </ul>
@@ -107,7 +107,7 @@ interface PeriodField {
           <p class="m-0 mt-1 text-[11px] text-[#8e9098]">Deleting a chat, task, project or machine deletes its history.</p>
         </div>
 
-        <details class="rounded-[var(--ks-radius-md)] bg-black/20" data-testid="storage-retention-edit">
+        <details class="rounded-[var(--sy-radius-md)] bg-black/20" data-testid="storage-retention-edit">
           <summary class="cursor-pointer list-none px-3 py-2 text-[12px] text-[#a1a3ab] hover:text-[#ececed]">Change retention periods</summary>
           <div class="px-3 pb-3 space-y-2">
             @for (f of fields; track f.key) {
@@ -115,7 +115,7 @@ interface PeriodField {
                 <span class="flex-1 text-[#d4d4d8]">{{ f.label }}</span>
                 <input
                   type="number"
-                  class="ks-field ks-field-sm w-20 font-mono-ide"
+                  class="sy-field sy-field-sm w-20 font-mono-ide"
                   [attr.data-testid]="'retention-' + f.key"
                   [min]="d.bounds[f.key].Min"
                   [max]="d.bounds[f.key].Max"
@@ -126,8 +126,8 @@ interface PeriodField {
               </label>
             }
             <div class="flex items-center gap-2 pt-1">
-              <button type="button" class="ks-btn ks-btn-sm ks-btn-primary" data-testid="retention-save" [disabled]="saving()" (click)="saveRetention()">Save retention</button>
-              <button type="button" class="ks-btn ks-btn-sm" (click)="resetDraft(d.defaults)">Defaults</button>
+              <button type="button" class="sy-btn sy-btn-sm sy-btn-primary" data-testid="retention-save" [disabled]="saving()" (click)="saveRetention()">Save retention</button>
+              <button type="button" class="sy-btn sy-btn-sm" (click)="resetDraft(d.defaults)">Defaults</button>
               @if (savedNote()) {
                 <span class="text-[11px] text-[#9ece6a]" role="status">{{ savedNote() }}</span>
               }
@@ -139,7 +139,7 @@ interface PeriodField {
       }
 
       <div class="flex flex-wrap items-center gap-2 pt-1">
-        <button type="button" class="ks-btn ks-btn-sm" data-testid="compact-now" [disabled]="running()" (click)="compactNow()">
+        <button type="button" class="sy-btn sy-btn-sm" data-testid="compact-now" [disabled]="running()" (click)="compactNow()">
           {{ running() ? 'Compacting…' : 'Compact now' }}
         </button>
         <span class="text-[11px] text-[#a1a3ab]" aria-live="polite" data-testid="compact-status">{{ runText() }}</span>

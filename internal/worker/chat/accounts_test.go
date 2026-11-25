@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/syre/internal/config"
 )
 
 // fakeBins returns a LookPath that "finds" exactly the given binaries under dir.
@@ -313,10 +313,10 @@ func TestAccountsMock(t *testing.T) {
 }
 
 // TestLiveWrapperImport reports what the importer finds on this machine (ids and labels
-// only). Run with KONSERT_LIVE_ACCOUNTS=1.
+// only). Run with SYRE_LIVE_ACCOUNTS=1.
 func TestLiveWrapperImport(t *testing.T) {
-	if os.Getenv("KONSERT_LIVE_ACCOUNTS") != "1" {
-		t.Skip("set KONSERT_LIVE_ACCOUNTS=1")
+	if os.Getenv("SYRE_LIVE_ACCOUNTS") != "1" {
+		t.Skip("set SYRE_LIVE_ACCOUNTS=1")
 	}
 	r := NewAccountRegistry(AccountOptions{})
 	for _, e := range r.List() {

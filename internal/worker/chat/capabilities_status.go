@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // CLIStatus is the default StatusChecker for agents without a chat engine: it runs the

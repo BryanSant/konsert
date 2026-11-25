@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/forge"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // fakeForge is a deterministic in-memory forge.Resolver and forge.Client for tests.
@@ -156,7 +156,7 @@ func TestDeliverySettingsAndOverrides(t *testing.T) {
 
 	// Repo override via PATCH /api/repos/{id}.
 	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
-	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t1", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"}, nil, nil)
+	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t1", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"}, nil, nil)
 	defer stop()
 	code, raw = e.do(t, credCookie, http.MethodPost, "/api/repos", `{"project_id":"`+proj.ID+`","worker_id":"w1","path":"/src/app","remote_url":"https://github.com/acme/app.git"}`)
 	if code != http.StatusCreated {
@@ -170,7 +170,7 @@ func TestDeliverySettingsAndOverrides(t *testing.T) {
 	}
 
 	// Verify resolution order: repo > project > global.
-	task := store.Task{ID: "t1", ProjectID: proj.ID, RepoID: repo.ID, WorkerID: "w1", Workdir: "/src/app", Branch: "konsert/t1"}
+	task := store.Task{ID: "t1", ProjectID: proj.ID, RepoID: repo.ID, WorkerID: "w1", Workdir: "/src/app", Branch: "syre/t1"}
 	_ = e.th.st.CreateTask(ctx, task)
 	plan := e.th.h.TaskDeliveryPlan(ctx, task)
 	if plan.Mode != store.DeliveryModeKeepBranch || plan.MergeStyle != store.MergeStyleSquash {
@@ -195,7 +195,7 @@ func TestDeliveryModeKeepBranch(t *testing.T) {
 	ctx := context.Background()
 	_ = e.th.st.SetSettings(ctx, map[string]string{deliveryModeSetting: store.DeliveryModeKeepBranch})
 	if err := e.th.st.CreateTask(ctx, store.Task{
-		ID: "t-keep", Agent: "mock", Workdir: "/r", Branch: "konsert/t-keep",
+		ID: "t-keep", Agent: "mock", Workdir: "/r", Branch: "syre/t-keep",
 		Prompt: "experiment", Status: protocol.TaskStatusCompleted,
 	}); err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestDeliveryModeKeepBranch(t *testing.T) {
 	}
 	rv := decodeReviewResult(t, raw).Review
 	if rv.DeliveryMode != store.DeliveryModeKeepBranch || rv.DeliveryStatus != store.DeliveryStatusDelivered ||
-		!strings.Contains(rv.DeliveryMessage, "konsert/t-keep") {
+		!strings.Contains(rv.DeliveryMessage, "syre/t-keep") {
 		t.Fatalf("keep_branch review = %+v", rv)
 	}
 }
@@ -217,19 +217,19 @@ func TestDeliveryModeDirectConflictReturnsTaskToAgent(t *testing.T) {
 	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
 	ctx := context.Background()
 	_ = e.th.st.CreateTask(ctx, store.Task{
-		ID: "t-conf", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t-conf",
+		ID: "t-conf", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "syre/t-conf",
 		Title: "Fix parser", Prompt: "fix parser", Status: protocol.TaskStatusCompleted,
 	})
 
 	stop := answerGitRPCs(w,
-		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t-conf", DefaultBranch: "main", HasRemote: false},
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t-conf", DefaultBranch: "main", HasRemote: false},
 		func(req protocol.GitMergeRequest) protocol.GitMergeResult {
 			return protocol.GitMergeResult{
 				OK:            false,
 				Conflict:      true,
 				ConflictFiles: []string{"parser.go"},
 				TargetBranch:  "main",
-				Error:         "squash-merge conflict merging konsert/t-conf into main (parser.go)",
+				Error:         "squash-merge conflict merging syre/t-conf into main (parser.go)",
 			}
 		},
 		nil,
@@ -270,17 +270,17 @@ func TestDeliveryModePRMergeOpensOnReviewAndMergesWithFallback(t *testing.T) {
 
 	var pushed []protocol.GitPushRequest
 	stop := answerGitRPCs(w,
-		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t-pr", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"},
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t-pr", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"},
 		nil,
 		func(req protocol.GitPushRequest) protocol.GitPushResult {
 			pushed = append(pushed, req)
-			return protocol.GitPushResult{OK: true, Branch: "konsert/t-pr", RemoteURL: "https://github.com/acme/app.git", HeadSHA: "111"}
+			return protocol.GitPushResult{OK: true, Branch: "syre/t-pr", RemoteURL: "https://github.com/acme/app.git", HeadSHA: "111"}
 		},
 	)
 	defer stop()
 
 	_ = e.th.st.CreateTask(ctx, store.Task{
-		ID: "t-pr", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t-pr",
+		ID: "t-pr", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "syre/t-pr",
 		Title: "Add feature", Summary: "Implemented feature X.",
 		Prompt: "Add feature\n- [x] write code\n- [ ] add tests", Status: protocol.TaskStatusCompleted,
 	})
@@ -324,16 +324,16 @@ func TestDeliveryModePRMergeNoCredentialFallbackShowsCompareURL(t *testing.T) {
 	e.th.h.SetForge(nil)
 
 	stop := answerGitRPCs(w,
-		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t-nocred", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"},
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t-nocred", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/acme/app.git"},
 		nil,
 		func(req protocol.GitPushRequest) protocol.GitPushResult {
-			return protocol.GitPushResult{OK: true, Branch: "konsert/t-nocred", HeadSHA: "222"}
+			return protocol.GitPushResult{OK: true, Branch: "syre/t-nocred", HeadSHA: "222"}
 		},
 	)
 	defer stop()
 
 	_ = e.th.st.CreateTask(ctx, store.Task{
-		ID: "t-nocred", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t-nocred",
+		ID: "t-nocred", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "syre/t-nocred",
 		Prompt: "do work", Status: protocol.TaskStatusCompleted,
 	})
 
@@ -347,7 +347,7 @@ func TestDeliveryModePRMergeNoCredentialFallbackShowsCompareURL(t *testing.T) {
 		t.Fatalf("review: %d %s", code, raw)
 	}
 	rv := decodeReviewResult(t, raw).Review
-	if rv.DeliveryStatus != store.DeliveryStatusManual || !strings.Contains(rv.CompareURL, "https://github.com/acme/app/compare/main...konsert/t-nocred") {
+	if rv.DeliveryStatus != store.DeliveryStatusManual || !strings.Contains(rv.CompareURL, "https://github.com/acme/app/compare/main...syre/t-nocred") {
 		t.Fatalf("no-cred review = %+v", rv)
 	}
 }
@@ -370,17 +370,17 @@ func TestDeliveryModePROpenForkPathAndTrackingAndCommentDedupe(t *testing.T) {
 
 	var pushReqs []protocol.GitPushRequest
 	stop := answerGitRPCs(w,
-		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t-fork", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/upstream/lib.git"},
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/t-fork", DefaultBranch: "main", HasRemote: true, RemoteURL: "https://github.com/upstream/lib.git"},
 		nil,
 		func(req protocol.GitPushRequest) protocol.GitPushResult {
 			pushReqs = append(pushReqs, req)
-			return protocol.GitPushResult{OK: true, Branch: "konsert/t-fork", RemoteURL: req.RemoteURL, HeadSHA: "333"}
+			return protocol.GitPushResult{OK: true, Branch: "syre/t-fork", RemoteURL: req.RemoteURL, HeadSHA: "333"}
 		},
 	)
 	defer stop()
 
 	_ = e.th.st.CreateTask(ctx, store.Task{
-		ID: "t-fork", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t-fork",
+		ID: "t-fork", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "syre/t-fork",
 		Title: "Upstream fix", Prompt: "fix bug", Status: protocol.TaskStatusCompleted,
 	})
 
@@ -454,13 +454,13 @@ func TestDeliveryModeDirectPassesTaskSIDAndSurfacesMergeMessage(t *testing.T) {
 	ctx := context.Background()
 	_ = e.th.st.CreateTask(ctx, store.Task{
 		ID: "t-dirmsg", SID: "S42", WorkerID: "w1", Agent: "mock",
-		Workdir: "/r/.konsert-worktrees/S42", Branch: "konsert/S42",
+		Workdir: "/r/.syre-worktrees/S42", Branch: "syre/S42",
 		Title: "Local merge", Prompt: "local merge", Status: protocol.TaskStatusCompleted,
 	})
 
 	var gotReq protocol.GitMergeRequest
 	stop := answerGitRPCs(w,
-		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/S42", DefaultBranch: "main", HasRemote: false},
+		protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "syre/S42", DefaultBranch: "main", HasRemote: false},
 		func(req protocol.GitMergeRequest) protocol.GitMergeResult {
 			gotReq = req
 			return protocol.GitMergeResult{
@@ -468,8 +468,8 @@ func TestDeliveryModeDirectPassesTaskSIDAndSurfacesMergeMessage(t *testing.T) {
 				Merged:       true,
 				TargetBranch: "main",
 				MergeSHA:     "abcdef123",
-				MergedBranch: "konsert/merged/S42",
-				Message:      "main is checked out with uncommitted changes; the merge is ready on branch konsert/merged/S42 — fast-forward main when you're ready",
+				MergedBranch: "syre/merged/S42",
+				Message:      "main is checked out with uncommitted changes; the merge is ready on branch syre/merged/S42 — fast-forward main when you're ready",
 			}
 		},
 		nil,
@@ -484,7 +484,7 @@ func TestDeliveryModeDirectPassesTaskSIDAndSurfacesMergeMessage(t *testing.T) {
 		t.Fatalf("GitMergeRequest.TaskSID = %q, want S42", gotReq.TaskSID)
 	}
 	rv := decodeReviewResult(t, raw).Review
-	if rv.DeliveryStatus != store.DeliveryStatusDelivered || !strings.Contains(rv.DeliveryMessage, "konsert/merged/S42") {
+	if rv.DeliveryStatus != store.DeliveryStatusDelivered || !strings.Contains(rv.DeliveryMessage, "syre/merged/S42") {
 		t.Fatalf("direct merge review = %+v", rv)
 	}
 }

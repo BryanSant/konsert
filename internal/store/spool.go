@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Idempotent ingestion of a daemon's spooled records (KON-VZR9F, docs/design/spool.md).
+// Idempotent ingestion of a daemon's spooled records (SYR-VZR9F, docs/design/spool.md).
 //
 // The hub applies each (worker, daemon seq) at most once. It checks the seq against the
 // worker's applied seq before applying a record; writes that append (chat events, task

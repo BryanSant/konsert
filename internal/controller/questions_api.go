@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // REST API of the question queue (PRD §5.8b):
@@ -20,7 +20,7 @@ import (
 //	GET  /api/questions/{id}                       one question with its side conversation
 //	POST /api/questions/{id}/answer   {option_id?, text?}
 //	POST /api/questions/{id}/ask      {text}        "Ask about this" (side conversation)
-//	POST /api/questions/{id}/delegate               "Let the orchestrator decide"
+//	POST /api/questions/{id}/delegate               "Let the commander decide"
 //	POST /api/questions/{id}/snooze   {minutes}     (0 = unsnooze)
 //	GET  /api/questions/metrics?days=7
 //	GET/PUT /api/questions/settings
@@ -134,7 +134,7 @@ func (s *Server) handleDelegateQuestion(w http.ResponseWriter, r *http.Request) 
 	q, err := s.hub.delegateQuestion(r.Context(), r.PathValue("id"), false)
 	if err == nil {
 		s.hub.recordAudit(r.Context(), store.AuditEvent{Action: "question.delegate", WorkerID: q.WorkerID,
-			Message: fmt.Sprintf("Delegated question %s to the orchestrator", q.SID), MetaJSON: auditMeta(map[string]any{"question_id": q.ID})})
+			Message: fmt.Sprintf("Delegated question %s to the commander", q.SID), MetaJSON: auditMeta(map[string]any{"question_id": q.ID})})
 	}
 	s.questionResponse(w, r, q, err)
 }

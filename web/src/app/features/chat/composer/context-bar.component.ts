@@ -23,18 +23,18 @@ export interface ContextChange {
 
 /** Quiet line under the composer: machine · checkout · branch, each a picker. */
 @Component({
-  selector: 'ks-context-bar',
+  selector: 'sy-context-bar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent],
   template: `
     @if (locked()) {
-      <div class="flex flex-wrap items-center gap-3 px-3 pt-2 text-[11.5px] text-[var(--ks-text-muted)]" data-testid="context-locked">
-        <span class="inline-flex items-center gap-1.5" ksTooltip="Machine (fixed for this chat)">
+      <div class="flex flex-wrap items-center gap-3 px-3 pt-2 text-[11.5px] text-[var(--sy-text-muted)]" data-testid="context-locked">
+        <span class="inline-flex items-center gap-1.5" syTooltip="Machine (fixed for this chat)">
           <app-icon name="server" [size]="12" />
           <span class="max-w-[160px] truncate">{{ machineName() }}</span>
         </span>
-        <span class="inline-flex items-center gap-1.5" [ksTooltip]="cwd()">
+        <span class="inline-flex items-center gap-1.5" [syTooltip]="cwd()">
           <app-icon name="folder" [size]="12" />
           <span class="max-w-[240px] truncate">{{ checkoutLabel() }}</span>
         </span>
@@ -48,15 +48,15 @@ export interface ContextChange {
     } @else {
     <div class="flex flex-wrap items-center gap-0.5 px-1 pt-1.5 text-[11.5px]">
       <!-- Machine -->
-      <ks-popover label="Machine" placement="top-start" panelClass="w-[260px] max-h-[320px] overflow-y-auto" [(open)]="machineOpen">
+      <sy-popover label="Machine" placement="top-start" panelClass="w-[260px] max-h-[320px] overflow-y-auto" [(open)]="machineOpen">
         <button
           type="button"
-          ksPopoverTrigger
-          class="ks-btn ks-btn-sm gap-1.5"
+          syPopoverTrigger
+          class="sy-btn sy-btn-sm gap-1.5"
           data-testid="context-machine"
           [disabled]="locked()"
           [attr.aria-label]="'Machine: ' + machineName()"
-          [ksTooltip]="locked() ? 'Fixed for this chat' : 'Change machine'"
+          [syTooltip]="locked() ? 'Fixed for this chat' : 'Change machine'"
         >
           <app-icon name="server" [size]="12" />
           <span class="max-w-[140px] truncate">{{ machineName() }}</span>
@@ -65,53 +65,53 @@ export interface ContextChange {
           <button
             type="button"
             role="menuitemradio"
-            class="ks-menu-item items-center"
+            class="sy-menu-item items-center"
             [attr.aria-checked]="w.id === workerId()"
             (click)="changed.emit({ workerId: w.id, cwd: '~', branch: '' })"
           >
             <span
               class="h-1.5 w-1.5 rounded-full shrink-0"
-              [class.bg-[var(--ks-green)]]="w.status === 'online'"
+              [class.bg-[var(--sy-green)]]="w.status === 'online'"
               [class.bg-[#5e6068]]="w.status !== 'online'"
               aria-hidden="true"
             ></span>
             <span class="flex-1 min-w-0">
-              <span class="ks-menu-label block truncate">{{ w.name }}</span>
-              <span class="ks-menu-desc block">{{ w.status === 'online' ? 'Online' : 'Offline' }} · {{ w.os }}</span>
+              <span class="sy-menu-label block truncate">{{ w.name }}</span>
+              <span class="sy-menu-desc block">{{ w.status === 'online' ? 'Online' : 'Offline' }} · {{ w.os }}</span>
             </span>
             @if (w.id === workerId()) {
               <app-icon name="check" [size]="13" />
             }
           </button>
         } @empty {
-          <div class="px-3 py-2 text-[12px] text-[var(--ks-text-muted)]">No machines connected</div>
+          <div class="px-3 py-2 text-[12px] text-[var(--sy-text-muted)]">No machines connected</div>
         }
-      </ks-popover>
+      </sy-popover>
 
       <!-- Checkout -->
-      <ks-popover label="Checkout" role="dialog" placement="top-start" panelClass="w-[340px]" [closeOnSelect]="false" [(open)]="checkoutOpen">
+      <sy-popover label="Checkout" role="dialog" placement="top-start" panelClass="w-[340px]" [closeOnSelect]="false" [(open)]="checkoutOpen">
         <button
           type="button"
-          ksPopoverTrigger
-          class="ks-btn ks-btn-sm gap-1.5"
+          syPopoverTrigger
+          class="sy-btn sy-btn-sm gap-1.5"
           data-testid="context-checkout"
           [disabled]="locked()"
           [attr.aria-label]="'Working folder: ' + checkoutLabel()"
-          [ksTooltip]="locked() ? cwd() + ' (fixed for this chat)' : cwd()"
+          [syTooltip]="locked() ? cwd() + ' (fixed for this chat)' : cwd()"
         >
           <app-icon name="folder" [size]="12" />
           <span class="max-w-[220px] truncate">{{ checkoutLabel() }}</span>
         </button>
         <div class="max-h-[220px] overflow-y-auto">
           @if (checkouts().length > 0) {
-            <div class="ks-menu-heading">Checkouts on {{ machineName() }}</div>
+            <div class="sy-menu-heading">Checkouts on {{ machineName() }}</div>
           }
           @for (c of checkouts(); track c.key) {
-            <button type="button" class="ks-menu-item items-center" [attr.aria-current]="c.path === cwd() ? 'true' : null" (click)="pickCheckout(c)">
+            <button type="button" class="sy-menu-item items-center" [attr.aria-current]="c.path === cwd() ? 'true' : null" (click)="pickCheckout(c)">
               <app-icon name="folder" [size]="13" />
               <span class="flex-1 min-w-0">
-                <span class="ks-menu-label block truncate">{{ c.name }}</span>
-                <span class="ks-menu-desc block truncate">{{ c.detail }}</span>
+                <span class="sy-menu-label block truncate">{{ c.name }}</span>
+                <span class="sy-menu-desc block truncate">{{ c.detail }}</span>
               </span>
               @if (c.path === cwd()) {
                 <app-icon name="check" [size]="13" />
@@ -119,40 +119,40 @@ export interface ContextChange {
             </button>
           }
         </div>
-        <div class="ks-menu-heading">Any folder</div>
+        <div class="sy-menu-heading">Any folder</div>
         <div class="px-2 pb-2">
           <app-remote-dir-picker [workerId]="workerId()" [value]="draftPath()" (valueChange)="draftPath.set($event)" inputName="chatCwd" />
           <div class="flex justify-end pt-2">
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" [disabled]="!draftPath().trim()" (click)="useDraftPath()">Use folder</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" [disabled]="!draftPath().trim()" (click)="useDraftPath()">Use folder</button>
           </div>
         </div>
-      </ks-popover>
+      </sy-popover>
 
       <!-- Branch -->
       @if (displayBranch() || branchOptions().length > 0) {
-        <ks-popover label="Branch" placement="top-start" panelClass="w-[260px] max-h-[300px] overflow-y-auto" [(open)]="branchOpen">
+        <sy-popover label="Branch" placement="top-start" panelClass="w-[260px] max-h-[300px] overflow-y-auto" [(open)]="branchOpen">
           <button
             type="button"
-            ksPopoverTrigger
-            class="ks-btn ks-btn-sm gap-1.5"
+            syPopoverTrigger
+            class="sy-btn sy-btn-sm gap-1.5"
             data-testid="context-branch"
             [disabled]="locked() || branchOptions().length === 0"
             [attr.aria-label]="'Branch: ' + (displayBranch() || 'none')"
-            [ksTooltip]="locked() ? 'Fixed for this chat' : 'Switch to another checkout of this repo'"
+            [syTooltip]="locked() ? 'Fixed for this chat' : 'Switch to another checkout of this repo'"
           >
             <app-icon name="git-branch" [size]="12" />
             <span class="max-w-[160px] truncate">{{ displayBranch() || 'no branch' }}</span>
           </button>
           @for (c of branchOptions(); track c.key) {
-            <button type="button" role="menuitemradio" class="ks-menu-item items-center" [attr.aria-checked]="c.path === cwd()" (click)="pickCheckout(c)">
+            <button type="button" role="menuitemradio" class="sy-menu-item items-center" [attr.aria-checked]="c.path === cwd()" (click)="pickCheckout(c)">
               <app-icon name="git-branch" [size]="13" />
               <span class="flex-1 min-w-0">
-                <span class="ks-menu-label block truncate">{{ c.branch || 'detached' }}</span>
-                <span class="ks-menu-desc block truncate">{{ c.path }}</span>
+                <span class="sy-menu-label block truncate">{{ c.branch || 'detached' }}</span>
+                <span class="sy-menu-desc block truncate">{{ c.path }}</span>
               </span>
             </button>
           }
-        </ks-popover>
+        </sy-popover>
       }
     </div>
     }

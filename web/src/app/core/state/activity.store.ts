@@ -5,7 +5,7 @@ import { activityKey, isNewerActivity } from './activity-logic';
 /**
  * Live session activity (thinking / working / speaking / asking / blocked / queued / done /
  * error) from fleet.update kind "activity" and the GET /api/fleet snapshot. Reports are
- * rate-limited by konsertd and the hub; the newest report per session wins, so a slower
+ * rate-limited by syred and the hub; the newest report per session wins, so a slower
  * snapshot never reverts a live update. Sessions with no report yet have no entry here:
  * WorkStore falls back to a coarse state from the task or chat status.
  */

@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { SetupStatus } from '../models/konsert.models';
+import { SetupStatus } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 
 /**

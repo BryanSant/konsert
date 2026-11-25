@@ -8,7 +8,7 @@ const (
 	ReviewChangesRequested = "changes_requested"
 )
 
-// Delivery modes (KON-H50YW): what Approve does with an agent's branch.
+// Delivery modes (SYR-H50YW): what Approve does with an agent's branch.
 // Empty string on a project/repo/global setting means "inherit / auto default".
 const (
 	DeliveryModeDirect     = "direct"
@@ -17,7 +17,7 @@ const (
 	DeliveryModeKeepBranch = "keep_branch"
 )
 
-// Merge styles (KON-H50YW). Empty string means "inherit / default (squash)".
+// Merge styles (SYR-H50YW). Empty string means "inherit / default (squash)".
 const (
 	MergeStyleSquash = "squash"
 	MergeStyleMerge  = "merge"
@@ -68,7 +68,7 @@ type Review struct {
 	Note      string     `json:"note,omitempty"`
 	DecidedBy string     `json:"decided_by,omitempty"`
 	DecidedAt *time.Time `json:"decided_at,omitzero"`
-	// Delivery outcome and PR/MR tracking (KON-H50YW).
+	// Delivery outcome and PR/MR tracking (SYR-H50YW).
 	DeliveryMode    string     `json:"delivery_mode,omitempty"`
 	DeliveryStatus  string     `json:"delivery_status,omitempty"`
 	DeliveryMessage string     `json:"delivery_message,omitempty"`

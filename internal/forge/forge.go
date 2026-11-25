@@ -1,7 +1,7 @@
 // Package forge talks to code forges (GitHub, GitLab, Forgejo/Gitea) through their HTTP
 // APIs, with no CLI dependency. It is the contract between the delivery modes (what
-// Approve does with an agent's branch, KON-H50YW) and the per-forge adapters
-// (KON-QHGWZ). Plain git work (merge, push, branches) is not here: it runs on the
+// Approve does with an agent's branch, SYR-H50YW) and the per-forge adapters
+// (SYR-QHGWZ). Plain git work (merge, push, branches) is not here: it runs on the
 // daemon that owns the checkout.
 package forge
 

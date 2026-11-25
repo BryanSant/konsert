@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func derivePathLeaf(p string) string {
@@ -489,7 +489,7 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 
-// --- Cached Machine Facts & Orchestrator Memory API ---
+// --- Cached Machine Facts & Commander Memory API ---
 
 func (s *Server) handleGetWorkerFacts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

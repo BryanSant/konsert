@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Publisher defaults.

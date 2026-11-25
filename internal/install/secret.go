@@ -20,7 +20,7 @@ func writeRestricted(path string, data []byte, restrict func(string) error) erro
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	f, err := os.CreateTemp(dir, ".konsertd-*.tmp")
+	f, err := os.CreateTemp(dir, ".syred-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temp file in %s: %w", dir, err)
 	}

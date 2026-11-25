@@ -3,7 +3,7 @@ import { ControlLabel } from '../core/state/work-logic';
 
 const DESCRIPTIONS: Record<ControlLabel, string> = {
   AUTO: 'Working on its own within policy',
-  ORCH: 'Directed by the orchestrator',
+  ORCH: 'Directed by the commander',
   ASKING: 'Waiting on you',
   HELD: 'Held by you: nothing automatic happens to it',
   SUSPENDED: 'Suspended: its processes are frozen',
@@ -21,17 +21,17 @@ const DESCRIPTIONS: Record<ControlLabel, string> = {
  * always carries the meaning, never the colour alone.
  */
 @Component({
-  selector: 'ks-control-label',
+  selector: 'sy-control-label',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'inline-flex shrink-0' },
   template: `
-    <span class="ks-annunciator" [attr.data-control]="label()" [class]="'ks-annunciator ks-ann-' + label().toLowerCase()" [class.w-[64px]]="fixed()">
-      {{ label() }}<span class="ks-sr-only">: {{ description() }}</span>
+    <span class="sy-annunciator" [attr.data-control]="label()" [class]="'sy-annunciator sy-ann-' + label().toLowerCase()" [class.w-[64px]]="fixed()">
+      {{ label() }}<span class="sy-sr-only">: {{ description() }}</span>
     </span>
   `,
   styles: `
-    .ks-annunciator {
+    .sy-annunciator {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -42,52 +42,52 @@ const DESCRIPTIONS: Record<ControlLabel, string> = {
       font-size: 9.5px;
       font-weight: 500;
       letter-spacing: 0.02em;
-      color: var(--ks-text-secondary);
-      background: var(--ks-raised);
+      color: var(--sy-text-secondary);
+      background: var(--sy-raised);
       white-space: nowrap;
     }
-    .ks-ann-orch {
+    .sy-ann-orch {
       color: #c9cbd1;
-      background: var(--ks-raised-strong);
+      background: var(--sy-raised-strong);
     }
-    .ks-ann-asking {
+    .sy-ann-asking {
       color: #1b1406;
-      background: var(--ks-amber);
+      background: var(--sy-amber);
     }
-    .ks-ann-held {
+    .sy-ann-held {
       color: #9ec5ff;
       background: transparent;
-      box-shadow: inset 0 0 0 1px var(--ks-blue);
+      box-shadow: inset 0 0 0 1px var(--sy-blue);
     }
-    .ks-ann-suspended {
+    .sy-ann-suspended {
       color: #16122e;
-      background: var(--ks-violet);
+      background: var(--sy-violet);
     }
-    .ks-ann-you {
+    .sy-ann-you {
       color: #ffffff;
       background: #2f6fd6;
     }
-    .ks-ann-stale {
-      color: var(--ks-text-muted);
+    .sy-ann-stale {
+      color: var(--sy-text-muted);
       background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0 4px, transparent 4px 8px);
     }
-    .ks-ann-queued {
-      color: var(--ks-text-muted);
+    .sy-ann-queued {
+      color: var(--sy-text-muted);
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     }
-    .ks-ann-done {
+    .sy-ann-done {
       color: #a8dbb3;
-      background: var(--ks-green-soft);
+      background: var(--sy-green-soft);
     }
-    .ks-ann-stopped {
-      color: var(--ks-text-muted);
+    .sy-ann-stopped {
+      color: var(--sy-text-muted);
       background: transparent;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     }
-    .ks-ann-failed {
+    .sy-ann-failed {
       color: #f3a3a3;
-      background: var(--ks-red-soft);
+      background: var(--sy-red-soft);
     }
   `,
 })

@@ -9,8 +9,8 @@ import { TOOLTIP_DELAY_MS, TooltipDirective, resetTooltipWarmState } from './too
   standalone: true,
   imports: [TooltipDirective],
   template: `
-    <button id="a" type="button" aria-label="Attach file" ksTooltip="Attach file">+</button>
-    <button id="b" type="button" aria-label="Approval mode" [ksTooltip]="tip()">S</button>
+    <button id="a" type="button" aria-label="Attach file" syTooltip="Attach file">+</button>
+    <button id="b" type="button" aria-label="Approval mode" [syTooltip]="tip()">S</button>
   `,
 })
 class TooltipHost {
@@ -22,13 +22,13 @@ class TooltipHost {
   imports: [PopoverComponent, PopoverTriggerDirective, ChipTriggerComponent],
   template: `
     <button id="outside" type="button">outside</button>
-    <ks-popover label="Approval mode" [(open)]="open">
-      <button ksChip ksPopoverTrigger id="trigger">Mode</button>
+    <sy-popover label="Approval mode" [(open)]="open">
+      <button syChip syPopoverTrigger id="trigger">Mode</button>
       @for (m of modes; track m) {
         <button
           type="button"
           role="menuitemradio"
-          class="ks-menu-item"
+          class="sy-menu-item"
           [id]="'item-' + m"
           [attr.aria-checked]="m === current()"
           [attr.aria-disabled]="m === 'locked' ? 'true' : null"
@@ -37,7 +37,7 @@ class TooltipHost {
           {{ m }}
         </button>
       }
-    </ks-popover>
+    </sy-popover>
   `,
 })
 class PopoverHost {
@@ -60,7 +60,7 @@ describe('TooltipDirective', () => {
   afterEach(() => {
     vi.useRealTimers();
     TestBed.resetTestingModule();
-    document.querySelectorAll('.ks-tooltip').forEach((n) => n.remove());
+    document.querySelectorAll('.sy-tooltip').forEach((n) => n.remove());
   });
 
   function setup() {
@@ -74,7 +74,7 @@ describe('TooltipDirective', () => {
   }
 
   function tipFor(el: HTMLElement): HTMLElement | null {
-    const tips = Array.from(document.querySelectorAll<HTMLElement>('.ks-tooltip'));
+    const tips = Array.from(document.querySelectorAll<HTMLElement>('.sy-tooltip'));
     const described = el.getAttribute('aria-describedby');
     return described ? document.getElementById(described) : (tips.find((t) => !t.hidden) ?? null);
   }
@@ -94,12 +94,12 @@ describe('TooltipDirective', () => {
   it('waits on the first hover, then is instant when moving between controls', () => {
     const { a, b } = setup();
     a.dispatchEvent(new MouseEvent('mouseenter'));
-    const tips = () => Array.from(document.querySelectorAll<HTMLElement>('.ks-tooltip'));
+    const tips = () => Array.from(document.querySelectorAll<HTMLElement>('.sy-tooltip'));
     expect(tips().every((t) => t.hidden)).toBe(true);
     vi.advanceTimersByTime(TOOLTIP_DELAY_MS + 1);
     const tipA = tips().find((t) => t.textContent === 'Attach file')!;
     expect(tipA.hidden).toBe(false);
-    expect(tipA.classList.contains('ks-tooltip-animate')).toBe(true);
+    expect(tipA.classList.contains('sy-tooltip-animate')).toBe(true);
 
     a.dispatchEvent(new MouseEvent('mouseleave'));
     expect(tipA.hidden).toBe(true);
@@ -138,15 +138,15 @@ describe('TooltipDirective', () => {
     vi.advanceTimersByTime(TOOLTIP_DELAY_MS + 1);
     const tip = tipFor(b)!;
     expect(tip.hidden).toBe(false);
-    expect(tip.classList.contains('ks-tooltip-animate')).toBe(false);
+    expect(tip.classList.contains('sy-tooltip-animate')).toBe(false);
     vi.unstubAllGlobals();
   });
 
   it('removes its pill when destroyed', () => {
     const { fixture } = setup();
-    expect(document.querySelectorAll('.ks-tooltip').length).toBe(2);
+    expect(document.querySelectorAll('.sy-tooltip').length).toBe(2);
     fixture.destroy();
-    expect(document.querySelectorAll('.ks-tooltip').length).toBe(0);
+    expect(document.querySelectorAll('.sy-tooltip').length).toBe(0);
   });
 });
 

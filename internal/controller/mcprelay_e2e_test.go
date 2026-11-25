@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/worker"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
-// End to end over the SSH transport with a real konsertd and the mock agent (KON-DTN92):
-// the agent's ask_user calls go to konsertd's loopback relay and over the SSH link, with
+// End to end over the SSH transport with a real syred and the mock agent (SYR-DTN92):
+// the agent's ask_user calls go to syred's loopback relay and over the SSH link, with
 // no public URL and no hub URL recorded for the machine. After the link is dropped and
 // re-dialed, the agent's same MCP session keeps working.
 func TestMCPRelayOverSSHTransport(t *testing.T) {

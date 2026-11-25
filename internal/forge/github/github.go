@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
+	"github.com/BryanSant/syre/internal/forge"
 )
 
 const (
@@ -78,7 +78,7 @@ func (c *Client) do(ctx context.Context, method, fullURL string, reqBody any) ([
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", apiVersionHeader)
-	req.Header.Set("User-Agent", "konsert")
+	req.Header.Set("User-Agent", "syre")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}

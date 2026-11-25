@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { Task, TaskStatus } from '../models/konsert.models';
+import { Task, TaskStatus } from '../models/syre.models';
 
 /**
  * Which terminals the user has taken control of (typing goes to the PTY, nothing automatic

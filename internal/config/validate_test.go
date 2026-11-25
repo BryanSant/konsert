@@ -17,19 +17,19 @@ func TestControllerConfigValidate(t *testing.T) {
 		mutate  func(*ControllerConfig)
 		wantErr string
 	}{
-		{"typo provider", func(c *ControllerConfig) { c.Orchestrator.Provider = "antropic" }, `"antropic" is not supported`},
-		{"empty provider means openai", func(c *ControllerConfig) { c.Orchestrator.Provider = "" }, ""},
-		{"negative max tokens", func(c *ControllerConfig) { c.Orchestrator.MaxTokens = -1 }, "max_tokens"},
-		{"provider case-insensitive", func(c *ControllerConfig) { c.Orchestrator.Provider = "Anthropic" }, ""},
-		{"base url no scheme", func(c *ControllerConfig) { c.Orchestrator.BaseURL = "api.example.com/v1" }, "must use scheme"},
-		{"base url ftp", func(c *ControllerConfig) { c.Orchestrator.BaseURL = "ftp://example.com" }, "must use scheme"},
-		{"base url ok", func(c *ControllerConfig) { c.Orchestrator.BaseURL = "https://proxy.example.com/v1" }, ""},
+		{"typo provider", func(c *ControllerConfig) { c.Commander.Provider = "antropic" }, `"antropic" is not supported`},
+		{"empty provider means openai", func(c *ControllerConfig) { c.Commander.Provider = "" }, ""},
+		{"negative max tokens", func(c *ControllerConfig) { c.Commander.MaxTokens = -1 }, "max_tokens"},
+		{"provider case-insensitive", func(c *ControllerConfig) { c.Commander.Provider = "Anthropic" }, ""},
+		{"base url no scheme", func(c *ControllerConfig) { c.Commander.BaseURL = "api.example.com/v1" }, "must use scheme"},
+		{"base url ftp", func(c *ControllerConfig) { c.Commander.BaseURL = "ftp://example.com" }, "must use scheme"},
+		{"base url ok", func(c *ControllerConfig) { c.Commander.BaseURL = "https://proxy.example.com/v1" }, ""},
 		{"listen bad", func(c *ControllerConfig) { c.ListenAddr = "8420" }, "listen_addr"},
 		{"listen bad port", func(c *ControllerConfig) { c.ListenAddr = ":99999" }, "invalid port"},
 		{"listen ok", func(c *ControllerConfig) { c.ListenAddr = "127.0.0.1:8420" }, ""},
 		{"empty db", func(c *ControllerConfig) { c.DBPath = " " }, "db_path"},
-		{"public url bad", func(c *ControllerConfig) { c.PublicURL = "konsert.local" }, "public_url"},
-		{"public url ok", func(c *ControllerConfig) { c.PublicURL = "https://konsert.example.ts.net" }, ""},
+		{"public url bad", func(c *ControllerConfig) { c.PublicURL = "syre.local" }, "public_url"},
+		{"public url ok", func(c *ControllerConfig) { c.PublicURL = "https://syre.example.ts.net" }, ""},
 		{"origin bad pattern", func(c *ControllerConfig) { c.AllowedOrigins = []string{"[bad"} }, "not a valid pattern"},
 		{"origin empty", func(c *ControllerConfig) { c.AllowedOrigins = []string{" "} }, "empty entry"},
 		{"origins ok", func(c *ControllerConfig) {
@@ -56,8 +56,8 @@ func TestControllerConfigValidate(t *testing.T) {
 
 func TestValidateReportsAllProblems(t *testing.T) {
 	cfg := DefaultControllerConfig()
-	cfg.Orchestrator.Provider = "nope"
-	cfg.Orchestrator.BaseURL = "nope"
+	cfg.Commander.Provider = "nope"
+	cfg.Commander.BaseURL = "nope"
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "provider") || !strings.Contains(err.Error(), "base_url") {
 		t.Fatalf("expected both problems reported, got %v", err)

@@ -33,14 +33,14 @@ type ServiceOptions struct {
 // ServiceName is the SCM name of an instance.
 func ServiceName(instance string) string { return unitBase(instance) }
 
-// serviceDir holds a service's config and logs: %ProgramData%\konsert. The account's
+// serviceDir holds a service's config and logs: %ProgramData%\syre. The account's
 // own profile may not exist yet and is not writable by the installing administrator in
 // a way that keeps the account the owner, so the files live here with explicit ACLs.
 func serviceDir() string {
 	if p, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0); err == nil && p != "" {
-		return filepath.Join(p, "konsert")
+		return filepath.Join(p, "syre")
 	}
-	return `C:\ProgramData\konsert`
+	return `C:\ProgramData\syre`
 }
 
 func serviceConfigPath(instance string) string {
@@ -81,7 +81,7 @@ func normalizeAccount(account string) (scm, lookup string) {
 	return account, lookup
 }
 
-// InstallService registers konsertd as a native service running as opts.Account,
+// InstallService registers syred as a native service running as opts.Account,
 // grants that account "Log on as a service", sets restart-on-failure recovery and
 // starts it. It needs an elevated prompt.
 func (in *Installer) InstallService(ctx context.Context, spec Spec, opts ServiceOptions) error {
@@ -142,9 +142,9 @@ func (in *Installer) InstallService(ctx context.Context, spec Spec, opts Service
 
 	name := ServiceName(spec.Instance)
 	args := runArgs(cfgPath, spec.ExtraArgs, logPath)
-	display := "Konsert worker (konsertd)"
+	display := "Syre worker (syred)"
 	if spec.Instance != "" {
-		display = "Konsert worker (konsertd, " + spec.Instance + ")"
+		display = "Syre worker (syred, " + spec.Instance + ")"
 	}
 	s, err := m.OpenService(name)
 	if err == nil {
@@ -169,7 +169,7 @@ func (in *Installer) InstallService(ctx context.Context, spec Spec, opts Service
 	} else {
 		s, err = m.CreateService(name, spec.Exe, mgr.Config{
 			DisplayName:      display,
-			Description:      "Runs Konsert agent sessions as " + scmAccount + ". Installed by `konsertd install --service`.",
+			Description:      "Runs Syre agent sessions as " + scmAccount + ". Installed by `syred install --service`.",
 			StartType:        mgr.StartAutomatic,
 			DelayedAutoStart: true,
 			ServiceStartName: scmAccount,
@@ -251,7 +251,7 @@ func openServiceForRemoval(name string) (*mgr.Service, func(), error) {
 // granted it, and removes the service's config. It needs no elevation when run as the
 // account the service runs as (install granted it stop and delete); revoking the logon
 // right does, so without elevation the right and the marker recording it are kept for
-// a later elevated `konsertd uninstall --service`.
+// a later elevated `syred uninstall --service`.
 func (in *Installer) UninstallService(ctx context.Context, instance string) error {
 	return in.removeService(ctx, instance, false)
 }
@@ -299,7 +299,7 @@ func (in *Installer) removeService(ctx context.Context, instance string, self bo
 		if sid, err := windows.StringToSid(marker.AccountSID); err == nil {
 			if err := revokeServiceLogonRight(sid); err != nil {
 				keepMarker = true
-				in.printf("Kept the \"Log on as a service\" right of %s (granted by install): revoking it needs administrator rights; run `konsertd uninstall --service%s` from an elevated terminal to revoke it (%v)\n", marker.Account, nameFlagHint(instance), err)
+				in.printf("Kept the \"Log on as a service\" right of %s (granted by install): revoking it needs administrator rights; run `syred uninstall --service%s` from an elevated terminal to revoke it (%v)\n", marker.Account, nameFlagHint(instance), err)
 			} else {
 				in.printf("Revoked \"Log on as a service\" from %s (granted by install)\n", marker.Account)
 			}
@@ -338,7 +338,7 @@ func nameFlagHint(instance string) string {
 }
 
 // ServiceConfigs lists the native-service instances installed for the account running
-// this process: the configs in %ProgramData%\konsert whose marker names this account.
+// this process: the configs in %ProgramData%\syre whose marker names this account.
 // Services of other accounts on the machine are left out.
 func (in *Installer) ServiceConfigs() ([]InstalledConfig, error) {
 	me, err := currentUserSID()

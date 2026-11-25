@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
-// Live smoke tests against the real grok CLI, run through the konsertd Runner (PTY,
+// Live smoke tests against the real grok CLI, run through the syred Runner (PTY,
 // driver argv, session-log telemetry, summary). They use the caller's grok login and a
 // paid subscription, so they are opt-in and keep prompts tiny:
 //
-//	KONSERT_LIVE_GROK=1 go test ./internal/worker -run TestLiveGrok -v
+//	SYRE_LIVE_GROK=1 go test ./internal/worker -run TestLiveGrok -v
 //
 // Sessions created in the test's temp workdirs are removed from $GROK_HOME afterwards.
 
@@ -69,8 +69,8 @@ func (l *liveEvents) has(kind, substr string) bool {
 
 func liveGrokSetup(t *testing.T) (string, *Runner, *statusRecorder, *liveEvents) {
 	t.Helper()
-	if os.Getenv("KONSERT_LIVE_GROK") != "1" {
-		t.Skip("set KONSERT_LIVE_GROK=1 to run live grok smoke tests")
+	if os.Getenv("SYRE_LIVE_GROK") != "1" {
+		t.Skip("set SYRE_LIVE_GROK=1 to run live grok smoke tests")
 	}
 	if _, ok := (&drivers.GrokDriver{}).Detect(); !ok {
 		t.Skip("grok CLI not installed")

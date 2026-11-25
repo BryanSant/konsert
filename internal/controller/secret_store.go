@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/secrets"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/secrets"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // SecretKeyFileName is the default master-key file, created next to the database.
-const SecretKeyFileName = "konsert-secret.key"
+const SecretKeyFileName = "syre-secret.key"
 
 // secretKeyFile resolves where the master key lives: cfg.SecretKeyFile, else next to
 // the database. It returns "" when there is no on-disk database (tests, in-memory

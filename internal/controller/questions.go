@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Questions (PRD §5.8b). Every question an agent asks — Konsert's ask_user tool and the
+// Questions (PRD §5.8b). Every question an agent asks — Syre's ask_user tool and the
 // agents' own question and permission prompts — becomes a persistent hub object in one
 // fleet-wide queue, sorted by blocking impact then age. A question stays open until it is
 // answered: reloads, side conversations and abandoned tool calls don't dismiss it.
@@ -23,7 +23,7 @@ import (
 // ask_user is validated (context, why_now, per-option consequences, rationale for a
 // recommendation); under-specified calls are sent back to the agent with what to add.
 // The answer goes back to the agent's pending tool call; if the agent's MCP client gave
-// up waiting, it is delivered as a "[Konsert]" note before (or as) its next turn.
+// up waiting, it is delivered as a "[Syre]" note before (or as) its next turn.
 
 // questionState is the hub's in-memory question state.
 type questionState struct {
@@ -91,12 +91,12 @@ type askUserInput struct {
 }
 
 // askUserSchema is ask_user's input schema. context, why_now and the per-option
-// consequence are required by Konsert's own validation (with a precise error), not by
+// consequence are required by Syre's own validation (with a precise error), not by
 // the schema, so an agent always learns exactly what to add.
 var askUserSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"question": map[string]any{"type": "string", "description": "ONE decision, phrased so it can be answered without other context. Name tickets/PRs with their titles, not just ids (\"Shorten the exit criteria of KON-2Q0CH 'Questions and steering'?\")."},
+		"question": map[string]any{"type": "string", "description": "ONE decision, phrased so it can be answered without other context. Name tickets/PRs with their titles, not just ids (\"Shorten the exit criteria of SYR-2Q0CH 'Questions and steering'?\")."},
 		"context":  map[string]any{"type": "string", "description": "REQUIRED. What this is about: the ticket/PR/files with their titles, what you are doing and what you found, so a user who wasn't watching understands the question."},
 		"why_now":  map[string]any{"type": "string", "description": "REQUIRED. What is blocked until the user answers and what you will do next with each answer."},
 		"options": map[string]any{
@@ -118,18 +118,18 @@ var askUserSchema = map[string]any{
 		"recommendation": map[string]any{"type": "string", "description": "Label of the option you recommend (or mark it recommended)"},
 		"rationale":      map[string]any{"type": "string", "description": "REQUIRED with a recommendation: why you recommend it"},
 		"allow_text":     map[string]any{"type": "boolean", "description": "Also accept a free-form answer (always on when there are no options)"},
-		"category":       map[string]any{"type": "string", "description": "Optional kind of decision, e.g. routine, design, scope, risk (users can let the orchestrator decide some categories)"},
+		"category":       map[string]any{"type": "string", "description": "Optional kind of decision, e.g. routine, design, scope, risk (users can let the commander decide some categories)"},
 		"blocks": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 			"description": "Optional: what else waits on the answer (e.g. 't-7qk3m deploy', 'the release')"},
 	},
 	"required": []any{"question"},
 }
 
-const askUserDescription = "Ask the user ONE decision in Konsert and wait for the answer. The question shows in the user's fleet-wide question queue (desktop and phone) " +
+const askUserDescription = "Ask the user ONE decision in Syre and wait for the answer. The question shows in the user's fleet-wide question queue (desktop and phone) " +
 	"and stays open until answered. Required: question, context (what this is about, with ticket/PR titles), why_now (what is blocked and what you'll do next), " +
 	"and for each option a consequence (what happens if picked). Prefer yes/no with a recommendation: mark the recommended option and give rationale (why). " +
 	"Returns the user's answer (and a summary if they asked clarifying questions first). If it returns that the question is still open, don't ask again: " +
-	"Konsert delivers the answer before your next turn."
+	"Syre delivers the answer before your next turn."
 
 // recommendedSuffixes are label decorations agents use for a recommendation.
 var recommendedSuffixes = []string{"(recommended)", "[recommended]", "- recommended", "(recommend)"}
@@ -348,12 +348,12 @@ func answerChoiceText(a *store.QuestionAnswer) string {
 func answerResultText(q store.Question) string {
 	a := q.Answer
 	var b strings.Builder
-	if a.By.Actor == store.ActorOrchestrator {
-		fmt.Fprintf(&b, "The orchestrator answered on the user's behalf (the user delegated this question): %s.", answerChoiceText(a))
+	if a.By.Actor == store.ActorCommander {
+		fmt.Fprintf(&b, "The commander answered on the user's behalf (the user delegated this question): %s.", answerChoiceText(a))
 		if q.Delegation != nil && q.Delegation.Rationale != "" {
 			fmt.Fprintf(&b, " Its rationale: %s", q.Delegation.Rationale)
 		}
-		b.WriteString(" The user may still override it; Konsert will tell you if they do.")
+		b.WriteString(" The user may still override it; Syre will tell you if they do.")
 	} else {
 		if a.Label != "" {
 			fmt.Fprintf(&b, "The user chose: %q.", a.Label)
@@ -370,13 +370,13 @@ func answerResultText(q store.Question) string {
 	return b.String()
 }
 
-// answerNoteText is the "[Konsert]" note for an answer the agent's tool call no longer waits for.
+// answerNoteText is the "[Syre]" note for an answer the agent's tool call no longer waits for.
 func answerNoteText(q store.Question) string {
 	a := q.Answer
 	if a.Correction {
 		prev := ""
 		if q.Delegation != nil {
-			prev = fmt.Sprintf(" The orchestrator had answered %q on the user's behalf;", firstNonEmpty(q.Delegation.Label, q.Delegation.Text))
+			prev = fmt.Sprintf(" The commander had answered %q on the user's behalf;", firstNonEmpty(q.Delegation.Label, q.Delegation.Text))
 		}
 		s := fmt.Sprintf("Correction to your question %s (%q):%s the user overrides it with %s.", q.SID, oneLine(q.Prompt, 200), prev, answerChoiceText(a))
 		if a.Summary != "" {
@@ -550,11 +550,11 @@ func (h *Hub) askUserWait(ctx context.Context, chatID string, raw askUserInput) 
 		return answerResultText(cur), q.ID, nil
 	}
 	h.markAbandoned(context.WithoutCancel(ctx), q.ID)
-	return fmt.Sprintf("The question is still open in Konsert (%s): the user hasn't answered yet. Don't ask it again and don't guess. "+
-		"Continue with work that doesn't depend on the answer, or end your turn; Konsert will give you the answer in a [Konsert] note before your next turn.", q.SID), "", nil
+	return fmt.Sprintf("The question is still open in Syre (%s): the user hasn't answered yet. Don't ask it again and don't guess. "+
+		"Continue with work that doesn't depend on the answer, or end your turn; Syre will give you the answer in a [Syre] note before your next turn.", q.SID), "", nil
 }
 
-// agentMCPCallLimits are MCP tool-call limits agents impose that Konsert can't raise
+// agentMCPCallLimits are MCP tool-call limits agents impose that Syre can't raise
 // from the session (cursor-agent: the MCP SDK's fixed 60 s; Antigravity: 180 s unless
 // its user config says otherwise). ask_user returns "still open" just before them, so
 // the agent gets a clear answer instead of a timeout error.
@@ -652,7 +652,7 @@ func (h *Hub) recentRejects(ctx context.Context, chatID string) int {
 func (h *Hub) derivedBlocks(ctx context.Context, cs store.ChatSession) []string {
 	var out []string
 	if cs.FleetTools {
-		out = append(out, "the orchestrator (fleet coordination)")
+		out = append(out, "the commander (fleet coordination)")
 	}
 	if n := h.liveTasksOf(ctx, cs.ID); n > 0 {
 		out = append(out, fmt.Sprintf("%d live task(s) dispatched by %s", n, cs.SID))
@@ -743,7 +743,7 @@ func (h *Hub) claimDelivery(ctx context.Context, id, how string) (store.Question
 	}
 	now := time.Now().UTC()
 	q.Answer.Delivery, q.Answer.DeliveredAt = how, &now
-	if q.Delegation != nil && q.Delegation.State == store.DelegationDecided && q.Answer.By.Actor == store.ActorOrchestrator {
+	if q.Delegation != nil && q.Delegation.State == store.DelegationDecided && q.Answer.By.Actor == store.ActorCommander {
 		q.Delegation.State = store.DelegationDelivered
 	}
 	if err := h.store.UpdateQuestion(ctx, q); err != nil {
@@ -757,7 +757,7 @@ func (h *Hub) claimDelivery(ctx context.Context, id, how string) (store.Question
 // errQuestionClosed is returned when answering a question that no longer waits.
 var errQuestionClosed = errors.New("this question is no longer open")
 
-// questionAnswerInput is an answer from the UI, an operator, or the orchestrator.
+// questionAnswerInput is an answer from the UI, an operator, or the commander.
 type questionAnswerInput struct {
 	OptionID string `json:"option_id,omitempty"`
 	Text     string `json:"text,omitempty"`
@@ -765,7 +765,7 @@ type questionAnswerInput struct {
 
 // answerQuestion records an answer with the cause in ctx and delivers it (after writing
 // the side-conversation summary, when there was one). Answering a question the
-// orchestrator already answered on the user's behalf is an override: a correction note.
+// commander already answered on the user's behalf is an override: a correction note.
 func (h *Hub) answerQuestion(ctx context.Context, id string, in questionAnswerInput) (store.Question, error) {
 	ctx = context.WithoutCancel(ctx)
 	cause := causeFrom(ctx)
@@ -778,9 +778,9 @@ func (h *Hub) answerQuestion(ctx context.Context, id string, in questionAnswerIn
 	correction := false
 	switch {
 	case q.Pending():
-	case q.Status == store.QuestionAnswered && q.Answer != nil && q.Answer.By.Actor == store.ActorOrchestrator && cause.Actor != store.ActorOrchestrator &&
+	case q.Status == store.QuestionAnswered && q.Answer != nil && q.Answer.By.Actor == store.ActorCommander && cause.Actor != store.ActorCommander &&
 		(q.Source == store.QuestionSourceAskUser || q.Answer.DeliveredAt == nil):
-		// Overriding the orchestrator's decision: before delivery it is simply replaced;
+		// Overriding the commander's decision: before delivery it is simply replaced;
 		// after, the agent gets a correction note.
 		correction = q.Answer.DeliveredAt != nil
 	default:
@@ -809,7 +809,7 @@ func (h *Hub) answerQuestion(ctx context.Context, id string, in questionAnswerIn
 		h.questions.mu.Unlock()
 		return q, errors.New("this question needs one of its options")
 	}
-	if q.Delegation != nil && cause.Actor != store.ActorOrchestrator {
+	if q.Delegation != nil && cause.Actor != store.ActorCommander {
 		switch q.Delegation.State {
 		case store.DelegationPending, store.DelegationDecided, store.DelegationDelivered:
 			q.Delegation.State = store.DelegationOverridden
@@ -957,7 +957,7 @@ func (h *Hub) deliverAnswerNotesTurn(ctx context.Context, chatID string) {
 }
 
 // takeAnswerNotes claims every undelivered answer of a chat and renders them as one
-// "[Konsert]" note ("" when there is none).
+// "[Syre]" note ("" when there is none).
 func (h *Hub) takeAnswerNotes(ctx context.Context, chatID string) string {
 	qs, err := h.store.ListQuestions(ctx, store.QuestionFilter{ChatID: chatID, UndeliveredOnly: true, Statuses: []string{store.QuestionAnswered}, Limit: 20})
 	if err != nil || len(qs) == 0 {
@@ -1114,7 +1114,7 @@ func permissionConsequence(o protocol.AgentElicitationOption) string {
 }
 
 // onElicitationResolved closes the question of a worker elicitation that ended without
-// a Konsert answer (answered in the agent, or its turn ended).
+// a Syre answer (answered in the agent, or its turn ended).
 func (h *Hub) onElicitationResolved(ctx context.Context, chatID, elicitationID string) {
 	qs, err := h.store.ListQuestions(ctx, store.QuestionFilter{ChatID: chatID, Statuses: []string{store.QuestionOpen, store.QuestionDelegated}, Limit: 50})
 	if err != nil {
@@ -1142,7 +1142,7 @@ func (h *Hub) expireElicitationQuestions(ctx context.Context, chatID string) {
 }
 
 // onChatIdle runs when a chat's turn ended: undelivered answers go to it as a turn, and
-// for orchestrator chats, delegated questions are handed over (or handed back).
+// for commander chats, delegated questions are handed over (or handed back).
 func (h *Hub) onChatIdle(cs store.ChatSession) {
 	if cs.QuestionID != "" || cs.Backend != store.ChatBackendAgent {
 		return
@@ -1150,7 +1150,7 @@ func (h *Hub) onChatIdle(cs store.ChatSession) {
 	h.goBackground(func(ctx context.Context) {
 		h.expireElicitationQuestions(ctx, cs.ID)
 		if cs.FleetTools {
-			h.orchestratorIdle(ctx, cs)
+			h.commanderIdle(ctx, cs)
 		}
 		h.deliverAnswerNotesTurn(ctx, cs.ID)
 	})
@@ -1191,7 +1191,7 @@ type QuestionView struct {
 	ChatTitle    string                  `json:"chat_title,omitempty"`
 	MachineName  string                  `json:"machine_name,omitempty"`
 	AccountLabel string                  `json:"account_label,omitempty"`
-	Orchestrator bool                    `json:"orchestrator,omitzero"` // asked by an orchestrator chat
+	Commander    bool                    `json:"commander,omitzero"` // asked by a commander chat
 	Impact       int                     `json:"impact"`
 	GroupLabel   string                  `json:"group_label,omitempty"`
 	Messages     []store.QuestionMessage `json:"messages"`
@@ -1259,7 +1259,7 @@ func (h *Hub) questionView(ctx context.Context, v *viewContext, q store.Question
 	out.AccountLabel = v.accountLabel(q.WorkerID, q.AccountID, q.Agent)
 	impact := 1 + len(q.Blocks)
 	if cs := v.chat(ctx, q.ChatID); cs != nil {
-		out.ChatSID, out.ChatTitle, out.Orchestrator = cs.SID, cs.Title, cs.FleetTools
+		out.ChatSID, out.ChatTitle, out.Commander = cs.SID, cs.Title, cs.FleetTools
 		if cs.FleetTools {
 			impact += 2
 		}

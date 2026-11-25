@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Open requests (PRD §5.8a): an agent asks the user to *do* something on a machine
 // ("restart nginx; I don't have sudo") with request_user_action. The request is tracked,
-// shown in the UI and told to the orchestrator; a matching user action (a terminal
+// shown in the UI and told to the commander; a matching user action (a terminal
 // command on that machine and resource) resolves it instead of placing a hold, and the
 // user can also mark it done or declined. The requesting agent's tool call returns the
 // resolution, or — if it gave up waiting — it is told before its next turn.
@@ -123,7 +123,7 @@ func (h *Hub) requestUserAction(ctx context.Context, chatID string, in requestUs
 	}
 	h.emitChatEvent(ctx, chatID, protocol.AgentChatEvent{Kind: protocol.EventElicitation, Elicitation: &protocol.AgentElicitation{
 		ID: askID, Kind: protocol.ElicitQuestion, Title: title, Options: opts, AllowText: true,
-		Detail: "Konsert resolves this automatically when you do it in a Konsert terminal on " + where + ".",
+		Detail: "Syre resolves this automatically when you do it in a Syre terminal on " + where + ".",
 	}}, emitOpts{})
 
 	timeout := h.AskUserTimeout
@@ -186,15 +186,15 @@ func requestOutcomeText(r store.UserRequest, waitEnd string) string {
 	}
 	switch waitEnd {
 	case "timeout":
-		return fmt.Sprintf("The request is still open (%s): the user hasn't done it yet. Konsert will tell you when it is resolved (a note before your next turn); you can check with recent_events. Don't do it yourself another way.", r.SID)
+		return fmt.Sprintf("The request is still open (%s): the user hasn't done it yet. Syre will tell you when it is resolved (a note before your next turn); you can check with recent_events. Don't do it yourself another way.", r.SID)
 	case "shutdown":
-		return fmt.Sprintf("The Konsert hub is shutting down; request %s stays open.", r.SID)
+		return fmt.Sprintf("The Syre hub is shutting down; request %s stays open.", r.SID)
 	}
 	return fmt.Sprintf("Stopped waiting; request %s stays open and you'll be told when it is resolved.", r.SID)
 }
 
 // resolveRequest closes an open request with the cause in ctx, records it in the
-// timeline (which delivers it to the requesting chat and the orchestrator) and answers
+// timeline (which delivers it to the requesting chat and the commander) and answers
 // the requesting chat's pending tool call.
 func (h *Hub) resolveRequest(ctx context.Context, id, status, resolution, commandID string) (store.UserRequest, error) {
 	if status != store.RequestDone && status != store.RequestDeclined && status != store.RequestCanceled {

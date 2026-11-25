@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Machine vitals and heat (KON-WY5F2): raw 15-second buckets (machine_vitals, 12 h),
+// Machine vitals and heat (SYR-WY5F2): raw 15-second buckets (machine_vitals, 12 h),
 // hourly and daily roll-ups (machine_vitals_rollup, 30 / 365 days). See 001_schema.sql.
 
 // UpsertVitals stores raw samples in one transaction, merging into buckets already stored

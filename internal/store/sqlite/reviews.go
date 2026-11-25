@@ -6,11 +6,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Review decisions, delivery outcomes, PR tracking and Expedite flags (KON-H50YW).
+// Review decisions, delivery outcomes, PR tracking and Expedite flags (SYR-H50YW).
 
 const reviewCols = `id, sid, task_id, chat_id, decision, note, decided_by, decided_at,
 	delivery_mode, delivery_status, delivery_message, merge_method, merge_sha,

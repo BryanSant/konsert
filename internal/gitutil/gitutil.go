@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 var (
@@ -122,13 +122,13 @@ func CurrentSHA(ctx context.Context, dir string) (string, error) {
 // ErrInvalidWorktreeName is returned when a task ID cannot be used as a worktree directory.
 var ErrInvalidWorktreeName = errors.New("invalid worktree name")
 
-// WorktreePath returns <repoRoot>/.konsert-worktrees/<taskID>, refusing any taskID that is
-// not a single plain path component or whose result would escape .konsert-worktrees.
+// WorktreePath returns <repoRoot>/.syre-worktrees/<taskID>, refusing any taskID that is
+// not a single plain path component or whose result would escape .syre-worktrees.
 func WorktreePath(repoRoot, taskID string) (string, error) {
 	if taskID == "" || taskID == "." || taskID == ".." || strings.ContainsAny(taskID, `/\:`) || filepath.Base(taskID) != taskID {
 		return "", fmt.Errorf("%w: %q", ErrInvalidWorktreeName, taskID)
 	}
-	wtParent := filepath.Join(repoRoot, ".konsert-worktrees")
+	wtParent := filepath.Join(repoRoot, ".syre-worktrees")
 	p := filepath.Join(wtParent, taskID)
 	if rel, err := filepath.Rel(wtParent, p); err != nil || rel != taskID {
 		return "", fmt.Errorf("%w: %q escapes %s", ErrInvalidWorktreeName, taskID, wtParent)
@@ -145,7 +145,7 @@ type WorktreeInfo struct {
 	CreatedBranch bool // the branch did not exist before and was created for this worktree
 }
 
-// CreateWorktree creates an isolated git worktree at <repoRoot>/.konsert-worktrees/<taskID>
+// CreateWorktree creates an isolated git worktree at <repoRoot>/.syre-worktrees/<taskID>
 // checked out to branch (creating or resetting the branch from HEAD if needed).
 func CreateWorktree(ctx context.Context, repoRoot, taskID, branch string) (worktreePath string, baseSHA string, err error) {
 	info, err := CreateWorktreeInfo(ctx, repoRoot, taskID, branch)
@@ -260,7 +260,7 @@ func InspectWorkingTree(ctx context.Context, dir string) (*protocol.GitInspectRe
 	res := &protocol.GitInspectResult{
 		EffectiveDir: dir,
 		Files:        []protocol.GitChangedFile{},
-		IsWorktree:   strings.Contains(filepath.ToSlash(dir), "/.konsert-worktrees/"),
+		IsWorktree:   strings.Contains(filepath.ToSlash(dir), "/.syre-worktrees/"),
 	}
 	if _, ok := IsGitRepo(ctx, dir); !ok {
 		return res, nil
@@ -483,12 +483,12 @@ func CommitChanges(ctx context.Context, dir, message string, stageAll bool) (*pr
 	}, nil
 }
 
-// CleanupKonsertWorktree safely removes a worktree located under .konsert-worktrees/.
-func CleanupKonsertWorktree(ctx context.Context, workdir string) error {
+// CleanupSyreWorktree safely removes a worktree located under .syre-worktrees/.
+func CleanupSyreWorktree(ctx context.Context, workdir string) error {
 	norm := filepath.ToSlash(filepath.Clean(workdir))
-	idx := strings.Index(norm, "/.konsert-worktrees/")
+	idx := strings.Index(norm, "/.syre-worktrees/")
 	if idx < 0 {
-		return fmt.Errorf("refusing to remove directory outside .konsert-worktrees: %s", workdir)
+		return fmt.Errorf("refusing to remove directory outside .syre-worktrees: %s", workdir)
 	}
 	repoRoot := filepath.FromSlash(norm[:idx])
 	return RemoveWorktree(ctx, repoRoot, workdir)

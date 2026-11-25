@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // A suspended task reports "suspended", its timeout stops counting, and resuming

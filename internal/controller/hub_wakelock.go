@@ -8,13 +8,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// defaultHostWakeReason is sent to konsertd when the browser gives no reason.
-const defaultHostWakeReason = "Konsert Keep Awake"
+// defaultHostWakeReason is sent to syred when the browser gives no reason.
+const defaultHostWakeReason = "Syre Keep Awake"
 
 // maxHostWakeReasonLen bounds the reason forwarded to systemd-inhibit --why.
 const maxHostWakeReasonLen = 200
@@ -28,7 +28,7 @@ type WakeLockDesire struct {
 // WorkerWakeLockView is the per-worker wake lock state in WorkerStatusView.
 type WorkerWakeLockView struct {
 	// Supported is true once the worker has reported host.wakelock.state at least once
-	// (konsertd builds without wake lock support never do).
+	// (syred builds without wake lock support never do).
 	Supported bool `json:"supported"`
 	// Desired is the effective hub-side wish (per-worker override, else the fleet-wide
 	// setting); nil when nobody asked for anything.

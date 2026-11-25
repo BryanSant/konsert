@@ -16,20 +16,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/hubkey"
-	"github.com/BryanSant/konsert/internal/linkwatch"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/hubkey"
+	"github.com/BryanSant/syre/internal/linkwatch"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/coder/websocket"
 )
 
-// fakeDaemons are in-process konsertds behind their local socket: dialing one returns
+// fakeDaemons are in-process syreds behind their local socket: dialing one returns
 // a pipe, and the daemon end serves the attach WebSocket and says worker.hello, as a
-// real konsertd behind `konsertd attach` would.
+// real syred behind `syred attach` would.
 type fakeDaemons struct {
 	t     *testing.T
 	mu    sync.Mutex
@@ -81,7 +81,7 @@ func (f *fakeDaemons) dial(id string) (net.Conn, error) {
 	f.dials[id]++
 	f.mu.Unlock()
 	if !ok {
-		// What `konsertd attach` says when the daemon is not running.
+		// What `syred attach` says when the daemon is not running.
 		return nil, errors.New("Error: " + sshutil.DaemonDownMarker + " (no socket at fake.sock): dial unix fake.sock: connect: no such file or directory")
 	}
 	hubSide, daemonSide := net.Pipe()
@@ -155,7 +155,7 @@ func (lt *launchTest) addSSHWorker(t *testing.T, id, name, target string) store.
 }
 
 // An SSH machine is attached by the hub (over SSH, faked here) and registers without
-// any machine credential; the hub identifies itself so konsertd knows its key line.
+// any machine credential; the hub identifies itself so syred knows its key line.
 func TestAttachSSHMachineWithoutCredential(t *testing.T) {
 	lt := newLaunchTest(t)
 	w := lt.addSSHWorker(t, remoteID, "box", "me@box")
@@ -206,8 +206,8 @@ func TestAttachRejectsIdentityMismatch(t *testing.T) {
 	}
 }
 
-// Removing an SSH machine closes its link with 4001 (konsertd uninstalls itself and
-// stops), runs `konsertd uninstall` over the user's SSH as well, records the result in
+// Removing an SSH machine closes its link with 4001 (syred uninstalls itself and
+// stops), runs `syred uninstall` over the user's SSH as well, records the result in
 // the audit log, and stops attaching.
 func TestRemoveSSHMachineUninstallsAndStopsAttaching(t *testing.T) {
 	lt := newLaunchTest(t)
@@ -241,11 +241,11 @@ func TestRemoveSSHMachineUninstallsAndStopsAttaching(t *testing.T) {
 			t.Fatalf("uninstallRemote(%+v)", c)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("konsertd not uninstalled over SSH")
+		t.Fatal("syred not uninstalled over SSH")
 	}
 	waitFor(t, 5*time.Second, "uninstall audit", func() bool {
 		ev, err := lt.st.ListAudit(context.Background(), store.AuditFilter{Action: AuditWorkerUninstall})
-		return err == nil && len(ev) == 1 && strings.Contains(ev[0].Message, "Uninstalled konsertd from box: Removed the systemd user unit for box; Kept the agent hooks")
+		return err == nil && len(ev) == 1 && strings.Contains(ev[0].Message, "Uninstalled syred from box: Removed the systemd user unit for box; Kept the agent hooks")
 	})
 	n := lt.daemons.dialCount(remoteID)
 	time.Sleep(300 * time.Millisecond)
@@ -255,7 +255,7 @@ func TestRemoveSSHMachineUninstallsAndStopsAttaching(t *testing.T) {
 }
 
 // fakeSSHDialer starts the test binary as "ssh": it bridges its stdio to the daemon's
-// socket exactly like `konsertd attach` does behind sshd. It records each link so a
+// socket exactly like `syred attach` does behind sshd. It records each link so a
 // test can kill it (a dropped SSH connection).
 type fakeSSHDialer struct {
 	sock  string
@@ -293,7 +293,7 @@ func (d *fakeSSHDialer) kill() {
 	_ = c.Close()
 }
 
-// End to end over the SSH transport with a real konsertd: the hub attaches through an
+// End to end over the SSH transport with a real syred: the hub attaches through an
 // "ssh" process; killing that process drops the link but not the agent session, the hub
 // re-dials and the task is still there; a restarted hub (same database) attaches again
 // and resyncs the running task from worker.hello; removal drops the authorized_keys
@@ -324,7 +324,7 @@ func TestSSHTransportSurvivesDroppedLinkAndHubRestart(t *testing.T) {
 	daemonErr := make(chan error, 1)
 	go func() { daemonErr <- daemon.Run(ctx) }()
 
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = true
 	cfg.DBPath = dbPath
@@ -396,7 +396,7 @@ func TestSSHTransportSurvivesDroppedLinkAndHubRestart(t *testing.T) {
 		t.Fatalf("re-adopted task: %+v %v", res, err)
 	}
 
-	// 3. Remove the machine: konsertd drops the grant and stops.
+	// 3. Remove the machine: syred drops the grant and stops.
 	srv2.launch.uninstallRemote = func(context.Context, string, string, string) (string, error) { return "", nil }
 	ts := httptest.NewServer(srv2)
 	defer ts.Close()

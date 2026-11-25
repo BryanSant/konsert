@@ -1,6 +1,6 @@
 package chat
 
-// A scripted fake ACP agent. The test binary re-executes itself with KONSERT_FAKE_ACP=1
+// A scripted fake ACP agent. The test binary re-executes itself with SYRE_FAKE_ACP=1
 // (handled in init, so no TestMain is needed) and speaks line-delimited JSON-RPC on
 // stdio. FAKE_ACP_FIXTURE picks testdata/acp/<name>.json for initialize/session/new;
 // FAKE_ACP_SCENARIO scripts session/prompt; FAKE_ACP_LOG records every request.
@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	if os.Getenv("KONSERT_FAKE_ACP") == "1" {
+	if os.Getenv("SYRE_FAKE_ACP") == "1" {
 		runFakeACP()
 		os.Exit(0)
 	}

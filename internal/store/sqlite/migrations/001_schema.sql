@@ -1,9 +1,9 @@
--- Konsert schema. Pre-1.0 there is exactly one migration: schema changes edit this file and
+-- Syre schema. Pre-1.0 there is exactly one migration: schema changes edit this file and
 -- older databases are refused (see migrate.go) rather than upgraded.
 --
 -- IDs: every entity table has two identifiers.
 --   id  UUIDv7 primary key. Every foreign key column holds one, as do the hub<->worker
---       protocol and the web app's internal state. workers.id is konsertd's own
+--       protocol and the web app's internal state. workers.id is syred's own
 --       persistent UUID.
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
@@ -30,8 +30,8 @@ CREATE TABLE workers (
     facts_json       TEXT NOT NULL DEFAULT '',
     facts_updated_at TEXT,
     last_seen_at     TEXT NOT NULL,
-    -- How the hub (re)starts this machine's konsertd: '' started by hand / unknown,
-    -- 'local' the hub's own host (konsertd install), 'ssh' konsertd install over SSH to
+    -- How the hub (re)starts this machine's syred: '' started by hand / unknown,
+    -- 'local' the hub's own host (syred install), 'ssh' syred install over SSH to
     -- ssh_target.
     launch           TEXT NOT NULL DEFAULT '',
     ssh_target       TEXT NOT NULL DEFAULT '',
@@ -58,10 +58,10 @@ CREATE TABLE projects (
     workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name          TEXT NOT NULL,
     is_default    INTEGER NOT NULL DEFAULT 0,
-    -- headline is the project's current goal, set by the orchestrator (set_narration).
+    -- headline is the project's current goal, set by the commander (set_narration).
     headline      TEXT NOT NULL DEFAULT '',
     headline_at   TEXT,
-    -- Delivery overrides (KON-H50YW): '' inherits global default.
+    -- Delivery overrides (SYR-H50YW): '' inherits global default.
     delivery_mode TEXT NOT NULL DEFAULT '',
     merge_style   TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL
@@ -76,7 +76,7 @@ CREATE TABLE repos (
     name          TEXT NOT NULL,
     path          TEXT NOT NULL,
     remote_url    TEXT NOT NULL DEFAULT '',
-    -- Delivery overrides (KON-H50YW): '' inherits project / global default.
+    -- Delivery overrides (SYR-H50YW): '' inherits project / global default.
     delivery_mode TEXT NOT NULL DEFAULT '',
     merge_style   TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL
@@ -119,7 +119,7 @@ CREATE TABLE tasks (
     repo_id            TEXT NOT NULL DEFAULT '',
     worktree_id        TEXT NOT NULL DEFAULT '',
     space_id           TEXT NOT NULL DEFAULT '',
-    origin             TEXT NOT NULL DEFAULT 'orchestrator',
+    origin             TEXT NOT NULL DEFAULT 'commander',
     session_kind       TEXT NOT NULL DEFAULT 'chat',
     agent              TEXT NOT NULL,
     model              TEXT NOT NULL DEFAULT '',
@@ -139,10 +139,10 @@ CREATE TABLE tasks (
     cause_json         TEXT NOT NULL DEFAULT '',
     -- suspended_by: '' | 'user' | 'pause' (Resume after Pause everything only restores 'pause').
     suspended_by       TEXT NOT NULL DEFAULT '',
-    -- parent_chat_id is the orchestrator/agent chat that dispatched the task ('' otherwise).
+    -- parent_chat_id is the commander/agent chat that dispatched the task ('' otherwise).
     parent_chat_id     TEXT NOT NULL DEFAULT '',
     -- title is a short name for the task (dispatch_task title); narration is the
-    -- orchestrator's one-line "now" for it (set_narration).
+    -- commander's one-line "now" for it (set_narration).
     title              TEXT NOT NULL DEFAULT '',
     narration          TEXT NOT NULL DEFAULT '',
     narration_at       TEXT,
@@ -204,10 +204,10 @@ CREATE TABLE chat_sessions (
     notes_cursor     INTEGER NOT NULL DEFAULT 0,
     -- Side-conversation answerers (hidden chats): question_id is the question the chat
     -- answers about; fork_of is the chat whose agent session it forked ('' for the
-    -- orchestrator fallback). Hidden chats never appear in the chat list.
+    -- commander fallback). Hidden chats never appear in the chat list.
     question_id      TEXT NOT NULL DEFAULT '',
     fork_of          TEXT NOT NULL DEFAULT '',
-    -- Retention (KON-CSCWP). keep: pinned by the user, never compacted. Retention drops
+    -- Retention (SYR-CSCWP). keep: pinned by the user, never compacted. Retention drops
     -- the bulky events (tool calls, reasoning, plans, usage; see store.ChatEventKeepKinds)
     -- of turns older than the detail period: compacted_seq is the last seq it covered,
     -- compacted_before the age cutoff it used and compacted_at when it last dropped
@@ -254,7 +254,7 @@ CREATE TABLE agent_accounts (
     PRIMARY KEY (worker_id, account_id)
 );
 
--- Machine vitals and heat, in three tiers (KON-WY5F2; docs/design/activity.md). At most
+-- Machine vitals and heat, in three tiers (SYR-WY5F2; docs/design/activity.md). At most
 -- ~2.9k raw + 720 hourly + 365 daily rows per machine, however old it is.
 --
 -- Raw tier: one row per machine per 15-second bucket (t: unix seconds, a multiple of 15)
@@ -314,7 +314,7 @@ CREATE TABLE machine_vitals_rollup (
 ) WITHOUT ROWID;
 CREATE INDEX idx_machine_vitals_rollup_t ON machine_vitals_rollup(period, t);
 
--- Each machine's durable outbound spool as the hub applied it (KON-VZR9F,
+-- Each machine's durable outbound spool as the hub applied it (SYR-VZR9F,
 -- docs/design/spool.md): applied_seq is the highest daemon seq of epoch the hub applied.
 -- Records that append (chat events, task events, usage, vitals) advance it in the same
 -- transaction, so a replay after a hub crash never applies them twice.
@@ -367,7 +367,7 @@ CREATE TABLE subscription_quotas (
 );
 CREATE INDEX idx_sub_quotas_provider ON subscription_quotas(provider);
 
-CREATE TABLE orchestrator_memory (
+CREATE TABLE commander_memory (
     id         TEXT PRIMARY KEY, -- UUIDv7; rows are upserted on (scope, mem_key)
     scope      TEXT NOT NULL, -- 'fleet' | 'session:<id>' | 'project:<id>'
     mem_key    TEXT NOT NULL,
@@ -376,7 +376,7 @@ CREATE TABLE orchestrator_memory (
     updated_at TEXT NOT NULL,
     UNIQUE(scope, mem_key)
 );
-CREATE INDEX idx_orch_memory_scope ON orchestrator_memory(scope, updated_at DESC);
+CREATE INDEX idx_orch_memory_scope ON commander_memory(scope, updated_at DESC);
 
 CREATE TABLE settings (
     key        TEXT PRIMARY KEY,
@@ -415,7 +415,7 @@ CREATE TABLE fleet_events (
     created_at   TEXT NOT NULL,
     kind         TEXT NOT NULL, -- status | action | hold | request | veto | notice
     action       TEXT NOT NULL DEFAULT '',
-    actor_kind   TEXT NOT NULL, -- user | orchestrator | agent | scheduler | system | unknown
+    actor_kind   TEXT NOT NULL, -- user | commander | agent | scheduler | system | unknown
     actor_source TEXT NOT NULL DEFAULT '',
     actor_id     TEXT NOT NULL DEFAULT '',
     confidence   TEXT NOT NULL DEFAULT '',
@@ -535,7 +535,7 @@ CREATE TABLE question_rejects (
 );
 CREATE INDEX idx_question_rejects_time ON question_rejects(created_at);
 
--- Reviews and delivery outcomes (KON-H50YW): the user's review decision on finished work,
+-- Reviews and delivery outcomes (SYR-H50YW): the user's review decision on finished work,
 -- the delivery outcome (direct merge, PR/MR + merge, open PR/MR, keep branch), PR state
 -- tracking and the Expedite flag, one row per session. Expedited queued tasks are placed first.
 CREATE TABLE reviews (
@@ -547,7 +547,7 @@ CREATE TABLE reviews (
     note              TEXT NOT NULL DEFAULT '',
     decided_by        TEXT NOT NULL DEFAULT '',
     decided_at        TEXT,
-    -- Delivery outcome (KON-H50YW): mode used, status ('' | delivered | pr_open | auto_merge |
+    -- Delivery outcome (SYR-H50YW): mode used, status ('' | delivered | pr_open | auto_merge |
     -- manual | conflict | closed | failed | offline), human message, merge method/SHA, PR info.
     delivery_mode     TEXT NOT NULL DEFAULT '',
     delivery_status   TEXT NOT NULL DEFAULT '',
@@ -583,13 +583,13 @@ CREATE TABLE review_seen_comments (
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.
 
--- Override requests (break-glass): an orchestrator asks the user for a time-boxed
+-- Override requests (break-glass): a commander asks the user for a time-boxed
 -- exception to a slot limit or hold. Approved ones are enforced until expires_at and
 -- measured (use_count).
 CREATE TABLE override_requests (
     id               TEXT PRIMARY KEY,
     sid              TEXT NOT NULL UNIQUE, -- o-…
-    chat_id          TEXT NOT NULL DEFAULT '', -- the requesting orchestrator chat
+    chat_id          TEXT NOT NULL DEFAULT '', -- the requesting commander chat
     scope_kind       TEXT NOT NULL, -- machine_slots | hold | session | machine
     worker_id        TEXT NOT NULL DEFAULT '',
     task_id          TEXT NOT NULL DEFAULT '',
@@ -639,7 +639,7 @@ CREATE INDEX idx_vetoes_open ON vetoes(acked_at, dismissed_at);
 CREATE INDEX idx_vetoes_event ON vetoes(fleet_event_id);
 
 -- ---------------------------------------------------------------------------------
--- Device sign-in (KON-W0P8B, KON-V5JZB, KON-A29CT). Self-contained block.
+-- Device sign-in (SYR-W0P8B, SYR-V5JZB, SYR-A29CT). Self-contained block.
 -- ---------------------------------------------------------------------------------
 
 -- Devices: one revocable credential per signed-in browser, phone, CLI or MCP client.
@@ -687,10 +687,10 @@ CREATE TABLE pairing_codes (
 CREATE UNIQUE INDEX idx_pairing_codes_poll ON pairing_codes(poll_hash) WHERE poll_hash != '';
 CREATE INDEX idx_pairing_codes_expires ON pairing_codes(expires_at);
 
--- Machine credentials and join codes (KON-RK9YD). Each konsertd authenticates with its
+-- Machine credentials and join codes (SYR-RK9YD). Each syred authenticates with its
 -- own credential, bound to its machine (worker_id): it can only register as that
 -- machine. Only a SHA-256 of each secret is stored. A credential is minted when a
--- machine joins with a code, or by the hub when it installs konsertd (local or SSH).
+-- machine joins with a code, or by the hub when it installs syred (local or SSH).
 -- Rows stay after revocation for the record; removing the machine deletes them.
 CREATE TABLE machine_credentials (
     id             TEXT PRIMARY KEY,
@@ -706,7 +706,7 @@ CREATE TABLE machine_credentials (
 CREATE INDEX idx_machine_credentials_worker ON machine_credentials(worker_id, revoked_at);
 
 -- Short-lived, single-use codes a manual machine trades for its credential
--- (`konsertd join <hub> <code>`). Only a SHA-256 of the code is stored.
+-- (`syred join <hub> <code>`). Only a SHA-256 of the code is stored.
 CREATE TABLE machine_join_codes (
     id         TEXT PRIMARY KEY,
     code_hash  TEXT NOT NULL UNIQUE,

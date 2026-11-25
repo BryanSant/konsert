@@ -10,23 +10,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Live tests against the real claude CLI on this machine, using the caller's
 // subscriptions (no API key). Opt-in, tiny prompts:
 //
-//	KONSERT_LIVE_CLAUDE=1 go test ./internal/worker/chat -run TestLiveClaude -v
+//	SYRE_LIVE_CLAUDE=1 go test ./internal/worker/chat -run TestLiveClaude -v
 //
 // claude2 is a second subscription selected by env (CLAUDE_CONFIG_DIR=~/.claude2 plus
 // the setup token from ~/.claude2-oauth-token, read in-process). Transcripts the tests
-// create for their scratch cwd are deleted afterwards. KONSERT_LIVE_TRACE=<file> writes
+// create for their scratch cwd are deleted afterwards. SYRE_LIVE_TRACE=<file> writes
 // the raw stream (no secrets are sent over it) for fixture capture.
 
 func liveClaudeGate(t *testing.T) {
 	t.Helper()
-	if os.Getenv("KONSERT_LIVE_CLAUDE") != "1" {
-		t.Skip("set KONSERT_LIVE_CLAUDE=1 to run live claude tests")
+	if os.Getenv("SYRE_LIVE_CLAUDE") != "1" {
+		t.Skip("set SYRE_LIVE_CLAUDE=1 to run live claude tests")
 	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude not installed")
@@ -55,7 +55,7 @@ func liveClaudeAccounts(t *testing.T) (Account, Account, bool) {
 // accounts stored for it.
 func liveScratch(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/var/tmp", "konsert-live-claude-")
+	dir, err := os.MkdirTemp("/var/tmp", "syre-live-claude-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func turnDone(ev protocol.AgentChatEvent) bool {
 
 func liveEngine(t *testing.T) *claudeEngine {
 	e := newClaudeEngine()
-	if path := os.Getenv("KONSERT_LIVE_TRACE"); path != "" {
+	if path := os.Getenv("SYRE_LIVE_TRACE"); path != "" {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			t.Fatal(err)

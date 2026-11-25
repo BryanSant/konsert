@@ -3,11 +3,11 @@ import { expect, Locator, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Questions and steering (KON-2Q0CH, PRD §5.8b) against the mock engine, which calls
- * Konsert's ask_user over MCP like a real agent ("question"), forks its session for side
- * conversations and decides delegated questions as the orchestrator. Desktop and phone
+ * Questions and steering (SYR-2Q0CH, PRD §5.8b) against the mock engine, which calls
+ * Syre's ask_user over MCP like a real agent ("question"), forks its session for side
+ * conversations and decides delegated questions as the commander. Desktop and phone
  * (390px): answer via an option, via free text, after a side conversation, and by letting
- * the orchestrator decide.
+ * the commander decide.
  */
 
 interface E2EEnv {
@@ -16,7 +16,7 @@ interface E2EEnv {
   workerId: string;
 }
 
-const QUESTION = 'Accept the shortened exit criteria on KON-2Q0CH?';
+const QUESTION = 'Accept the shortened exit criteria on SYR-2Q0CH?';
 
 function loadEnv(): E2EEnv {
   return JSON.parse(fs.readFileSync(E2E_STATE_FILE, 'utf8')) as E2EEnv;
@@ -38,7 +38,7 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
       const res = await fetch(path, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
@@ -109,7 +109,7 @@ test.describe('Questions (mock engine)', () => {
     await expect(card.getByTestId('question-title')).toHaveText(QUESTION);
     await expect(card.getByTestId('question-context')).toContainText('requires a live phone run');
     await expect(card.getByTestId('question-context')).toContainText('Closing the epic waits on this');
-    await expect(card.getByTestId('question-refs')).toContainText('KON-2Q0CH');
+    await expect(card.getByTestId('question-refs')).toContainText('SYR-2Q0CH');
     const yes = card.getByTestId('question-option-option_1');
     await expect(yes).toContainText('Recommended');
     await expect(yes).toContainText('Why: The mobile e2e covers the same flow');
@@ -154,37 +154,37 @@ test.describe('Questions (mock engine)', () => {
     await expect(panel.getByTestId('questions-detail').getByTestId('question-card')).toHaveAttribute('data-question', sid);
     await expect(thread.getByTestId('thread-pinned-options')).toContainText('No, keep the strict exit criteria');
 
-    await thread.getByTestId('thread-input').fill('What is KON-2Q0CH, why change the exit criteria, and why do you recommend Yes?');
+    await thread.getByTestId('thread-input').fill('What is SYR-2Q0CH, why change the exit criteria, and why do you recommend Yes?');
     await thread.getByTestId('thread-send').click();
     await expect(thread.getByTestId('thread-user')).toContainText('why do you recommend Yes?');
     await expect(thread.getByTestId('thread-answer')).toContainText('read-only fork of');
     await expect(thread.getByTestId('thread-answerer')).toContainText('Read-only copy');
     // The original is still blocked on its question.
-    await expect(chat.locator('ks-status-pill:visible [data-status]').first()).toHaveAttribute('data-status', 'needs_you');
+    await expect(chat.locator('sy-status-pill:visible [data-status]').first()).toHaveAttribute('data-status', 'needs_you');
 
     await expect(thread.getByTestId('thread-draft')).toContainText('Yes');
     await thread.getByTestId('thread-use-draft').click();
     await expect(thread.getByTestId('thread-receipt')).toContainText('with a summary of your side conversation', { timeout: 20_000 });
     if (isMobile && (await thread.isVisible())) await thread.getByTestId('thread-close').click(); // the sheet covers the header
     await closeDialog(panel);
-    await expect(assistant(chat, 'Side conversation: The user asked what KON-2Q0CH is')).toBeVisible();
+    await expect(assistant(chat, 'Side conversation: The user asked what SYR-2Q0CH is')).toBeVisible();
   });
 
-  test('let the orchestrator decide: a receipt with its reason, then the agent gets it', async ({ page }) => {
+  test('let the commander decide: a receipt with its reason, then the agent gets it', async ({ page }) => {
     await api(page, 'PUT', '/api/questions/settings', { auto_delegate: [], delegation_grace_seconds: 1 });
-    await api(page, 'POST', '/api/chats/orchestrator', {});
+    await api(page, 'POST', '/api/chats/commander', {});
     const chat = await newChat(page);
     const sid = await askQuestion(chat);
     const panel = await openQueue(page, sid);
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await card.getByTestId('question-delegate').click();
-    // Handing it to the orchestrator moves the dialog on; the answer arrives in the chat.
+    // Handing it to the commander moves the dialog on; the answer arrives in the chat.
     await expect(panel.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
     await closeDialog(panel);
     await expect
       .poll(async () => (await api<{ questions: Array<{ sid: string; answer?: { summary?: string; label?: string; by?: { actor: string } } }> }>(page, 'GET', '/api/questions?status=all')).questions.find((x) => x.sid === sid)?.answer?.by?.actor, { timeout: 25_000 })
-      .toBe('orchestrator');
-    await expect(assistant(chat, "The orchestrator answered on the user's behalf")).toBeVisible();
+      .toBe('commander');
+    await expect(assistant(chat, "The commander answered on the user's behalf")).toBeVisible();
   });
 });
 
@@ -224,7 +224,7 @@ test.describe('Questions on a phone (390px)', () => {
     if (await sheet.isVisible()) await sheet.getByTestId('thread-close').click().catch(() => undefined);
     await closeDialog(panel);
     await expect(page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`)).toHaveCount(0);
-    // Back in the orchestrator chat, the agent got the answer.
+    // Back in the commander chat, the agent got the answer.
     await page.goBack();
     await expect(page).toHaveURL(/\/command$/);
     await expect(assistant(chat, 'Side conversation:')).toBeVisible();

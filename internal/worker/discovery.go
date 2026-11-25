@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/gitutil"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/gitutil"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// SessionDiscovery watches ~/.konsert/hook-events.jsonl incrementally and performs
-// gentle passive process inspection so externally SSH-launched coding agents appear live in Konsert.
+// SessionDiscovery watches ~/.syre/hook-events.jsonl incrementally and performs
+// gentle passive process inspection so externally SSH-launched coding agents appear live in Syre.
 type SessionDiscovery struct {
 	homeDir   string
 	emit      func(protocol.ExternalSessionPayload)
@@ -116,7 +116,7 @@ func (s *SessionDiscovery) Resync() {
 // maxHookRead bounds how much of the hook inbox is read per poll.
 const maxHookRead = 512 * 1024
 
-// PollHookEvents reads any newly appended lines in ~/.konsert/hook-events.jsonl and emits external session updates.
+// PollHookEvents reads any newly appended lines in ~/.syre/hook-events.jsonl and emits external session updates.
 func (s *SessionDiscovery) PollHookEvents(ctx context.Context) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
@@ -195,7 +195,7 @@ func ParseHookEventLine(line string) (protocol.ExternalSessionPayload, bool) {
 		return protocol.ExternalSessionPayload{}, false
 	}
 	if ev.TaskID != "" {
-		// Fired inside a konsertd-managed task: that task is not an external session.
+		// Fired inside a syred-managed task: that task is not an external session.
 		return protocol.ExternalSessionPayload{}, false
 	}
 	extID := ev.SessionID
@@ -283,7 +283,7 @@ func parsePsOutput(out []byte) []psEntry {
 	return entries
 }
 
-// managedOrDescendant reports whether pid, or any of its ancestors, is a konsertd-managed
+// managedOrDescendant reports whether pid, or any of its ancestors, is a syred-managed
 // task process (an agent's own helper processes are covered by the managed task).
 func (s *SessionDiscovery) managedOrDescendant(pid int, parent map[int]int) bool {
 	if s.isManaged == nil {
@@ -302,7 +302,7 @@ func (s *SessionDiscovery) managedOrDescendant(pid int, parent map[int]int) bool
 	return false
 }
 
-// ScanPassiveProcesses gently inspects running user agent processes not managed by konsertd.
+// ScanPassiveProcesses gently inspects running user agent processes not managed by syred.
 func (s *SessionDiscovery) ScanPassiveProcesses(ctx context.Context) {
 	if runtime.GOOS == "windows" {
 		return

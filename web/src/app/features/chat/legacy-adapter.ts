@@ -1,8 +1,8 @@
 /**
- * Adapts the optional API-key orchestrator's messages (chat.delta / chat.tool / messages
+ * Adapts the optional API-key commander's messages (chat.delta / chat.tool / messages
  * REST) to transcript items, so both backends render through the same transcript.
  */
-import { ChatMessage, ChatToolCard } from '../../core/models/konsert.models';
+import { ChatMessage, ChatToolCard } from '../../core/models/syre.models';
 import { TranscriptItem, splitAttachments } from '../../core/state/chat-transcript';
 
 export function parseUserMessageWithAttachments(content: string): { text: string; files: string[] } {

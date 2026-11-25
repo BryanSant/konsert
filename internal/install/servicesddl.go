@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// Removal never needs elevation (KON-28HHD): the elevated install adds an ACE to the
+// Removal never needs elevation (SYR-28HHD): the elevated install adds an ACE to the
 // service's own DACL granting the account it runs as just enough to remove it, so
-// `konsertd uninstall --service`, the daemon's self-removal on close code 4001 and the
-// hub's `konsertd uninstall --worker` over SSH all work from that account's ordinary
+// `syred uninstall --service`, the daemon's self-removal on close code 4001 and the
+// hub's `syred uninstall --worker` over SSH all work from that account's ordinary
 // (non-elevated) token.
 //
 // Service access rights (winsvc.h) and the SDDL tokens the service DACL uses for them
@@ -112,7 +112,7 @@ func serviceDACLWithAccount(sddl, sid string) (string, error) {
 }
 
 // serviceSecretFileSDDL is the DACL of the service's config and marker files in
-// %ProgramData%\konsert: SYSTEM and Administrators full control, the service account
+// %ProgramData%\syre: SYSTEM and Administrators full control, the service account
 // read (FILE_GENERIC_READ, 0x120089) and DELETE (0x10000) = 0x130089, so the account
 // can remove them when it uninstalls the service without elevation. It cannot write
 // them.

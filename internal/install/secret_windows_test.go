@@ -12,7 +12,7 @@ import (
 )
 
 func TestWriteSecretFileIsUserOnly(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "konsert", "konsertd.yaml")
+	path := filepath.Join(t.TempDir(), "syre", "syred.yaml")
 	if err := WriteSecretFile(path, []byte("name: x\n")); err != nil {
 		t.Fatal(err)
 	}

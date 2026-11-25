@@ -1,14 +1,14 @@
-// Package hubkey manages the hub's dedicated SSH key (KON-K1B60) and its lines in a
+// Package hubkey manages the hub's dedicated SSH key (SYR-K1B60) and its lines in a
 // machine's authorized_keys.
 //
 // Machines added over SSH talk to the hub over SSH: the hub runs the system ssh with its
 // own ed25519 key (never a user's personal key), and the machine's authorized_keys
-// restricts that key to a forced command, so all it can do is attach to konsertd:
+// restricts that key to a forced command, so all it can do is attach to syred:
 //
-//	command="/home/me/.local/bin/konsertd attach --allow=<id>",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAA... konsert-hub:<hub-id>
+//	command="/home/me/.local/bin/syred attach --allow=<id>",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 AAAA... syre-hub:<hub-id>
 //
 // One line per hub and account: the comment marks it as this hub's, and --allow lists
-// the konsertd identities (worker ids) on the account the hub may attach to, so two
+// the syred identities (worker ids) on the account the hub may attach to, so two
 // machines sharing a home directory (a container and its host) share the line, and
 // removing one only drops its id. The line goes when the last id does.
 package hubkey
@@ -26,12 +26,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/install"
 	"github.com/google/uuid"
 )
 
 // MarkerPrefix starts the comment of every authorized_keys line a hub manages.
-const MarkerPrefix = "konsert-hub:"
+const MarkerPrefix = "syre-hub:"
 
 // Options are the restrictions on the hub key besides its forced command.
 const Options = "no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding"
@@ -40,8 +40,8 @@ const Options = "no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding
 func Marker(hubID string) string { return MarkerPrefix + hubID }
 
 // Entry is one hub key grant: the hub, its public key ("ssh-ed25519 AAAA..."), the
-// konsertd binary the forced command runs, the remote OS (quoting differs) and the
-// konsertd identity to allow.
+// syred binary the forced command runs, the remote OS (quoting differs) and the
+// syred identity to allow.
 type Entry struct {
 	HubID     string
 	PublicKey string
@@ -55,7 +55,7 @@ var hubIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // ValidHubID reports whether id is usable as a hub id (it ends up in authorized_keys).
 func ValidHubID(id string) bool { return hubIDRe.MatchString(id) }
 
-// ValidWorkerID reports whether id is a canonical UUID (konsertd's identity).
+// ValidWorkerID reports whether id is a canonical UUID (syred's identity).
 func ValidWorkerID(id string) bool {
 	u, err := uuid.Parse(id)
 	return err == nil && u.String() == id
@@ -76,7 +76,7 @@ func (e Entry) validate() error {
 		return errors.New("the hub public key is not valid base64")
 	}
 	if strings.TrimSpace(e.Exe) == "" || strings.ContainsAny(e.Exe, "\"\r\n") {
-		return fmt.Errorf("invalid konsertd path %q", e.Exe)
+		return fmt.Errorf("invalid syred path %q", e.Exe)
 	}
 	return nil
 }

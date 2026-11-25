@@ -10,7 +10,7 @@ import {
   Worker,
   Workspace,
   Worktree,
-} from '../models/konsert.models';
+} from '../models/syre.models';
 import { WorkerHeat } from '../models/activity.models';
 import { Review, reviewKey } from '../models/review.models';
 import { ApiClientService } from '../services/api-client.service';
@@ -53,7 +53,7 @@ export class FleetStore {
     total_requests: 0,
     by_provider: [],
   });
-  /** Review decisions and Expedite flags by "task:<id>" / "chat:<id>" (hub-stored, KON-BM8JR). */
+  /** Review decisions and Expedite flags by "task:<id>" / "chat:<id>" (hub-stored, SYR-BM8JR). */
   readonly reviews = signal<Record<string, Review>>({});
   readonly loading = signal(false);
 
@@ -150,7 +150,7 @@ export class FleetStore {
   }
 
   /**
-   * Asks the hub to start a hub-managed machine's konsertd again. The machine shows
+   * Asks the hub to start a hub-managed machine's syred again. The machine shows
    * "starting" until the hub reports the outcome over the socket.
    */
   async retryStart(workerId: string): Promise<void> {
@@ -162,7 +162,7 @@ export class FleetStore {
     try {
       await this.api.startWorker(workerId);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not start konsertd';
+      const msg = err instanceof Error ? err.message : 'Could not start syred';
       this.live(() =>
         this.workers.update((list) =>
           list.map((w) => (w.id === workerId ? { ...w, launch_state: 'failed' as const, launch_error: msg } : w)),

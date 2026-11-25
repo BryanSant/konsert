@@ -5,13 +5,13 @@ import { expect, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * History retention (KON-CSCWP): an old chat whose detailed events were compacted still
+ * History retention (SYR-CSCWP): an old chat whose detailed events were compacted still
  * shows its transcript with a note; the Keep toggle pins a chat; Settings → Storage
  * renders and Compact now runs a pass.
  *
  * Aging a chat needs its rows dated in the past, so the test backdates them directly in
  * the hub's SQLite file (WAL mode allows a second process; the hub's busy timeout covers
- * the brief lock). Set KONSERT_SHOTS_DIR to save screenshots.
+ * the brief lock). Set SYRE_SHOTS_DIR to save screenshots.
  */
 
 interface E2EEnv {
@@ -39,7 +39,7 @@ async function api<T>(page: Page, method: string, p: string, body?: unknown): Pr
       const res = await fetch(p, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+        headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`${method} ${p}: ${res.status} ${await res.text()}`);
@@ -50,7 +50,7 @@ async function api<T>(page: Page, method: string, p: string, body?: unknown): Pr
 }
 
 async function shot(page: Page, name: string): Promise<void> {
-  const dir = process.env['KONSERT_SHOTS_DIR'];
+  const dir = process.env['SYRE_SHOTS_DIR'];
   if (!dir) return;
   fs.mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: path.join(dir, name) });
@@ -118,7 +118,7 @@ test.describe('History retention', () => {
 
     // Age the chat by 60 days, then compact.
     const old = hubTime(new Date(Date.now() - 60 * 24 * 3600 * 1000));
-    const db = new DatabaseSync(path.join(env.tmpDir, 'konsert.db'));
+    const db = new DatabaseSync(path.join(env.tmpDir, 'syre.db'));
     db.exec('PRAGMA busy_timeout = 5000');
     db.prepare('UPDATE chat_events SET created_at = ? WHERE chat_id = ?').run(old, id);
     db.prepare('UPDATE chat_sessions SET compact_next_at = ?, created_at = ? WHERE id = ?').run(old, old, id);

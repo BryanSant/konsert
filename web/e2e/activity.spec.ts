@@ -3,8 +3,8 @@ import { expect, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Live-work data end to end (KON-NAYVC, KON-RJ8P7): a mock chat turn with the "activity"
- * keyword walks thinking -> working -> speaking -> done, and konsertd's rate-limited
+ * Live-work data end to end (SYR-NAYVC, SYR-RJ8P7): a mock chat turn with the "activity"
+ * keyword walks thinking -> working -> speaking -> done, and syred's rate-limited
  * session.activity reaches the browser as fleet.update kind "activity"; the fleet snapshot
  * carries the activity set and every online machine's heat. No UI is asserted: this is the
  * data the Work and Fleet modes render.

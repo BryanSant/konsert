@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // MockEngine is an in-process engine with deterministic, keyword-driven behaviour, enabled
@@ -27,11 +27,11 @@ import (
 //	            one works and speaks, the other asks a permission (waits for the answer)
 //	activity    walks the activity states slowly enough to see each one (ActivityHold per
 //	            state): thinking, working (Bash "Run: go test ./..."), speaking, done
-//	vague question  calls Konsert's ask_user under-specified (rejected), then properly
-//	question    calls Konsert's ask_user (MCP) with a well-formed question and reports the answer
+//	vague question  calls Syre's ask_user under-specified (rejected), then properly
+//	question    calls Syre's ask_user (MCP) with a well-formed question and reports the answer
 //	(anything)  thought, message deltas, a tool call, message, usage, turn_end
 //
-// It also forks sessions (AgentChatOpen.ForkFrom), answers Konsert's side-conversation,
+// It also forks sessions (AgentChatOpen.ForkFrom), answers Syre's side-conversation,
 // summary and delegation prompts (see mock_questions.go).
 type MockEngine struct {
 	// StepDelay separates scripted events (default 20 ms).
@@ -131,7 +131,7 @@ func (e *MockEngine) Probe(_ context.Context, acct Account) protocol.AgentAccoun
 		},
 		CheckedAt: now, ChatSupported: true, Fork: true,
 	}
-	if acct.Env["KONSERT_MOCK_ACCOUNT"] == "mock2" || acct.ID == "mock2" {
+	if acct.Env["SYRE_MOCK_ACCOUNT"] == "mock2" || acct.ID == "mock2" {
 		out.Plan = "pro"
 		out.Auth.Email = "mock2@example.com"
 		out.Usage = []protocol.AgentRateLimit{
@@ -199,7 +199,7 @@ type mockSession struct {
 	opts    protocol.AgentChatOpen
 	forkOf  string // the session this one was forked from
 
-	mcpSess         *mcp.ClientSession // to the chat's konsert MCP server (lazy)
+	mcpSess         *mcp.ClientSession // to the chat's syre MCP server (lazy)
 	toolN           int
 	lastRecommended string
 
@@ -392,10 +392,10 @@ func (s *mockSession) deltas(ctx context.Context, turn, msgID, text string) bool
 }
 
 func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
-	// Keywords come from the user's own text, not a "[Konsert]" note the hub prepended
+	// Keywords come from the user's own text, not a "[Syre]" note the hub prepended
 	// (its wording would otherwise trigger "ask", "permission", ...).
 	text := p.Text
-	if strings.HasPrefix(text, "[Konsert]") {
+	if strings.HasPrefix(text, "[Syre]") {
 		text = ""
 		if _, rest, ok := strings.Cut(p.Text, "\n\n"); ok {
 			text = rest
@@ -442,7 +442,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	case strings.Contains(text, "fail auth"):
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
 			Kind: protocol.ErrKindAuth, Message: s.acct.Label + " needs you to sign in again (mock)",
-			Relogin: &protocol.AgentRelogin{Command: "mock login", Env: map[string]string{"KONSERT_MOCK_ACCOUNT": s.acct.ID},
+			Relogin: &protocol.AgentRelogin{Command: "mock login", Env: map[string]string{"SYRE_MOCK_ACCOUNT": s.acct.ID},
 				URL: "https://example.com/mock/login", Note: "Simulated by the mock engine"},
 		}})
 
@@ -569,7 +569,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			return
 		}
 		done := *tool
-		done.Status, done.Output = "completed", "# Konsert\n"
+		done.Status, done.Output = "completed", "# Syre\n"
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
 		s.mu.Lock()
 		model := s.model

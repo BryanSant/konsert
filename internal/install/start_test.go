@@ -8,20 +8,20 @@ import (
 )
 
 func TestParseSchtasksQuery(t *testing.T) {
-	const name = `\konsertd-winbox`
+	const name = `\syred-winbox`
 	cases := []struct {
 		out          string
 		found        bool
 		state        string
 		wantsRunning bool
 	}{
-		{`"\konsertd-winbox","N/A","Running"` + "\r\n", true, "Running", true},
-		{"\uFEFF" + `"\konsertd-winbox","11/24/2026 3:01:00 PM","Ready"` + "\r\n\r\n", true, "Ready", false},
-		{"\r\n" + `"\konsertd-winbox","N/A","Queued"` + "\r\n", true, "Queued", false},
+		{`"\syred-winbox","N/A","Running"` + "\r\n", true, "Running", true},
+		{"\uFEFF" + `"\syred-winbox","11/24/2026 3:01:00 PM","Ready"` + "\r\n\r\n", true, "Ready", false},
+		{"\r\n" + `"\syred-winbox","N/A","Queued"` + "\r\n", true, "Queued", false},
 		// Two triggers can list the task twice; a running row wins.
-		{`"\konsertd-winbox","11/24/2026 3:01:00 PM","Ready"` + "\r\n" + `"\konsertd-winbox","N/A","Running"` + "\r\n", true, "Running", true},
-		{`"\KONSERTD-WINBOX","N/A","running"`, true, "running", true},
-		{`"\konsertd-other","N/A","Running"`, false, "", false},
+		{`"\syred-winbox","11/24/2026 3:01:00 PM","Ready"` + "\r\n" + `"\syred-winbox","N/A","Running"` + "\r\n", true, "Running", true},
+		{`"\SYRED-WINBOX","N/A","running"`, true, "running", true},
+		{`"\syred-other","N/A","Running"`, false, "", false},
 		{"", false, "", false},
 		{`ERROR: The system cannot find the file specified.`, false, "", false},
 	}
@@ -51,7 +51,7 @@ func (r *scriptedRunner) Run(_ context.Context, _ string, name string, args ...s
 		if len(r.states) > 1 {
 			r.states = r.states[1:]
 		}
-		return `"\konsertd-winbox","N/A","` + st + `"` + "\r\n", nil
+		return `"\syred-winbox","N/A","` + st + `"` + "\r\n", nil
 	}
 	return "", nil
 }

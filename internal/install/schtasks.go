@@ -11,13 +11,13 @@ import (
 	"unicode/utf16"
 )
 
-// schtasksBackend registers a Task Scheduler task that runs konsertd as the current user.
-// Which kind depends on whether the install runs elevated (KON-224K5):
+// schtasksBackend registers a Task Scheduler task that runs syred as the current user.
+// Which kind depends on whether the install runs elevated (SYR-224K5):
 //
 //   - Elevated (an administrator over SSH, which is the hub's bootstrap, or an elevated
 //     terminal): LogonType S4U, "run whether the user is logged on or not" with no stored
 //     password. It runs in session 0 (no desktop) at startup, at logon and every minute,
-//     so a headless machine starts konsertd after a reboot with nobody signed in, and
+//     so a headless machine starts syred after a reboot with nobody signed in, and
 //     `schtasks /Run` starts it over SSH. S4U has no network credentials (SMB/Kerberos;
 //     HTTPS is unaffected). Creating an S4U task needs elevation, and running one needs
 //     the batch logon right, which Administrators have and standard users do not. Verified
@@ -29,32 +29,32 @@ import (
 //
 // A console program started by Task Scheduler in an interactive session gets a visible
 // console window (on Windows 11 possibly a Windows Terminal tab). To avoid it, the task
-// runs `conhost.exe --headless konsertd.exe run ...`: conhost is itself a GUI-subsystem
+// runs `conhost.exe --headless syred.exe run ...`: conhost is itself a GUI-subsystem
 // program, so starting it shows nothing, and in headless mode it hosts a console for
-// konsertd without ever creating a window. konsertd still has a real console, so the
+// syred without ever creating a window. syred still has a real console, so the
 // git and agent CLI child processes it starts inherit that hidden console instead of
-// each popping up a window of their own (which is what a windowsgui build of konsertd
+// each popping up a window of their own (which is what a windowsgui build of syred
 // would cause). Default-terminal delegation to Windows Terminal does not apply because
 // conhost is launched explicitly.
 //
-// conhost --headless exits 0 whatever konsertd's exit code was, so Task Scheduler's
+// conhost --headless exits 0 whatever syred's exit code was, so Task Scheduler's
 // RestartOnFailure never sees a failure. Instead a second trigger fires every minute,
 // indefinitely, from install time on, with MultipleInstancesPolicy IgnoreNew: while
-// konsertd runs each firing is ignored, and if it has exited the next one starts it
+// syred runs each firing is ignored, and if it has exited the next one starts it
 // again. (A repetition on the logon trigger itself would only begin at the next logon.)
 // For an InteractiveToken task, like the logon trigger, it only runs while the user is
 // logged on.
 type schtasksBackend struct{}
 
-// Task Scheduler logon types konsertd registers.
+// Task Scheduler logon types syred registers.
 const (
 	TaskLogonS4U         = "S4U"
 	TaskLogonInteractive = "InteractiveToken"
 )
 
-// HeadlessHint tells a user whose konsertd is a logon task how to have it start with
+// HeadlessHint tells a user whose syred is a logon task how to have it start with
 // nobody signed in.
-const HeadlessHint = "For headless use (start with nobody signed in), run `konsertd install` again from an elevated terminal (Run as administrator) or over SSH as an administrator, which registers an S4U task, or use `konsertd install --service`."
+const HeadlessHint = "For headless use (start with nobody signed in), run `syred install` again from an elevated terminal (Run as administrator) or over SSH as an administrator, which registers an S4U task, or use `syred install --service`."
 
 // TaskName is the Task Scheduler task name of an instance (in the root folder, where a
 // standard user may create tasks).
@@ -102,7 +102,7 @@ func RenderTaskXML(p TaskXMLParams) string {
 	return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Author>konsertd install</Author>
+    <Author>syred install</Author>
     <Description>` + esc(p.Description) + `</Description>
     <URI>` + esc(p.URI) + `</URI>
   </RegistrationInfo>
@@ -230,9 +230,9 @@ func (s schtasksBackend) params(in *Installer, spec Spec) TaskXMLParams {
 	if s.logonType(in) == TaskLogonS4U {
 		when = "started at boot and logon whether or not the user is signed in"
 	}
-	desc := "Konsert worker daemon (konsertd), " + when + " by `konsertd install`."
+	desc := "Syre worker daemon (syred), " + when + " by `syred install`."
 	if spec.Instance != "" {
-		desc = "Konsert worker daemon (konsertd, " + spec.Instance + "), " + when + " by `konsertd install`."
+		desc = "Syre worker daemon (syred, " + spec.Instance + "), " + when + " by `syred install`."
 	}
 	return TaskXMLParams{
 		URI:         TaskName(spec.Instance),
@@ -274,7 +274,7 @@ func (s schtasksBackend) install(ctx context.Context, in *Installer, spec Spec) 
 	}
 	if !fileExists(s.conhost(in)) {
 		return fmt.Errorf("%s not found: the hidden logon task needs conhost.exe --headless (Windows 10 1809 or later); "+
-			"use `konsertd install --service` or run konsertd from a terminal instead", s.conhost(in))
+			"use `syred install --service` or run syred from a terminal instead", s.conhost(in))
 	}
 	if err := mkdirAll(in.Env.LogDir); err != nil {
 		return err
@@ -309,7 +309,7 @@ func (s schtasksBackend) install(ctx context.Context, in *Installer, spec Spec) 
 	}
 	in.printf("Started %s; logs: %s\n", name, in.LogPath(spec.Instance))
 	if !s4u {
-		in.printf("konsertd starts when you sign in to Windows (this logon task only runs while you are signed in; from an SSH session with no desktop sign-in it starts at your next sign-in).\n%s\n", HeadlessHint)
+		in.printf("syred starts when you sign in to Windows (this logon task only runs while you are signed in; from an SSH session with no desktop sign-in it starts at your next sign-in).\n%s\n", HeadlessHint)
 	}
 	return nil
 }

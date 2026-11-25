@@ -3,14 +3,14 @@
 > Gathered read-only on one macOS host; personal account details removed. Versions drift:
 > re-verify flags against `--help` before relying on them.
 
-# Konsert: subscription-first agent CLI research (macOS, 2026-11-22/23)
+# Syre: subscription-first agent CLI research (macOS, 2026-11-22/23)
 
 Machine: the user's Mac (darwin arm64), run locally (not over SSH). Read-only with respect to accounts: no logins, logouts or config changes.
 Emails are reduced to their domain. No token values were printed. Account names, org IDs and team IDs are left out.
 
 Probing method: "logged-out" behaviour was observed by pointing each CLI at an empty scratch config dir
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `CURSOR_CONFIG_DIR` + `AGENT_CLI_CREDENTIAL_STORE=memory`, `COPILOT_HOME`)
-under `/var/tmp/konsert-research/`. That dir was deleted at the end.
+under `/var/tmp/syre-research/`. That dir was deleted at the end.
 
 Prompts sent: **one** in total, to `copilot` ("reply OK"). It was meant as a logged-out probe, but copilot found the
 user's GitHub login anyway (see the Copilot section). It cost 1 premium request and produced the usage-record schema below.
@@ -116,7 +116,7 @@ Per-model flags: `supportsAdaptiveThinking`, `supportsFastMode`, `supportsAutoMo
 - It execs `env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CLAUDE_CONFIG_DIR=~/.claude2 CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.claude2 CLAUDE_CODE_TMPDIR=/var/tmp/claude2-$UID TMPDIR=… CLAUDE_CODE_OAUTH_TOKEN=<token> ~/.local/bin/claude "$@"`.
 - Status: `claude2 auth status` → `{"loggedIn": true, "authMethod": "oauth_token", "configDirectory": "~/.claude2", "loginExpiresAt": null}`. There is no email, plan or tier, because a setup-token carries no profile.
 - `~/.claude2/` has its own `.claude.json`, no `.credentials.json`, and no separate Keychain item. Only `Claude Code-credentials` exists, because auth comes from the env token.
-- Konsert pattern: one "Claude account" = `{CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN?}`. Usage polling for setup-token accounts may not work (scope); `rate_limit_event` from sessions still works.
+- Syre pattern: one "Claude account" = `{CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN?}`. Usage polling for setup-token accounts may not work (scope); `rate_limit_event` from sessions still works.
 
 ## 3. codex
 
@@ -148,7 +148,7 @@ $ codex login status       → "Not logged in"   exit 1
 **Headless.**
 - `codex exec --json [--model M] [-c model_reasoning_effort=high] [-s workspace-write] [--skip-git-repo-check] [--ephemeral] [-o last.txt] [--output-schema f] "<prompt>"` emits JSONL `thread.started`, `turn.started`, `item.started/updated/completed`, `turn.completed` (usage), `turn.failed`, `error`. `codex exec resume`.
 - Richer: `codex app-server` with `thread/start` and `turn/start` (per-turn model, effort, approvalPolicy, sandboxPolicy), approval requests as server→client JSON-RPC (`CommandExecutionRequestApproval`, `FileChangeRequestApproval`), and `DynamicToolCall` (client-provided tools).
-- MCP: `-c 'mcp_servers.konsert.command="…"' -c 'mcp_servers.konsert.args=[…]'` or `codex mcp add`.
+- MCP: `-c 'mcp_servers.syre.command="…"' -c 'mcp_servers.syre.args=[…]'` or `codex mcp add`.
 
 ## 4. grok
 
@@ -194,7 +194,7 @@ GROK_HOME=<empty> grok -p "…" --output-format json →
 - Re-login: interactive first-run flow or the `/login` slash command (`/logout`). With `AGY_ADC_AUTH` set it uses Application Default Credentials ("To log out, please run `unset AGY_ADC_AUTH`"). `GEMINI_API_KEY` is supported, but some features say "not available with a Gemini API key".
 - A cheap headless check: run `agy models` and look for a non-empty list. Its log calls `v1internal:fetchAvailableModels` only when authenticated.
 
-**Models.** `agy models` (network; "Fetching available models..." then `id<TAB>Display Name`): gemini-4-neon-{low,medium,high,xhigh}, gemini-4-argon-{low,medium,high}, gemini-4-hydrogen-{low,medium,high,xhigh}, gemini-pro-orchestrator-neon ("Orchestrator (Neon)"), gemini-pro-orchestrator-g1-pro ("Orchestrator (Argon)"), gemini-3.8-flash-{low,medium,high}, claude-opus-5-5-{low,medium,high}, claude-sonnet-5-5-{low,medium,high}, gpt-oss-120b-medium. (The exit code was not captured reliably.)
+**Models.** `agy models` (network; "Fetching available models..." then `id<TAB>Display Name`): gemini-4-neon-{low,medium,high,xhigh}, gemini-4-argon-{low,medium,high}, gemini-4-hydrogen-{low,medium,high,xhigh}, gemini-pro-commander-neon ("Commander (Neon)"), gemini-pro-commander-g1-pro ("Commander (Argon)"), gemini-3.8-flash-{low,medium,high}, claude-opus-5-5-{low,medium,high}, claude-sonnet-5-5-{low,medium,high}, gpt-oss-120b-medium. (The exit code was not captured reliably.)
 
 **Usage.**
 - The CLI polls `https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` (854 calls in logs), with protos `QuotaSummary{Group,Bucket,ModelAvailability}`, `quota_buckets`.
@@ -262,7 +262,7 @@ Not installed (`which gemini` → not found). `~/.gemini` is now used by agy; th
 
 ## Cleanup
 
-- Scratch dir `/var/tmp/konsert-research/` (empty config dirs, generated Codex schema, strings dumps, one Copilot probe session) was deleted.
+- Scratch dir `/var/tmp/syre-research/` (empty config dirs, generated Codex schema, strings dumps, one Copilot probe session) was deleted.
 - Side effects outside scratch:
   - agy appended its normal log files under `~/.gemini/antigravity-cli/log/`.
   - `grok models` refreshed `~/.grok/models_cache.json`.

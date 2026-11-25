@@ -38,7 +38,7 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
  * a reply box, terminal tiles are typeable after Take control.
  */
 @Component({
-  selector: 'ks-wall-mode',
+  selector: 'sy-wall-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ItemSpinnerComponent, 
@@ -53,52 +53,52 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
   ],
   host: { class: 'flex flex-col h-full min-h-0' },
   styles: `
-    .ks-tile-you {
+    .sy-tile-you {
       box-shadow: inset 0 0 0 2px #2f6fd6;
     }
   `,
   template: `
     <div class="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2 text-[12.5px] shrink-0">
-      <span class="text-[var(--ks-text-secondary)]" id="ks-wall-layout-label">Layout</span>
-      <div class="inline-flex gap-1" role="group" aria-labelledby="ks-wall-layout-label">
+      <span class="text-[var(--sy-text-secondary)]" id="sy-wall-layout-label">Layout</span>
+      <div class="inline-flex gap-1" role="group" aria-labelledby="sy-wall-layout-label">
         @for (l of layouts; track l.id) {
-          <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" [attr.aria-pressed]="wall.layout() === l.id" [attr.data-layout]="l.id" (click)="wall.setLayout(l.id)">{{ l.label }}</button>
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" [attr.aria-pressed]="wall.layout() === l.id" [attr.data-layout]="l.id" (click)="wall.setLayout(l.id)">{{ l.label }}</button>
         }
       </div>
-      <ks-popover label="Add a tile" placement="bottom-start" panelClass="w-[320px] max-h-[360px] overflow-y-auto">
-        <button type="button" ksPopoverTrigger class="ks-btn ks-btn-sm" data-testid="wall-add">
+      <sy-popover label="Add a tile" placement="bottom-start" panelClass="w-[320px] max-h-[360px] overflow-y-auto">
+        <button type="button" syPopoverTrigger class="sy-btn sy-btn-sm" data-testid="wall-add">
           <app-icon name="plus" [size]="12" />
           Add tile
         </button>
         @if (addable().length === 0) {
-          <p class="px-3 py-2 text-[12px] text-[var(--ks-text-muted)]">Every session is already on the wall.</p>
+          <p class="px-3 py-2 text-[12px] text-[var(--sy-text-muted)]">Every session is already on the wall.</p>
         }
         @for (it of addable(); track it.id) {
-          <button type="button" role="menuitem" class="ks-menu-item items-center" (click)="wall.pin(it.id)">
+          <button type="button" role="menuitem" class="sy-menu-item items-center" (click)="wall.pin(it.id)">
             <app-icon [name]="it.sessionKind === 'terminal' ? 'shell' : it.agent" [size]="13" />
             <span class="flex-1 min-w-0">
-              <span class="ks-menu-label block truncate">{{ it.title }}</span>
-              <span class="ks-menu-desc block truncate">{{ it.sid }} · {{ it.machine }} · {{ it.status }}</span>
+              <span class="sy-menu-label block truncate">{{ it.title }}</span>
+              <span class="sy-menu-desc block truncate">{{ it.sid }} · {{ it.machine }} · {{ it.status }}</span>
             </span>
           </button>
         }
-      </ks-popover>
-      <span class="text-[var(--ks-text-muted)] hidden xl:inline">fill: pinned + suggested (asking, not reporting, running)</span>
-      <span class="ml-auto text-[var(--ks-text-muted)]" data-testid="wall-summary">
-        {{ perPage() }} per page · pinned {{ wall.pinned().length }}@if (wall.overSoftCap()) {<span class="text-[var(--ks-amber)]"> (over {{ softCap }}: hard to watch)</span>} · only visible tiles stream
+      </sy-popover>
+      <span class="text-[var(--sy-text-muted)] hidden xl:inline">fill: pinned + suggested (asking, not reporting, running)</span>
+      <span class="ml-auto text-[var(--sy-text-muted)]" data-testid="wall-summary">
+        {{ perPage() }} per page · pinned {{ wall.pinned().length }}@if (wall.overSoftCap()) {<span class="text-[var(--sy-amber)]"> (over {{ softCap }}: hard to watch)</span>} · only visible tiles stream
       </span>
-      <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Previous page" [disabled]="wall.page() === 0" (click)="go(-1)">
+      <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Previous page" [disabled]="wall.page() === 0" (click)="go(-1)">
         <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="13" /></span>
       </button>
-      <span class="font-mono-ide text-[11.5px] text-[var(--ks-text-secondary)]" aria-live="polite" data-testid="wall-page">page {{ wall.page() + 1 }} / {{ pages() }}</span>
-      <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Next page" [disabled]="wall.page() >= pages() - 1" (click)="go(1)">
+      <span class="font-mono-ide text-[11.5px] text-[var(--sy-text-secondary)]" aria-live="polite" data-testid="wall-page">page {{ wall.page() + 1 }} / {{ pages() }}</span>
+      <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Next page" [disabled]="wall.page() >= pages() - 1" (click)="go(1)">
         <app-icon name="chevron-right" [size]="13" />
       </button>
     </div>
 
     @if (tiles().length === 0) {
       <div class="flex-1 flex flex-col items-center justify-center gap-3 text-center px-6" data-testid="wall-empty">
-        <p class="max-w-md text-[13px] text-[var(--ks-text-secondary)]">
+        <p class="max-w-md text-[13px] text-[var(--sy-text-secondary)]">
           Nothing on the wall. Pin sessions from Command or Work (or Add tile) to watch them side by side; tiles stay where you put them.
         </p>
       </div>
@@ -106,70 +106,70 @@ export function suggestTiles(items: readonly WorkItem[], pinned: readonly string
       <main class="flex-1 min-h-0 grid gap-3 px-4 pb-4" [style.grid-template-columns]="'repeat(' + cols() + ', minmax(0, 1fr))'" [style.grid-template-rows]="'repeat(' + rows() + ', minmax(0, 1fr))'" aria-label="Wall" data-testid="wall-grid">
         @for (t of visible(); track t.item.id; let i = $index) {
           <section
-            class="flex flex-col min-h-0 min-w-0 rounded-[var(--ks-radius-lg)] bg-[var(--ks-surface-1)] overflow-hidden"
+            class="flex flex-col min-h-0 min-w-0 rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] overflow-hidden"
             [class.ring-1]="t.item.control === 'ASKING' || t.item.stale"
-            [class.ring-[var(--ks-amber)]/50]="t.item.control === 'ASKING' || t.item.stale"
-            [class.ks-tile-you]="takeControl.has(t.item.id)"
+            [class.ring-[var(--sy-amber)]/50]="t.item.control === 'ASKING' || t.item.stale"
+            [class.sy-tile-you]="takeControl.has(t.item.id)"
             [attr.aria-label]="t.item.sid + ' ' + t.item.title"
             [attr.data-tile]="t.item.sid"
           >
-            <header class="flex items-center gap-2 px-3 h-9 shrink-0 border-b border-[var(--ks-hairline)] text-[12.5px]">
-              <ks-item-spinner [item]="t.item" [size]="22" class="shrink-0" />
-              <ks-control-label [label]="t.item.control" />
-              <span class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ t.item.sid }}</span>
+            <header class="flex items-center gap-2 px-3 h-9 shrink-0 border-b border-[var(--sy-hairline)] text-[12.5px]">
+              <sy-item-spinner [item]="t.item" [size]="22" class="shrink-0" />
+              <sy-control-label [label]="t.item.control" />
+              <span class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">{{ t.item.sid }}</span>
               <span class="truncate min-w-0">{{ t.item.sessionKind === 'terminal' ? 'terminal' : t.item.agent }} · {{ t.item.machine }}</span>
               <span class="flex-1"></span>
               @if (needsYou.entryFor(t.item.id); as e) {
-                <button type="button" class="ks-chip ks-chip-amber !h-6 shrink-0" [attr.data-testid]="'tile-needs-you-' + t.item.sid" (click)="needsYou.open(e.key)">
+                <button type="button" class="sy-chip sy-chip-amber !h-6 shrink-0" [attr.data-testid]="'tile-needs-you-' + t.item.sid" (click)="needsYou.open(e.key)">
                   <app-icon name="bell" [size]="11" />
                   Needs you
                 </button>
               }
               @if (t.item.stale) {
-                <span class="text-[var(--ks-amber)] text-[11.5px] shrink-0">not reporting</span>
+                <span class="text-[var(--sy-amber)] text-[11.5px] shrink-0">not reporting</span>
               } @else if (t.item.observed) {
-                <span class="text-[11.5px] text-[var(--ks-text-muted)] shrink-0">observed</span>
+                <span class="text-[11.5px] text-[var(--sy-text-muted)] shrink-0">observed</span>
               } @else if (!t.pinned) {
-                <span class="text-[11.5px] text-[var(--ks-text-muted)] shrink-0">suggested</span>
+                <span class="text-[11.5px] text-[var(--sy-text-muted)] shrink-0">suggested</span>
               }
               @if (t.pinned) {
-                <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Move ' + t.item.sid + ' earlier'" [disabled]="pinIndex(t.item.id) === 0" (click)="wall.move(t.item.id, -1)">
+                <button type="button" class="sy-icon-btn sy-icon-btn-sm" [attr.aria-label]="'Move ' + t.item.sid + ' earlier'" [disabled]="pinIndex(t.item.id) === 0" (click)="wall.move(t.item.id, -1)">
                   <span class="inline-flex rotate-180"><app-icon name="chevron-right" [size]="11" /></span>
                 </button>
-                <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Move ' + t.item.sid + ' later'" [disabled]="pinIndex(t.item.id) === wall.pinned().length - 1" (click)="wall.move(t.item.id, 1)">
+                <button type="button" class="sy-icon-btn sy-icon-btn-sm" [attr.aria-label]="'Move ' + t.item.sid + ' later'" [disabled]="pinIndex(t.item.id) === wall.pinned().length - 1" (click)="wall.move(t.item.id, 1)">
                   <app-icon name="chevron-right" [size]="11" />
                 </button>
               } @else {
-                <button type="button" class="ks-btn ks-btn-sm !h-6" [attr.data-testid]="'pin-' + t.item.sid" (click)="wall.pin(t.item.id)">Pin</button>
+                <button type="button" class="sy-btn sy-btn-sm !h-6" [attr.data-testid]="'pin-' + t.item.sid" (click)="wall.pin(t.item.id)">Pin</button>
               }
-              <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Open ' + t.item.sid + ' in Command'" ksTooltip="Open in Command" (click)="open(t.item)">
-                <app-icon name="orchestrator" [size]="12" />
+              <button type="button" class="sy-icon-btn sy-icon-btn-sm" [attr.aria-label]="'Open ' + t.item.sid + ' in Command'" syTooltip="Open in Command" (click)="open(t.item)">
+                <app-icon name="commander" [size]="12" />
               </button>
-              <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Remove ' + t.item.sid + ' from the wall'" [attr.data-testid]="'remove-' + t.item.sid" (click)="remove(t)">
+              <button type="button" class="sy-icon-btn sy-icon-btn-sm" [attr.aria-label]="'Remove ' + t.item.sid + ' from the wall'" [attr.data-testid]="'remove-' + t.item.sid" (click)="remove(t)">
                 <app-icon name="close" [size]="11" />
               </button>
             </header>
             <div class="flex-1 min-h-0">
               @if (t.item.kind === 'chat') {
-                <ks-session-chat class="h-full" [chatId]="t.item.id" [compact]="true" />
+                <sy-session-chat class="h-full" [chatId]="t.item.id" [compact]="true" />
               } @else {
                 @defer (on immediate) {
                   <app-xterm-pane class="block h-full" [taskId]="t.item.id" [visible]="true" [bare]="true" />
                 } @placeholder {
-                  <div class="h-full flex items-center justify-center text-[12px] text-[var(--ks-text-muted)]" role="status">Loading terminal…</div>
+                  <div class="h-full flex items-center justify-center text-[12px] text-[var(--sy-text-muted)]" role="status">Loading terminal…</div>
                 }
               }
             </div>
-            <footer class="flex flex-wrap items-center gap-1 px-2.5 py-1.5 shrink-0 border-t border-[var(--ks-hairline)]">
-              <ks-session-controls [kind]="t.item.kind" [sessionId]="t.item.id" [status]="t.item.status" [showHold]="t.item.live" [compact]="compactControls()" />
+            <footer class="flex flex-wrap items-center gap-1 px-2.5 py-1.5 shrink-0 border-t border-[var(--sy-hairline)]">
+              <sy-session-controls [kind]="t.item.kind" [sessionId]="t.item.id" [status]="t.item.status" [showHold]="t.item.live" [compact]="compactControls()" />
               @if (t.item.kind === 'task' && t.item.live && !t.item.observed) {
-                <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="takeControl.has(t.item.id)" [attr.data-testid]="'take-control-' + t.item.sid" (click)="takeControl.toggle(t.item.id)">
+                <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="takeControl.has(t.item.id)" [attr.data-testid]="'take-control-' + t.item.sid" (click)="takeControl.toggle(t.item.id)">
                   <app-icon [name]="takeControl.has(t.item.id) ? 'unlock' : 'hand'" [size]="11" />
                   {{ takeControl.has(t.item.id) ? 'Hand back' : 'Take control' }}
                 </button>
               }
               <span class="flex-1"></span>
-              <span class="truncate max-w-[50%] text-[11px] text-[var(--ks-text-muted)]">{{ t.item.now }}</span>
+              <span class="truncate max-w-[50%] text-[11px] text-[var(--sy-text-muted)]">{{ t.item.now }}</span>
             </footer>
           </section>
         }

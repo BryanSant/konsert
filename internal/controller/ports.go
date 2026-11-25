@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// Listening ports (KON-G8WA3). Listing ports forks lsof / ss on the machine, so they are
-// not in heartbeats: konsertd sends worker.ports every 5 minutes, and a machine's Details
+// Listening ports (SYR-G8WA3). Listing ports forks lsof / ss on the machine, so they are
+// not in heartbeats: syred sends worker.ports every 5 minutes, and a machine's Details
 // asks for fresh ones (GET /api/workers/{id}/ports -> worker.ports.request). The hub
 // keeps the latest list per machine in memory for when the daemon cannot answer.
 

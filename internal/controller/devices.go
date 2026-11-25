@@ -10,12 +10,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/qrcode"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/qrcode"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Device sign-in (KON-W0P8B, KON-V5JZB, KON-A29CT): pairing links, the CLI's device-code
+// Device sign-in (SYR-W0P8B, SYR-V5JZB, SYR-A29CT): pairing links, the CLI's device-code
 // login, Settings → Devices, MCP credentials and recovery-key rotation.
 
 // Audit actions for device sign-in.
@@ -39,7 +39,7 @@ const (
 	defaultDeviceIdleDays = 90
 	maxDeviceIdleDays     = 3650
 	maxDeviceNameLen      = 60
-	// loginPollInterval is how often `konsert login` should poll, in seconds.
+	// loginPollInterval is how often `syre login` should poll, in seconds.
 	loginPollInterval = 2
 )
 
@@ -172,7 +172,7 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// handleCreatePairingCode serves POST /api/pairing-codes: "Add a device" and `konsert pair`.
+// handleCreatePairingCode serves POST /api/pairing-codes: "Add a device" and `syre pair`.
 func (s *Server) handleCreatePairingCode(w http.ResponseWriter, r *http.Request) {
 	if s.auth.NoAuth() {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "authentication is off (--no-auth): there is nothing to sign in to"})
@@ -477,9 +477,9 @@ func (s *Server) handleCreateMCPDevice(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- CLI device-code login (konsert login) ---
+// --- CLI device-code login (syre login) ---
 
-// handleStartLogin serves POST /api/auth/device-code {name, kind}: `konsert login`
+// handleStartLogin serves POST /api/auth/device-code {name, kind}: `syre login`
 // asks for a code to show the user, plus a secret it polls with.
 func (s *Server) handleStartLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -653,7 +653,7 @@ func (s *Server) handlePollLogin(w http.ResponseWriter, r *http.Request) {
 
 // --- Recovery key rotation ---
 
-// RecoveryKeyRotator persists a new recovery key (to the tokens file). Set by `konsert
+// RecoveryKeyRotator persists a new recovery key (to the tokens file). Set by `syre
 // serve`; nil when the key comes from a flag, the environment or a config file.
 type RecoveryKeyRotator func(newKey string) error
 
@@ -665,7 +665,7 @@ func (s *Server) SetRecoveryKeyRotator(f RecoveryKeyRotator) {
 }
 
 // errRecoveryKeyExternal means the recovery key is not managed by the tokens file.
-var errRecoveryKeyExternal = errors.New("the recovery key is set by --recovery-key, KONSERT_RECOVERY_KEY or the config file; change it there")
+var errRecoveryKeyExternal = errors.New("the recovery key is set by --recovery-key, SYRE_RECOVERY_KEY or the config file; change it there")
 
 // RotateRecoveryKey generates and persists a new recovery key; the old one stops
 // working immediately. The key is never returned or logged.

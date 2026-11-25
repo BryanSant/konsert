@@ -15,7 +15,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Stop"
+						"command": "/opt/syre/bin/syred hook-event --agent claude --event Stop"
 					}
 				]
 			}
@@ -26,7 +26,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PreToolUse"
+						"command": "/opt/syre/bin/syred hook-event --agent claude --event PreToolUse"
 					}
 				]
 			}
@@ -37,7 +37,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event PostToolUse"
+						"command": "/opt/syre/bin/syred hook-event --agent claude --event PostToolUse"
 					}
 				]
 			}
@@ -48,7 +48,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "/opt/konsert/bin/konsertd hook-event --agent claude --event Notification"
+						"command": "/opt/syre/bin/syred hook-event --agent claude --event Notification"
 					}
 				]
 			}

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // StatusChecker reports an account's login state with a cheap CLI status command, for
@@ -39,10 +39,10 @@ type CapabilitiesOptions struct {
 	Logger        *slog.Logger
 	Now           func() time.Time
 	// PersistPath, when set, stores exhausted usage windows (no secrets: window, percent,
-	// reset time) so a restarted konsertd still knows an account is out of usage before
+	// reset time) so a restarted syred still knows an account is out of usage before
 	// the user sends anything.
 	PersistPath string
-	// Sandboxed marks approval modes above protocol.SandboxMaxRisk as disabled (konsertd
+	// Sandboxed marks approval modes above protocol.SandboxMaxRisk as disabled (syred
 	// --sandbox refuses them).
 	Sandboxed bool
 }

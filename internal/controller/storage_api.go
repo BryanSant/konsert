@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Settings → Storage (KON-CSCWP): database size and breakdown, retention in plain
+// Settings → Storage (SYR-CSCWP): database size and breakdown, retention in plain
 // words and as editable periods, Compact now, and the Keep (pin) toggle of tasks and
 // chats.
 

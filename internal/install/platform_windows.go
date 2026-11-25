@@ -9,7 +9,7 @@ import (
 )
 
 // DefaultEnv returns the current user's environment. Config and logs go under
-// %LOCALAPPDATA%\konsert, which is private to the user and does not roam.
+// %LOCALAPPDATA%\syre, which is private to the user and does not roam.
 func DefaultEnv() (Env, error) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -23,7 +23,7 @@ func DefaultEnv() (Env, error) {
 	if err != nil {
 		return Env{}, err
 	}
-	dir := filepath.Join(local, "konsert")
+	dir := filepath.Join(local, "syre")
 	return Env{
 		Home:       home,
 		ConfigDir:  dir,
@@ -34,7 +34,7 @@ func DefaultEnv() (Env, error) {
 		SystemRoot: os.Getenv("SystemRoot"),
 		Elevated:   IsElevated(),
 		PATH:       CleanPATH(os.Getenv("PATH"), os.PathListSeparator),
-		ManagedBin: filepath.Join(local, "Programs", "konsertd", "konsertd.exe"),
+		ManagedBin: filepath.Join(local, "Programs", "syred", "syred.exe"),
 	}, nil
 }
 

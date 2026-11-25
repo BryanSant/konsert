@@ -1,4 +1,4 @@
-import { TaskEvent } from '../../core/models/konsert.models';
+import { TaskEvent } from '../../core/models/syre.models';
 import { WorkItem, parseGitSummary } from '../../core/state/work-logic';
 
 export interface ReceiptLine {

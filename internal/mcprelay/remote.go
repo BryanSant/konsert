@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // chunkSize is the most response body one mcp.body frame carries; the handler's own
@@ -114,7 +114,7 @@ func (r *Remote) serve(ctx context.Context, cancel context.CancelFunc, p protoco
 		cancel()
 	}()
 	req, err := http.NewRequestWithContext(ctx, p.Method,
-		"http://konsertd"+protocol.MCPChatPathPrefix+url.PathEscape(p.ChatID), bytes.NewReader(p.Body))
+		"http://syred"+protocol.MCPChatPathPrefix+url.PathEscape(p.ChatID), bytes.NewReader(p.Body))
 	if err != nil {
 		_ = r.Send(ctx, protocol.MsgMCPEnd, protocol.MCPEnd{ID: p.ID, Error: "bad request"})
 		return
@@ -191,7 +191,7 @@ func (w *relayWriter) Flush() {
 }
 
 // errLinkGone is returned by writes after the link (or the request) ended.
-var errLinkGone = errors.New("mcp relay: the link to konsertd ended")
+var errLinkGone = errors.New("mcp relay: the link to syred ended")
 
 func (w *relayWriter) flushLocked() {
 	if w.err != nil {
@@ -225,7 +225,7 @@ func (w *relayWriter) finish(failed string) {
 		w.flushLocked()
 	}
 	if w.err != nil {
-		return // the link is gone: konsertd fails the request itself
+		return // the link is gone: syred fails the request itself
 	}
 	_ = w.send(w.ctx, protocol.MsgMCPEnd, protocol.MCPEnd{ID: w.id, Error: failed})
 }

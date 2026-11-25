@@ -17,7 +17,7 @@ import {
   SSHHostKey,
   SSH_STAGE_HOST_KEY_CONFIRMATION,
   Worker,
-} from '../core/models/konsert.models';
+} from '../core/models/syre.models';
 import { ApiClientService, SSHBootstrapEvent } from '../core/services/api-client.service';
 import { FleetStore } from '../core/state/fleet.store';
 import { SetupStore } from '../core/state/setup.store';
@@ -48,11 +48,11 @@ function needsHostKeyConfirmation(r: SSHBootstrapResult): boolean {
 
 /** What adding this machine will do, shown under its name. */
 export function localHostSummary(local: LocalHostInfo): string {
-  if (local.connected) return local.added ? 'konsertd is running · added' : 'konsertd is running — will attach';
-  if (!local.konsertd_found) return `konsertd not found: ${local.fix || 'install konsertd next to konsert or on PATH'}`;
+  if (local.connected) return local.added ? 'syred is running · added' : 'syred is running — will attach';
+  if (!local.syred_found) return `syred not found: ${local.fix || 'install syred next to syre or on PATH'}`;
   if (local.error) return local.error;
-  if (local.launch_state === 'failed') return `Could not start konsertd: ${local.launch_error || 'unknown error'}`;
-  return 'Will start konsertd (installed to start at login)';
+  if (local.launch_state === 'failed') return `Could not start syred: ${local.launch_error || 'unknown error'}`;
+  return 'Will start syred (installed to start at login)';
 }
 
 function isAbort(err: unknown): boolean {
@@ -67,7 +67,7 @@ function isAbort(err: unknown): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent, ManualJoinComponent],
   template: `
-    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5" (close)="close.emit()">
+    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5" (close)="close.emit()">
       <div class="flex items-start justify-between gap-3">
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">
@@ -76,9 +76,9 @@ function isAbort(err: unknown): boolean {
           <p class="text-[12px] text-[#8e9098] mt-1 leading-relaxed">
             @if (firstRun()) {
               Agents run on machines you connect. Start with this one, add others over ssh, or close this to use
-              Konsert as a control plane only.
+              Syre as a control plane only.
             } @else {
-              A VPS, a Mac mini, a box at home: Konsert reaches it over ssh, or it joins with a one-time code. Agents
+              A VPS, a Mac mini, a box at home: Syre reaches it over ssh, or it joins with a one-time code. Agents
               there keep running while your laptop sleeps.
             }
           </p>
@@ -133,7 +133,7 @@ function isAbort(err: unknown): boolean {
       <div class="space-y-2" data-testid="local-host">
         <div class="text-[11px] text-[#8a8c94]">This machine</div>
         @if (setup.loading() && !local()) {
-          <div class="rounded-lg bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">Looking for konsertd...</div>
+          <div class="rounded-lg bg-[#151619] px-3 py-3 text-[12px] text-[#86888f]">Looking for syred...</div>
         } @else if (local(); as lh) {
           <div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[#22242a]/80 transition">
             <div class="flex items-center gap-2.5 min-w-0">
@@ -142,9 +142,9 @@ function isAbort(err: unknown): boolean {
                 <div class="text-[12.5px] font-medium text-[#e4e4e7] truncate">This machine ({{ lh.hostname }})</div>
                 <div
                   class="text-[11.5px] truncate"
-                  [class.text-[#86888f]]="lh.konsertd_found && !lh.error && lh.launch_state !== 'failed'"
-                  [class.text-[#f09595]]="!lh.konsertd_found || !!lh.error || lh.launch_state === 'failed'"
-                  [ksTooltip]="localSummary()"
+                  [class.text-[#86888f]]="lh.syred_found && !lh.error && lh.launch_state !== 'failed'"
+                  [class.text-[#f09595]]="!lh.syred_found || !!lh.error || lh.launch_state === 'failed'"
+                  [syTooltip]="localSummary()"
                   data-testid="local-host-state"
                 >
                   {{ localSummary() }}
@@ -159,15 +159,15 @@ function isAbort(err: unknown): boolean {
                 </span>
               } @else if (localPhase() === 'starting') {
                 <span class="inline-flex items-center gap-1.5 rounded-md bg-[#24262d] px-3 py-1 text-[11px] text-[#c8cad0]">
-                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
-                  <span>Starting konsertd...</span>
+                  <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent sy-ring-spin"></span>
+                  <span>Starting syred...</span>
                 </span>
-              } @else if (lh.konsertd_found || lh.connected) {
+              } @else if (lh.syred_found || lh.connected) {
                 <button
                   type="button"
                   [disabled]="localBusy() || (!lh.connected && !lh.worker_id)"
                   (click)="addLocal()"
-                  class="ks-btn ks-btn-sm ks-btn-soft"
+                  class="sy-btn sy-btn-sm sy-btn-soft"
                   data-testid="add-local"
                 >
                   {{ lh.connected ? 'Attach' : localPhase() === 'failed' || lh.launch_state === 'failed' ? 'Retry' : 'Add' }}
@@ -211,15 +211,15 @@ function isAbort(err: unknown): boolean {
                     <button
                       type="button"
                       (click)="inspectSSHHostMachine(host)"
-                      class="ks-btn ks-btn-sm"
-                      ksTooltip="View machine details or remove"
+                      class="sy-btn sy-btn-sm"
+                      syTooltip="View machine details or remove"
                     >
                       <app-icon name="check-circle" [size]="13" />
                       <span>Added · Details</span>
                     </button>
                   } @else if (bootstrappingTarget() === host.alias) {
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-[#24262d] px-3 py-1 text-[11px] text-[#c8cad0]">
-                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin"></span>
+                      <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent sy-ring-spin"></span>
                       <span>{{ sshStageLabel() || 'Connecting...' }}</span>
                     </span>
                   } @else {
@@ -227,7 +227,7 @@ function isAbort(err: unknown): boolean {
                       type="button"
                       [disabled]="!!bootstrappingTarget()"
                       (click)="bootstrapSSHHost(host.alias)"
-                      class="ks-btn ks-btn-sm ks-btn-soft"
+                      class="sy-btn sy-btn-sm sy-btn-soft"
                     >
                       Add
                     </button>
@@ -251,12 +251,12 @@ function isAbort(err: unknown): boolean {
             placeholder="user@host"
             autocomplete="off"
             spellcheck="false"
-            class="ks-field flex-1 text-[12.5px]"
+            class="sy-field flex-1 text-[12.5px]"
           />
           <button
             type="submit"
             [disabled]="!customSshTarget().trim() || !!bootstrappingTarget()"
-            class="ks-btn ks-btn-soft shrink-0"
+            class="sy-btn sy-btn-soft shrink-0"
           >
             {{ bootstrappingTarget() && bootstrappingTarget() === customSshTarget().trim() ? 'Adding...' : 'Add' }}
           </button>
@@ -265,7 +265,7 @@ function isAbort(err: unknown): boolean {
 
       @if (bootstrappingTarget() && sshStageDetail()) {
         <div class="rounded-lg bg-[#141518] px-3 py-2.5 flex items-center gap-2 text-[11.5px] text-[#b4b6be]">
-          <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent ks-ring-spin shrink-0"></span>
+          <span class="h-2.5 w-2.5 rounded-full border-[1.5px] border-[#60a5fa] border-t-transparent sy-ring-spin shrink-0"></span>
           <span class="font-medium text-[#e4e4e7]">{{ sshStageLabel() }}:</span>
           <span class="truncate">{{ sshStageDetail() }}</span>
         </div>
@@ -278,15 +278,15 @@ function isAbort(err: unknown): boolean {
       @if (hostKeyPrompt(); as prompt) {
         <div
           role="alertdialog"
-          aria-labelledby="ks-hostkey-title"
-          aria-describedby="ks-hostkey-desc"
+          aria-labelledby="sy-hostkey-title"
+          aria-describedby="sy-hostkey-desc"
           class="rounded-lg bg-[#d9a043]/10 px-3 py-3 space-y-2.5 text-[11.5px] text-[#e8c88a]"
         >
-          <div id="ks-hostkey-title" class="text-[12.5px] font-semibold text-[#f4d9a4]">
+          <div id="sy-hostkey-title" class="text-[12.5px] font-semibold text-[#f4d9a4]">
             Verify the host key for {{ prompt.target }}
           </div>
-          <p id="ks-hostkey-desc" class="leading-relaxed">
-            Konsert has never connected to this machine. Before trusting it, check that a fingerprint
+          <p id="sy-hostkey-desc" class="leading-relaxed">
+            Syre has never connected to this machine. Before trusting it, check that a fingerprint
             below matches the one on the machine itself (for example
             <code class="font-mono-ide text-[#f4d9a4]">ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>).
             If it does not match, do not continue.
@@ -302,7 +302,7 @@ function isAbort(err: unknown): boolean {
                   type="button"
                   (click)="confirmHostKey(key)"
                   [attr.aria-label]="'Fingerprint matches; trust ' + key.type + ' key and continue'"
-                  class="ks-btn ks-btn-sm ks-btn-soft shrink-0"
+                  class="sy-btn sy-btn-sm sy-btn-soft shrink-0"
                 >
                   It matches, trust it
                 </button>
@@ -414,7 +414,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     for (const t of this.timers) clearTimeout(t);
   }
 
-  /** Adds this machine: attaches its running konsertd, or has the hub start one. */
+  /** Adds this machine: attaches its running syred, or has the hub start one. */
   async addLocal(): Promise<void> {
     if (this.localBusy()) return;
     this.localBusy.set(true);
@@ -426,7 +426,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
       this.localAddId.set(res.worker_id);
       await this.fleet.refresh();
       if (res.state === 'connected') {
-        this.localMsg.set(`Attached the konsertd running on ${this.local()?.hostname ?? 'this machine'}.`);
+        this.localMsg.set(`Attached the syred running on ${this.local()?.hostname ?? 'this machine'}.`);
       }
       this.watchLocal();
     } catch (err) {
@@ -487,7 +487,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
         return;
       }
       this.setup.markCompleted();
-      this.sshStatusMsg.set(result.message || `konsertd ready on ${clean}.`);
+      this.sshStatusMsg.set(result.message || `syred ready on ${clean}.`);
       this.sshHosts.update((list) =>
         list.map((h) => (h.alias === clean || h.display === clean ? { ...h, added: true } : h)),
       );

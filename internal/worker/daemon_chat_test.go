@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func chatEvent(t *testing.T, env protocol.Envelope) protocol.AgentChatEvent {

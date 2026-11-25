@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/coder/websocket"
 )
 
@@ -92,7 +92,7 @@ func attachLocal(t *testing.T, path, hubID string) *hubConn {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	c, _, err := websocket.Dial(ctx, "ws://konsertd"+protocol.AttachPath, &websocket.DialOptions{HTTPClient: hc, HTTPHeader: h})
+	c, _, err := websocket.Dial(ctx, "ws://syred"+protocol.AttachPath, &websocket.DialOptions{HTTPClient: hc, HTTPHeader: h})
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}
@@ -303,13 +303,13 @@ func TestAttachRequest(t *testing.T) {
 		want  string
 		err   bool
 	}{
-		{"konsertd attach " + a, []string{a, b}, a, false},
-		{"konsertd attach " + strings.ToUpper(b), []string{a, b}, b, false},
+		{"syred attach " + a, []string{a, b}, a, false},
+		{"syred attach " + strings.ToUpper(b), []string{a, b}, b, false},
 		{a, nil, a, false},
-		{"konsertd attach " + b, []string{a}, "", true},
+		{"syred attach " + b, []string{a}, "", true},
 		{"", []string{a}, a, false},
-		{"konsertd attach", []string{a}, a, false},
-		{"konsertd attach ../../etc/passwd", []string{a}, a, false},
+		{"syred attach", []string{a}, a, false},
+		{"syred attach ../../etc/passwd", []string{a}, a, false},
 		{"", []string{a, b}, "", true},
 		{"", nil, "", true},
 	}

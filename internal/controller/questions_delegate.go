@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// "Let the orchestrator decide" (PRD §5.8b). A delegated question goes to the
-// orchestrator chat, which must answer it with the answer_question tool: a choice and a
+// "Let the commander decide" (PRD §5.8b). A delegated question goes to the
+// commander chat, which must answer it with the answer_question tool: a choice and a
 // rationale, recorded as a receipt. The decision is held for a short grace period in
 // which the user can override it before the agent sees it; after that, an override
 // reaches the agent as a correction note. Optional per-category rules delegate questions
@@ -26,12 +26,12 @@ const (
 	settingQuestionDelegateGrace = "question_delegation_grace" // seconds
 )
 
-// defaultDelegationGrace is how long the orchestrator's decision waits for an override.
+// defaultDelegationGrace is how long the commander's decision waits for an override.
 var defaultDelegationGrace = 30 * time.Second
 
 // QuestionSettings are the question preferences (GET/PUT /api/questions/settings).
 type QuestionSettings struct {
-	// AutoDelegate lists question categories the orchestrator decides without asking
+	// AutoDelegate lists question categories the commander decides without asking
 	// (e.g. "permission" for the agents' routine tool approvals). Default none.
 	AutoDelegate []string `json:"auto_delegate"`
 	// DelegationGraceSeconds is how long a delegated decision waits before reaching the
@@ -80,13 +80,13 @@ func (h *Hub) autoDelegates(ctx context.Context, q store.Question) bool {
 	return slices.Contains(h.questionSettings(ctx).AutoDelegate, q.Category)
 }
 
-// delegateQuestion hands a question to the orchestrator chat. It starts an orchestrator
+// delegateQuestion hands a question to the commander chat. It starts a commander
 // turn now if it is idle; otherwise the question waits for its current turn to end.
 func (h *Hub) delegateQuestion(ctx context.Context, id string, auto bool) (store.Question, error) {
 	ctx = context.WithoutCancel(ctx)
-	orch, ok := h.orchestratorChat(ctx)
+	orch, ok := h.commanderChat(ctx)
 	if !ok {
-		return store.Question{}, errors.New("there is no orchestrator chat to decide; open the orchestrator first")
+		return store.Question{}, errors.New("there is no commander chat to decide; open the commander first")
 	}
 	cause := causeFrom(ctx)
 	h.questions.mu.Lock()
@@ -101,7 +101,7 @@ func (h *Hub) delegateQuestion(ctx context.Context, id string, auto bool) (store
 	}
 	if q.ChatID == orch.ID {
 		h.questions.mu.Unlock()
-		return q, errors.New("the orchestrator asked this question itself; answer it yourself")
+		return q, errors.New("the commander asked this question itself; answer it yourself")
 	}
 	q.Status = store.QuestionDelegated
 	q.Delegation = &store.QuestionDelegation{State: store.DelegationPending, RequestedAt: time.Now().UTC(), RequestedBy: cause, Auto: auto, ChatID: orch.ID}
@@ -117,7 +117,7 @@ func (h *Hub) delegateQuestion(ctx context.Context, id string, auto bool) (store
 	}
 	h.recordFleetEvent(ctx, store.FleetEvent{
 		Kind: store.EventKindQuestion, Action: "delegated", Cause: cause, WorkerID: q.WorkerID, ChatID: q.ChatID,
-		Summary:  fmt.Sprintf("%s %s question %s (%s) to the orchestrator", capitalize(describeActor(cause)), how, q.SID, oneLine(q.Prompt, 120)),
+		Summary:  fmt.Sprintf("%s %s question %s (%s) to the commander", capitalize(describeActor(cause)), how, q.SID, oneLine(q.Prompt, 120)),
 		MetaJSON: auditMeta(map[string]any{"question_sid": q.SID, "auto": auto}),
 	})
 	if chatIdle(orch.Status) {
@@ -126,9 +126,9 @@ func (h *Hub) delegateQuestion(ctx context.Context, id string, auto bool) (store
 	return h.questionByID(ctx, q.ID), nil
 }
 
-// orchestratorIdle runs when an orchestrator chat's turn ended: a delegated question it
+// commanderIdle runs when a commander chat's turn ended: a delegated question it
 // was given but didn't decide goes back to the user; the next waiting one is handed over.
-func (h *Hub) orchestratorIdle(ctx context.Context, orch store.ChatSession) {
+func (h *Hub) commanderIdle(ctx context.Context, orch store.ChatSession) {
 	qs, err := h.store.ListQuestions(ctx, store.QuestionFilter{Statuses: []string{store.QuestionDelegated}, Limit: 200})
 	if err != nil {
 		return
@@ -138,12 +138,12 @@ func (h *Hub) orchestratorIdle(ctx context.Context, orch store.ChatSession) {
 		if d == nil || d.ChatID != orch.ID || d.State != store.DelegationPending || d.SentAt == nil {
 			continue
 		}
-		h.delegationFailed(ctx, q.ID, "The orchestrator ended its turn without deciding; the question is back in your queue.")
+		h.delegationFailed(ctx, q.ID, "The commander ended its turn without deciding; the question is back in your queue.")
 	}
 	h.sendNextDelegation(ctx, orch)
 }
 
-// sendNextDelegation starts an orchestrator turn for the oldest delegated question it
+// sendNextDelegation starts a commander turn for the oldest delegated question it
 // hasn't been given yet.
 func (h *Hub) sendNextDelegation(ctx context.Context, orch store.ChatSession) {
 	qs, err := h.store.ListQuestions(ctx, store.QuestionFilter{Statuses: []string{store.QuestionDelegated}, Limit: 200})
@@ -177,14 +177,14 @@ func (h *Hub) sendNextDelegation(ctx context.Context, orch store.ChatSession) {
 	h.broadcastQuestion(ctx, q)
 	dctx := withCause(ctx, store.Cause{Actor: store.ActorSystem, Source: "delegation", Confidence: store.ConfidenceCertain})
 	if err := h.sendAgentChat(dctx, orch, chatSendRequest{SessionID: orch.ID, Content: h.delegationPrompt(ctx, q)}); err != nil {
-		h.delegationFailed(ctx, q.ID, "Konsert could not reach the orchestrator: "+err.Error())
+		h.delegationFailed(ctx, q.ID, "Syre could not reach the commander: "+err.Error())
 	}
 }
 
-// delegationPrompt asks the orchestrator to decide a question.
+// delegationPrompt asks the commander to decide a question.
 func (h *Hub) delegationPrompt(ctx context.Context, q store.Question) string {
 	var b strings.Builder
-	b.WriteString(eventNotePrefix + " The user delegated a question to you (\"Let the orchestrator decide\"). Decide it on their behalf: call the answer_question tool of the konsert MCP server with ")
+	b.WriteString(eventNotePrefix + " The user delegated a question to you (\"Let the commander decide\"). Decide it on their behalf: call the answer_question tool of the syre MCP server with ")
 	fmt.Fprintf(&b, "question %q, the option you choose (its label or number) or a text answer, and a rationale: one or two sentences the user sees as the receipt of your decision. ", q.SID)
 	b.WriteString("Decide from what you know and the context below; you may check the fleet first. The user can override you.\n\n")
 	b.WriteString(questionText(q))
@@ -211,7 +211,7 @@ func (h *Hub) delegationFailed(ctx context.Context, id, why string) {
 	}
 }
 
-// answerQuestionInput is the orchestrator's answer_question MCP tool input.
+// answerQuestionInput is the commander's answer_question MCP tool input.
 type answerQuestionInput struct {
 	Question  string `json:"question" jsonschema:"The question's sid (q-…) or id"`
 	Option    string `json:"option,omitempty" jsonschema:"The option you choose: its exact label or its number (1-based)"`
@@ -219,7 +219,7 @@ type answerQuestionInput struct {
 	Rationale string `json:"rationale" jsonschema:"Why you chose it, in one or two sentences (shown to the user as the receipt)"`
 }
 
-// decideDelegated records the orchestrator's decision on a delegated question; it is
+// decideDelegated records the commander's decision on a delegated question; it is
 // delivered to the agent after the grace period unless the user overrides it.
 func (h *Hub) decideDelegated(ctx context.Context, orchChatID string, in answerQuestionInput) (string, error) {
 	ctx = context.WithoutCancel(ctx)
@@ -270,7 +270,7 @@ func (h *Hub) decideDelegated(ctx context.Context, orchChatID string, in answerQ
 	cause := causeFrom(ctx)
 	h.recordFleetEvent(ctx, store.FleetEvent{
 		Kind: store.EventKindQuestion, Action: "decided", Cause: cause, WorkerID: q.WorkerID, ChatID: q.ChatID,
-		Summary:  fmt.Sprintf("The orchestrator decided question %s (%s): %q because %s", q.SID, oneLine(q.Prompt, 100), firstNonEmpty(d.Label, d.Text), oneLine(d.Rationale, 200)),
+		Summary:  fmt.Sprintf("The commander decided question %s (%s): %q because %s", q.SID, oneLine(q.Prompt, 100), firstNonEmpty(d.Label, d.Text), oneLine(d.Rationale, 200)),
 		MetaJSON: auditMeta(map[string]any{"question_sid": q.SID, "option_id": d.OptionID}),
 	})
 	h.scheduleDelegationDelivery(q.ID, grace)
@@ -308,7 +308,7 @@ func (h *Hub) deliverDelegation(ctx context.Context, id string) {
 		return
 	}
 	d := q.Delegation
-	actx := withCause(ctx, store.Cause{Actor: store.ActorOrchestrator, Source: "delegation", ActorID: d.ChatID, Confidence: store.ConfidenceCertain})
+	actx := withCause(ctx, store.Cause{Actor: store.ActorCommander, Source: "delegation", ActorID: d.ChatID, Confidence: store.ConfidenceCertain})
 	if _, err := h.answerQuestion(actx, id, questionAnswerInput{OptionID: d.OptionID, Text: d.Text}); err != nil {
 		h.logger.Warn("delivering a delegated answer failed", "question", q.SID, "err", err)
 	}

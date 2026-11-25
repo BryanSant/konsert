@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/activity"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/activity"
 )
 
-// Sink receives every stamped event (ChatID, Seq and At set). It must not block: konsertd
+// Sink receives every stamped event (ChatID, Seq and At set). It must not block: syred
 // queues events as control messages.
 type Sink func(protocol.AgentChatEvent)
 
@@ -60,19 +60,19 @@ type ManagerOptions struct {
 	OnFailure func(chatID, accountID string, err protocol.AgentChatError)
 	// OnRateLimit is called (on its own goroutine) with the account's subscription window
 	// state seen in a chat: every EventRateLimit, and an exhausted window derived from an
-	// ErrKindUsageLimit error. konsertd feeds it into the cached capabilities.
+	// ErrKindUsageLimit error. syred feeds it into the cached capabilities.
 	OnRateLimit func(accountID string, rl protocol.AgentRateLimit)
 	// CheckApproval, when set, vets the requested approval mode before an engine starts
-	// (konsertd --sandbox refuses full-access modes). A non-nil error fails the turn.
+	// (syred --sandbox refuses full-access modes). A non-nil error fails the turn.
 	CheckApproval func(agent, accountID, mode string) error
 	// SeqBase returns the first Seq of a chat in this process. The default is the current
-	// time in milliseconds × 1000, so Seq keeps increasing across konsertd restarts.
+	// time in milliseconds × 1000, so Seq keeps increasing across syred restarts.
 	SeqBase func() int64
 	// Now is the clock (tests).
 	Now func() time.Time
 	// OnActivity, when set, receives the chat's derived activity (thinking, working,
 	// speaking, ...) whenever it changes. It is called with the chat's lock held and must
-	// not block (konsertd hands it to a rate-limiting activity.Publisher).
+	// not block (syred hands it to a rate-limiting activity.Publisher).
 	OnActivity func(protocol.SessionActivity)
 }
 
@@ -486,7 +486,7 @@ type ChatInfo struct {
 }
 
 // ProcessIDer is implemented by sessions backed by an agent process (every real engine),
-// so konsertd can count the shells under it.
+// so syred can count the shells under it.
 type ProcessIDer interface {
 	ProcessID() int
 }
@@ -680,7 +680,7 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 	sid := sess.AgentSessionID()
 	c.mu.Lock()
 	if c.gen != gen || m.isClosed() {
-		// The session died (exit error), was closed while opening, or konsertd is stopping.
+		// The session died (exit error), was closed while opening, or syred is stopping.
 		c.mu.Unlock()
 		_ = sess.Close()
 		return false
@@ -1169,10 +1169,10 @@ func ResolveCwd(cwd string) (string, error) {
 	return cwd, nil
 }
 
-// ManagedTaskEnv marks processes started by konsertd. Hook scripts installed into the
-// agents' global config (e.g. claude settings) see it and don't report konsertd's own
+// ManagedTaskEnv marks processes started by syred. Hook scripts installed into the
+// agents' global config (e.g. claude settings) see it and don't report syred's own
 // chat sessions as separate external sessions. Same name as worker.ManagedTaskEnv.
-const ManagedTaskEnv = "KONSERT_TASK_ID"
+const ManagedTaskEnv = "SYRE_TASK_ID"
 
 // withManagedMarker returns acct with ManagedTaskEnv set for chatID (a copy; the
 // registry's account is not modified).

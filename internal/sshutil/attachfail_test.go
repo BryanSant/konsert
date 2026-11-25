@@ -3,12 +3,12 @@ package sshutil
 import "testing"
 
 // A failed attach says whether the host was unreachable (re-dial quietly) or reachable
-// with its konsertd down (restart it).
+// with its syred down (restart it).
 func TestClassifyAttachFailure(t *testing.T) {
 	for msg, want := range map[string]AttachFailure{
-		"Error: konsertd is not running here (no socket at /home/me/.konsert/w.sock): dial unix /home/me/.konsert/w.sock: connect: no such file or directory": AttachDaemonDown,
-		"sh: 1: /home/me/.local/bin/konsertd: not found":                                    AttachDaemonDown,
-		"bash: line 1: /home/me/.local/bin/konsertd: No such file or directory":             AttachDaemonDown,
+		"Error: syred is not running here (no socket at /home/me/.syre/w.sock): dial unix /home/me/.syre/w.sock: connect: no such file or directory": AttachDaemonDown,
+		"sh: 1: /home/me/.local/bin/syred: not found":                                       AttachDaemonDown,
+		"bash: line 1: /home/me/.local/bin/syred: No such file or directory":                AttachDaemonDown,
 		"ssh: connect to host box port 22: Connection refused":                              AttachUnreachable,
 		"ssh: connect to host box port 22: Operation timed out":                             AttachUnreachable,
 		"ssh: Could not resolve hostname box: nodename nor servname provided, or not known": AttachUnreachable,

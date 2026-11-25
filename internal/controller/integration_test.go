@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/orchestrator"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/commander"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/coder/websocket"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -87,7 +87,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 	st, err := sqlite.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	}
 	_ = loginResp.Body.Close()
 
-	// 2. Start konsertd worker daemon with mock driver and its machine credential.
+	// 2. Start syred worker daemon with mock driver and its machine credential.
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	wCfg := config.DefaultWorkerConfig()
 	wCfg.ControllerURL = wsURL
@@ -138,7 +138,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	waitForWorkerOnline(t, srv.Service(), "worker-e2e-1")
 
-	// 3. Connect an in-memory MCP client to Konsert's MCP server and dispatch a task on a git repo.
+	// 3. Connect an in-memory MCP client to Syre's MCP server and dispatch a task on a git repo.
 	mcpSrv := NewMCPServer(srv.Service(), "test")
 	cTrans, sTrans := mcp.NewInMemoryTransports()
 	mcpSrvSession, err := mcpSrv.Connect(ctx, sTrans, nil)
@@ -216,7 +216,7 @@ func TestBrowserPtySubscribeInteractiveAndUnsubscribe(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 	st, err := sqlite.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -283,7 +283,7 @@ func TestBrowserPtySubscribeInteractiveAndUnsubscribe(t *testing.T) {
 		}
 		if mt == websocket.MessageBinary {
 			ft, tid, payload, err := protocol.DecodeFrame(data)
-			if err == nil && ft == protocol.FramePtySnapshot && tid == disp.TaskID && bytes.Contains(payload, []byte("konsert-mock")) {
+			if err == nil && ft == protocol.FramePtySnapshot && tid == disp.TaskID && bytes.Contains(payload, []byte("syre-mock")) {
 				gotSnapshot = true
 			}
 		}
@@ -319,7 +319,7 @@ func TestControllerRestartTaskReadoption(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dbPath := filepath.Join(t.TempDir(), "konsert-restart.db")
+	dbPath := filepath.Join(t.TempDir(), "syre-restart.db")
 	st1, err := sqlite.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -402,12 +402,12 @@ type mockLLMProvider struct {
 
 func (m *mockLLMProvider) Name() string { return "mock-llm" }
 
-func (m *mockLLMProvider) Complete(_ context.Context, _, _ string, _ []orchestrator.Message, _ []orchestrator.ToolDef, onDelta func(string)) (orchestrator.Message, error) {
+func (m *mockLLMProvider) Complete(_ context.Context, _, _ string, _ []commander.Message, _ []commander.ToolDef, onDelta func(string)) (commander.Message, error) {
 	m.step++
 	if m.step == 1 {
-		return orchestrator.Message{
+		return commander.Message{
 			Role: "assistant",
-			ToolCalls: []orchestrator.ToolCall{
+			ToolCalls: []commander.ToolCall{
 				{ID: "call_1", Name: "fleet_status", Arguments: jsontext.Value(`{}`)},
 			},
 		}, nil
@@ -416,10 +416,10 @@ func (m *mockLLMProvider) Complete(_ context.Context, _, _ string, _ []orchestra
 	if onDelta != nil {
 		onDelta(text)
 	}
-	return orchestrator.Message{Role: "assistant", Content: text}, nil
+	return commander.Message{Role: "assistant", Content: text}, nil
 }
 
-func TestOrchestratorChatToolLoop(t *testing.T) {
+func TestCommanderChatToolLoop(t *testing.T) {
 	ctx := context.Background()
 	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "chat.db"))
 	if err != nil {
@@ -429,15 +429,15 @@ func TestOrchestratorChatToolLoop(t *testing.T) {
 
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = true
-	cfg.Orchestrator.APIKey = "test-key"
+	cfg.Commander.APIKey = "test-key"
 	srv := NewServer(cfg, st, nil, "test")
-	srv.Orchestrator().SetProvider(&mockLLMProvider{})
+	srv.Commander().SetProvider(&mockLLMProvider{})
 
 	var deltas []string
 	var toolStatuses []string
 	var doneCalled bool
 
-	err = srv.Orchestrator().HandleUserMessage(ctx, "sess-1", "Check the fleet", orchestrator.StreamCallbacks{
+	err = srv.Commander().HandleUserMessage(ctx, "sess-1", "Check the fleet", commander.StreamCallbacks{
 		OnDelta: func(_, d string) { deltas = append(deltas, d) },
 		OnTool:  func(p protocol.ChatToolPayload) { toolStatuses = append(toolStatuses, p.Name+":"+p.Status) },
 		OnDone:  func(_ string, _ int64) { doneCalled = true },
@@ -929,17 +929,17 @@ type capturingLLMProvider struct {
 
 func (p *capturingLLMProvider) Name() string { return "capture-llm" }
 
-func (p *capturingLLMProvider) Complete(_ context.Context, _, system string, msgs []orchestrator.Message, _ []orchestrator.ToolDef, onDelta func(string)) (orchestrator.Message, error) {
+func (p *capturingLLMProvider) Complete(_ context.Context, _, system string, msgs []commander.Message, _ []commander.ToolDef, onDelta func(string)) (commander.Message, error) {
 	p.lastSystem = system
 	p.lastCount = len(msgs)
 	text := "Compact snapshot received."
 	if onDelta != nil {
 		onDelta(text)
 	}
-	return orchestrator.Message{Role: "assistant", Content: text}, nil
+	return commander.Message{Role: "assistant", Content: text}, nil
 }
 
-func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) {
+func TestMachineFactsCachingDaemonFirstToolsAndCommanderMemory(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -957,7 +957,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 
 	// Start worker daemon that ships real MachineFacts on worker.hello
 	rootDir := t.TempDir()
-	wtDir := filepath.Join(rootDir, "app1", ".konsert-worktrees", "epic-123-cleanup")
+	wtDir := filepath.Join(rootDir, "app1", ".syre-worktrees", "epic-123-cleanup")
 	if err := os.MkdirAll(wtDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1005,7 +1005,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 		t.Fatalf("expected deterministic scan to find epic-123-cleanup, got %s", string(scanBytes))
 	}
 
-	// 3. Deterministic save_memory + Orchestrator context-window compaction checkpointing
+	// 3. Deterministic save_memory + Commander context-window compaction checkpointing
 	if _, err := srv.Service().ExecuteTool(ctx, "save_memory", jsontext.Value(`{"scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
 		t.Fatalf("save_memory failed: %v", err)
 	}
@@ -1021,8 +1021,8 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 	}
 
 	capProv := &capturingLLMProvider{}
-	srv.Orchestrator().SetProvider(capProv)
-	if err := srv.Orchestrator().HandleUserMessage(ctx, "sess-compact", "What do we know about foo1?", orchestrator.StreamCallbacks{}); err != nil {
+	srv.Commander().SetProvider(capProv)
+	if err := srv.Commander().HandleUserMessage(ctx, "sess-compact", "What do we know about foo1?", commander.StreamCallbacks{}); err != nil {
 		t.Fatalf("HandleUserMessage failed: %v", err)
 	}
 	if capProv.lastCount > 25 {
@@ -1055,7 +1055,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 	// Worker 1 has an epic-123 temp worktree; Worker 2 is clean (no-op).
 	root1 := t.TempDir()
 	root2 := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root1, "app1", ".konsert-worktrees", "epic-123-wt"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root1, "app1", ".syre-worktrees", "epic-123-wt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1161,12 +1161,12 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	cfg.NoAuth = true
 	cfg.EnableMCPHTTP = true
 	srv := NewServer(cfg, st, nil, "test")
-	srv.Orchestrator().SetProvider(&capturingLLMProvider{})
+	srv.Commander().SetProvider(&capturingLLMProvider{})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
 	// Connect via in-memory transport (covers stdio MCP parity)
-	mcpSrv := NewMCPServer(srv.Service(), "test", srv.Orchestrator())
+	mcpSrv := NewMCPServer(srv.Service(), "test", srv.Commander())
 	cTrans, sTrans := mcp.NewInMemoryTransports()
 	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
 	if err != nil {
@@ -1212,7 +1212,7 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 		t.Fatalf("get_settings failed: %v res=%+v", err, setRes)
 	}
 
-	// 3. save_memory + recall_memory + ask_orchestrator
+	// 3. save_memory + recall_memory + ask_commander
 	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "save_memory",
 		Arguments: map[string]any{"scope": "fleet", "key": "mcp-note", "summary": "verified via MCP"},
@@ -1220,11 +1220,11 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 		t.Fatalf("save_memory failed: %v res=%+v", err, res)
 	}
 	orchRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "ask_orchestrator",
+		Name:      "ask_commander",
 		Arguments: map[string]any{"prompt": "Summarize fleet status"},
 	})
 	if err != nil || orchRes.IsError || !strings.Contains(orchRes.Content[0].(*mcp.TextContent).Text, "Compact snapshot received.") {
-		t.Fatalf("ask_orchestrator failed: %v res=%+v", err, orchRes)
+		t.Fatalf("ask_commander failed: %v res=%+v", err, orchRes)
 	}
 
 	// 4. Verify Streamable HTTP (/mcp) endpoint responds cleanly to RemoteFleetClient + MCP HTTP client
@@ -1301,8 +1301,8 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	}
 	_ = delResp.Body.Close()
 
-	// 2. Upload local attachment -> forwarded via MsgFileUpload RPC to konsertd OS scratch dir
-	attachBody := `{"worker_id":"w-att-1","session_id":"sess-1","filename":"trace.log","data_base64":"aGVsbG8ga29uc2VydAo="}`
+	// 2. Upload local attachment -> forwarded via MsgFileUpload RPC to syred OS scratch dir
+	attachBody := `{"worker_id":"w-att-1","session_id":"sess-1","filename":"trace.log","data_base64":"aGVsbG8gc3lyZQo="}`
 	attResp, err := http.Post(ts.URL+"/api/attachments", "application/json", strings.NewReader(attachBody))
 	if err != nil || attResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/attachments failed: resp=%v err=%v", attResp, err)
@@ -1316,11 +1316,11 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	}
 	_ = json.UnmarshalRead(attResp.Body, &attOut)
 	_ = attResp.Body.Close()
-	if !attOut.OK || attOut.WorkerID != "w-att-1" || attOut.RemotePath == "" || attOut.Size != 14 {
+	if !attOut.OK || attOut.WorkerID != "w-att-1" || attOut.RemotePath == "" || attOut.Size != 11 {
 		t.Fatalf("unexpected attachment upload response: %+v", attOut)
 	}
 	content, err := os.ReadFile(attOut.RemotePath)
-	if err != nil || string(content) != "hello konsert\n" {
+	if err != nil || string(content) != "hello syre\n" {
 		t.Fatalf("expected uploaded file at %q with content, got %q err=%v", attOut.RemotePath, string(content), err)
 	}
 	_ = os.Remove(attOut.RemotePath)
@@ -1347,7 +1347,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 
-	// 1. Start first konsertd instance for machine "devbox" with ID "w-devbox-1"
+	// 1. Start first syred instance for machine "devbox" with ID "w-devbox-1"
 	wCfg1 := config.DefaultWorkerConfig()
 	wCfg1.ControllerURL = wsURL
 	wCfg1.WorkerID = "w-devbox-1"
@@ -1365,7 +1365,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	}()
 	waitForWorkerOnline(t, srv.Service(), "w-devbox-1")
 
-	// 2. A second konsertd with the same identity (same state dir) -> must not add a worker.
+	// 2. A second syred with the same identity (same state dir) -> must not add a worker.
 	wCfg2 := config.DefaultWorkerConfig()
 	wCfg2.ControllerURL = wsURL
 	wCfg2.WorkerID = "w-devbox-1"
@@ -1382,10 +1382,10 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	}()
 
 	// d1 is still alive, so the duplicate d2 is turned away with a reconnectable
-	// close code (KON-FWDRN) and d1 must keep running rather than being kicked off.
+	// close code (SYR-FWDRN) and d1 must keep running rather than being kicked off.
 	select {
 	case <-d1Done:
-		t.Fatal("a live konsertd must not be shut down by a duplicate connection")
+		t.Fatal("a live syred must not be shut down by a duplicate connection")
 	case <-time.After(1500 * time.Millisecond):
 	}
 
@@ -1433,7 +1433,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	select {
 	case <-d2Done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("expected removed konsertd to stop instead of reconnecting")
+		t.Fatal("expected removed syred to stop instead of reconnecting")
 	}
 
 	fsAfter, err := srv.Service().FleetStatus(ctx)
@@ -1446,12 +1446,12 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 }
 
 // TestAuditLogEndToEndWithRealWorker drives Take Control and steer over REST
-// against a real konsertd (mock driver) and reads them back from GET /api/audit.
+// against a real syred (mock driver) and reads them back from GET /api/audit.
 func TestAuditLogEndToEndWithRealWorker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "konsert-audit.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "syre-audit.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ func NormalizeVersion(v string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V")
 }
 
-// VersionMismatch reports whether a worker's konsertd version differs from the
+// VersionMismatch reports whether a worker's syred version differs from the
 // controller's. Unknown versions on either side never count as a mismatch.
 func VersionMismatch(controllerVersion, workerVersion string) bool {
 	c, w := NormalizeVersion(controllerVersion), NormalizeVersion(workerVersion)

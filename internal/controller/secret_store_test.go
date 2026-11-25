@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/secrets"
-	"github.com/BryanSant/konsert/internal/store/sqlite"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/secrets"
+	"github.com/BryanSant/syre/internal/store/sqlite"
 )
 
 func secretTestServer(t *testing.T, dbPath string) (*Server, func()) {
@@ -27,7 +27,7 @@ func secretTestServer(t *testing.T, dbPath string) (*Server, func()) {
 
 func TestLLMAPIKeyEncryptedAtRest(t *testing.T) {
 	t.Setenv(secrets.KeyEnv, "") // use the key file next to the database
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 	ctx := context.Background()
 
 	srv, closeStore := secretTestServer(t, dbPath)
@@ -53,7 +53,7 @@ func TestLLMAPIKeyEncryptedAtRest(t *testing.T) {
 	srv2, closeStore2 := secretTestServer(t, dbPath)
 	defer closeStore2()
 	srv2.cfgMu.RLock()
-	got := srv2.cfg.Orchestrator.APIKey
+	got := srv2.cfg.Commander.APIKey
 	srv2.cfgMu.RUnlock()
 	if got != key {
 		t.Fatalf("restarted controller API key = %q, want the saved key", got)
@@ -62,7 +62,7 @@ func TestLLMAPIKeyEncryptedAtRest(t *testing.T) {
 
 func TestPlaintextAPIKeyMigratedOnStartup(t *testing.T) {
 	t.Setenv(secrets.KeyEnv, "")
-	dbPath := filepath.Join(t.TempDir(), "konsert.db")
+	dbPath := filepath.Join(t.TempDir(), "syre.db")
 	ctx := context.Background()
 	st, err := sqlite.Open(ctx, dbPath)
 	if err != nil {
@@ -81,8 +81,8 @@ func TestPlaintextAPIKeyMigratedOnStartup(t *testing.T) {
 	}
 	srv.cfgMu.RLock()
 	defer srv.cfgMu.RUnlock()
-	if srv.cfg.Orchestrator.APIKey != "sk-legacy-plain" {
-		t.Fatalf("migrated key not usable: %q", srv.cfg.Orchestrator.APIKey)
+	if srv.cfg.Commander.APIKey != "sk-legacy-plain" {
+		t.Fatalf("migrated key not usable: %q", srv.cfg.Commander.APIKey)
 	}
 }
 

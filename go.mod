@@ -1,4 +1,4 @@
-module github.com/BryanSant/konsert
+module github.com/BryanSant/syre
 
 go 1.27.2
 

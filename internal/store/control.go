@@ -6,12 +6,12 @@ import "time"
 
 // Actor kinds: who caused a state change.
 const (
-	ActorUser         = "user"
-	ActorOrchestrator = "orchestrator"
-	ActorAgent        = "agent"
-	ActorScheduler    = "scheduler"
-	ActorSystem       = "system"
-	ActorUnknown      = "unknown"
+	ActorUser      = "user"
+	ActorCommander = "commander"
+	ActorAgent     = "agent"
+	ActorScheduler = "scheduler"
+	ActorSystem    = "system"
+	ActorUnknown   = "unknown"
 )
 
 // Cause sources (Cause.Source) for user actions; other actors use free-form sources
@@ -31,7 +31,7 @@ const (
 	ConfidenceUnknown = "unknown"
 )
 
-// Cause attributes a state change: who did it, through which path, how sure Konsert is,
+// Cause attributes a state change: who did it, through which path, how sure Syre is,
 // and what it correlates with (an open request, a terminal command, a hold).
 type Cause struct {
 	Actor string `json:"actor"`
@@ -39,7 +39,7 @@ type Cause struct {
 	// reaper, ... for others.
 	Source string `json:"source,omitempty"`
 	// ActorID identifies the actor: the authenticated user, the chat id of an agent or
-	// orchestrator chat, the task id of an agent task.
+	// commander chat, the task id of an agent task.
 	ActorID    string `json:"actor_id,omitempty"`
 	Confidence string `json:"confidence"`
 	RequestID  string `json:"request_id,omitempty"`
@@ -57,7 +57,7 @@ const (
 	EventKindHold     = "hold"     // Action: created | released
 	EventKindRequest  = "request"  // Action: created | done | declined | canceled | linked
 	EventKindVeto     = "veto"     // Action: the veto reason
-	EventKindNotice   = "notice"   // Konsert told an agent about something (Action: delivered)
+	EventKindNotice   = "notice"   // Syre told an agent about something (Action: delivered)
 	EventKindQuestion = "question" // Action: answered | delegated | decided | overridden
 )
 
@@ -75,7 +75,7 @@ type FleetEvent struct {
 	ChatID     string    `json:"chat_id,omitempty"`
 	FromStatus string    `json:"from_status,omitempty"`
 	ToStatus   string    `json:"to_status,omitempty"`
-	// Summary is one human sentence ("The user stopped nginx on host-1 via a Konsert terminal").
+	// Summary is one human sentence ("The user stopped nginx on host-1 via a Syre terminal").
 	Summary  string `json:"summary"`
 	MetaJSON string `json:"meta_json,omitempty"`
 }
@@ -111,7 +111,7 @@ type Resource struct {
 }
 
 // Hold blocks automatic actions on a scope after an intervention no agent asked for:
-// no retries, re-dispatch, automatic restarts or orchestrator steering there until the
+// no retries, re-dispatch, automatic restarts or commander steering there until the
 // user releases it. Holds never suspend anything by themselves.
 type Hold struct {
 	ID        string    `json:"id"`

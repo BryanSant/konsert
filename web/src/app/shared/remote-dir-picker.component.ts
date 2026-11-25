@@ -1,6 +1,6 @@
 import { Component, OnDestroy, effect, inject, input, model, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { FSEntry } from '../core/models/konsert.models';
+import { FSEntry } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { IconComponent } from './icon.component';
 import { TooltipDirective } from './tooltip.directive';
@@ -40,8 +40,8 @@ let nextPickerId = 0;
         <button
           type="button"
           (click)="toggleBrowse()"
-          ksTooltip="Browse remote machine folders"
-          class="ks-btn shrink-0"
+          syTooltip="Browse remote machine folders"
+          class="sy-btn shrink-0"
           [class.border-[#4a668a]]="browseOpen()"
           [class.text-[#ececed]]="browseOpen()"
         >
@@ -97,13 +97,13 @@ let nextPickerId = 0;
                 <button
                   type="button"
                   (click)="navigateBrowse(browseParent())"
-                  ksTooltip="Parent directory" aria-label="Parent directory"
-                  class="ks-btn ks-btn-sm ks-btn-soft font-mono-ide shrink-0"
+                  syTooltip="Parent directory" aria-label="Parent directory"
+                  class="sy-btn sy-btn-sm sy-btn-soft font-mono-ide shrink-0"
                 >
                   ..
                 </button>
               }
-              <span class="font-mono-ide text-[11px] text-[#b4b6be] truncate" [ksTooltip]="browseCurrentDir()">
+              <span class="font-mono-ide text-[11px] text-[#b4b6be] truncate" [syTooltip]="browseCurrentDir()">
                 {{ browseCurrentDir() || value() || '~' }}
               </span>
             </div>
@@ -119,7 +119,7 @@ let nextPickerId = 0;
                 type="button"
                 (click)="browseOpen.set(false)"
                 aria-label="Close folder browser"
-                class="ks-icon-btn ks-icon-btn-sm"
+                class="sy-icon-btn sy-icon-btn-sm"
               >
                 <app-icon name="close" [size]="13" />
               </button>
@@ -155,7 +155,7 @@ let nextPickerId = 0;
                   <button
                     type="button"
                     (click)="selectAndClose(entry.path)"
-                    class="ks-btn ks-btn-sm ks-btn-soft opacity-0 group-hover:opacity-100 shrink-0"
+                    class="sy-btn sy-btn-sm sy-btn-soft opacity-0 group-hover:opacity-100 shrink-0"
                   >
                     Select
                   </button>
@@ -174,7 +174,7 @@ export class RemoteDirPickerComponent implements OnDestroy {
   readonly inputName = input<string>('remoteDir');
   /** id for the text input, so a parent <label for> can name it. */
   readonly inputId = input<string>('');
-  readonly listboxId = `ks-dir-suggest-${nextPickerId++}`;
+  readonly listboxId = `sy-dir-suggest-${nextPickerId++}`;
   readonly value = model<string>('~');
 
   private readonly api = inject(ApiClientService);

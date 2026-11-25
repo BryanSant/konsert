@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func TestDriverPermissionFlags(t *testing.T) {
@@ -98,7 +98,7 @@ func TestClaudeJSONLParserAndUsageDeltas(t *testing.T) {
 	}
 }
 
-// konsertd advertises and `konsertd doctor` lists every driver in the default registry.
+// syred advertises and `syred doctor` lists every driver in the default registry.
 func TestDefaultRegistryIncludesCopilotAndCursor(t *testing.T) {
 	for name, bin := range map[string]string{"copilot": "copilot", "cursor": "cursor-agent"} {
 		d, ok := DefaultRegistry.Get(name)

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -49,9 +49,9 @@ func auditMessages(ev []store.AuditEvent) string {
 	return strings.Join(out, "\n")
 }
 
-// Removing the hub's own machine runs `konsertd uninstall --worker <id>` locally and
+// Removing the hub's own machine runs `syred uninstall --worker <id>` locally and
 // records what it did.
-func TestRemoveLocalMachineRunsKonsertdUninstall(t *testing.T) {
+func TestRemoveLocalMachineRunsSyredUninstall(t *testing.T) {
 	lt := newLaunchTest(t)
 	if _, err := lt.st.EnsureWorker(context.Background(), store.Worker{ID: localID, Name: "hubhost", Launch: store.LaunchLocal}); err != nil {
 		t.Fatal(err)
@@ -70,12 +70,12 @@ func TestRemoveLocalMachineRunsKonsertdUninstall(t *testing.T) {
 		}
 	}
 	lt.runner.mu.Unlock()
-	if !slices.Equal(call, []string{"/opt/konsert/bin/konsertd", "uninstall", "--worker", localID}) {
+	if !slices.Equal(call, []string{"/opt/syre/bin/syred", "uninstall", "--worker", localID}) {
 		t.Fatalf("uninstall call = %q", call)
 	}
 	waitFor(t, 5*time.Second, "audit", func() bool {
 		ev := uninstallAudits(t, lt.st)
-		return len(ev) == 1 && strings.HasPrefix(ev[0].Message, "Uninstalled konsertd from hubhost")
+		return len(ev) == 1 && strings.HasPrefix(ev[0].Message, "Uninstalled syred from hubhost")
 	})
 }
 
@@ -133,7 +133,7 @@ func TestRemoveSSHMachineRetriesWhenUnreachable(t *testing.T) {
 		t.Fatalf("pending after success = %+v", p)
 	}
 	ev := uninstallAudits(t, lt.st)
-	if len(ev) != 2 || ev[1].Message != "Uninstalled konsertd from box: Removed the systemd user unit for box" {
+	if len(ev) != 2 || ev[1].Message != "Uninstalled syred from box: Removed the systemd user unit for box" {
 		t.Fatalf("audits = %q", auditMessages(ev))
 	}
 
@@ -144,7 +144,7 @@ func TestRemoveSSHMachineRetriesWhenUnreachable(t *testing.T) {
 	if p := lt.srv.loadRemovals(ctx); len(p) != 0 {
 		t.Fatalf("expired removal kept: %+v", p)
 	}
-	if last := uninstallAudits(t, lt.st); !strings.Contains(last[len(last)-1].Message, "Gave up uninstalling konsertd from old after 30 days") {
+	if last := uninstallAudits(t, lt.st); !strings.Contains(last[len(last)-1].Message, "Gave up uninstalling syred from old after 30 days") {
 		t.Fatalf("audits = %q", auditMessages(last))
 	}
 }
@@ -245,7 +245,7 @@ func TestRemoveConnectedManualMachine(t *testing.T) {
 }
 
 func TestSummarizeUninstall(t *testing.T) {
-	out := "Disabled konsertd.service\nRemoved /x/konsertd.service\nRemoved the systemd user unit for box\nKept the agent hooks: still used by host on this account\n"
+	out := "Disabled syred.service\nRemoved /x/syred.service\nRemoved the systemd user unit for box\nKept the agent hooks: still used by host on this account\n"
 	if got := summarizeUninstall(out); got != "Removed the systemd user unit for box; Kept the agent hooks: still used by host on this account" {
 		t.Fatalf("summary = %q", got)
 	}

@@ -19,7 +19,7 @@ export const TIMELINE_PAGE_SIZE = 60;
 
 /**
  * Human control state (PRD §5.8a): fleet Pause everything, active holds, open requests
- * from agents, override requests from the orchestrator, vetoes awaiting the agent's
+ * from agents, override requests from the commander, vetoes awaiting the agent's
  * acknowledgement and the "Your actions" timeline. Loaded over REST and kept current by
  * fleet.update frames of kinds "pause", "hold", "request", "override", "veto" and
  * "fleet_event".
@@ -37,7 +37,7 @@ export class ControlStore {
   readonly overrides = signal<OverrideRequest[]>([]);
   /** Vetoes the agent has not acknowledged yet (and the user has not dismissed), newest first. */
   readonly vetoes = signal<Veto[]>([]);
-  /** Sessions that left shells running past the idle period (KON-DCEZV), oldest first. */
+  /** Sessions that left shells running past the idle period (SYR-DCEZV), oldest first. */
   readonly shellReminders = signal<ShellReminder[]>([]);
   /** Timeline events (user actions and responses), newest first. */
   readonly events = signal<FleetEvent[]>([]);
@@ -292,7 +292,7 @@ export class ControlStore {
     return !!res;
   }
 
-  /** Approves or denies an override request (with an optional note for the orchestrator). */
+  /** Approves or denies an override request (with an optional note for the commander). */
   async decideOverride(o: OverrideRequest, decision: 'approve' | 'deny', note?: string): Promise<boolean> {
     const res = await this.run(o.id, 'Could not decide the override request', () =>
       this.api.decideOverride(o.id, decision, note),

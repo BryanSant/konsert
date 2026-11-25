@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// History retention (KON-CSCWP; docs/design/retention.md). Live and recent work keeps
+// History retention (SYR-CSCWP; docs/design/retention.md). Live and recent work keeps
 // every detail. Finished work older than the detail period is summarised: the task or
 // chat record, its outcome, timing, summary and transcript stay, the bulky streamed
 // events go. The fleet timeline keeps everything for a while and then only human
@@ -55,28 +55,28 @@ var RetentionBounds = struct {
 // outcome, errors and every human intervention. Everything else (tool_call, file_edit,
 // usage, quota and any other streamed telemetry) is dropped.
 var TaskEventKeepKinds = []string{
-	"milestone",        // agent progress milestones (turn completed, plan progress)
-	"summary",          // the agent's own summary
-	"exit",             // process exit (outcome)
-	"error",            // failures
-	"waiting_input",    // the agent asked for the user
-	"control",          // human interventions: steer, take control, input
-	"steer",            // review "request changes" sent back to the agent
-	"review",           // review decisions
-	"delivery",         // delivery outcomes (merge, push, PR/MR)
-	"command",          // operator commands run on the machine
-	"konsert_worktree", // where the work happened
+	"milestone",     // agent progress milestones (turn completed, plan progress)
+	"summary",       // the agent's own summary
+	"exit",          // process exit (outcome)
+	"error",         // failures
+	"waiting_input", // the agent asked for the user
+	"control",       // human interventions: steer, take control, input
+	"steer",         // review "request changes" sent back to the agent
+	"review",        // review decisions
+	"delivery",      // delivery outcomes (merge, push, PR/MR)
+	"command",       // operator commands run on the machine
+	"syre_worktree", // where the work happened
 	"git_worktree",
 }
 
 // ChatEventKeepKinds are the chat_events kinds compaction keeps: the transcript (the
-// user's prompts, Konsert's notes and the agent's complete replies), turn boundaries,
+// user's prompts, Syre's notes and the agent's complete replies), turn boundaries,
 // errors and the agent's questions with their answers. Tool calls (with their inputs
 // and outputs), reasoning, plans, usage, rate limits, sub-agent activity and status
 // changes are dropped.
 var ChatEventKeepKinds = []string{
 	"user_message", // the user's prompt (hub-generated)
-	"konsert_note", // fleet note prepended to a prompt (hub-generated)
+	"syre_note",    // fleet note prepended to a prompt (hub-generated)
 	"message",      // the agent's complete reply
 	"session_ready",
 	"turn_end",
@@ -118,7 +118,7 @@ type StorageKind struct {
 	Rows  int64  `json:"rows"`
 }
 
-// Storage breakdown kinds. Conversations are what people read back: orchestrator
+// Storage breakdown kinds. Conversations are what people read back: commander
 // transcripts (chat_messages) plus the agent-chat events compaction keeps
 // (ChatEventKeepKinds). Session detail is every other chat event: tool calls with their
 // output, reasoning, plans and streamed telemetry, the part compaction drops.

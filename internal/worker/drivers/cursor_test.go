@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Fixtures in testdata/cursor were captured from cursor-agent 2026.11.19-f005e9d and

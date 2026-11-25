@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // FanOutRequest controls a fleet-wide parallel operation with deterministic daemon pre-checking
@@ -48,7 +48,7 @@ type FanOutResult struct {
 }
 
 // FanOutFleet executes a parallel operation across all online machines matching selector.
-// Machines with no work are short-circuited deterministically by konsertd without invoking any coding agent.
+// Machines with no work are short-circuited deterministically by syred without invoking any coding agent.
 func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanOutResult, error) {
 	kind := strings.ToLower(strings.TrimSpace(req.Kind))
 	if kind == "" {
@@ -208,7 +208,7 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 					RepoPath:       repoPath,
 					Prompt:         req.Prompt,
 					Mode:           protocol.TaskModeOneshot,
-					Origin:         protocol.TaskOriginOrchestrator,
+					Origin:         protocol.TaskOriginCommander,
 					PermissionMode: string(permMode),
 				})
 				if dErr != nil {

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func openTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
-	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "konsert.db"))
+	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "syre.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/install"
 	"github.com/google/uuid"
 )
 
-// A machine's hub credential (KON-RK9YD) lives in konsertd's state directory, next to
+// A machine's hub credential (SYR-RK9YD) lives in syred's state directory, next to
 // the identity it belongs to: <stateDir>/credentials/<worker id>, mode 0600. Keying it
 // by the worker id means a reset state dir (new identity) never reuses a credential the
-// hub bound to the old one, and `konsertd install`/`uninstall` never touch it.
+// hub bound to the old one, and `syred install`/`uninstall` never touch it.
 
 // ErrNoCredential is returned by LoadCredential when this machine has none saved.
 var ErrNoCredential = errors.New("no machine credential")

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/syre/internal/config"
 )
 
 // fakeRunner records commands instead of running them. fail maps a command prefix
@@ -59,7 +59,7 @@ func testInstaller(t *testing.T) (*Installer, *fakeRunner) {
 		Out:    &bytes.Buffer{},
 		Env: Env{
 			Home:       filepath.Join(root, "home"),
-			ConfigDir:  filepath.Join(root, "config", "konsert"),
+			ConfigDir:  filepath.Join(root, "config", "syre"),
 			LogDir:     filepath.Join(root, "logs"),
 			UnitDir:    filepath.Join(root, "units"),
 			UID:        501,
@@ -72,7 +72,7 @@ func testInstaller(t *testing.T) (*Installer, *fakeRunner) {
 }
 
 func testSpec(instance string) Spec {
-	exe, _ := filepath.Abs(filepath.Join("testdata", "konsertd"))
+	exe, _ := filepath.Abs(filepath.Join("testdata", "syred"))
 	return Spec{
 		Instance:  instance,
 		Exe:       exe,
@@ -95,25 +95,25 @@ func TestInstanceFor(t *testing.T) {
 			t.Errorf("InstanceFor(%q, %q) = %q, want %q", c.name, c.host, got, c.want)
 		}
 	}
-	if LaunchdLabel("") != "dev.konsert.konsertd" || LaunchdLabel("x") != "dev.konsert.konsertd.x" {
+	if LaunchdLabel("") != "dev.syre.syred" || LaunchdLabel("x") != "dev.syre.syred.x" {
 		t.Errorf("labels: %q %q", LaunchdLabel(""), LaunchdLabel("x"))
 	}
-	if SystemdUnit("x") != "konsertd-x.service" || TaskName("") != `\konsertd` {
+	if SystemdUnit("x") != "syred-x.service" || TaskName("") != `\syred` {
 		t.Errorf("names: %q %q", SystemdUnit("x"), TaskName(""))
 	}
 }
 
 func TestRenderPlist(t *testing.T) {
-	p := RenderPlist("dev.konsert.konsertd.t", []string{"/bin/konsertd", "run", "--config", "/Users/a/Library/Application Support/konsert/k&d.yaml"},
-		map[string]string{"PATH": "/opt/homebrew/bin:/usr/bin"}, "/Users/a", "/Users/a/Library/Logs/konsert/konsertd-t.log")
+	p := RenderPlist("dev.syre.syred.t", []string{"/bin/syred", "run", "--config", "/Users/a/Library/Application Support/syre/k&d.yaml"},
+		map[string]string{"PATH": "/opt/homebrew/bin:/usr/bin"}, "/Users/a", "/Users/a/Library/Logs/syre/syred-t.log")
 	s := string(p)
 	for _, want := range []string{
-		"<string>dev.konsert.konsertd.t</string>",
-		"<string>/Users/a/Library/Application Support/konsert/k&amp;d.yaml</string>",
+		"<string>dev.syre.syred.t</string>",
+		"<string>/Users/a/Library/Application Support/syre/k&amp;d.yaml</string>",
 		"<key>RunAtLoad</key>\n  <true/>",
 		"<key>KeepAlive</key>\n  <true/>",
 		"<key>PATH</key>\n    <string>/opt/homebrew/bin:/usr/bin</string>",
-		"<key>StandardErrorPath</key>\n  <string>/Users/a/Library/Logs/konsert/konsertd-t.log</string>",
+		"<key>StandardErrorPath</key>\n  <string>/Users/a/Library/Logs/syre/syred-t.log</string>",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("plist missing %q:\n%s", want, s)
@@ -129,12 +129,12 @@ func TestRenderPlist(t *testing.T) {
 }
 
 func TestRenderUnit(t *testing.T) {
-	u := string(RenderUnit("Konsert worker daemon (t)",
-		[]string{"/home/a/bin/konsertd", "run", "--config", "/home/a/.config/konsert/konsertd-t.yaml", "--tag=x=100%"},
+	u := string(RenderUnit("Syre worker daemon (t)",
+		[]string{"/home/a/bin/syred", "run", "--config", "/home/a/.config/syre/syred-t.yaml", "--tag=x=100%"},
 		map[string]string{"PATH": "/home/a/.local/bin:/usr/bin"}, "/home/a"))
 	for _, want := range []string{
-		"Description=Konsert worker daemon (t)\n",
-		`ExecStart="/home/a/bin/konsertd" "run" "--config" "/home/a/.config/konsert/konsertd-t.yaml" "--tag=x=100%%"` + "\n",
+		"Description=Syre worker daemon (t)\n",
+		`ExecStart="/home/a/bin/syred" "run" "--config" "/home/a/.config/syre/syred-t.yaml" "--tag=x=100%%"` + "\n",
 		`Environment="PATH=/home/a/.local/bin:/usr/bin"` + "\n",
 		"WorkingDirectory=/home/a\n",
 		"Restart=always\n",
@@ -151,9 +151,9 @@ func TestRenderUnit(t *testing.T) {
 }
 
 func TestRenderTaskXML(t *testing.T) {
-	args := WindowsJoinArgs([]string{"--headless", `C:\Program Files\konsert\konsertd.exe`, "run", "--config", `C:\Users\a\AppData\Local\konsert\konsertd.yaml`})
+	args := WindowsJoinArgs([]string{"--headless", `C:\Program Files\syre\syred.exe`, "run", "--config", `C:\Users\a\AppData\Local\syre\syred.yaml`})
 	x := RenderTaskXML(TaskXMLParams{
-		URI: `\konsertd`, Description: "d & e", UserSID: "S-1-5-21-1-2-3-1001",
+		URI: `\syred`, Description: "d & e", UserSID: "S-1-5-21-1-2-3-1001",
 		Command: `C:\Windows\System32\conhost.exe`, Arguments: args, WorkDir: `C:\Users\a`,
 		StartBoundary: "2026-01-02T03:04:05",
 	})
@@ -208,7 +208,7 @@ func TestRenderTaskXML(t *testing.T) {
 	if task.Exec.Command != `C:\Windows\System32\conhost.exe` {
 		t.Errorf("command = %q", task.Exec.Command)
 	}
-	if want := `--headless "C:\Program Files\konsert\konsertd.exe" run --config C:\Users\a\AppData\Local\konsert\konsertd.yaml`; task.Exec.Arguments != want {
+	if want := `--headless "C:\Program Files\syre\syred.exe" run --config C:\Users\a\AppData\Local\syre\syred.yaml`; task.Exec.Arguments != want {
 		t.Errorf("arguments = %q, want %q", task.Exec.Arguments, want)
 	}
 	if !strings.Contains(x, "d &amp; e") {
@@ -235,7 +235,7 @@ func TestWindowsJoinArgs(t *testing.T) {
 func TestMarshalWorkerConfigIsSparse(t *testing.T) {
 	data, err := MarshalWorkerConfig(config.WorkerConfig{
 		ControllerURL: "wss://hub/ws/worker",
-		Credential:    "kmc_never_persisted",
+		Credential:    "smc_never_persisted",
 		Sandbox:       true,
 		Tags:          map[string]string{"gpu": "yes"},
 		AllowedRoots:  []string{"/src"},
@@ -250,7 +250,7 @@ func TestMarshalWorkerConfigIsSparse(t *testing.T) {
 		}
 	}
 	// Unset fields must be absent so run's defaults (hostname as name, 2 slots) apply.
-	for _, absent := range []string{"kmc_never_persisted", "credential", "name:", "max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
+	for _, absent := range []string{"smc_never_persisted", "credential", "name:", "max_concurrent:", "isolation:", "worker_id:", "enable_mock_driver:"} {
 		if strings.Contains(s, absent) {
 			t.Errorf("config should omit %q:\n%s", absent, s)
 		}
@@ -278,7 +278,7 @@ func TestLaunchdInstallUninstall(t *testing.T) {
 	if err := in.install(context.Background(), launchdBackend{}, spec); err != nil {
 		t.Fatal(err)
 	}
-	plist := filepath.Join(in.Env.UnitDir, "dev.konsert.konsertd.install-test.plist")
+	plist := filepath.Join(in.Env.UnitDir, "dev.syre.syred.install-test.plist")
 	data, err := os.ReadFile(plist)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestLaunchdInstallUninstall(t *testing.T) {
 		t.Errorf("config = %q, %v", cfg, err)
 	}
 
-	r.out["launchctl print"] = "gui/501/dev.konsert.konsertd.install-test = {\n\tstate = running\n\tpid = 4242\n}"
+	r.out["launchctl print"] = "gui/501/dev.syre.syred.install-test = {\n\tstate = running\n\tpid = 4242\n}"
 	st, err := in.status(context.Background(), launchdBackend{}, "install-test")
 	if err != nil || !st.Installed || !st.Running || st.PID != 4242 {
 		t.Errorf("status = %+v, %v", st, err)
@@ -307,7 +307,7 @@ func TestLaunchdInstallUninstall(t *testing.T) {
 	if err := in.uninstall(context.Background(), launchdBackend{}, "install-test"); err != nil {
 		t.Fatal(err)
 	}
-	if !r.called("launchctl bootout gui/501/dev.konsert.konsertd.install-test") {
+	if !r.called("launchctl bootout gui/501/dev.syre.syred.install-test") {
 		t.Errorf("calls = %v", r.calls)
 	}
 	if fileExists(plist) || fileExists(in.ConfigPath("install-test")) {
@@ -327,7 +327,7 @@ func TestSystemdInstallUninstall(t *testing.T) {
 	if err := in.install(context.Background(), systemdBackend{}, spec); err != nil {
 		t.Fatal(err)
 	}
-	unit := filepath.Join(in.Env.UnitDir, "konsertd.service")
+	unit := filepath.Join(in.Env.UnitDir, "syred.service")
 	data, err := os.ReadFile(unit)
 	if err != nil {
 		t.Fatal(err)
@@ -338,13 +338,13 @@ func TestSystemdInstallUninstall(t *testing.T) {
 	if strings.Contains(string(data), "s3cret") {
 		t.Error("token leaked into the unit")
 	}
-	for _, c := range []string{"systemctl --user daemon-reload", "systemctl --user enable konsertd.service", "systemctl --user restart konsertd.service", "loginctl enable-linger alice"} {
+	for _, c := range []string{"systemctl --user daemon-reload", "systemctl --user enable syred.service", "systemctl --user restart syred.service", "loginctl enable-linger alice"} {
 		if !r.called(c) {
 			t.Errorf("missing call %q in %v", c, r.calls)
 		}
 	}
 
-	r.out["systemctl --user show konsertd.service"] = "ActiveState=active\nSubState=running\nMainPID=99\nUnitFileState=enabled\n"
+	r.out["systemctl --user show syred.service"] = "ActiveState=active\nSubState=running\nMainPID=99\nUnitFileState=enabled\n"
 	st, err := in.status(context.Background(), systemdBackend{}, "")
 	if err != nil || !st.Running || st.PID != 99 {
 		t.Errorf("status = %+v, %v", st, err)
@@ -353,7 +353,7 @@ func TestSystemdInstallUninstall(t *testing.T) {
 	if err := in.uninstall(context.Background(), systemdBackend{}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !r.called("systemctl --user disable --now konsertd.service") || fileExists(unit) || fileExists(in.ConfigPath("")) {
+	if !r.called("systemctl --user disable --now syred.service") || fileExists(unit) || fileExists(in.ConfigPath("")) {
 		t.Errorf("uninstall incomplete; calls = %v", r.calls)
 	}
 }
@@ -395,7 +395,7 @@ func TestSystemdNoUserManager(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no systemd user instance") {
 		t.Fatalf("err = %v", err)
 	}
-	if fileExists(filepath.Join(in.Env.UnitDir, "konsertd.service")) {
+	if fileExists(filepath.Join(in.Env.UnitDir, "syred.service")) {
 		t.Error("unit written without a user manager")
 	}
 }
@@ -410,10 +410,10 @@ func TestSchtasksInstallUninstall(t *testing.T) {
 	if err := in.install(context.Background(), schtasksBackend{}, spec); err != nil {
 		t.Fatal(err)
 	}
-	xmlPath := filepath.Join(in.Env.ConfigDir, "konsertd-install-test.task.xml")
+	xmlPath := filepath.Join(in.Env.ConfigDir, "syred-install-test.task.xml")
 	for _, c := range []string{
-		`schtasks /Create /TN \konsertd-install-test /XML ` + xmlPath + " /F",
-		`schtasks /Run /TN \konsertd-install-test`,
+		`schtasks /Create /TN \syred-install-test /XML ` + xmlPath + " /F",
+		`schtasks /Run /TN \syred-install-test`,
 	} {
 		if !r.called(c) {
 			t.Errorf("missing call %q in %v", c, r.calls)
@@ -430,7 +430,7 @@ func TestSchtasksInstallUninstall(t *testing.T) {
 		t.Errorf("task definition:\n%s", def)
 	}
 
-	r.out["schtasks /Query /TN"] = `"\konsertd-install-test","N/A","Running"` + "\r\n"
+	r.out["schtasks /Query /TN"] = `"\syred-install-test","N/A","Running"` + "\r\n"
 	st, err := in.status(context.Background(), schtasksBackend{}, "install-test")
 	if err != nil || !st.Installed || !st.Running {
 		t.Errorf("status = %+v, %v", st, err)
@@ -439,7 +439,7 @@ func TestSchtasksInstallUninstall(t *testing.T) {
 	if err := in.uninstall(context.Background(), schtasksBackend{}, "install-test"); err != nil {
 		t.Fatal(err)
 	}
-	if !r.called(`schtasks /Delete /TN \konsertd-install-test /F`) || fileExists(in.ConfigPath("install-test")) {
+	if !r.called(`schtasks /Delete /TN \syred-install-test /F`) || fileExists(in.ConfigPath("install-test")) {
 		t.Errorf("uninstall incomplete; calls = %v", r.calls)
 	}
 }
@@ -455,7 +455,7 @@ func TestSchtasksNeedsConhost(t *testing.T) {
 func TestInstallRejectsRelativeExe(t *testing.T) {
 	in, _ := testInstaller(t)
 	spec := testSpec("")
-	spec.Exe = "konsertd"
+	spec.Exe = "syred"
 	if err := in.install(context.Background(), launchdBackend{}, spec); err == nil {
 		t.Fatal("expected an error for a relative binary path")
 	}

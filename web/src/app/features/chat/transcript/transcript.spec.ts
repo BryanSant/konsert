@@ -71,7 +71,7 @@ describe('status pill', () => {
   standalone: true,
   imports: [ChatTranscriptComponent],
   template: `
-    <ks-chat-transcript
+    <sy-chat-transcript
       style="height: 300px"
       [items]="items()"
       [status]="status()"
@@ -147,7 +147,7 @@ describe('ChatTranscriptComponent', () => {
     btn.click();
     await render();
     expect(el.textContent).toContain('"command": "go test ./..."');
-    expect(el.textContent).toContain('konsert/internal');
+    expect(el.textContent).toContain('syre/internal');
   });
 
   it('puts a permission request at the bottom with its options and answers it', async () => {
@@ -175,7 +175,7 @@ describe('ChatTranscriptComponent', () => {
     expect(all.at(-1)!.getAttribute('data-elicitation-kind')).toBe('permission');
     expect(cards[0].textContent).toContain('Run: rm -rf build');
     const deny = cards[0].querySelector('[data-option="reject_once"]') as HTMLButtonElement;
-    expect(deny.classList.contains('ks-btn-danger')).toBe(true);
+    expect(deny.classList.contains('sy-btn-danger')).toBe(true);
     (cards[0].querySelector('[data-option="allow_once"]') as HTMLButtonElement).click();
     expect(host.answers).toEqual([{ elicitationId: 'el1', optionId: 'allow_once', label: 'Allow once' }]);
 

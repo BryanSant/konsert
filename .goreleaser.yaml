@@ -1,15 +1,15 @@
 version: 2
 
-project_name: konsert
+project_name: syre
 
 before:
   hooks:
     - make web
 
 builds:
-  - id: konsert
-    main: ./cmd/konsert
-    binary: konsert
+  - id: syre
+    main: ./cmd/syre
+    binary: syre
     env:
       - CGO_ENABLED=0
     goos:
@@ -21,9 +21,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: konsertd
-    main: ./cmd/konsertd
-    binary: konsertd
+  - id: syred
+    main: ./cmd/syred
+    binary: syred
     env:
       - CGO_ENABLED=0
     goos:
@@ -40,23 +40,23 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - id: konsert-archive
+  - id: syre-archive
     ids:
-      - konsert
+      - syre
     formats:
       - tar.gz
-    name_template: "konsert_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "syre_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
-  - id: konsertd-archive
+  - id: syred-archive
     ids:
-      - konsertd
+      - syred
     formats:
       - tar.gz
     format_overrides:
       - goos: windows
         formats:
           - zip
-    name_template: "konsertd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "syred_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"

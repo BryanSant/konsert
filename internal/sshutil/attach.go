@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// The hub's SSH transport (KON-K1B60). The hub keeps one long-lived ssh per machine,
+// The hub's SSH transport (SYR-K1B60). The hub keeps one long-lived ssh per machine,
 // authenticated with its own key only, whose forced command on the machine is
-// `konsertd attach`; the session's stdin/stdout carry the worker protocol.
+// `syred attach`; the session's stdin/stdout carry the worker protocol.
 
 // attachOptions harden the long-lived attach session: only the hub key (never the
 // user's agent or personal keys, never a shared ControlMaster connection that a
@@ -39,7 +39,7 @@ var attachOptions = []string{
 	"-T",
 }
 
-// AttachArgs is the ssh argv that attaches to workerID's konsertd on target with the
+// AttachArgs is the ssh argv that attaches to workerID's syred on target with the
 // hub key at keyPath. The remote command is only a request (the forced command runs
 // regardless and reads it from SSH_ORIGINAL_COMMAND).
 func AttachArgs(t Target, keyPath, workerID string) []string {
@@ -48,7 +48,7 @@ func AttachArgs(t Target, keyPath, workerID string) []string {
 	if t.Port != "" {
 		args = append(args, "-p", t.Port)
 	}
-	return append(args, "--", t.Destination(), "konsertd attach "+workerID)
+	return append(args, "--", t.Destination(), "syred attach "+workerID)
 }
 
 // CommandConn is a net.Conn over a child process's stdin/stdout (ssh running the
@@ -121,7 +121,7 @@ func (c *CommandConn) Close() error {
 }
 
 // Err describes why the process ended: its last stderr lines (ssh's own errors, such as
-// "Permission denied (publickey)", or konsertd attach's), else its exit status. Empty
+// "Permission denied (publickey)", or syred attach's), else its exit status. Empty
 // while it runs.
 func (c *CommandConn) Err() string {
 	select {
@@ -175,7 +175,7 @@ func (b *tailBuffer) String() string {
 	return b.buf.String()
 }
 
-// AttachFailure is what a failed attach says about the machine (KON-JAX1E).
+// AttachFailure is what a failed attach says about the machine (SYR-JAX1E).
 type AttachFailure int
 
 const (
@@ -183,9 +183,9 @@ const (
 	// out, an identity the hub refused); nothing says the daemon is down.
 	AttachFailureOther AttachFailure = iota
 	// AttachUnreachable: ssh could not reach or log in to the host (no route, refused,
-	// timed out, DNS, host key, the hub key refused). Restarting konsertd cannot help.
+	// timed out, DNS, host key, the hub key refused). Restarting syred cannot help.
 	AttachUnreachable
-	// AttachDaemonDown: the host answered, but its konsertd is not running (the forced
+	// AttachDaemonDown: the host answered, but its syred is not running (the forced
 	// command found no socket) or its binary is gone.
 	AttachDaemonDown
 )
@@ -200,9 +200,9 @@ func (f AttachFailure) String() string {
 	return "other"
 }
 
-// DaemonDownMarker starts `konsertd attach`'s error when the daemon's socket is not
+// DaemonDownMarker starts `syred attach`'s error when the daemon's socket is not
 // there (worker.Attach).
-const DaemonDownMarker = "konsertd is not running here"
+const DaemonDownMarker = "syred is not running here"
 
 // sshFailures are ssh's own messages for a host it could not reach or log in to.
 var sshFailures = []string{
@@ -222,7 +222,7 @@ var forcedCommandMissing = []string{
 }
 
 // ClassifyAttachFailure reads the error of a failed SSH attach (ssh's stderr or
-// `konsertd attach`'s) and says whether the host was unreachable or its daemon down.
+// `syred attach`'s) and says whether the host was unreachable or its daemon down.
 func ClassifyAttachFailure(msg string) AttachFailure {
 	if strings.Contains(msg, DaemonDownMarker) {
 		return AttachDaemonDown

@@ -18,22 +18,22 @@ export interface ElicitationAnswer {
 
 /** Inline "the agent needs you" card: permission, question or sign-in. */
 @Component({
-  selector: 'ks-elicitation-card',
+  selector: 'sy-elicitation-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, ToolCallCardComponent, ReloginHelpComponent, MarkdownViewComponent, QuestionCardComponent],
   template: `
     @let el = item().elicitation;
     @if (linked(); as q) {
-      <!-- A Konsert question: the same card as the Questions panel (stays until answered). -->
+      <!-- A Syre question: the same card as the Questions panel (stays until answered). -->
       <div [attr.data-elicitation-kind]="el.kind" [attr.data-elicitation-state]="item().state" class="space-y-2">
         @if (el.tool_call) {
-          <ks-tool-call-card [call]="el.tool_call" />
+          <sy-tool-call-card [call]="el.tool_call" />
         }
-        <ks-question-card [question]="q" [compact]="true" />
+        <sy-question-card [question]="q" [compact]="true" />
       </div>
     } @else if (item().state === 'resolved' || item().state === 'expired') {
-      <div class="flex items-center gap-2 px-1 text-[11.5px] text-[var(--ks-text-muted)]" [attr.data-elicitation-state]="item().state">
+      <div class="flex items-center gap-2 px-1 text-[11.5px] text-[var(--sy-text-muted)]" [attr.data-elicitation-state]="item().state">
         <app-icon [name]="icon()" [size]="12" />
         <span class="truncate">{{ el.title }}</span>
         <span>·</span>
@@ -41,18 +41,18 @@ export interface ElicitationAnswer {
       </div>
     } @else {
       <section
-        class="rounded-[var(--ks-radius-lg)] bg-[var(--ks-amber-soft)] p-3.5 space-y-3"
+        class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-amber-soft)] p-3.5 space-y-3"
         [attr.aria-labelledby]="titleId"
         [attr.data-elicitation-kind]="el.kind"
         [attr.data-elicitation-state]="item().state"
       >
         <div class="flex items-start gap-2.5">
-          <span class="mt-0.5 text-[var(--ks-amber)] shrink-0"><app-icon [name]="icon()" [size]="15" /></span>
+          <span class="mt-0.5 text-[var(--sy-amber)] shrink-0"><app-icon [name]="icon()" [size]="15" /></span>
           <div class="flex-1 min-w-0">
             <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">{{ kicker() }}</div>
-            <h2 [id]="titleId" class="text-[13px] font-semibold text-[var(--ks-text)] leading-snug">{{ headline() }}</h2>
+            <h2 [id]="titleId" class="text-[13px] font-semibold text-[var(--sy-text)] leading-snug">{{ headline() }}</h2>
             @if (el.detail) {
-              <div class="mt-1 text-[12px] text-[var(--ks-text-secondary)]">
+              <div class="mt-1 text-[12px] text-[var(--sy-text-secondary)]">
                 <app-markdown-view [content]="el.detail" />
               </div>
             }
@@ -60,11 +60,11 @@ export interface ElicitationAnswer {
         </div>
 
         @if (el.tool_call) {
-          <ks-tool-call-card [call]="el.tool_call" />
+          <sy-tool-call-card [call]="el.tool_call" />
         }
 
         @if (el.kind === 'auth') {
-          <ks-relogin-help [relogin]="relogin()" [workerId]="workerId()" [accountId]="accountId()" />
+          <sy-relogin-help [relogin]="relogin()" [workerId]="workerId()" [accountId]="accountId()" />
         }
 
         @if (el.options?.length) {
@@ -72,10 +72,10 @@ export interface ElicitationAnswer {
             @for (o of el.options; track o.id) {
               <button
                 type="button"
-                class="ks-btn ks-btn-sm"
-                [class.ks-btn-primary]="o.kind === 'allow_once' || (el.kind === 'question' && $first)"
-                [class.ks-btn-soft]="o.kind !== 'allow_once' && !isReject(o) && !(el.kind === 'question' && $first)"
-                [class.ks-btn-danger]="isReject(o)"
+                class="sy-btn sy-btn-sm"
+                [class.sy-btn-primary]="o.kind === 'allow_once' || (el.kind === 'question' && $first)"
+                [class.sy-btn-soft]="o.kind !== 'allow_once' && !isReject(o) && !(el.kind === 'question' && $first)"
+                [class.sy-btn-danger]="isReject(o)"
                 [disabled]="item().state === 'answering'"
                 [attr.data-option]="o.id"
                 (click)="choose(o)"
@@ -88,24 +88,24 @@ export interface ElicitationAnswer {
 
         @if (el.allow_text) {
           <form class="flex items-center gap-1.5" (submit)="$event.preventDefault(); sendText()">
-            <label class="ks-sr-only" [attr.for]="textId">Your answer</label>
+            <label class="sy-sr-only" [attr.for]="textId">Your answer</label>
             <input
               [id]="textId"
               type="text"
               data-testid="elicitation-text"
-              class="flex-1 min-w-0 h-8 rounded-[var(--ks-radius-md)] bg-black/30 px-3 text-[12.5px] text-[var(--ks-text)] placeholder-[#8a8c94] outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+              class="flex-1 min-w-0 h-8 rounded-[var(--sy-radius-md)] bg-black/30 px-3 text-[12.5px] text-[var(--sy-text)] placeholder-[#8a8c94] outline-none focus-visible:shadow-[var(--sy-focus-ring)]"
               placeholder="Type an answer…"
               [value]="text()"
               (input)="text.set($any($event.target).value)"
               [disabled]="item().state === 'answering'"
             />
-            <button type="submit" class="ks-btn ks-btn-sm ks-btn-soft" [disabled]="!text().trim() || item().state === 'answering'">Send</button>
+            <button type="submit" class="sy-btn sy-btn-sm sy-btn-soft" [disabled]="!text().trim() || item().state === 'answering'">Send</button>
           </form>
         }
 
         @if (item().state === 'answering') {
-          <div class="flex items-center gap-2 text-[11.5px] text-[var(--ks-text-secondary)]" role="status">
-            <span class="ks-spinner" style="width: 10px; height: 10px"></span>
+          <div class="flex items-center gap-2 text-[11.5px] text-[var(--sy-text-secondary)]" role="status">
+            <span class="sy-spinner" style="width: 10px; height: 10px"></span>
             Sending "{{ item().answer }}"…
           </div>
         }
@@ -132,8 +132,8 @@ export class ElicitationCardComponent {
   });
   private static n = 0;
   private readonly uid = ++ElicitationCardComponent.n;
-  readonly titleId = `ks-elicit-title-${this.uid}`;
-  readonly textId = `ks-elicit-text-${this.uid}`;
+  readonly titleId = `sy-elicit-title-${this.uid}`;
+  readonly textId = `sy-elicit-text-${this.uid}`;
 
   readonly icon = computed(() => {
     switch (this.item().elicitation.kind) {

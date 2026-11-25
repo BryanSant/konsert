@@ -109,7 +109,7 @@ export function nextPendingKey(order: readonly string[], pending: readonly strin
 }
 
 /**
- * Everything that wants the user — questions, agents' requests, the orchestrator's override
+ * Everything that wants the user — questions, agents' requests, the commander's override
  * requests, vetoes the agent has not acknowledged yet, reviews ready — as one list of
  * entries, and the one dialog that opens on any of them and walks the queue.
  */
@@ -129,7 +129,7 @@ export class NeedsYouStore {
   /** Vetoes the agent has not acknowledged yet (they resolve themselves once it does). */
   readonly vetoes = computed(() => this.control.vetoes());
   readonly reviews = computed(() => this.work.reviews());
-  /** Override requests (break-glass) from the orchestrator, waiting for a decision. */
+  /** Override requests (break-glass) from the commander, waiting for a decision. */
   readonly overrides = computed(() => this.control.overrides());
 
   /**
@@ -186,7 +186,7 @@ export class NeedsYouStore {
         kind: 'override',
         tag: 'P2',
         title: overrideTitle(o, machine, holds.find((h) => h.id === o.hold_id)),
-        meta: ['override', 'orchestrator', machine, formatDuration(o.duration_seconds), ago(o.created_at)].filter(Boolean).join(' · '),
+        meta: ['override', 'commander', machine, formatDuration(o.duration_seconds), ago(o.created_at)].filter(Boolean).join(' · '),
         at: o.created_at,
         sid: o.sid,
         pending: true,
@@ -232,7 +232,7 @@ export class NeedsYouStore {
   readonly empty = computed(() => this.count() === 0 && this.holds().length === 0);
 
   private questionEntry(q: QuestionView): NeedsYouEntry {
-    const who = q.orchestrator ? 'orchestrator' : q.agent || 'agent';
+    const who = q.commander ? 'commander' : q.agent || 'agent';
     return {
       key: `q:${q.id}`,
       kind: 'question',
@@ -400,7 +400,7 @@ export class NeedsYouStore {
     return this.control.dismissVeto(v);
   }
 
-  /** Approves or denies an override request; the orchestrator is told either way. */
+  /** Approves or denies an override request; the commander is told either way. */
   decideOverride(o: OverrideRequest, decision: 'approve' | 'deny', note?: string): Promise<boolean> {
     return this.control.decideOverride(o, decision, note?.trim() || undefined);
   }

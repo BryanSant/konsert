@@ -23,7 +23,7 @@ export function shortWhen(iso: string | undefined): string {
  * While paused it turns into Resume, which needs no confirmation.
  */
 @Component({
-  selector: 'ks-pause-everything',
+  selector: 'sy-pause-everything',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective, ModalDialogComponent],
@@ -32,11 +32,11 @@ export function shortWhen(iso: string | undefined): string {
     @if (control.paused()) {
       <button
         type="button"
-        class="ks-btn ks-btn-sm text-[var(--ks-violet)] bg-[var(--ks-violet-soft)]"
+        class="sy-btn sy-btn-sm text-[var(--sy-violet)] bg-[var(--sy-violet-soft)]"
         data-testid="resume-everything"
         [disabled]="control.isBusy('fleet')"
         (click)="control.resumeEverything()"
-        ksTooltip="Resume what Pause everything suspended and start dispatching again"
+        syTooltip="Resume what Pause everything suspended and start dispatching again"
         aria-label="Resume everything"
       >
         <app-icon name="play" [size]="11" />
@@ -45,11 +45,11 @@ export function shortWhen(iso: string | undefined): string {
     } @else {
       <button
         type="button"
-        class="ks-btn ks-btn-sm text-[var(--ks-text-muted)]"
+        class="sy-btn sy-btn-sm text-[var(--sy-text-muted)]"
         data-testid="pause-everything"
         [disabled]="control.isBusy('fleet')"
         (click)="confirming.set(true)"
-        ksTooltip="Emergency stop: suspend all agent work and stop dispatching (asks first)"
+        syTooltip="Emergency stop: suspend all agent work and stop dispatching (asks first)"
         aria-label="Pause everything"
       >
         <app-icon name="pause" [size]="11" />
@@ -58,14 +58,14 @@ export function shortWhen(iso: string | undefined): string {
     }
     @if (confirming()) {
       <app-modal-dialog labelledBy="pause-confirm-title" describedBy="pause-confirm-body" panelClass="w-full max-w-[420px] p-5" (close)="confirming.set(false)">
-        <h2 id="pause-confirm-title" class="text-[15px] font-semibold text-[var(--ks-text)] m-0">Pause everything?</h2>
-        <p id="pause-confirm-body" class="mt-2 mb-0 text-[13px] leading-relaxed text-[var(--ks-text-secondary)]">
+        <h2 id="pause-confirm-title" class="text-[15px] font-semibold text-[var(--sy-text)] m-0">Pause everything?</h2>
+        <p id="pause-confirm-body" class="mt-2 mb-0 text-[13px] leading-relaxed text-[var(--sy-text-secondary)]">
           This suspends every running agent session and terminal on {{ machines() }} and stops new work
           from being dispatched until you press Resume. Nothing is lost, and agents are told you paused them.
         </p>
         <div class="mt-5 flex justify-end gap-2">
-          <button type="button" class="ks-btn" data-testid="pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
-          <button type="button" class="ks-btn ks-btn-danger" data-testid="pause-confirm" (click)="confirm()">Pause everything</button>
+          <button type="button" class="sy-btn" data-testid="pause-cancel" autofocus (click)="confirming.set(false)">Cancel</button>
+          <button type="button" class="sy-btn sy-btn-danger" data-testid="pause-confirm" (click)="confirm()">Pause everything</button>
         </div>
       </app-modal-dialog>
     }
@@ -88,7 +88,7 @@ export class PauseEverythingComponent {
 
 /** Banner shown under the top bar while the fleet is paused. */
 @Component({
-  selector: 'ks-paused-banner',
+  selector: 'sy-paused-banner',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
@@ -97,7 +97,7 @@ export class PauseEverythingComponent {
       <div
         role="status"
         data-testid="paused-banner"
-        class="flex items-center gap-2 px-3.5 py-1.5 bg-[var(--ks-violet-soft)] text-[12px] text-[var(--ks-violet)] shrink-0"
+        class="flex items-center gap-2 px-3.5 py-1.5 bg-[var(--sy-violet-soft)] text-[12px] text-[var(--sy-violet)] shrink-0"
       >
         <app-icon name="pause" [size]="12" />
         <span class="flex-1 min-w-0 truncate">
@@ -106,7 +106,7 @@ export class PauseEverythingComponent {
         </span>
         <button
           type="button"
-          class="ks-btn ks-btn-sm ks-btn-soft"
+          class="sy-btn sy-btn-sm sy-btn-soft"
           [disabled]="control.isBusy('fleet')"
           (click)="control.resumeEverything()"
         >
@@ -118,14 +118,14 @@ export class PauseEverythingComponent {
     @if (control.error(); as err) {
       <div
         role="alert"
-        class="flex items-center gap-2 px-3.5 py-1.5 bg-[var(--ks-red-soft)] text-[12px] text-[#f6c0c0] shrink-0"
+        class="flex items-center gap-2 px-3.5 py-1.5 bg-[var(--sy-red-soft)] text-[12px] text-[#f6c0c0] shrink-0"
         data-testid="control-error"
       >
         <app-icon name="alert" [size]="12" />
         <span class="flex-1 min-w-0 truncate">{{ err }}</span>
         <button
           type="button"
-          class="ks-icon-btn ks-icon-btn-sm"
+          class="sy-icon-btn sy-icon-btn-sm"
           aria-label="Dismiss"
           (click)="control.error.set('')"
         >

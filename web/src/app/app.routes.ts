@@ -33,36 +33,36 @@ export const MODES: ReadonlyArray<{ id: 'command' | 'work' | 'fleet' | 'wall'; k
 const modeRoutes: Route[] = [
   {
     matcher: modeMatcher('command'),
-    title: 'Command · Konsert',
+    title: 'Command · Syre',
     loadComponent: () => import('./modes/command/command-mode.component').then((m) => m.CommandModeComponent),
   },
   {
     matcher: modeMatcher('work'),
-    title: 'Work · Konsert',
+    title: 'Work · Syre',
     loadComponent: () => import('./modes/work/work-mode.component').then((m) => m.WorkModeComponent),
   },
   {
     matcher: modeMatcher('fleet'),
-    title: 'Fleet · Konsert',
+    title: 'Fleet · Syre',
     loadComponent: () => import('./modes/fleet/fleet-mode.component').then((m) => m.FleetModeComponent),
   },
   {
     path: 'wall',
-    title: 'Wall · Konsert',
+    title: 'Wall · Syre',
     loadComponent: () => import('./modes/wall/wall-mode.component').then((m) => m.WallModeComponent),
   },
 ];
 
 export const routes: Routes = [
   // Sign-in links. Signed out, the app shows the pairing page for /pair/{code}; signed in
-  // there is nothing to pair. /approve/{code} approves a `konsert login` request.
+  // there is nothing to pair. /approve/{code} approves a `syre login` request.
   {
     path: 'pair/:code',
     loadComponent: () => import('./features/auth/pair-redirect.component').then((m) => m.PairRedirectComponent),
   },
   {
     path: 'approve/:code',
-    title: 'Approve sign-in · Konsert',
+    title: 'Approve sign-in · Syre',
     loadComponent: () => import('./features/auth/approve-login.component').then((m) => m.ApproveLoginComponent),
   },
   {
@@ -72,17 +72,17 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: () => (isPhoneWidth() ? 'inbox' : 'command') },
       {
         path: 'inbox',
-        title: 'Needs you · Konsert',
+        title: 'Needs you · Syre',
         loadComponent: () => import('./modes/mobile/mobile-inbox.component').then((m) => m.MobileInboxComponent),
       },
       {
         path: 'inbox/fleet',
-        title: 'Fleet · Konsert',
+        title: 'Fleet · Syre',
         loadComponent: () => import('./modes/mobile/mobile-fleet.component').then((m) => m.MobileFleetComponent),
       },
       {
         path: 'inbox/:sid',
-        title: 'Session · Konsert',
+        title: 'Session · Syre',
         loadComponent: () => import('./modes/mobile/mobile-session.component').then((m) => m.MobileSessionComponent),
       },
       { path: '', loadComponent: modeShell, children: modeRoutes },

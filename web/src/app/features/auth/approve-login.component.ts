@@ -5,18 +5,18 @@ import { ApiClientService } from '../../core/services/api-client.service';
 import { normalizeCode } from './device-name';
 
 const KIND_LABEL: Record<string, string> = {
-  cli: 'konsert CLI',
+  cli: 'syre CLI',
   mcp: 'MCP client',
   browser: 'browser',
   phone: 'phone',
 };
 
 /**
- * /approve/{code}: `konsert login` on another machine asks to sign in. A signed-in user
+ * /approve/{code}: `syre login` on another machine asks to sign in. A signed-in user
  * checks the name and code match the terminal and approves (or denies) it.
  */
 @Component({
-  selector: 'ks-approve-login',
+  selector: 'sy-approve-login',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block min-h-dvh w-screen bg-[#111214]' },
@@ -27,7 +27,7 @@ const KIND_LABEL: Record<string, string> = {
         aria-labelledby="approve-title"
       >
         <div class="flex items-center gap-3">
-          <img src="icon.svg" alt="" class="h-9 w-9 rounded-lg" />
+          <img src="logo.svg" alt="" class="h-9 w-9 rounded-lg" />
           <h1 id="approve-title" class="text-[15px] font-semibold tracking-tight text-[#ececed]">
             Approve sign-in?
           </h1>
@@ -59,7 +59,7 @@ const KIND_LABEL: Record<string, string> = {
           @switch (r.status) {
             @case ('pending') {
               <p class="text-[12px] leading-snug text-[#a1a3ab]">
-                Approve only if you just ran <code class="font-mono-ide">konsert login</code> and
+                Approve only if you just ran <code class="font-mono-ide">syre login</code> and
                 the code above matches your terminal. The device gets its own credential, which you
                 can revoke in Settings → Devices.
               </p>
@@ -99,7 +99,7 @@ const KIND_LABEL: Record<string, string> = {
             }
             @default {
               <p role="status" class="text-[13px] text-[#f0c895]">
-                This request expired. Run <code class="font-mono-ide">konsert login</code> again.
+                This request expired. Run <code class="font-mono-ide">syre login</code> again.
               </p>
             }
           }
@@ -112,7 +112,7 @@ const KIND_LABEL: Record<string, string> = {
           class="text-[12px] text-[#8e9098] hover:text-[#ececed] cursor-pointer"
           (click)="home()"
         >
-          Continue to Konsert
+          Continue to Syre
         </button>
       </section>
     </main>

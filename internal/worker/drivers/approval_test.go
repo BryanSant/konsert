@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // flagsBeforePrompt returns argv up to the prompt terminator, minus session-id flags

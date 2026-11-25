@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // Interventions (PRD §5.8a): suspend/resume, veto, machine drain / suspend all / stop all
@@ -35,7 +35,7 @@ const (
 const fleetPauseSetting = "fleet_pause"
 
 // errFleetPaused is returned to automatic dispatch while everything is paused.
-var errFleetPaused = errors.New("konsert is paused: the user paused everything, so no new work is dispatched. " +
+var errFleetPaused = errors.New("syre is paused: the user paused everything, so no new work is dispatched. " +
 	"Do not retry; ask the user (ask_user) whether to wait or resume")
 
 // Veto reasons.
@@ -266,7 +266,7 @@ func (h *Hub) resumeTask(ctx context.Context, t store.Task) (ActionResult, error
 	return ActionResult{OK: true, TaskID: t.ID, TaskSID: t.SID, Status: protocol.TaskStatusRunning}, nil
 }
 
-// VetoTask cancels a task with a reason the orchestrator must remember.
+// VetoTask cancels a task with a reason the commander must remember.
 func (h *Hub) VetoTask(ctx context.Context, taskID, reason, note string) (ActionResult, error) {
 	t, err := h.store.GetTask(ctx, taskID)
 	if err != nil {
@@ -297,8 +297,8 @@ func vetoLabel(reason string) (string, error) {
 	return label, nil
 }
 
-// recordVeto stores a veto as orchestrator memory at the work's scope (project for now)
-// and records it in the fleet timeline, which delivers it to the orchestrator.
+// recordVeto stores a veto as commander memory at the work's scope (project for now)
+// and records it in the fleet timeline, which delivers it to the commander.
 func (h *Hub) recordVeto(ctx context.Context, reason, label, note, what, workerID, taskID, chatID, scope string) {
 	cause := causeFrom(ctx)
 	text := fmt.Sprintf("The user vetoed %s — reason: %s", what, label)
@@ -432,7 +432,7 @@ func (h *Hub) StopChatTurn(ctx context.Context, chatID string) (store.ChatSessio
 	return h.store.GetChatSession(ctx, cs.ID)
 }
 
-// VetoChat stops a chat's turn with a reason: remembered for the orchestrator, told to
+// VetoChat stops a chat's turn with a reason: remembered for the commander, told to
 // the chat itself on its next turn, and the chat is held.
 func (h *Hub) VetoChat(ctx context.Context, chatID, reason, note string) (store.ChatSession, error) {
 	cs, err := h.store.GetChatSession(ctx, chatID)

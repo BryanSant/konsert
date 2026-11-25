@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
-// Live smoke tests against the real copilot and cursor-agent CLIs, run through the konsertd
+// Live smoke tests against the real copilot and cursor-agent CLIs, run through the syred
 // Runner (PTY, driver argv, session-log telemetry, summary). They use the caller's logins
 // and paid subscriptions, so they are opt-in and send one tiny prompt each:
 //
-//	KONSERT_LIVE_COPILOT=1 go test ./internal/worker -run TestLiveCopilot -v
-//	KONSERT_LIVE_CURSOR=1 go test ./internal/worker -run TestLiveCursor -v
+//	SYRE_LIVE_COPILOT=1 go test ./internal/worker -run TestLiveCopilot -v
+//	SYRE_LIVE_CURSOR=1 go test ./internal/worker -run TestLiveCursor -v
 //
 // Session state the CLIs create for the test's temp workdir is removed afterwards
 // (copilot: $COPILOT_HOME/session-state/<id>; cursor: the workdir's projects/ and chats/
@@ -67,7 +67,7 @@ func runLiveOneshot(t *testing.T, r *Runner, rec *statusRecorder, ev *liveEvents
 // Oneshot with full access: `--allow-all --session-id=<uuid> --prompt=...`, usage and turn
 // milestones from the session's events.jsonl, and the reply as the summary.
 func TestLiveCopilotOneshot(t *testing.T) {
-	workdir, r, rec, ev := liveSetup(t, "KONSERT_LIVE_COPILOT", &drivers.CopilotDriver{})
+	workdir, r, rec, ev := liveSetup(t, "SYRE_LIVE_COPILOT", &drivers.CopilotDriver{})
 	t.Cleanup(func() { removeCopilotSessionsFor(t, workdir) })
 	runLiveOneshot(t, r, rec, ev, protocol.TaskStartPayload{
 		TaskID: "t-8snws", Agent: "copilot", Workdir: workdir,
@@ -82,7 +82,7 @@ func TestLiveCopilotOneshot(t *testing.T) {
 // Oneshot in sandboxed mode: `--sandbox enabled --trust --resume=<uuid> --print ...`, the
 // chat transcript tailed by its pre-assigned ID, and the reply as the summary.
 func TestLiveCursorOneshot(t *testing.T) {
-	workdir, r, rec, ev := liveSetup(t, "KONSERT_LIVE_CURSOR", &drivers.CursorDriver{})
+	workdir, r, rec, ev := liveSetup(t, "SYRE_LIVE_CURSOR", &drivers.CursorDriver{})
 	t.Cleanup(func() { removeCursorStateFor(t, workdir) })
 	runLiveOneshot(t, r, rec, ev, protocol.TaskStartPayload{
 		TaskID: "t-9466g", Agent: "cursor", Workdir: workdir,

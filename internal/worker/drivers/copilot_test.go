@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Fixtures in testdata/copilot were captured from copilot 1.0.114 and sanitized (hook

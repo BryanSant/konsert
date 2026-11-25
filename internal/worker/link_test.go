@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // fastLink shortens the daemon's liveness intervals for tests.
@@ -103,7 +103,7 @@ func TestDaemonRedialsOnNetworkChange(t *testing.T) {
 	}
 }
 
-// TestDaemonWritesLinkStatus: the state file `konsertd status` reads follows the link.
+// TestDaemonWritesLinkStatus: the state file `syred status` reads follows the link.
 func TestDaemonWritesLinkStatus(t *testing.T) {
 	const id = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"
 	hub := newFakeHub(t)

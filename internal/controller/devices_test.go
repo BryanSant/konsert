@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -400,7 +400,7 @@ func TestDeviceIdleDaysSetting(t *testing.T) {
 }
 
 func TestBestBaseURL(t *testing.T) {
-	if u, lo := BestBaseURL(":8420", "https://konsert.example.ts.net/"); u != "https://konsert.example.ts.net" || lo {
+	if u, lo := BestBaseURL(":8420", "https://syre.example.ts.net/"); u != "https://syre.example.ts.net" || lo {
 		t.Fatalf("public: %s %v", u, lo)
 	}
 	if u, lo := BestBaseURL("127.0.0.1:9000", ""); u != "http://127.0.0.1:9000" || !lo {

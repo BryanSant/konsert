@@ -1,12 +1,12 @@
 // Package mcprelay carries agent chats' MCP HTTP requests over the hub link
-// (KON-DTN92), so a machine needs no network path to the hub's port for its agents to
+// (SYR-DTN92), so a machine needs no network path to the hub's port for its agents to
 // reach their per-chat tools.
 //
-// konsertd runs a Local: a loopback HTTP server (127.0.0.1, ephemeral port) that the
+// syred runs a Local: a loopback HTTP server (127.0.0.1, ephemeral port) that the
 // agent CLIs are pointed at. Each request becomes an mcp.request frame on the current
 // hub link; the hub's Remote runs it through the chat's MCP handler and answers with an
 // mcp.head, mcp.body chunks (flushed as the handler flushes, so SSE streams) and an
-// mcp.end. Requests are multiplexed by an id konsertd picks. The relay changes nothing
+// mcp.end. Requests are multiplexed by an id syred picks. The relay changes nothing
 // about authorisation: the agent's per-chat bearer token travels with the request and
 // the hub checks it exactly as before (and also that the chat runs on the machine whose
 // link carried the request).
@@ -70,7 +70,7 @@ func copyResponseHeader(dst, src http.Header) {
 }
 
 // validID reports whether id is a usable request or chat id: 1..64 characters of
-// [A-Za-z0-9_-] (konsertd's request ids are 32 hex characters, chat ids UUIDs).
+// [A-Za-z0-9_-] (syred's request ids are 32 hex characters, chat ids UUIDs).
 func validID(id string) bool {
 	if id == "" || len(id) > 64 {
 		return false

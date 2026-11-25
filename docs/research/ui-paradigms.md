@@ -1,17 +1,17 @@
-# UI paradigms for Konsert: survey and recommendation
+# UI paradigms for Syre: survey and recommendation
 
 Status: research, November 2026. Input to the UI redesign. Nothing here is decided yet.
 Related: [`docs/prd.md`](../prd.md) §2, §3, §5.8a, §5.10.
 
 ## TL;DR
 
-- **Konsert's user is a supervisor, not a pair-programmer.** Most UIs in the agent space were built for pairing with one agent and then stretched to cover parallel ones. Their repo → worktree sidebar trees are where the clutter complaints come from: Cursor's forum calls its sidebar "a per-repo history dump" that "buries active work", Codex's sidebar fills with CLI and sub-agent runs, and Orca needs a stack of hide filters plus a community auto-collapse plugin. The tools built for *watching many agents* (Claude Code agent view, Devin, Herdr's mobile inbox, Orca's Agents feed and dashboard, Factory Mission Control) all organise around **who needs the human**, not around where the code lives.
+- **Syre's user is a supervisor, not a pair-programmer.** Most UIs in the agent space were built for pairing with one agent and then stretched to cover parallel ones. Their repo → worktree sidebar trees are where the clutter complaints come from: Cursor's forum calls its sidebar "a per-repo history dump" that "buries active work", Codex's sidebar fills with CLI and sub-agent runs, and Orca needs a stack of hide filters plus a community auto-collapse plugin. The tools built for *watching many agents* (Claude Code agent view, Devin, Herdr's mobile inbox, Orca's Agents feed and dashboard, Factory Mission Control) all organise around **who needs the human**, not around where the code lives.
 - **Recommended default: "Watch", an exception-first supervisory overview.** From top to bottom:
   - a one-line status banner with an always-visible **Pause everything** button
   - a **Needs you** queue, triaged like an alarm list
   - a **live work list** grouped by state, where each row is a fixed-format "data block": agent, task, machine, account, who is in control, progress, staleness
   - a compact **fleet strip** of machines with headroom and quota
-  - the **orchestrator chat docked on the right** in every mode
+  - the **commander chat docked on the right** in every mode
 
   Selecting anything opens a **focus pane** (session, machine or task) on the same screen, with all intervention controls and their acknowledgement state.
 - **Three alternative modes**, as fixed task-oriented pages in the DaVinci Resolve style rather than free docking:
@@ -33,7 +33,7 @@ Related: [`docs/prd.md`](../prd.md) §2, §3, §5.8a, §5.10.
 | J1 | **Glance:** is everything OK? What needs me? | §2 visibility, §5.8a |
 | J2 | **Understand:** what each agent is doing and why, where, on which machine, using what resources and quota | §5.2, §5.3 |
 | J3 | **Intervene** quickly and safely (suspend, veto, take control, pause all) and see that agents acknowledged it | §3 "user is always in charge", §5.8a |
-| J4 | **Direct** work through the orchestrator chat | §5.8 |
+| J4 | **Direct** work through the commander chat | §5.8 |
 | J5 | **Review** results (diffs, summaries) | §5.4 outcomes |
 | J6 | **Fleet and capacity** awareness and placement decisions | §5.5, §5.6 |
 | J7 | **Mobile** check-in | §5.10 |
@@ -42,8 +42,8 @@ Related: [`docs/prd.md`](../prd.md) §2, §3, §5.8a, §5.10.
 
 `web/src/app/layout/`:
 - **Header:** brand, a Herdr-style tab strip, and Orca-style inspector icons.
-- **Left `fleet-sidebar`:** Orchestrator, then Projects (spaces → repos → worktrees), Machines, Agents, Settings, and Add machine.
-- **Centre:** tabs for orchestrator chat, agent chats and terminals, with an optional split.
+- **Left `fleet-sidebar`:** Commander, then Projects (spaces → repos → worktrees), Machines, Agents, Settings, and Add machine.
+- **Centre:** tabs for commander chat, agent chats and terminals, with an optional split.
 - **Right `telemetry-drawer`:** Agent Activity, Changes, Checks & Runtime, Audit Log.
 - **Footer:** hosts, resource manager, PTYs, listening ports, keep-awake, usage rings.
 
@@ -64,7 +64,7 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
 
 ### 2.1 IDE / worktree-tree agent workbenches
 
-**Products:** Orca, Conductor, Paradev (was Superset), Codex app, Cursor 3 Agents Window, Claude Code desktop, OpenHands Agent Canvas, Sculptor, and Konsert today.
+**Products:** Orca, Conductor, Paradev (was Superset), Codex app, Cursor 3 Agents Window, Claude Code desktop, OpenHands Agent Canvas, Sculptor, and Syre today.
 
 - **Shape:**
   - A left sidebar grouped by project/repo → worktree or session.
@@ -76,10 +76,10 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - **Taking over hands-on:** terminal-native tools (Orca, Herdr, Paradev) let you drop into the real terminal, which chat-first tools can't.
   - **Mirroring the code's structure:** the tree matches how the developer thinks about repos.
 - **Bad at:**
-  - **The tree reflects storage, not attention.** Cursor's sidebar is "unusable for multi-repo orchestration… repo groups bury active work". The staff answer was to switch "Group by" to Status, and staff admitted the option is hidden behind an icon that looks like a filter. Codex users say every CLI and automated run "gets its own entry in Recents", with reports of 200+ sub-agents showing as working. Claude desktop's Recents list "grows forever" (#54044). Orca ships many filters (hide sleeping, automation-created, CLI-created) and has a community plugin to auto-collapse idle projects. Devin hides child sessions under their parent by default.
+  - **The tree reflects storage, not attention.** Cursor's sidebar is described as "unusable for multi-repo coordination… repo groups bury active work". The staff answer was to switch "Group by" to Status, and staff admitted the option is hidden behind an icon that looks like a filter. Codex users say every CLI and automated run "gets its own entry in Recents", with reports of 200+ sub-agents showing as working. Claude desktop's Recents list "grows forever" (#54044). Orca ships many filters (hide sleeping, automation-created, CLI-created) and has a community plugin to auto-collapse idle projects. Devin hides child sessions under their parent by default.
   - **The vendor fixes all converge on one answer:** group by status, hide automated runs, nest children under parents, auto-archive on merge, and add a separate inbox. They are bolting an attention view onto a storage view.
   - **Little fleet awareness.** Machines are at most a connection target (SSH, cloud). Load, headroom, quota and placement are absent. Herdr is the exception: it lists machines in its sidebar and dims a disconnected machine while showing its cached state.
-- **Konsert mapping:** J4 and J5 good; J2 fair for one session; J1, J3 (fleet), J6 and J7 poor. **Keep the focus-pane content (chat, terminal, diff, checks). Drop the tree as the primary navigation.**
+- **Syre mapping:** J4 and J5 good; J2 fair for one session; J1, J3 (fleet), J6 and J7 poor. **Keep the focus-pane content (chat, terminal, diff, checks). Drop the tree as the primary navigation.**
 
 ### 2.2 Attention-triage lists ("needs you first")
 
@@ -110,7 +110,7 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - No project context unless it is added as a facet.
   - A list says nothing about load or *projection*: what will run out, and when.
   - Its quality depends on how good the state detection is. Herdr admits its idle fallback "does not always prove the agent finished".
-- **Konsert mapping:** J1 excellent; J3/J4 good through peek; J2 fair; J5 via badges; J7 excellent (it is the natural mobile layout); J6 none. **This is the spine of the default view.**
+- **Syre mapping:** J1 excellent; J3/J4 good through peek; J2 fair; J5 via badges; J7 excellent (it is the natural mobile layout); J6 none. **This is the spine of the default view.**
 
 ### 2.3 Flow and kanban boards
 
@@ -129,7 +129,7 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - **Where work runs.** Boards have no concept of machines or capacity beyond WIP counts.
   - **Who changes state.** Boards assume humans drag cards. Agent state changes many times a minute, and the user should rarely be dragging anything.
   - **Market signal.** The agent kanban tools are the products shrinking: Vibe Kanban is sunsetting and Crystal pivoted. **[thin]** That evidence is about the market, not about usability.
-- **Konsert mapping:** J5 good (an "In review" column is a review queue). J4 fair: dispatch by adding a card. J1 fair: a Needs-you column or an Expedite lane. J2, J3, J6 weak. **Worth having as an alternative mode for planning and review. Not the default.**
+- **Syre mapping:** J5 good (an "In review" column is a review queue). J4 fair: dispatch by adding a card. J1 fair: a Needs-you column or an Expedite lane. J2, J3, J6 weak. **Worth having as an alternative mode for planning and review. Not the default.**
 
 ### 2.4 Run and workflow UIs (CI, durable workflows, data pipelines)
 
@@ -147,7 +147,7 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - Treating the fleet as a first-class thing. Only Buildkite has agent and queue columns.
   - Huge graphs are unreadable. Buildkite admits Canvas is "less useful when zoomed out on large builds".
   - These UIs are built for pipelines that someone wrote in advance. Agent work is more open-ended.
-- **Konsert mapping:** J2 very good, both for a single task's attempt history and for "why is it waiting". J3: the gate patterns map directly onto elicitations and override requests. J5 good. **Borrow the vocabulary (attempts, amber retry-pending, structured gates, follow mode, next-failure) for the task and session focus pane. It is not a mode of its own.**
+- **Syre mapping:** J2 very good, both for a single task's attempt history and for "why is it waiting". J3: the gate patterns map directly onto elicitations and override requests. J5 good. **Borrow the vocabulary (attempts, amber retry-pending, structured gates, follow mode, next-failure) for the task and session focus pane. It is not a mode of its own.**
 
 ### 2.5 Schedulers and cluster dashboards
 
@@ -171,8 +171,8 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - Time and history: Nomad's topology is point-in-time only.
   - Reservations look like usage, though they aren't.
   - These tools show state, not work in motion.
-  - Topology views lose their labels at scale. That doesn't matter for Konsert's target of about 20 machines.
-- **Konsert mapping:** J6 excellent. J2 good for "what's on this machine". J3: drain, cordon and stop-all per machine. **This is the template for the Fleet mode and for the "explain placement" UI (PRD §5.5).**
+  - Topology views lose their labels at scale. That doesn't matter for Syre's target of about 20 machines.
+- **Syre mapping:** J6 excellent. J2 good for "what's on this machine". J3: drain, cordon and stop-all per machine. **This is the template for the Fleet mode and for the "explain placement" UI (PRD §5.5).**
 
 ### 2.6 Observability and incident tools
 
@@ -186,7 +186,7 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - **Datadog:**
     - The Service Map draws a **worst-of status ring** on each node that rolls up its monitors.
     - **Watchdog** writes anomalies up as grouped "stories" that **expire after 48 h**, with one-click suggested monitors.
-  - **Honeycomb BubbleUp:** select an anomalous region and compare it field by field with the baseline. Applied to Konsert, that answers "why is account X draining?" by agent, repo, model or machine.
+  - **Honeycomb BubbleUp:** select an anomalous region and compare it field by field with the baseline. Applied to Syre, that answers "why is account X draining?" by agent, repo, model or machine.
   - **htop/btop:** dense per-host meters. btop has **numbered layout presets, with preset 0 as a reset that always works**, and rolls child-process resources up into the parent. That is exactly PRD §5.3's process attribution.
   - **PagerDuty acknowledge vs resolve:**
     - Acknowledging claims ownership and halts escalation. **When the ack timeout runs out, the incident goes back to triggered.**
@@ -198,11 +198,11 @@ Each subsection covers what the paradigm is, what it is good at, what it is bad 
   - Free-form dashboards spread without limit; Grafana's own maturity model calls this out.
   - Query-first tools are poor ambient displays.
   - Paging setup is heavy.
-- **Konsert mapping:** J1 and J6 very good. J3 through acknowledgement semantics. **Borrow:** the banner, worst-of rings, state timelines, timed acknowledgements, stories and grouping.
+- **Syre mapping:** J1 and J6 very good. J3 through acknowledgement semantics. **Borrow:** the banner, worst-of rings, state timelines, timed acknowledgements, stories and grouping.
 
 ### 2.7 Supervisory-control HMI (process control, ATC, mission control, cockpits, CCTV)
 
-This is the closest analogue to Konsert's actual job: a person supervising automation that runs itself most of the time.
+This is the closest analogue to Syre's actual job: a person supervising automation that runs itself most of the time.
 
 - **ISA-101 / High-Performance HMI (Hollifield et al.):**
   - Grey, low-saturation baseline, with **colour reserved for abnormal states**.
@@ -237,7 +237,7 @@ This is the closest analogue to Konsert's actual job: a person supervising autom
   - Vigilance degrades after roughly 20–40 minutes.
 - **Good at:** exactly J1 and J3. A quiet normal state, exceptions that stand out, unambiguous control state, and loud uncommanded changes.
 - **Bad at:** these systems assume trained operators, fixed plants and long shifts, so they are less helpful for J4 and J5 (directing creative work, reviewing diffs).
-- **Konsert mapping:** **this is the source of the visual language and alerting rules for every mode** (see §6).
+- **Syre mapping:** **this is the source of the visual language and alerting rules for every mode** (see §6).
 
 ### 2.8 Pro tools with workspaces and docking
 
@@ -257,7 +257,7 @@ This is the closest analogue to Konsert's actual job: a person supervising autom
   - **Docking chaos.** Photoshop users complain that the active workspace changes silently as they move panels, that "Lock Workspace" doesn't fully lock, and that the usual fix is "Reset Essentials".
   - **Resolve's fixed layout frustrates experts:** forum threads ask "let us move panels around please".
   - **Bloomberg's learning curve** is notoriously steep.
-- **Konsert mapping:** a *mechanism*, not a paradigm. **Use Resolve/Blender-style fixed modes**, VS Code's bounded resize-and-collapse inside each mode, Bloomberg/TradingView-style selection linking, and btop/Photoshop's lesson that "reset to preset" must always be one action away. **Reject free docking** for a single-operator monitoring tool: it costs a lot to build, raises support load and invites the "lost my layout" failure, and nothing in J1–J7 needs it. **[Opinion]**
+- **Syre mapping:** a *mechanism*, not a paradigm. **Use Resolve/Blender-style fixed modes**, VS Code's bounded resize-and-collapse inside each mode, Bloomberg/TradingView-style selection linking, and btop/Photoshop's lesson that "reset to preset" must always be one action away. **Reject free docking** for a single-operator monitoring tool: it costs a lot to build, raises support load and invites the "lost my layout" failure, and nothing in J1–J7 needs it. **[Opinion]**
 
 ### 2.9 Scoring matrix
 
@@ -281,15 +281,15 @@ No single paradigm covers everything. The triage list and the HMI rules together
 
 ## 3. Human-factors evidence (what constrains the design)
 
-| Finding | Source | Design consequence for Konsert |
+| Finding | Source | Design consequence for Syre |
 |---|---|---|
 | **Automation adds supervisory duties; it doesn't remove the human.** It leaves people with the hardest tasks and takes away the practice they need for them. Monitoring for rare events is exactly what humans are bad at. | Bainbridge 1983; Simkute et al. 2024 (GenAI ironies) | Never make safety depend on the user watching. Taking control must arrive *with context*: goal, last N actions, plan, and what changed since the user last looked. |
 | **Out-of-the-loop.** Higher levels of automation lower situation awareness and slow recovery when automation fails. Intermediate levels keep people engaged. | Endsley & Kiris 1995; Kaber & Endsley | Show plans and checkpoints before work runs. "Approve plan" is a cheap way to keep the user in the loop. |
 | **Types × levels of automation.** Acquisition, analysis, decision and action each have their own level. Human-performance effects are the primary criterion. | Parasuraman, Sheridan & Wickens 2000; Sheridan & Verplank 1978 | Make autonomy visible per session (approval mode, override rights). The control annunciator shows the *current* level. |
 | **Situation awareness has three levels:** perception, comprehension, projection. Most SA errors happen at Level 1 (the information wasn't perceived). | Endsley 1995 | Every data block carries state (L1), goal and progress (L2), and projection (L3): "quota runs out ~14:20", "context ~85%", "ETA". Projection is the level most often missing and the most useful for scheduling. |
 | **Management by exception** depends on the automation reporting its own exceptions. Complacency and automation bias are attentional and not cured by expertise. | Dekker & Woods 1999; Parasuraman & Manzey 2010 | Exceptions must come from *independent* checks (policy, budget, tests, no progress in N minutes), not only from the agent asking for help. Silence is a signal. |
-| **Alarm fatigue.** 89.5% of ICU arrhythmia alarms were false. Up to 99% of clinical alarms are non-actionable. ATC nuisance alerts desensitise controllers. | Drew et al. 2014; reviews; FAA | Every interrupting item names an action, or it becomes a notification. Track the actionable rate as a health metric for Konsert itself. Group floods by root cause. |
-| **Alarm-rate targets:** about 1 per 10 minutes acceptable, about 2 maximum. | ISA-18.2, EEMUA 191 | An **attention budget**: aim for ≤ 6 interrupting items per hour on average, *for the human* rather than per agent. Show it in Settings. [Industrial targets are a proxy; Konsert's pace is unknown, so treat as **[thin]**.] |
+| **Alarm fatigue.** 89.5% of ICU arrhythmia alarms were false. Up to 99% of clinical alarms are non-actionable. ATC nuisance alerts desensitise controllers. | Drew et al. 2014; reviews; FAA | Every interrupting item names an action, or it becomes a notification. Track the actionable rate as a health metric for Syre itself. Group floods by root cause. |
+| **Alarm-rate targets:** about 1 per 10 minutes acceptable, about 2 maximum. | ISA-18.2, EEMUA 191 | An **attention budget**: aim for ≤ 6 interrupting items per hour on average, *for the human* rather than per agent. Show it in Settings. [Industrial targets are a proxy; Syre's pace is unknown, so treat as **[thin]**.] |
 | **Mode confusion and automation surprises** come from uncommanded mode transitions and weak feedback. | Sarter & Woods 1995; Asiana 214; AF447 | One annunciator per session. Transitions the user didn't start are loud and must be acknowledged. Losing data shows **STALE** and never quietly clears a warning. |
 | **Engagement can't be inferred from proxies.** | NTSB HAR-20/01 (Tesla) | An agent's acknowledgement of a hold or veto must be *explicit* and shown. Silence is "unacknowledged", never "fine". |
 | **Trust calibration:** match trust to capability, specific to function and situation. | Lee & See 2004 | Show track records per agent, model, account and work key (success, veto and revert rates). Show process (plan, evidence), not just outcomes. |
@@ -298,7 +298,7 @@ No single paradigm covers everything. The triage list and the HMI rules together
 | **Watching live feeds degrades** past a handful of feeds and after about 20–40 minutes. | CCTV literature [thin] | Cap the Wall at 9 tiles and have it suggest which ones deserve a tile. |
 | **Recent agent-oversight studies.** ParallelPilot (n=16): an ambient dashboard plus planning and logging raised throughput 63% and supervision by +1 agent at peak, but **did not improve perceived control or perceived success at redirecting agents**. Grunde-McLaughlin et al. 2026: a better trace UI cut time-to-find-errors and raised confidence, but **not accuracy**. | arXiv 2609.33113; arXiv 2602.16844 (preprints, small n) **[thin]** | Awareness isn't enough. Pair the overview with *cheap evidence* (diff, tests, plan) and with interventions that verifiably take effect. Don't optimise for confidence: measure whether interventions worked. |
 | **Oversight is shifting from approving each action to monitoring and interrupting.** Experienced Claude Code users use full auto-approve more (about 20% → 40%+ of sessions) *and* interrupt more (about 5% → 9% of turns). On complex tasks Claude asks for clarification more than twice as often as humans interrupt it. | Anthropic, "Measuring AI agent autonomy in practice" (Feb 2026) | Agent-initiated questions are the largest source of needs-you items, so make answering them cheap (peek and reply). Interrupting must be one keystroke or tap, from anywhere. |
-| **Interruptibility as a governance requirement:** pause, redirect, stop and reverse, without the agent being able to tamper. | OpenAI "Practices for governing agentic AI"; Singapore Consensus 2026 | Pause everything is enforced by Konsert (hold plus SIGSTOP), not requested from the agent. The receipt shows whether the enforcement *and* the acknowledgement happened. |
+| **Interruptibility as a governance requirement:** pause, redirect, stop and reverse, without the agent being able to tamper. | OpenAI "Practices for governing agentic AI"; Singapore Consensus 2026 | Pause everything is enforced by Syre (hold plus SIGSTOP), not requested from the agent. The receipt shows whether the enforcement *and* the acknowledgement happened. |
 
 ---
 
@@ -310,11 +310,11 @@ No single paradigm covers everything. The triage list and the HMI rules together
  Modes (fixed pages, keys 1-4):  [1 Watch]  [2 Work]  [3 Fleet]  [4 Wall]
  Levels (ISA-101-style drill):   overview ──▶ focus pane ──▶ full page (deep link)
  Always present in every mode:   status banner + Pause everything · Needs-you count · ⌘K
-                                 orchestrator dock (collapsible) · selection linking
+                                 commander dock (collapsible) · selection linking
 ```
 
 - **Modes** are task-oriented pages, as in Resolve and Blender. Inside a mode you can resize and collapse regions (VS Code-style bounded layout), and "Reset layout" is always one click away. There is no free docking.
-- **Selection is linked**, Bloomberg-style. Selecting a session in any mode makes the focus pane, the orchestrator dock's context chip and the fleet strip highlight follow it. Selecting a machine filters the work list. One link group is enough for v1. **[Opinion: multiple groups are a power-user feature to add once the Wall exists.]**
+- **Selection is linked**, Bloomberg-style. Selecting a session in any mode makes the focus pane, the commander dock's context chip and the fleet strip highlight follow it. Selecting a machine filters the work list. One link group is enough for v1. **[Opinion: multiple groups are a power-user feature to add once the Wall exists.]**
 - **The three levels**, applied in every mode:
   - L1 is the mode's overview.
   - L2 is the **focus pane**: a right-hand or slide-over panel for the selected session, task, machine or account.
@@ -326,24 +326,24 @@ No single paradigm covers everything. The triage list and the HMI rules together
 - It serves the jobs a monitoring tool exists for: J1, J3, and J7 when shrunk.
 - It follows how the multi-agent tools are converging (needs-you first).
 - It applies the HMI rules: quiet normal state, separate alarm summary, and one screen with no scrolling at the target scale.
-- It keeps J4 (orchestrator dock) and J5 (focus pane) one step away.
+- It keeps J4 (commander dock) and J5 (focus pane) one step away.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ● konsert   1 Watch  2 Work  3 Fleet  4 Wall      ⌘K search/command       [❚❚ PAUSE EVERYTHING]│
+│ ● syre   1 Watch  2 Work  3 Fleet  4 Wall      ⌘K search/command       [❚❚ PAUSE EVERYTHING]│
 ├──────────────────────────────────────────────────────────────────────────────────────────────┤
 │ ▲ 2 need you · 1 held · 14 working · 3 queued · fleet 5/6 up (gpu-box STALE 4m) · claude-a 81%│  ← status banner (grey when OK)
 ├───────────────────────────────────────────────────────────────┬──────────────────────────────┤
-│ NEEDS YOU (2)                                     [snooze] [⇧A ack all]│ ORCHESTRATOR             ▾ │
+│ NEEDS YOU (2)                                     [snooze] [⇧A ack all]│ COMMANDER             ▾ │
 │ ▌P1 veto not acknowledged · codex@mini-pc · t-8k2  "fix flaky e2e"  │ ctx: ☐ t-8k2 (selected)      │
 │ ▌   you vetoed 48s ago ("wrong approach") — no ack yet   [retry][kill]│ ──────────────────────────── │
 │ ▌P2 question · claude@desk · c-3fa "which migration tool?" [peek ␣] │ you: put the release builds  │
-│ ▌P2 override request · orchestrator · "allow 2nd session on mac"    │      on the mac, not desk    │
+│ ▌P2 override request · commander · "allow 2nd session on mac"    │      on the mac, not desk    │
 │      justification: CVE fix · 30m          [approve] [deny] [details]│ orch: ok — pinning work key  │
 ├───────────────────────────────────────────────────────────────┤  release/* → mac (rule r-12) │
 │ LIVE WORK            group: state ▾  slice: all projects ▾  ⌕ filter│  2 tasks re-queued. [explain]│
 │ ─ held / suspended (1) ───────────────────────────────────────│ ──────────────────────────── │
-│  HELD  grok  t-71c  api: rate limiter   desk     ⏸ by you 12m  ✓ack │ > message orchestrator…      │
+│  HELD  grok  t-71c  api: rate limiter   desk     ⏸ by you 12m  ✓ack │ > message commander…      │
 │ ─ working (14) ───────────── sorted by attention, then age ───│                              │
 │  AUTO  claude c-3fa web: auth refactor  desk   ▁▂▃▅ 3/5 steps 22m │──────────────────────────────│
 │        acct claude-a 81% (resets 14:20) · ctx 64% · cpu 1.4c      │ YOUR ACTIONS (recent)        │
@@ -365,11 +365,11 @@ Expanding a row adds the account and quota projection, context %, CPU/RAM, PR or
 - The annunciator always occupies the first column: AUTO / ORCH / ASKING / HELD / SUSPENDED / YOU / STALE.
 - **Observed sessions** (started by the user directly; PRD §5.2) appear in the same list with an `observed` marker and read-only controls where enforcement isn't possible.
 
-**Clicking a row opens the focus pane, which replaces the orchestrator dock or slides over it on narrow screens:**
+**Clicking a row opens the focus pane, which replaces the commander dock or slides over it on narrow screens:**
 
 ```
 ┌─ FOCUS: c-3fa  claude · web: auth refactor ───────────────────────────────── [⤢ full page] [×] ┐
-│ CONTROL  AUTO  (approval: ask-on-write) · started by orchestrator 22m ago · desk (m-4kd)       │
+│ CONTROL  AUTO  (approval: ask-on-write) · started by commander 22m ago · desk (m-4kd)       │
 │ [␛ stop turn] [⏸ suspend] [✋ hold] [⛔ veto…] [⌨ take control] [⋯ kill/cancel]                  │
 │ GOAL  "refactor session handling to use new auth middleware" · plan 3/5 ▸                      │
 │ NOW   editing src/auth/session.ts · last tool: run tests (41/60 pass) 40s ago                  │
@@ -418,7 +418,7 @@ Expanding a row adds the account and quota projection, context %, CPU/RAM, PR or
 
 ### 4.4 Alternative mode B: **Work** (a flow board by lifecycle, J4/J5)
 
-**Model:** the Linear board (`Cmd+B` to toggle board and list), Jira's Expedite lane, and GitHub Projects' Slice by and field sums. Lanes are projects or work keys. Columns are lifecycle states owned by Konsert, so agents and the scheduler move the cards and the user rarely drags. The review column is the main reason this mode exists.
+**Model:** the Linear board (`Cmd+B` to toggle board and list), Jira's Expedite lane, and GitHub Projects' Slice by and field sums. Lanes are projects or work keys. Columns are lifecycle states owned by Syre, so agents and the scheduler move the cards and the user rarely drags. The review column is the main reason this mode exists.
 
 ```
 ┌ 2 Work ───── lanes: project ▾  slice: machine/agent/account ▾  [board ⇄ list ⌘B]  [+ new task] ┐
@@ -466,14 +466,14 @@ Expanding a row adds the account and quota projection, context %, CPU/RAM, PR or
 
 - **Free docking with saved workspaces (Photoshop / Bloomberg Launchpad):** high build and maintenance cost, the "lost my layout" failure, and no job that requires it. Revisit only if users ask for a custom multi-monitor wall. Bounded resize and collapse plus four modes covers the need. Store per-mode layouts and offer "Reset layout".
 - **Keeping the repo/worktree tree as the left rail:** see §2.1. Its information survives as a facet (§4.7).
-- **A Grafana-style dashboard builder:** dashboards spread without limit, and Konsert should be opinionated (PRD §3). Ship fixed, good views.
-- **A separate "orchestrator mode":** the orchestrator is how you *direct* work, so it belongs in a dock available in every mode, not on a page that hides the work.
+- **A Grafana-style dashboard builder:** dashboards spread without limit, and Syre should be opinionated (PRD §3). Ship fixed, good views.
+- **A separate "commander mode":** the commander is how you *direct* work, so it belongs in a dock available in every mode, not on a page that hides the work.
 
 ### 4.7 What changes from today
 
 | Today | Proposal |
 |---|---|
-| Left tree: Orchestrator / Projects (spaces → repos → worktrees) / Machines / Agents | **Removed as primary navigation.** Projects/repos/worktrees become a **Slice-by facet** and **scope chip** ("web ▾") in Watch and Work, lanes in Work, and targets in ⌘K (`:repo web`, `:m mac`, k9s-style). Machines move to the Fleet mode and fleet strip. Agents are the work list. The orchestrator moves to the dock. Spaces fold into saved views (filter + grouping + mode), as in Temporal's Saved Views. |
+| Left tree: Commander / Projects (spaces → repos → worktrees) / Machines / Agents | **Removed as primary navigation.** Projects/repos/worktrees become a **Slice-by facet** and **scope chip** ("web ▾") in Watch and Work, lanes in Work, and targets in ⌘K (`:repo web`, `:m mac`, k9s-style). Machines move to the Fleet mode and fleet strip. Agents are the work list. The commander moves to the dock. Spaces fold into saved views (filter + grouping + mode), as in Temporal's Saved Views. |
 | Centre tab strip as the main surface | **Tabs only inside the focus pane** (Activity / Chat / Terminal / Changes / Attempts / Placement) and in the Wall. Tabs are no longer the way you find things; the work list is. |
 | Right inspector (Agent Activity, Changes, Checks & Runtime, Audit Log) | Becomes **the focus pane's tabs**, always scoped to the selection. The Audit Log becomes the **"Your actions" timeline** (filtered to user actions plus agent responses) and a full audit page. |
 | Footer (hosts, resource manager, PTYs, ports, keep-awake, usage rings) | **Status banner** (top, the glance line) plus **fleet and quota strip** (bottom of Watch). PTYs and ports move to machine focus pages. Keep-awake moves to Settings or the machine page. |
@@ -499,7 +499,7 @@ Expanding a row adds the account and quota projection, context %, CPU/RAM, PR or
 - **Group floods by root cause:**
   - "gpu-box STALE: 3 sessions affected" is one P1, not four. Key on (machine, account, failure class), as in PagerDuty content-based grouping.
   - During a flood, offer a **Paused list** mode (new items are counted but not inserted), as in the PagerDuty Ops Console.
-- **Retry-pending is amber, not red** (Dagster). STALE / NO DATA is its own grey-hatched state (Grafana "No Data"; the AF447 lesson). **"No progress in N minutes"** is an exception Konsert raises itself, rather than waiting for the agent to ask (Temporal's Task Failures view; management by exception).
+- **Retry-pending is amber, not red** (Dagster). STALE / NO DATA is its own grey-hatched state (Grafana "No Data"; the AF447 lesson). **"No progress in N minutes"** is an exception Syre raises itself, rather than waiting for the agent to ask (Temporal's Task Failures view; management by exception).
 - **Attention budget:**
   - Settings shows "interrupts/hour (7-day avg)" and the "% of needs-you items you acted on".
   - If the actionable rate falls below about 50%, suggest demoting or shelving the noisiest class, as Watchdog's suggested monitors do in reverse.
@@ -514,13 +514,13 @@ Every user action is a tracked object, an **intervention receipt**. It ties toge
  ⛔ veto t-8k2 "wrong approach: don't mock the auth server"         by you · Watch UI · 11:58:02
    ✓ sent → hub            11:58:02
    ✓ enforced              11:58:03   process tree stopped (SIGTERM), hold placed on t-8k2 scope
-   ✓ orchestrator notified 11:58:04   recent_events delivered
+   ✓ commander notified 11:58:04   recent_events delivered
    ✓ acknowledged          11:58:19   orch: "Understood — won't retry with mocks; will ask before
                                        re-dispatching e2e work. Proposed: use test auth container."
    ○ hold released         —          [release hold] [reply]
 ```
 
-- **Lifecycle:** `sent → enforced (by Konsert) → delivered → acknowledged (agent's own words) → released / resolved`. Enforcement and acknowledgement are shown separately. Pause everything is effective once *enforced*, whatever the agent says. The acknowledgement shows that the agent *understood*, which matters because §3 requires agents not to treat user actions as failures to investigate. **[NTSB HAR-20/01: don't infer engagement from proxies; interruptibility literature.]**
+- **Lifecycle:** `sent → enforced (by Syre) → delivered → acknowledged (agent's own words) → released / resolved`. Enforcement and acknowledgement are shown separately. Pause everything is effective once *enforced*, whatever the agent says. The acknowledgement shows that the agent *understood*, which matters because §3 requires agents not to treat user actions as failures to investigate. **[NTSB HAR-20/01: don't infer engagement from proxies; interruptibility literature.]**
 - **Where it shows:**
   - A small receipt chip on the affected row (`⏸ by you 12m ✓ack`, or `… waiting 48s`).
   - The "Your actions" timeline in the dock.
@@ -531,7 +531,7 @@ Every user action is a tracked object, an **intervention receipt**. It ties toge
   | Label | Meaning | Visual |
   |---|---|---|
   | `AUTO` | Agent working on its own within policy | grey text |
-  | `ORCH` | Directed by the orchestrator (dispatched or steered) | grey text, orchestrator glyph |
+  | `ORCH` | Directed by the commander (dispatched or steered) | grey text, commander glyph |
   | `ASKING` | Agent waiting on the human | amber |
   | `HELD` | User hold; nothing automatic happens on this scope | blue outline |
   | `SUSPENDED` | Process tree frozen | blue fill |
@@ -544,20 +544,20 @@ Every user action is a tracked object, an **intervention receipt**. It ties toge
 - **Handing back control** ("hand back" after `YOU`) asks for, or drafts, a short summary for the agent. It is a receipt too, with an acknowledgement. **[PRD §5.8a; Bainbridge: handover with context.]**
 - **Go/no-go for risky fleet-wide actions** (resume all after a pause, approve a break-glass override): show a poll of affected sessions with ready / blocked / objection before confirming. **[NASA go/no-go; opinion that it is worth building after v1.]**
 
-### 4.10 Navigation and the orchestrator
+### 4.10 Navigation and the commander
 
 - **Keyboard first:**
   - `1`–`4` switch modes, `⌘K` opens the palette, `:` opens a k9s-style command line (`:s @mac`, `:t failed`, `:m gpu-box`), `/` filters, `?` shows the keys for the current context.
   - `j`/`k` move. `␣` peeks (reply without opening). `Enter` focuses. `f` jumps to the next exception (Buildkite). `F` follows the active item (Buildkite follow mode).
   - `p` pauses everything, with confirmation by hold-to-confirm or a second press.
 - **Deep links for everything** (`/s/…`, `/t/…`, `/m/…`, `/a/<account>`, `/r/<receipt>`), so notifications open straight onto the item.
-- **The orchestrator dock:**
+- **The commander dock:**
   - It is collapsible and present in every mode. On narrow screens it is a bottom sheet.
   - It is **context-aware**: the current selection appears as a removable chip ("ctx: t-8k2"), so "move this to the mac" needs no ids.
   - Its actions (dispatch, pin, migrate, override request) appear inline as **cards with an [explain] link** to the placement log, and in the Activity timelines of the affected items.
-  - Orchestrator decisions that need the user (override requests, ambiguous plans) are posted as **P2 Needs-you items** as well as chat messages, so they can't scroll out of sight.
-  - Direct chat with any single agent lives in that session's focus pane, Chat tab, so "the orchestrator" and "an agent" are never confused.
-- **The orchestrator's loop** (mission-control "voice loops"): a dimmed, collapsible feed of what the orchestrator is doing ("dispatched t-90a to mac; rejected desk: needs macOS"), separate from the chat. The user can follow it passively without being interrupted.
+  - Commander decisions that need the user (override requests, ambiguous plans) are posted as **P2 Needs-you items** as well as chat messages, so they can't scroll out of sight.
+  - Direct chat with any single agent lives in that session's focus pane, Chat tab, so "the commander" and "an agent" are never confused.
+- **The commander's loop** (mission-control "voice loops"): a dimmed, collapsible feed of what the commander is doing ("dispatched t-90a to mac; rejected desk: needs macOS"), separate from the chat. The user can follow it passively without being interrupted.
 
 ### 4.11 Mobile story (J7)
 
@@ -565,7 +565,7 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
 
 ```
 ┌──────────────────────────┐   ┌──────────────────────────┐   ┌──────────────────────────┐
-│ konsert   FLEET: RUNNING │   │ ← c-3fa claude · desk    │   │ ← Fleet (read-only)      │
+│ syre   FLEET: RUNNING │   │ ← c-3fa claude · desk    │   │ ← Fleet (read-only)      │
 │ ▲ 2 need you · 14 working│   │ ASKING · web: auth       │   │ desk    ▇▇▅░ 3/4         │
 │ [❚❚ PAUSE EVERYTHING]    │   │ "which migration tool?"  │   │ mini-pc ▅▃░░ 2/4         │
 ├──────────────────────────┤   │  ○ goose  ○ atlas  ○ … │   │ mac     ▇▇▇▇ FULL        │
@@ -587,7 +587,7 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
   - Push only for P1, plus P2 items older than a threshold.
   - The PWA badge shows the count of needs-you items.
 - **Excluded:** the board, the Wall, layout controls and placement editing. Terminals are only available as "emergency take control" behind a confirmation, because typing in a remote shell on a phone is error-prone. **[Opinion]**
-- **Orchestrator:** a full-screen chat sheet with voice dictation, since "tell the orchestrator" is a natural mobile action.
+- **Commander:** a full-screen chat sheet with voice dictation, since "tell the commander" is a natural mobile action.
 
 ---
 
@@ -611,7 +611,7 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
 2. **Quiet when normal; colour means act.** A grey baseline, with saturated colour only for states that need action. Use shape and position as well as colour. *(ISA-101 / Hollifield; EPRI 2009; contested, so test it.)*
 3. **Every alert names an action, and there is a budget for them.** Anything without an action is a notification. Aim for about 1 interrupt per 10 minutes, group floods, and allow ack, snooze and shelve with expiries. *(ISA-18.2, EEMUA 191; Drew et al. 2014; PagerDuty; Linear.)*
 4. **Always show who is in control.** One annunciator per session, machine and fleet. A change of control is highlighted, and a change the user didn't make is loud and must be acknowledged. *(Airbus FMA; Sarter & Woods 1995; NTSB Asiana 214.)*
-5. **Interventions are enforced by Konsert and acknowledged by agents, and both are shown.** Never infer acknowledgement from silence, and escalate when it is missing. *(PRD §3/§5.8a; NTSB HAR-20/01; OpenAI governing practices; Singapore Consensus.)*
+5. **Interventions are enforced by Syre and acknowledged by agents, and both are shown.** Never infer acknowledgement from silence, and escalate when it is missing. *(PRD §3/§5.8a; NTSB HAR-20/01; OpenAI governing practices; Singapore Consensus.)*
 6. **Stale is a state.** Losing data never clears a warning or looks like "fine". *(BEA AF447; Grafana No Data; Herdr dimmed cached machines.)*
 7. **Perception, comprehension and projection on every item:** state, goal and progress, and what happens next (ETA, quota run-out, context limit). *(Endsley 1995.)*
 8. **Overview, then focus, then detail, all on one screen with linked selection.** Drill-down follows display-hierarchy levels, and selection propagates. *(ISA-101 levels; Grafana best practices; Bloomberg link groups; TradingView sync.)*
@@ -626,14 +626,14 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
 
 ## 7. Where evidence is thin, and open questions
 
-- **Grey-scale HMI.** The supporting evidence is industry and simulator studies with no peer-reviewed RCT, and critics call it boring and sleep-inducing. Konsert's dark UI already starts close to grey. *Mitigation:* an A/B with a "colourful" theme once the redesign exists, measuring time to spot the needs-you item.
-- **Attention-budget numbers.** The ISA-18.2 and EEMUA rates come from control rooms with trained operators on shift. Konsert's user is part-time and often doing something else. Treat ~6 per hour as a starting hypothesis and instrument it.
+- **Grey-scale HMI.** The supporting evidence is industry and simulator studies with no peer-reviewed RCT, and critics call it boring and sleep-inducing. Syre's dark UI already starts close to grey. *Mitigation:* an A/B with a "colourful" theme once the redesign exists, measuring time to spot the needs-you item.
+- **Attention-budget numbers.** The ISA-18.2 and EEMUA rates come from control rooms with trained operators on shift. Syre's user is part-time and often doing something else. Treat ~6 per hour as a starting hypothesis and instrument it.
 - **The Wall cap.** The 4/9/16-monitor numbers trace back to one prison CCTV study. The cap of 9 is a judgment call.
 - **The value of kanban for agent work.** The agent kanban tools are the products shrinking (Vibe Kanban sunsetting, Crystal pivoting). That is market evidence, not usability evidence. Work mode is recommended mainly for its REVIEW column. If usage is low, fold that column into Watch's "ready for review" group and drop the mode.
 - **Agent UI studies are 2026 preprints with small samples** (n≈14–16), and some vendor features came only from changelog titles or search snippets: Conductor's "Workspace Status", Orca's experimental dashboard, Warp's panels.
-- **State detection quality decides everything.** An attention-first UI is only as good as Konsert's ability to tell `working`, `asking`, `stalled` and `done` apart for *observed* sessions (PRD §5.2 [gap]). Herdr admits heuristic idle detection is unreliable. **The redesign depends on the session-store parsers.**
-- **Open question:** should the default for a brand-new user with one machine and no orchestrator be a simplified Watch, or the orchestrator chat? *Suggestion:* Watch, with the dock expanded and an empty-state prompt "Tell the orchestrator what to do", which collapses once work exists.
-- **Open question:** is acknowledgement text from the agent worth the tokens on every intervention? *Suggestion:* yes for the orchestrator and for sessions directly affected, but through a cheap structured ack (`ack: understood/objection + one line`) delivered in the next-prompt note (PRD §5.8a event delivery).
+- **State detection quality decides everything.** An attention-first UI is only as good as Syre's ability to tell `working`, `asking`, `stalled` and `done` apart for *observed* sessions (PRD §5.2 [gap]). Herdr admits heuristic idle detection is unreliable. **The redesign depends on the session-store parsers.**
+- **Open question:** should the default for a brand-new user with one machine and no commander be a simplified Watch, or the commander chat? *Suggestion:* Watch, with the dock expanded and an empty-state prompt "Tell the commander what to do", which collapses once work exists.
+- **Open question:** is acknowledgement text from the agent worth the tokens on every intervention? *Suggestion:* yes for the commander and for sessions directly affected, but through a cheap structured ack (`ack: understood/objection + one line`) delivered in the next-prompt note (PRD §5.8a event delivery).
 
 ## 8. Suggested migration path from today's UI
 
@@ -659,8 +659,8 @@ Mobile is not a reflow of the desktop. It is the **pull queue plus the emergency
 - Superset / Paradev: https://raw.githubusercontent.com/superset-sh/superset/main/README.md · https://raw.githubusercontent.com/ParadevAI/Paradev/HEAD/README.md · https://thebridge.jp/2026/10/paradev-superset-yc-parallel-coding-agents-seed-funding · https://hn.svelte.dev/item/46368739
 - Claude Code: https://claude.com/blog/claude-code-desktop-redesign · https://code.claude.com/docs/en/desktop · https://code.claude.com/docs/en/agent-view · https://code.claude.com/docs/en/mobile · https://code.claude.com/docs/en/claude-code-on-the-web · https://github.com/anthropics/claude-code/issues/54044
 - OpenAI Codex: https://openai.com/index/introducing-the-codex-app/ · https://learn.chatgpt.com/docs/code-review?surface=app · https://learn.chatgpt.com/docs/features · https://community.openai.com/t/codex-cli-and-agent-sessions-flood-the-desktop-app-sidebar-with-no-way-to-scope-them/1387453 · https://community.openai.com/t/codex-cloud-web-original-code-review-workflow-lost-legacy-task-history-disappearing/1416056 · https://community.openai.com/t/codex-app-does-not-display-worktree-threads/1373261
-- GitHub Copilot / Agent HQ / mission control: https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents · https://github.blog/ai-and-ml/github-copilot/how-to-orchestrate-agents-using-mission-control/ · https://github.blog/news-insights/company-news/welcome-home-agents/
-- Cursor: https://cursor.com/blog/cursor-3 · https://forum.cursor.com/t/agents-window-sidebar-unusable-for-multi-repo-orchestration-no-recent-list-no-multi-chat-view-repo-groups-bury-active-work/166317 · https://forum.cursor.com/t/worktrees-in-agent-sidebar/156637
+- GitHub Copilot / Agent HQ / mission control: https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents · GitHub Blog ("How to coordinate agents using Mission Control") · https://github.blog/news-insights/company-news/welcome-home-agents/
+- Cursor: https://cursor.com/blog/cursor-3 · Cursor Forum topic #166317 (multi-repo sidebar feedback) · https://forum.cursor.com/t/worktrees-in-agent-sidebar/156637
 - Devin: https://docs.devin.ai/release-notes/2026 · https://docs.devin.ai/work-with-devin/devin-review
 - Factory: https://docs.factory.com/factory-app/overview · https://factory.ai/news/factory-desktop · https://docs.factory.ai/jp/web/missions
 - OpenHands: https://docs.openhands.dev/openhands/usage/agent-canvas/overview · https://docs.openhands.dev/openhands/usage/cloud/cloud-ui
@@ -741,8 +741,8 @@ The owner reviewed the clickable mockups and decided:
 - **Work, Fleet and Wall are accepted** as designed, with three changes:
   - Fleet's state timeline gets a range picker: 12 h (default), 24 h, 3 days, 1 week.
   - Wall tiles are any session type: chat tiles have their own reply box; terminal tiles are typeable after Take control. Up to 9 tiles are visible per page and the Wall pages horizontally through more pinned sessions (soft cap ~24); only visible tiles stream.
-- **"Watch" is replaced by "Command"**, the desktop default and a chat-first page: live work on the left, a tabbed conversation area in the centre (the orchestrator as a pinned tab; any agent chat, terminal or observed session opens as another tab, with a GOAL/NOW strip and controls on agent tabs), Needs you on the right, the status/Pause control on top and the fleet/quota strip at the bottom. On desktop, chatting, brainstorming, organising and queuing work is the main job; the orchestrator is front and centre, not a side dock.
+- **"Watch" is replaced by "Command"**, the desktop default and a chat-first page: live work on the left, a tabbed conversation area in the centre (the commander as a pinned tab; any agent chat, terminal or observed session opens as another tab, with a GOAL/NOW strip and controls on agent tabs), Needs you on the right, the status/Pause control on top and the fleet/quota strip at the bottom. On desktop, chatting, brainstorming, organising and queuing work is the main job; the commander is front and centre, not a side dock.
 - **Mobile defaults to watching and answering**: the needs-you inbox with live work and Pause everything. Chat, new work and Fleet are reachable but not the default.
-- **First run**: Command opens with a welcome in the Orchestrator tab that explains Konsert and offers "Add this machine" (the orchestrator needs a machine to run on); the side panels explain what will appear there; the composer enables once a machine is online.
+- **First run**: Command opens with a welcome in the Commander tab that explains Syre and offers "Add this machine" (the commander needs a machine to run on); the side panels explain what will appear there; the composer enables once a machine is online.
 - These modes **replace** the current IDE-style layout (left tree, centre tab strip, right inspector); they are not added beside it.
 - **Pause everything is a quiet emergency control**: always visible but low-prominence ("Pause all" in the desktop header; a small "Emergency: pause everything" link at the bottom of the mobile inbox, never a large top button), behind a confirmation that explains the effect with Cancel as the default. Resume needs no confirmation. Like an emergency number: comforting to see, rarely used.

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { JoinCode } from '../core/models/konsert.models';
+import { JoinCode } from '../core/models/syre.models';
 import { ManualJoinComponent, expiresIn, joinCommand } from './manual-join.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
 import { ago } from './machine-credential.component';
@@ -10,7 +10,7 @@ const code: JoinCode = {
   code: 'ABCD-EFGH',
   expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
   hub_url: 'https://desk.example.ts.net',
-  command: 'konsertd join https://desk.example.ts.net ABCD-EFGH',
+  command: 'syred join https://desk.example.ts.net ABCD-EFGH',
 };
 
 describe('manual join helpers', () => {

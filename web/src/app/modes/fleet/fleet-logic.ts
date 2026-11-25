@@ -1,5 +1,5 @@
 import { HeatHistory, HeatSample, ProjectGroup, ShellInfo, SubagentActivity, WorkerHeat } from '../../core/models/activity.models';
-import { Task, Worker } from '../../core/models/konsert.models';
+import { Task, Worker } from '../../core/models/syre.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
 import { SpinnerDetail, SpinnerState, activityPhrase, heatSolid, spinnerDetailOf, spinnerStateOf } from '../../shared/spinner-logic';
@@ -74,8 +74,8 @@ export function shortWait(ms: number): string {
 }
 
 /**
- * What an offline machine row says about its konsertd: starting, failed, or (KON-JAX1E)
- * "konsertd down — restarting (attempt 3, next in 5m): <last error>" while the hub
+ * What an offline machine row says about its syred: starting, failed, or (SYR-JAX1E)
+ * "syred down — restarting (attempt 3, next in 5m): <last error>" while the hub
  * restarts a daemon that died, and "unreachable over SSH" while it re-dials a host.
  */
 export function offlineText(w: Worker, now: number): string {
@@ -83,15 +83,15 @@ export function offlineText(w: Worker, now: number): string {
   const err = (w.launch_state === 'failed' && w.launch_error) || r?.error || '';
   const tail = err ? `: ${err}` : '';
   if (w.launch_state === 'starting') {
-    return r?.attempt ? `konsertd down — restarting (attempt ${r.attempt})…` : 'starting konsertd…';
+    return r?.attempt ? `syred down — restarting (attempt ${r.attempt})…` : 'starting syred…';
   }
   if (r?.state === 'down') {
     // A logon task cannot be restarted while its user is signed out: say why.
-    if (w.facts?.start_mode === 'user_session') return `konsertd down${tail}. ${windowsStartText(w)}`;
-    if (!r.attempt) return `konsertd down${tail}`;
+    if (w.facts?.start_mode === 'user_session') return `syred down${tail}. ${windowsStartText(w)}`;
+    if (!r.attempt) return `syred down${tail}`;
     const next = r.next_at ? Date.parse(r.next_at) - now : 0;
     const when = next > 0 ? `next in ${shortWait(next)}` : 'next soon';
-    return `konsertd down — restarting (attempt ${r.attempt}, ${when})${tail}`;
+    return `syred down — restarting (attempt ${r.attempt}, ${when})${tail}`;
   }
   if (r?.state === 'unreachable') return `unreachable over SSH — re-dialing${r.error ? `: ${r.error}` : ''}`;
   if (w.launch_state === 'failed') return `could not start: ${w.launch_error || 'see Details'}`;
@@ -100,7 +100,7 @@ export function offlineText(w: Worker, now: number): string {
 }
 
 /**
- * When a Windows machine's konsertd starts (KON-224K5), from what the daemon last
+ * When a Windows machine's syred starts (SYR-224K5), from what the daemon last
  * reported: a logon task only runs while its user is signed in, so a headless machine
  * needs an S4U task or a service. Empty for other systems or when unknown.
  */
@@ -109,21 +109,21 @@ export function windowsStartText(w: Worker): string {
   const who = w.ssh_target ? w.ssh_target.split('@')[0] : 'its user';
   switch (w.facts?.start_mode) {
     case 'background_task':
-      return 'Windows: konsertd starts at boot and runs whether or not anyone is signed in (S4U task).';
+      return 'Windows: syred starts at boot and runs whether or not anyone is signed in (S4U task).';
     case 'service':
-      return 'Windows: konsertd runs as a Windows service.';
+      return 'Windows: syred runs as a Windows service.';
     case 'user_session':
       return (
-        `Windows: konsertd starts only when ${who} signs in (logon task). For headless use, ` +
+        `Windows: syred starts only when ${who} signs in (logon task). For headless use, ` +
         'remove and re-add the machine over SSH as an administrator (that registers an S4U task), ' +
-        'or run `konsertd install` from an elevated terminal on it, or `konsertd install --service`.'
+        'or run `syred install` from an elevated terminal on it, or `syred install --service`.'
       );
   }
   return '';
 }
 
 /** "macOS · arm64 · 10c / 16G" */
-/** The transport a machine row shows: how its konsertd reaches the hub. */
+/** The transport a machine row shows: how its syred reaches the hub. */
 export function transportLabel(w: Worker): string {
   return w.transport === 'ssh' ? 'ssh' : w.transport === 'local' ? 'local' : 'outbound';
 }
@@ -139,9 +139,9 @@ export function transportHint(w: Worker): string {
     case 'ssh':
       return `The hub attaches over SSH (${w.ssh_target || w.name}) with its own key; no credential`;
     case 'local':
-      return "The hub's own machine: the hub attaches to konsertd's local socket";
+      return "The hub's own machine: the hub attaches to syred's local socket";
     default:
-      return 'konsertd connects out to the hub with its machine credential';
+      return 'syred connects out to the hub with its machine credential';
   }
 }
 
@@ -327,7 +327,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       const state = spinnerStateOf(it.activity, mi?.control);
       const doneAgo = inp.now - (Date.parse(mi?.finishedAt || it.activity.since || '') || inp.now);
       const now =
-        it.nowSource === 'orchestrator' || it.nowSource === 'activity'
+        it.nowSource === 'commander' || it.nowSource === 'activity'
           ? it.now
           : activityPhrase(state, it.activity.tokens_per_sec, it.activity.summary || it.activity.label, doneAgo) || it.now;
       push(it.workerId, {

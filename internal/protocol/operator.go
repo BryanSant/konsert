@@ -2,13 +2,13 @@ package protocol
 
 import "time"
 
-// MsgOperatorCommand (worker → hub) reports a command the user ran in a Konsert terminal
-// (shell integration, OSC 133 marks). konsertd keeps the full command line locally with a
+// MsgOperatorCommand (worker → hub) reports a command the user ran in a Syre terminal
+// (shell integration, OSC 133 marks). syred keeps the full command line locally with a
 // short TTL; the hub only ever receives the redacted summary. A command is reported when it
 // starts (EndedAt and ExitCode nil) and again when it ends (same CommandID).
 const MsgOperatorCommand = "worker.operator_command"
 
-// OperatorCommandPayload is one command run by the user in a Konsert terminal task.
+// OperatorCommandPayload is one command run by the user in a Syre terminal task.
 type OperatorCommandPayload struct {
 	// TaskID is the terminal task's UUID id.
 	TaskID string `json:"task_id"`

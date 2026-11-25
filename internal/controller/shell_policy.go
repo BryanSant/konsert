@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Dangling-shell remedy (KON-DCEZV; docs/design/activity.md "Shells left running"). A
+// Dangling-shell remedy (SYR-DCEZV; docs/design/activity.md "Shells left running"). A
 // session that ended (a task finished, a chat turn ended) can leave shells running: dev
 // servers, watchers, forgotten background jobs. Killing a user's dev server on its own
 // is destructive, so the remedy is a policy, global with a per-project override:
@@ -34,7 +34,7 @@ import (
 // since then). A dev server's shell keeps running a command, so a per-shell idle
 // measure would never fire for the very shells this is about.
 //
-// State is in memory, like the activity it watches: after a hub restart konsertd
+// State is in memory, like the activity it watches: after a hub restart syred
 // re-reports the shells, the idle period starts again and snoozes are forgotten.
 
 // Shell policy modes.
@@ -316,7 +316,7 @@ func (h *Hub) shellPolicyTick(ctx context.Context, now time.Time) {
 		case ShellPolicyAsk:
 			switch {
 			case held:
-				note = "you are in control of this session, so Konsert didn't ask the agent"
+				note = "you are in control of this session, so Syre didn't ask the agent"
 			case !info.canAsk:
 				note = "the session has ended, so its agent can't be asked"
 			case idleFor >= shellAskGrace && h.hasUnaskedShells(key, a.ShellList):
@@ -326,7 +326,7 @@ func (h *Hub) shellPolicyTick(ctx context.Context, now time.Time) {
 					continue
 				}
 				h.logger.Info("shell policy: could not ask the agent", "session", key, "err", err)
-				note = "Konsert couldn't ask the agent: " + err.Error()
+				note = "Syre couldn't ask the agent: " + err.Error()
 			default:
 				if idleFor < shellAskGrace || h.hasUnaskedShells(key, a.ShellList) {
 					continue
@@ -336,9 +336,9 @@ func (h *Hub) shellPolicyTick(ctx context.Context, now time.Time) {
 		case ShellPolicyStop:
 			switch {
 			case info.keep:
-				note = "pinned with Keep, so Konsert won't stop them"
+				note = "pinned with Keep, so Syre won't stop them"
 			case held:
-				note = "you are in control of this session, so Konsert won't stop them"
+				note = "you are in control of this session, so Syre won't stop them"
 			case idleFor >= idle:
 				if h.recentlyKilled(key, now) {
 					continue
@@ -351,7 +351,7 @@ func (h *Hub) shellPolicyTick(ctx context.Context, now time.Time) {
 					h.shellPolicy.mu.Unlock()
 					continue
 				}
-				note = "Konsert couldn't stop them: " + err.Error()
+				note = "Syre couldn't stop them: " + err.Error()
 			default:
 				continue
 			}

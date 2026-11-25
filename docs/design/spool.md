@@ -1,11 +1,11 @@
-# Surviving hub sleep: the outbound spool (KON-VZR9F)
+# Surviving hub sleep: the outbound spool (SYR-VZR9F)
 
-Laptop hubs sleep, and every machine link drops with them. Before the spool, konsertd
+Laptop hubs sleep, and every machine link drops with them. Before the spool, syred
 discarded what it produced while disconnected (except final task statuses), so the
 transcript, task events, usage and vitals of the gap were lost, and the hub's stale-task
 timeout could mark tasks lost right after it woke, before any link re-attached. Now:
 
-* konsertd **appends every hub-bound message that matters to an on-disk log before it is
+* syred **appends every hub-bound message that matters to an on-disk log before it is
   sent**, and replays what the hub has not applied on the next connection, in order;
 * the hub **applies each record at most once** and acknowledges what it applied;
 * after a **hub wake**, nothing is treated as lost until the links had a chance to come back.
@@ -16,8 +16,8 @@ the sender), `internal/controller/hub_spool.go` (ingestion), `internal/controlle
 
 ## The log
 
-One spool per daemon identity: `<state dir>/spool/<worker id>/` (`~/.konsert` or
-`KONSERT_STATE_DIR`).
+One spool per daemon identity: `<state dir>/spool/<worker id>/` (`~/.syre` or
+`SYRE_STATE_DIR`).
 
 * **Segments** `NNNNNNNNNNNNNNNNNNNN.seg` (named after their first seq), append-only, sealed at
   4 MB. A record is `len u32 | crc32c u32 | seq u64 | written-at i64 (unix ns) | class u8 |
@@ -51,19 +51,19 @@ session runs, otherwise every minute), so the gap has vitals too.
 **Terminal scrollback.** Each PTY task's output is written to
 `<state dir>/scrollback/<worker id>/<task id>.log` (two halves of 512 KiB, rotated), next to the
 in-memory ring buffer. A `pty.subscribe` for a task that is no longer running (it ended while
-the hub slept, or konsertd restarted) is answered with a snapshot from that file, so a
+the hub slept, or syred restarted) is answered with a snapshot from that file, so a
 re-attached terminal redraws. Files are pruned after 14 days and removed with the machine.
 
 **Activity collapses.** Activity records carry their session as collapse key: a record
 superseded by a newer one with the same key is skipped when sent, so after an outage the hub
 gets each session's latest state, not every thinking/working tick (the hub keeps activity in
-memory only). The activity snapshot konsertd sends after every hello goes through the spool too,
+memory only). The activity snapshot syred sends after every hello goes through the spool too,
 behind the replay.
 
 ## Protocol
 
 ```
-konsertd                                       hub
+syred                                       hub
   worker.hello {…, spool: {epoch, first_seq, last_seq}, active_chats}  →
                               ←  worker.spool.resume {hub_id, epoch, applied_seq}
   {seq: applied+1, type: …}  …  {seq: last_seq, …}   (replay)          →
@@ -73,13 +73,13 @@ konsertd                                       hub
   worker.spool.status {bytes, records, oldest_unsent_at, replay…}  (not spooled, for Fleet)
 ```
 
-* Spooled messages carry `seq` in the envelope. konsertd's writer sends control messages
+* Spooled messages carry `seq` in the envelope. syred's writer sends control messages
   that are not spooled first, then streams the spool from the resume point, then live PTY data.
   Live records are appended to the spool and reached by the same cursor, so the replay and live
   traffic are **one ordered stream**: nothing produced during a replay overtakes it.
-* **Hub identity binding (KON-3R7J7):** the hub includes its persistent `hub_id` (from the
+* **Hub identity binding (SYR-3R7J7):** the hub includes its persistent `hub_id` (from the
   `settings` table; a fresh or reset database generates a new UUIDv7) in `worker.spool.resume`
-  on every transport (outbound, ssh, local socket). When konsertd learns a `hub_id` that differs
+  on every transport (outbound, ssh, local socket). When syred learns a `hub_id` that differs
   from the one in `spool.json` it does not replay: it closes its open segment files, renames the spool directory to
   `spool-orphaned-<old hub id>-<timestamp>` (keeping at most 2 archives and
   deleting older ones), starts a fresh epoch bound to the new `hub_id`, sends
@@ -125,12 +125,12 @@ hourly roll-up (min / sample-weighted mean / max) and the complete day is recomp
 hourly window (30 days) into the daily roll-up.
 
 **Chats.** worker.hello lists the chats open on the daemon. A chat whose turn still runs there
-is no longer failed on reconnect; one whose turn did not survive (konsertd restarted) is failed
+is no longer failed on reconnect; one whose turn did not survive (syred restarted) is failed
 only after the replay delivered every event it had.
 
 ## Bounds and compaction
 
-Budget: `spool.max_mb` (default 256) and `spool.max_age_days` (default 14) in konsertd's YAML.
+Budget: `spool.max_mb` (default 256) and `spool.max_age_days` (default 14) in syred's YAML.
 When an append finds the spool over budget (at most every 5 s), compaction rewrites sealed
 segments, oldest first, one level at a time, stopping as soon as it is within budget:
 
@@ -142,11 +142,11 @@ segments, oldest first, one level at a time, stopping as soon as it is within bu
 Compaction only touches records **never handed to a hub** (newer than the hub's last applied
 seq and not sent since), so a merged record can never overlap one the hub already applied.
 Transcripts, task events, statuses and questions are **never dropped**: if the spool is still
-over budget it reports itself **full** (konsertd logs it, `konsertd status` prints a
+over budget it reports itself **full** (syred logs it, `syred status` prints a
 `SPOOL FULL` line, Fleet shows it on the machine) and stops keeping new vitals and activity only
 (counted as dropped). It recovers by itself once the hub acknowledges records.
 
-If the spool cannot be opened or written (disk full, permissions), konsertd logs it once and
+If the spool cannot be opened or written (disk full, permissions), syred logs it once and
 sends messages live without keeping them, as before.
 
 ## Hub wake grace
@@ -168,7 +168,7 @@ Fleet shows such machines as **RECONNECTING** / "reconnecting after sleep…"
 
 ## Status
 
-* `konsertd status`: spool size of budget, records not yet acknowledged, oldest unsent record,
+* `syred status`: spool size of budget, records not yet acknowledged, oldest unsent record,
   replay progress, `SPOOL FULL` (and the last write error).
 * Fleet: the machine's `spool` (as last reported with `worker.spool.status`: every 2 s during a
   replay, otherwise when it changes, at most every 10 s, and every 30 s) shows in the row when

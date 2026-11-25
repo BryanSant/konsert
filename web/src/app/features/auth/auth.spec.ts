@@ -63,14 +63,14 @@ describe('pairing codes and device names', () => {
   });
 
   it('builds MCP client config from a fresh credential', () => {
-    expect(claudeMcpCommand('http://desk:8420/mcp', 'kdv_x')).toBe(
-      'claude mcp add --transport http konsert http://desk:8420/mcp --header "Authorization: Bearer kdv_x"',
+    expect(claudeMcpCommand('http://desk:8420/mcp', 'sdv_x')).toBe(
+      'claude mcp add --transport http syre http://desk:8420/mcp --header "Authorization: Bearer sdv_x"',
     );
-    const cfg = JSON.parse(mcpJsonSnippet('http://desk:8420/mcp', 'kdv_x'));
-    expect(cfg.mcpServers.konsert).toEqual({
+    const cfg = JSON.parse(mcpJsonSnippet('http://desk:8420/mcp', 'sdv_x'));
+    expect(cfg.mcpServers.syre).toEqual({
       type: 'http',
       url: 'http://desk:8420/mcp',
-      headers: { Authorization: 'Bearer kdv_x' },
+      headers: { Authorization: 'Bearer sdv_x' },
     });
   });
 });

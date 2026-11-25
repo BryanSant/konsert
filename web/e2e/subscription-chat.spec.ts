@@ -3,12 +3,12 @@ import { expect, Locator, Page, test } from '@playwright/test';
 import { E2E_STATE_FILE } from './global-setup';
 
 /**
- * Subscription-only acceptance flow (KON-8Y5PS): chat with a logged-in agent CLI account and
- * no API key anywhere. konsertd runs with --enable-mock-driver and agent discovery disabled,
+ * Subscription-only acceptance flow (SYR-8Y5PS): chat with a logged-in agent CLI account and
+ * no API key anywhere. syred runs with --enable-mock-driver and agent discovery disabled,
  * so the only accounts are the mock engine's "mock" and "mock2"; prompt keywords drive the
  * scripted behaviour (see internal/worker/chat/mock.go).
  *
- * All tests share one hub and one konsertd. The "limit" keyword marks the mock account's
+ * All tests share one hub and one syred. The "limit" keyword marks the mock account's
  * weekly window exhausted for later probes, so every test picks its account explicitly and
  * the usage-limit test copes with "mock" already being exhausted (CI retries).
  */
@@ -31,7 +31,7 @@ async function signIn(page: Page, env: E2EEnv): Promise<void> {
   await page.getByRole('button', { name: 'Use recovery key' }).click();
   await page.locator('#token').fill(env.adminToken);
   await page.getByRole('button', { name: 'Sign In' }).click();
-  // (The login card's "Konsert" heading also matches a case-insensitive "KONSERT".)
+  // (The login card's "Syre" heading also matches a case-insensitive "SYRE".)
   await expect(page.locator('#token')).toBeHidden();
   await expect(page.locator('app-chat-view')).toBeVisible();
 }
@@ -61,7 +61,7 @@ async function newChat(page: Page, accountId: 'mock' | 'mock2' = 'mock'): Promis
 
 /** The visible status pill (header on desktop, under the header on mobile). */
 function statusPill(chat: Locator): Locator {
-  return chat.locator('ks-status-pill:visible [data-status]').first();
+  return chat.locator('sy-status-pill:visible [data-status]').first();
 }
 
 /**
@@ -195,7 +195,7 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     await expect(
       chat.getByTestId('assistant-message').filter({ hasText: 'Let me look at the files.' }),
     ).toBeVisible();
-    const tool = chat.locator('ks-tool-call-card').filter({ hasText: 'Read README.md' });
+    const tool = chat.locator('sy-tool-call-card').filter({ hasText: 'Read README.md' });
     await expect(tool.locator('[data-tool-status]')).toHaveAttribute(
       'data-tool-status',
       'completed',
@@ -267,7 +267,7 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     await expect(card.getByTestId('error-title')).toHaveText('Mock 2 needs you to sign in again');
     // The command carries the account's profile env so it signs in the right account.
     await expect(card.getByTestId('relogin-command')).toHaveText(
-      'KONSERT_MOCK_ACCOUNT=mock2 mock login',
+      'SYRE_MOCK_ACCOUNT=mock2 mock login',
     );
     await expect(
       card.getByRole('button', { name: `Open terminal on ${env.workerName}` }),
@@ -321,7 +321,7 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     expect(box?.width ?? 999).toBeLessThanOrEqual(page.viewportSize()!.width);
   });
 
-  // Runs late on purpose: it leaves "mock" exhausted for the rest of the konsertd's life.
+  // Runs late on purpose: it leaves "mock" exhausted for the rest of the syred's life.
   test('usage limit: limit card, exhausted account, switch to mock2 and continue', async ({
     page,
   }, testInfo) => {
@@ -338,7 +338,7 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     await expect(card.getByTestId('error-reset')).toContainText(/Resets in .+ · \S/);
     await expect(statusPill(chat)).toHaveAttribute('data-status', 'failed');
 
-    // konsertd folds the rate-limit event into the account's capabilities and the hub
+    // syred folds the rate-limit event into the account's capabilities and the hub
     // reports the account exhausted.
     await expect
       .poll(async () => {
@@ -387,7 +387,7 @@ test.describe('Subscription-only agent chat (mock engine, no API key)', () => {
     expect(sessions.filter((s) => s.title === 'limit').map((s) => s.account_id)).toContain('mock2');
   });
 
-  // KON-PYG35 regression: the chip must turn exhausted from the live push alone (no reload,
+  // SYR-PYG35 regression: the chip must turn exhausted from the live push alone (no reload,
   // no Refresh). It exhausts mock2 too, so it stays last.
   test('usage limit: the account chip turns exhausted live, without a refresh', async ({
     page,

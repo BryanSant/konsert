@@ -32,7 +32,7 @@ func parseTask(t *testing.T, x string) taskDoc {
 
 // An elevated install registers an S4U task (runs whether or not the user is signed
 // in: boot, logon and keep-alive triggers); a non-elevated one a logon task that says
-// when konsertd starts and how to make it headless (KON-224K5).
+// when syred starts and how to make it headless (SYR-224K5).
 func TestSchtasksS4UWhenElevated(t *testing.T) {
 	for _, elevated := range []bool{true, false} {
 		in, r := testInstaller(t)
@@ -68,7 +68,7 @@ func TestSchtasksS4UWhenElevated(t *testing.T) {
 		if d.Principal.RunLevel != "LeastPrivilege" {
 			t.Errorf("run level = %q", d.Principal.RunLevel)
 		}
-		if !r.called(`schtasks /Run /TN \konsertd-s4u`) {
+		if !r.called(`schtasks /Run /TN \syred-s4u`) {
 			t.Errorf("not started: %v", r.calls)
 		}
 	}
@@ -80,8 +80,8 @@ func TestSchtasksStatusSaysWhenItRuns(t *testing.T) {
 		TaskLogonInteractive: "only while you are signed in",
 	} {
 		in, r := testInstaller(t)
-		r.out[`schtasks /Query /TN \konsertd-x /FO`] = `"\konsertd-x","N/A","Running"` + "\r\n"
-		r.out[`schtasks /Query /TN \konsertd-x /XML`] = RenderTaskXML(TaskXMLParams{URI: `\konsertd-x`, UserSID: "S-1", LogonType: logon})
+		r.out[`schtasks /Query /TN \syred-x /FO`] = `"\syred-x","N/A","Running"` + "\r\n"
+		r.out[`schtasks /Query /TN \syred-x /XML`] = RenderTaskXML(TaskXMLParams{URI: `\syred-x`, UserSID: "S-1", LogonType: logon})
 		st, err := in.status(context.Background(), schtasksBackend{}, "x")
 		if err != nil || !st.Installed || !st.Running || !strings.Contains(st.Mechanism, want) {
 			t.Errorf("%s: status = %+v, %v", logon, st, err)

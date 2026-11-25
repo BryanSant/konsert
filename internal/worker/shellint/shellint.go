@@ -1,7 +1,7 @@
-// Package shellint is shell integration for Konsert terminals: scripts that make zsh,
+// Package shellint is shell integration for Syre terminals: scripts that make zsh,
 // bash and PowerShell report each command line, its working directory and exit status
 // through escape sequences in the terminal stream, a streaming parser that extracts
-// them in konsertd, and the tracker that turns them into operator-command events.
+// them in syred, and the tracker that turns them into operator-command events.
 //
 // # Marks
 //
@@ -13,15 +13,15 @@
 //	ESC ] 133 ; C BEL          command line accepted, about to run
 //	ESC ] 133 ; D ; <exit> BEL command finished with exit status <exit>
 //
-// and two Konsert-private marks in the VS Code OSC 633 format, each ending with the
-// per-terminal nonce konsertd passes in KONSERT_SHELL_NONCE (the shell removes it from
+// and two Syre-private marks in the VS Code OSC 633 format, each ending with the
+// per-terminal nonce syred passes in SYRE_SHELL_NONCE (the shell removes it from
 // its environment, so programs running in the terminal cannot forge commands):
 //
 //	ESC ] 633 ; E ; <escaped command line> ; <nonce> BEL   (sent just before C)
 //	ESC ] 633 ; P ; Cwd=<escaped path> ; <nonce> BEL       (sent at every prompt)
 //
 // Values are escaped as in VS Code: "\" is "\\", ";" is "\x3b", and control characters
-// are "\xNN". konsertd strips every OSC 633 sequence from the stream before it reaches
+// are "\xNN". syred strips every OSC 633 sequence from the stream before it reaches
 // the ring buffer or the browser; OSC 133 passes through (xterm.js ignores it).
 //
 // # Shells
@@ -55,15 +55,15 @@ var scripts embed.FS
 
 // Env variables understood by the integration scripts.
 const (
-	NonceEnv       = "KONSERT_SHELL_NONCE"
-	loginEnv       = "KONSERT_SHELL_LOGIN"
-	userZdotdirEnv = "KONSERT_USER_ZDOTDIR"
+	NonceEnv       = "SYRE_SHELL_NONCE"
+	loginEnv       = "SYRE_SHELL_LOGIN"
+	userZdotdirEnv = "SYRE_USER_ZDOTDIR"
 )
 
 // Integration enables shell integration for one terminal.
 type Integration struct {
 	Dir   string // directory written by Prepare
-	Nonce string // per-terminal secret the shell echoes in Konsert-private marks
+	Nonce string // per-terminal secret the shell echoes in Syre-private marks
 }
 
 // NewNonce returns a fresh random nonce.
@@ -157,14 +157,14 @@ func (in Integration) Command(bin, prompt string) (args, env []string, ok bool) 
 		}
 		return []string{"-l"}, env, true
 	case "bash":
-		rc := filepath.Join(in.Dir, "konsert.bash")
+		rc := filepath.Join(in.Dir, "syre.bash")
 		env = append(env, loginEnv+"=1")
 		if hasPrompt {
 			return []string{"-l", "-c", prompt + "\nexec " + shQuote(bin) + " --init-file " + shQuote(rc) + " -i"}, env, true
 		}
 		return []string{"--init-file", rc, "-i"}, env, true
 	case "pwsh":
-		ps1 := filepath.Join(in.Dir, "konsert.ps1")
+		ps1 := filepath.Join(in.Dir, "syre.ps1")
 		// A script block is not subject to the execution policy, unlike a .ps1 file.
 		cmd := ". ([scriptblock]::Create([IO.File]::ReadAllText(" + psQuote(ps1) + ")))"
 		if hasPrompt {

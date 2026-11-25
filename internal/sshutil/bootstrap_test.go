@@ -77,9 +77,9 @@ func TestSSHAndSCPArgvSeparateTargetWithDoubleDash(t *testing.T) {
 		t.Fatalf("port option must precede --: %q", args)
 	}
 
-	sargs := scpArgs(tgt, nil, "dist/konsertd", "~/.local/bin/konsertd")
+	sargs := scpArgs(tgt, nil, "dist/syred", "~/.local/bin/syred")
 	k := slices.Index(sargs, "--")
-	if k < 0 || sargs[k+1] != "dist/konsertd" || sargs[k+2] != "me@[fe80::1]:~/.local/bin/konsertd" {
+	if k < 0 || sargs[k+1] != "dist/syred" || sargs[k+2] != "me@[fe80::1]:~/.local/bin/syred" {
 		t.Fatalf("scp argv must end with -- src dest: %q", sargs)
 	}
 	if j := slices.Index(sargs, "-P"); j < 0 || j > k || sargs[j+1] != "2200" {
@@ -165,14 +165,14 @@ func (f *fakeSSH) run(_ context.Context, name string, args []string, stdin []byt
 
 const testWorkerID = "01890a5d-ac96-774b-bcce-b302099a8057"
 
-// posixRemote simulates a Linux host with konsertd in ~/.local/bin and a user systemd.
+// posixRemote simulates a Linux host with syred in ~/.local/bin and a user systemd.
 func posixRemote(cmd string, _ []byte) (string, error) {
 	switch {
 	case strings.HasPrefix(cmd, "uname"):
 		return "Linux\nx86_64\n", nil
-	case strings.Contains(cmd, "command -v konsertd"):
-		return "found:/home/me/.local/bin/konsertd\nmanaged:/home/me/.local/bin/konsertd\n", nil
-	case strings.HasPrefix(cmd, "/home/me/.local/bin/konsertd id "):
+	case strings.Contains(cmd, "command -v syred"):
+		return "found:/home/me/.local/bin/syred\nmanaged:/home/me/.local/bin/syred\n", nil
+	case strings.HasPrefix(cmd, "/home/me/.local/bin/syred id "):
 		return testWorkerID + "\n", nil
 	}
 	return "", nil
@@ -189,17 +189,17 @@ func withFakeSSH(t *testing.T, f *fakeSSH) {
 
 const testHostBlob = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
-const testHubPub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl konsert-hub:hub1"
+const testHubPub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl syre-hub:hub1"
 
 func testGrant() *HubKeyGrant { return &HubKeyGrant{HubID: "hub1", PublicKey: testHubPub} }
 
-// The hub key reaches `konsertd hub-key add` over stdin, before the daemon is installed
+// The hub key reaches `syred hub-key add` over stdin, before the daemon is installed
 // (without a controller URL or credential), and never appears in argv.
 func TestBootstrapAllowsHubKeyOverStdin(t *testing.T) {
 	f := &fakeSSH{knownKey: true, hostBlob: testHostBlob}
 	withFakeSSH(t, f)
 	res := BootstrapRemoteWorker(context.Background(), BootstrapOptions{Target: "me@box", HubKey: testGrant()})
-	if !res.OK || res.KonsertdPath != "/home/me/.local/bin/konsertd" {
+	if !res.OK || res.SyredPath != "/home/me/.local/bin/syred" {
 		t.Fatalf("bootstrap failed: %+v", res)
 	}
 	keyCall, installCall := -1, -1

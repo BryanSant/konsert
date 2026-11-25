@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
-import { TaskEvent } from '../../core/models/konsert.models';
+import { TaskEvent } from '../../core/models/syre.models';
 import { Acceptance, AcceptanceItem, DeliveryPlan, approveActionLabel, deliveryOutcomeLine, prStatusLine } from '../../core/models/review.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
@@ -20,7 +20,7 @@ import { receiptsFor } from './review-logic';
  * decision (approve, request changes, veto) for review cards; the controls for live ones.
  */
 @Component({
-  selector: 'ks-review-panel',
+  selector: 'sy-review-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent],
@@ -29,42 +29,42 @@ import { receiptsFor } from './review-logic';
     @if (item(); as it) {
       <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 flex flex-col gap-3" data-testid="review-panel" [attr.data-item]="it.sid">
         <div class="flex items-center gap-2">
-          <span class="font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ it.sid }}</span>
-          <ks-control-label [label]="it.control" />
+          <span class="font-mono-ide text-[11px] text-[var(--sy-text-muted)]">{{ it.sid }}</span>
+          <sy-control-label [label]="it.control" />
           <span class="flex-1"></span>
           @if (!embedded()) {
-            <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Close panel" (click)="closed()">
+            <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Close panel" (click)="closed()">
               <app-icon name="close" [size]="12" />
             </button>
           }
         </div>
-        <h2 class="m-0 text-[15px] font-semibold leading-snug text-[var(--ks-text)]">{{ it.title }}</h2>
-        <div class="text-[12px] text-[var(--ks-text-secondary)]">{{ sub() }}</div>
+        <h2 class="m-0 text-[15px] font-semibold leading-snug text-[var(--sy-text)]">{{ it.title }}</h2>
+        <div class="text-[12px] text-[var(--sy-text-secondary)]">{{ sub() }}</div>
 
-        <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words" data-testid="review-summary">{{ summary() }}</div>
+        <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-wrap break-words" data-testid="review-summary">{{ summary() }}</div>
 
-        <h3 class="m-0 mt-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--ks-text-secondary)]">Receipts vs acceptance</h3>
+        <h3 class="m-0 mt-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Receipts vs acceptance</h3>
         <div class="grid gap-3">
-          <section aria-labelledby="ks-acc-h">
-            <h4 id="ks-acc-h" class="m-0 mb-1 text-[11px] text-[var(--ks-text-muted)]" data-testid="acceptance-source">{{ acceptanceHeading() }}</h4>
+          <section aria-labelledby="sy-acc-h">
+            <h4 id="sy-acc-h" class="m-0 mb-1 text-[11px] text-[var(--sy-text-muted)]" data-testid="acceptance-source">{{ acceptanceHeading() }}</h4>
             <ul class="m-0 p-0 list-none space-y-1" data-testid="acceptance">
               @for (a of acceptance(); track $index) {
                 <li class="flex gap-2 text-[12.5px]">
-                  <span [class.text-[#8fcb9b]]="a.done" [class.text-[var(--ks-text-muted)]]="!a.done" aria-hidden="true">{{ a.done ? '✓' : '○' }}</span>
-                  <span class="break-words"><span class="ks-sr-only">{{ a.done ? 'Done: ' : 'Open: ' }}</span>{{ a.text }}</span>
+                  <span [class.text-[#8fcb9b]]="a.done" [class.text-[var(--sy-text-muted)]]="!a.done" aria-hidden="true">{{ a.done ? '✓' : '○' }}</span>
+                  <span class="break-words"><span class="sy-sr-only">{{ a.done ? 'Done: ' : 'Open: ' }}</span>{{ a.text }}</span>
                 </li>
               }
             </ul>
           </section>
-          <section aria-labelledby="ks-rec-h">
-            <h4 id="ks-rec-h" class="m-0 mb-1 text-[11px] text-[var(--ks-text-muted)]">What it shows for it</h4>
+          <section aria-labelledby="sy-rec-h">
+            <h4 id="sy-rec-h" class="m-0 mb-1 text-[11px] text-[var(--sy-text-muted)]">What it shows for it</h4>
             @if (receipts().length === 0) {
-              <p class="m-0 text-[12px] text-[var(--ks-text-muted)]">No commits, milestones or summary reported yet.</p>
+              <p class="m-0 text-[12px] text-[var(--sy-text-muted)]">No commits, milestones or summary reported yet.</p>
             }
             <ul class="m-0 p-0 list-none space-y-1" data-testid="review-receipts">
               @for (r of receipts(); track $index) {
                 <li class="flex gap-2 text-[12.5px]">
-                  <span class="shrink-0" [class.text-[#8fcb9b]]="r.kind !== 'summary'" [class.text-[var(--ks-text-muted)]]="r.kind === 'summary'" aria-hidden="true">{{ r.kind === 'summary' ? '¶' : '✓' }}</span>
+                  <span class="shrink-0" [class.text-[#8fcb9b]]="r.kind !== 'summary'" [class.text-[var(--sy-text-muted)]]="r.kind === 'summary'" aria-hidden="true">{{ r.kind === 'summary' ? '¶' : '✓' }}</span>
                   <span class="break-words" [class.font-mono-ide]="r.kind === 'commit' || r.kind === 'diff'" [class.text-[12px]]="r.kind === 'commit' || r.kind === 'diff'">{{ r.text }}</span>
                 </li>
               }
@@ -73,73 +73,73 @@ import { receiptsFor } from './review-logic';
         </div>
 
         @if (prInfo(); as pr) {
-          <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 py-2 text-[12px] flex flex-wrap items-center gap-2" data-testid="review-pr">
+          <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2 text-[12px] flex flex-wrap items-center gap-2" data-testid="review-pr">
             @if (pr.url) {
-              <a [href]="pr.url" target="_blank" rel="noopener noreferrer" class="underline text-[var(--ks-text)] font-medium">{{ pr.label }}</a>
+              <a [href]="pr.url" target="_blank" rel="noopener noreferrer" class="underline text-[var(--sy-text)] font-medium">{{ pr.label }}</a>
             } @else {
-              <span class="font-medium text-[var(--ks-text)]">{{ pr.label }}</span>
+              <span class="font-medium text-[var(--sy-text)]">{{ pr.label }}</span>
             }
           </div>
         }
         @if (compareUrl(); as cmp) {
-          <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 py-2 text-[12px]" data-testid="review-compare-url">
-            <a [href]="cmp" target="_blank" rel="noopener noreferrer" class="underline text-[var(--ks-text)]">Open PR/MR by hand →</a>
+          <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2 text-[12px]" data-testid="review-compare-url">
+            <a [href]="cmp" target="_blank" rel="noopener noreferrer" class="underline text-[var(--sy-text)]">Open PR/MR by hand →</a>
           </div>
         }
 
         @if (decision(); as d) {
-          <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" data-testid="review-decision">{{ d }}</p>
+          <p class="m-0 text-[12px] text-[var(--sy-text-secondary)]" data-testid="review-decision">{{ d }}</p>
         }
         @if (it.column === 'review') {
           @if (approvePreview(); as preview) {
-            <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" data-testid="review-delivery-action">{{ preview }}</p>
+            <p class="m-0 text-[12px] text-[var(--sy-text-secondary)]" data-testid="review-delivery-action">{{ preview }}</p>
           }
           <div class="flex flex-wrap gap-1.5 pt-1" role="group" aria-label="Decision">
-            <button type="button" class="ks-btn ks-btn-sm bg-[var(--ks-green-soft)] text-[#a8dbb3]" data-testid="review-approve" [disabled]="sending()" (click)="approve(it)">
+            <button type="button" class="sy-btn sy-btn-sm bg-[var(--sy-green-soft)] text-[#a8dbb3]" data-testid="review-approve" [disabled]="sending()" (click)="approve(it)">
               <app-icon name="check" [size]="11" />
               Approve
             </button>
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" data-testid="review-request-changes" [attr.aria-expanded]="changing()" (click)="changing.set(!changing())">Request changes</button>
-            <ks-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [vetoAlways]="true" />
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="review-request-changes" [attr.aria-expanded]="changing()" (click)="changing.set(!changing())">Request changes</button>
+            <sy-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [vetoAlways]="true" />
           </div>
         } @else {
           <div class="flex flex-wrap items-center gap-1.5 pt-1">
-            <ks-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [showHold]="it.live" />
+            <sy-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [showHold]="it.live" />
             @if (it.live) {
-              <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="changing.set(!changing())" [attr.aria-expanded]="changing()">Steer…</button>
+              <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="changing.set(!changing())" [attr.aria-expanded]="changing()">Steer…</button>
             }
           </div>
         }
 
         @if (changing()) {
           <form class="flex flex-col gap-1.5" (submit)="$event.preventDefault(); sendChanges(it)">
-            <label class="text-[11.5px] text-[var(--ks-text-secondary)]" for="ks-review-note">{{ noteLabel() }}</label>
-            <textarea id="ks-review-note" rows="3" class="ks-field w-full resize-none text-[12.5px]" data-testid="review-note" [value]="note()" (input)="note.set($any($event.target).value)"></textarea>
+            <label class="text-[11.5px] text-[var(--sy-text-secondary)]" for="sy-review-note">{{ noteLabel() }}</label>
+            <textarea id="sy-review-note" rows="3" class="sy-field w-full resize-none text-[12.5px]" data-testid="review-note" [value]="note()" (input)="note.set($any($event.target).value)"></textarea>
             <div class="flex justify-end gap-1.5">
-              <button type="button" class="ks-btn ks-btn-sm" (click)="changing.set(false)">Cancel</button>
-              <button type="submit" class="ks-btn ks-btn-sm ks-btn-primary" data-testid="review-send" [disabled]="!note().trim() || sending()">Send</button>
+              <button type="button" class="sy-btn sy-btn-sm" (click)="changing.set(false)">Cancel</button>
+              <button type="submit" class="sy-btn sy-btn-sm sy-btn-primary" data-testid="review-send" [disabled]="!note().trim() || sending()">Send</button>
             </div>
           </form>
         }
         @if (message()) {
-          <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" role="status" data-testid="review-message">{{ message() }}</p>
+          <p class="m-0 text-[12px] text-[var(--sy-text-secondary)]" role="status" data-testid="review-message">{{ message() }}</p>
         }
         @if (error()) {
           <p class="m-0 text-[12px] text-[#f3a5a5]" role="alert">{{ error() }}</p>
         }
 
-        <div class="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--ks-hairline)]">
-          <button type="button" class="ks-btn ks-btn-sm" (click)="openInCommand(it)"><app-icon name="orchestrator" [size]="12" />Open in Command</button>
-          <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="work.isExpedited(it.id)" data-testid="toggle-expedite" (click)="toggleExpedite(it)">⚑ {{ work.isExpedited(it.id) ? 'Remove from Expedite' : 'Expedite' }}</button>
-          <button type="button" class="ks-btn ks-btn-sm" [attr.aria-pressed]="wall.isPinned(it.id)" (click)="wall.togglePin(it.id)"><app-icon name="split" [size]="12" />{{ wall.isPinned(it.id) ? 'Unpin from Wall' : 'Pin to Wall' }}</button>
-          <ks-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" />
+        <div class="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--sy-hairline)]">
+          <button type="button" class="sy-btn sy-btn-sm" (click)="openInCommand(it)"><app-icon name="commander" [size]="12" />Open in Command</button>
+          <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="work.isExpedited(it.id)" data-testid="toggle-expedite" (click)="toggleExpedite(it)">⚑ {{ work.isExpedited(it.id) ? 'Remove from Expedite' : 'Expedite' }}</button>
+          <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="wall.isPinned(it.id)" (click)="wall.togglePin(it.id)"><app-icon name="split" [size]="12" />{{ wall.isPinned(it.id) ? 'Unpin from Wall' : 'Pin to Wall' }}</button>
+          <sy-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" />
         </div>
         @if (compactedNote(); as note) {
-          <p class="m-0 text-[11.5px] text-[var(--ks-text-muted)]" data-testid="review-compacted">{{ note }}</p>
+          <p class="m-0 text-[11.5px] text-[var(--sy-text-muted)]" data-testid="review-compacted">{{ note }}</p>
         }
       </div>
     } @else {
-      <div class="p-4 text-[12.5px] leading-relaxed text-[var(--ks-text-muted)]" data-testid="review-empty">
+      <div class="p-4 text-[12.5px] leading-relaxed text-[var(--sy-text-muted)]" data-testid="review-empty">
         Select a card to see its summary, its receipts against what was asked, and the decision: approve, request changes or veto.
       </div>
     }

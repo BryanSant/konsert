@@ -19,26 +19,26 @@ import { TakeControlService } from '../take-control.service';
  * box for agent chats).
  */
 @Component({
-  selector: 'ks-session-tab',
+  selector: 'sy-session-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     @let it = item();
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 shrink-0 bg-[var(--ks-bg-chrome)] border-b border-[var(--ks-hairline)] text-[12.5px]" data-testid="session-strip">
-      <ks-item-spinner [item]="it" [size]="22" class="shrink-0" />
-      <ks-control-label [label]="it.control" />
-      <span class="min-w-0 max-w-[40%] truncate"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">GOAL</span>{{ it.goal }}</span>
-      <span class="min-w-0 flex-1 truncate" aria-live="polite" [ksTooltip]="it.nowTitle"><span class="font-mono-ide text-[10.5px] text-[var(--ks-text-muted)] mr-1">NOW</span>{{ it.now }}</span>
-      <span class="hidden xl:inline font-mono-ide text-[11px] text-[var(--ks-text-muted)]">{{ it.sid }} · {{ it.machine }}</span>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2 shrink-0 bg-[var(--sy-bg-chrome)] border-b border-[var(--sy-hairline)] text-[12.5px]" data-testid="session-strip">
+      <sy-item-spinner [item]="it" [size]="22" class="shrink-0" />
+      <sy-control-label [label]="it.control" />
+      <span class="min-w-0 max-w-[40%] truncate"><span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)] mr-1">GOAL</span>{{ it.goal }}</span>
+      <span class="min-w-0 flex-1 truncate" aria-live="polite" [syTooltip]="it.nowTitle"><span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)] mr-1">NOW</span>{{ it.now }}</span>
+      <span class="hidden xl:inline font-mono-ide text-[11px] text-[var(--sy-text-muted)]">{{ it.sid }} · {{ it.machine }}</span>
       @if (it.observed) {
-        <span class="text-[11.5px] text-[var(--ks-text-muted)]">observed: started outside Konsert</span>
+        <span class="text-[11.5px] text-[var(--sy-text-muted)]">observed: started outside Syre</span>
       }
       <div class="flex items-center gap-1">
-        <ks-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [showHold]="it.live" />
+        <sy-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [showHold]="it.live" />
         @if (it.kind === 'chat' && (it.status === 'working' || it.status === 'starting' || it.status === 'needs_you')) {
-          <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" data-testid="session-stop-turn" (click)="agentChat.cancel(it.id)" aria-label="Stop the turn">
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="session-stop-turn" (click)="agentChat.cancel(it.id)" aria-label="Stop the turn">
             <app-icon name="stop" [size]="10" />
             Stop
           </button>
@@ -46,12 +46,12 @@ import { TakeControlService } from '../take-control.service';
         @if (it.kind === 'task' && it.live && !it.observed) {
           <button
             type="button"
-            class="ks-btn ks-btn-sm"
+            class="sy-btn sy-btn-sm"
             data-testid="take-control"
             [attr.aria-pressed]="hasControl()"
             [class.text-[#cfe2ff]]="hasControl()"
             (click)="takeControl.toggle(it.id)"
-            [ksTooltip]="hasControl() ? 'Hand the terminal back to the agent' : 'Type into this terminal yourself; nothing automatic touches it meanwhile'"
+            [syTooltip]="hasControl() ? 'Hand the terminal back to the agent' : 'Type into this terminal yourself; nothing automatic touches it meanwhile'"
           >
             <app-icon [name]="hasControl() ? 'unlock' : 'hand'" [size]="11" />
             {{ hasControl() ? 'Hand back' : 'Take control' }}
@@ -59,26 +59,26 @@ import { TakeControlService } from '../take-control.service';
         }
         <button
           type="button"
-          class="ks-icon-btn ks-icon-btn-sm"
+          class="sy-icon-btn sy-icon-btn-sm"
           [attr.aria-pressed]="pinned()"
           [attr.aria-label]="pinned() ? 'Unpin from the Wall' : 'Pin to the Wall'"
-          [ksTooltip]="pinned() ? 'Unpin from the Wall' : 'Pin to the Wall'"
+          [syTooltip]="pinned() ? 'Unpin from the Wall' : 'Pin to the Wall'"
           data-testid="pin-to-wall"
           (click)="wall.togglePin(it.id)"
         >
           <app-icon name="split" [size]="13" />
         </button>
-        <ks-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" [compact]="true" />
+        <sy-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" [compact]="true" />
       </div>
     </div>
     <div class="flex-1 min-h-0">
       @if (it.kind === 'chat') {
-        <ks-session-chat class="h-full" [chatId]="it.id" />
+        <sy-session-chat class="h-full" [chatId]="it.id" />
       } @else {
         @defer (on immediate) {
           <app-xterm-pane class="block h-full" [taskId]="it.id" [visible]="true" [bare]="true" />
         } @placeholder {
-          <div class="h-full flex items-center justify-center text-[12px] text-[var(--ks-text-muted)]" role="status">Loading terminal…</div>
+          <div class="h-full flex items-center justify-center text-[12px] text-[var(--sy-text-muted)]" role="status">Loading terminal…</div>
         }
       }
     </div>

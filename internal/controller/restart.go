@@ -7,20 +7,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Restarting hub-started daemons that died (KON-JAX1E). The attach loop (transport.go)
+// Restarting hub-started daemons that died (SYR-JAX1E). The attach loop (transport.go)
 // reports every attach to the restart tracker. A machine whose host answers but whose
-// konsertd is not running (the forced command finds no socket, or the local socket is
+// syred is not running (the forced command finds no socket, or the local socket is
 // gone) is restarted with the same start path that added it (startWorker: the SSH
-// bootstrap or `konsertd install`, both idempotent: they never start a second daemon)
+// bootstrap or `syred install`, both idempotent: they never start a second daemon)
 // once it has failed restartPolicy.failures attaches in a row or for
 // restartPolicy.window, then with backoff until it attaches again. A host ssh cannot
 // reach is only re-dialed: restarting cannot help it.
 
-// AuditWorkerRestart records an automatic restart of a machine's konsertd.
+// AuditWorkerRestart records an automatic restart of a machine's syred.
 const AuditWorkerRestart = "worker.restart"
 
 // restartPolicy says when a down daemon is restarted.
@@ -149,7 +149,7 @@ func (st *restartState) visible(p restartPolicy) bool {
 // WorkerRestartView is the outage of a machine the hub starts and cannot attach to.
 type WorkerRestartView struct {
 	// State is "unreachable" (ssh cannot reach the host: the hub keeps re-dialing) or
-	// "down" (the host answers, konsertd is not running: the hub restarts it).
+	// "down" (the host answers, syred is not running: the hub restarts it).
 	State string `json:"state"`
 	// Attempt counts the restarts in this outage; NextAt is the earliest next one.
 	Attempt int        `json:"attempt,omitempty"`
@@ -189,7 +189,7 @@ func (h *Hub) workerRestartView(workerID string) *WorkerRestartView {
 	return h.restarts.view(workerID)
 }
 
-// errDaemonSocket marks a failed dial of the hub machine's own konsertd socket: the
+// errDaemonSocket marks a failed dial of the hub machine's own syred socket: the
 // daemon is not running (the host is this one, so it is reachable).
 type errDaemonSocket struct{ err error }
 
@@ -231,14 +231,14 @@ func (s *Server) onAttachFailed(ctx context.Context, w store.Worker, transport s
 			// A start (by hand, or the last restart) is still running: a later failure
 			// tries again.
 		case serr != nil:
-			s.logger.Warn("restarting konsertd failed", "worker_id", w.ID, "err", serr)
+			s.logger.Warn("restarting syred failed", "worker_id", w.ID, "err", serr)
 		default:
 			attempt, next := s.hub.restarts.restarted(w.ID)
-			s.logger.Warn("konsertd on "+w.Name+" is down; restarting it", "worker_id", w.ID, "launch", w.Launch,
+			s.logger.Warn("syred on "+w.Name+" is down; restarting it", "worker_id", w.ID, "launch", w.Launch,
 				"attempt", attempt, "next_in", time.Until(next).Round(time.Second), "err", msg)
 			s.hub.recordAudit(ctx, store.AuditEvent{
 				Action: AuditWorkerRestart, WorkerID: w.ID, WorkerSID: w.SID,
-				Message: fmt.Sprintf("Restarted konsertd on %s (attempt %d): %s", w.Name, attempt, msg),
+				Message: fmt.Sprintf("Restarted syred on %s (attempt %d): %s", w.Name, attempt, msg),
 			})
 			changed = true
 		}

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestSSHBootstrapRejectsOptionInjection(t *testing.T) {

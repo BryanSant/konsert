@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 const authOK = `{"loggedIn": true, "authMethod": "claude.ai", "email": "user@example.com", "loginExpiresAt": "2099-01-01T00:00:00.000Z", "subscriptionType": "max"}`
@@ -105,8 +105,8 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 	acct := Account{ID: "claude", Binary: "/opt/claude", ArgsPrefix: []string{"--prefix"}}
 	s, err := e.Open(context.Background(), acct, protocol.AgentChatOpen{
 		Cwd: t.TempDir(), Model: "sonnet", Effort: "high", ApprovalMode: "manual",
-		SystemPrompt: "You orchestrate.",
-		MCPServers:   []protocol.AgentMCPServer{{Name: "konsert", URL: "http://hub/mcp", Headers: map[string]string{"Authorization": "Bearer chat-token"}}},
+		SystemPrompt: "You coordinate.",
+		MCPServers:   []protocol.AgentMCPServer{{Name: "syre", URL: "http://hub/mcp", Headers: map[string]string{"Authorization": "Bearer chat-token"}}},
 	}, rec.emit)
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 	if !slices.Equal(args[:len(want)], want) {
 		t.Fatalf("argv prefix = %v", args)
 	}
-	for flag, v := range map[string]string{"--model": "sonnet", "--effort": "high", "--permission-mode": "default", "--append-system-prompt": "You orchestrate.", "--session-id": ready.AgentSessionID} {
+	for flag, v := range map[string]string{"--model": "sonnet", "--effort": "high", "--permission-mode": "default", "--append-system-prompt": "You coordinate.", "--session-id": ready.AgentSessionID} {
 		if got := argValue(args, flag); got != v {
 			t.Errorf("%s = %q, want %q (argv %v)", flag, got, v, args)
 		}
@@ -131,10 +131,10 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 	if strings.Contains(strings.Join(args, " "), "chat-token") {
 		t.Fatal("MCP bearer token leaked into argv")
 	}
-	// Konsert's own MCP tools (ask_user, fleet tools) are pre-approved: calling ask_user
+	// Syre's own MCP tools (ask_user, fleet tools) are pre-approved: calling ask_user
 	// must never first raise a permission prompt.
-	if got := argValue(args, "--allowedTools"); got != "mcp__konsert" {
-		t.Errorf("--allowedTools = %q, want mcp__konsert (argv %v)", got, args)
+	if got := argValue(args, "--allowedTools"); got != "mcp__syre" {
+		t.Errorf("--allowedTools = %q, want mcp__syre (argv %v)", got, args)
 	}
 	path := argValue(args, "--mcp-config")
 	st, err := os.Stat(path)
@@ -154,7 +154,7 @@ func TestClaudeArgvAndMCPConfig(t *testing.T) {
 			Headers map[string]string `json:"headers"`
 		} `json:"mcpServers"`
 	}
-	if err := json.Unmarshal(b, &cfg); err != nil || cfg.MCPServers["konsert"].Type != "http" || cfg.MCPServers["konsert"].Headers["Authorization"] != "Bearer chat-token" {
+	if err := json.Unmarshal(b, &cfg); err != nil || cfg.MCPServers["syre"].Type != "http" || cfg.MCPServers["syre"].Headers["Authorization"] != "Bearer chat-token" {
 		t.Fatalf("mcp config = %s (%v)", b, err)
 	}
 	// The first line sent is the initialize control request.

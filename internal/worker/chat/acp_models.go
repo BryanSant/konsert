@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // effortOrder is the canonical low→high ordering of effort levels.

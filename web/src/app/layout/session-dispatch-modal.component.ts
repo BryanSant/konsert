@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { AgentAccount } from '../core/models/agent-chat.models';
-import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../core/models/konsert.models';
+import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
@@ -34,21 +34,21 @@ export interface SessionDispatchRequest {
   template: `
     <app-modal-dialog
       labelledBy="session-dispatch-title"
-      panelClass="w-full max-w-2xl rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] p-6 space-y-5"
+      panelClass="w-full max-w-2xl rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5"
       (close)="close.emit()"
     >
       <div class="flex items-center gap-3">
-        <h2 id="session-dispatch-title" class="text-[15px] font-semibold text-[var(--ks-text)]">New session</h2>
-        <div class="inline-flex rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] p-0.5 text-[12px]" role="group" aria-label="Session type">
+        <h2 id="session-dispatch-title" class="text-[15px] font-semibold text-[var(--sy-text)]">New session</h2>
+        <div class="inline-flex rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-0)] p-0.5 text-[12px]" role="group" aria-label="Session type">
           <button
             type="button"
             data-testid="dispatch-kind-chat"
             (click)="sessionKind.set('chat')"
             [attr.aria-pressed]="sessionKind() === 'chat'"
-            class="rounded-[var(--ks-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
-            [class.bg-[var(--ks-surface-3)]]="sessionKind() === 'chat'"
-            [class.text-[var(--ks-text)]]="sessionKind() === 'chat'"
-            [class.text-[var(--ks-text-muted)]]="sessionKind() !== 'chat'"
+            class="rounded-[var(--sy-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
+            [class.bg-[var(--sy-surface-3)]]="sessionKind() === 'chat'"
+            [class.text-[var(--sy-text)]]="sessionKind() === 'chat'"
+            [class.text-[var(--sy-text-muted)]]="sessionKind() !== 'chat'"
           >
             Agent session
           </button>
@@ -57,23 +57,23 @@ export interface SessionDispatchRequest {
             data-testid="dispatch-kind-terminal"
             (click)="sessionKind.set('terminal')"
             [attr.aria-pressed]="sessionKind() === 'terminal'"
-            class="rounded-[var(--ks-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
-            [class.bg-[var(--ks-surface-3)]]="sessionKind() === 'terminal'"
-            [class.text-[var(--ks-text)]]="sessionKind() === 'terminal'"
-            [class.text-[var(--ks-text-muted)]]="sessionKind() !== 'terminal'"
+            class="rounded-[var(--sy-radius-sm)] px-3 py-1.5 font-medium transition cursor-pointer"
+            [class.bg-[var(--sy-surface-3)]]="sessionKind() === 'terminal'"
+            [class.text-[var(--sy-text)]]="sessionKind() === 'terminal'"
+            [class.text-[var(--sy-text-muted)]]="sessionKind() !== 'terminal'"
           >
             Terminal
           </button>
         </div>
         <span class="flex-1"></span>
-        <button type="button" class="ks-icon-btn" aria-label="Close dialog" ksTooltip="Close" (click)="close.emit()">
+        <button type="button" class="sy-icon-btn" aria-label="Close dialog" syTooltip="Close" (click)="close.emit()">
           <app-icon name="close" [size]="15" />
         </button>
       </div>
 
       @if (sessionKind() === 'chat') {
         @if (accounts().length > 0) {
-          <ks-chat-composer
+          <sy-chat-composer
             class="block"
             data-testid="dispatch-composer"
             [accounts]="accounts()"
@@ -90,17 +90,17 @@ export interface SessionDispatchRequest {
             (showRelogin)="showRelogin($event)"
           />
         } @else {
-          <!-- Machines that report no agent accounts (older konsertd): pick the CLI by name. -->
+          <!-- Machines that report no agent accounts (older syred): pick the CLI by name. -->
           <div class="space-y-3">
-            <p class="text-[12px] text-[var(--ks-text-secondary)]" data-testid="dispatch-no-accounts">
+            <p class="text-[12px] text-[var(--sy-text-secondary)]" data-testid="dispatch-no-accounts">
               {{ machineName() }} hasn't reported its agent accounts, so models and approval modes aren't available.
               The agent starts with its own defaults.
             </p>
             <div>
-              <label for="session-dispatch-agent" class="block text-[11.5px] text-[var(--ks-text-muted)] mb-1.5">Agent</label>
+              <label for="session-dispatch-agent" class="block text-[11.5px] text-[var(--sy-text-muted)] mb-1.5">Agent</label>
               <select
                 id="session-dispatch-agent"
-                class="w-full rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] px-3 py-2 text-[12.5px] text-[var(--ks-text)] focus:outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+                class="w-full rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-0)] px-3 py-2 text-[12.5px] text-[var(--sy-text)] focus:outline-none focus-visible:shadow-[var(--sy-focus-ring)]"
                 [value]="fallbackAgent()"
                 (change)="fallbackAgent.set($any($event.target).value)"
               >
@@ -109,24 +109,24 @@ export interface SessionDispatchRequest {
                 }
               </select>
             </div>
-            <ks-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
+            <sy-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
           </div>
         }
       } @else {
         <div class="space-y-1.5">
-          <div class="text-[11.5px] text-[var(--ks-text-muted)] px-1">Where to open the shell</div>
-          <ks-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
+          <div class="text-[11.5px] text-[var(--sy-text-muted)] px-1">Where to open the shell</div>
+          <sy-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
         </div>
       }
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[12px]">
         <div>
-          <label for="session-dispatch-branch" class="block text-[11.5px] text-[var(--ks-text-muted)] mb-1.5">New worktree branch (optional)</label>
+          <label for="session-dispatch-branch" class="block text-[11.5px] text-[var(--sy-text-muted)] mb-1.5">New worktree branch (optional)</label>
           <input
             id="session-dispatch-branch"
             type="text"
             data-testid="dispatch-branch"
-            class="w-full rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-0)] px-3 py-2 font-mono-ide text-[var(--ks-text)] placeholder-[#80828a] focus:outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+            class="w-full rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-0)] px-3 py-2 font-mono-ide text-[var(--sy-text)] placeholder-[#80828a] focus:outline-none focus-visible:shadow-[var(--sy-focus-ring)]"
             placeholder="feat/my-branch"
             [value]="newBranch()"
             (input)="newBranch.set($any($event.target).value)"
@@ -135,19 +135,19 @@ export interface SessionDispatchRequest {
         <label class="flex items-start gap-2.5 cursor-pointer sm:pt-6">
           <input type="checkbox" class="mt-0.5 accent-[#6d8fbf]" data-testid="dispatch-sandboxed" [checked]="sandboxed()" (change)="sandboxed.set($any($event.target).checked)" />
           <span>
-            <span class="block text-[var(--ks-text)]">Run sandboxed</span>
-            <span class="block text-[11.5px] text-[var(--ks-text-muted)]">Restrict the session to its folder on the machine.</span>
+            <span class="block text-[var(--sy-text)]">Run sandboxed</span>
+            <span class="block text-[11.5px] text-[var(--sy-text-muted)]">Restrict the session to its folder on the machine.</span>
           </span>
         </label>
       </div>
 
       @if (error()) {
-        <div role="alert" class="rounded-[var(--ks-radius-md)] bg-[var(--ks-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">{{ error() }}</div>
+        <div role="alert" class="rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">{{ error() }}</div>
       }
 
       <div class="flex justify-end gap-2">
-        <button type="button" class="ks-btn" (click)="close.emit()">Cancel</button>
-        <button type="button" class="ks-btn ks-btn-primary" data-testid="dispatch-submit" [disabled]="submitting() || !canSubmit()" (click)="submitFromFooter()">
+        <button type="button" class="sy-btn" (click)="close.emit()">Cancel</button>
+        <button type="button" class="sy-btn sy-btn-primary" data-testid="dispatch-submit" [disabled]="submitting() || !canSubmit()" (click)="submitFromFooter()">
           {{ submitting() ? 'Starting…' : sessionKind() === 'chat' ? 'Start session' : 'Open terminal' }}
         </button>
       </div>

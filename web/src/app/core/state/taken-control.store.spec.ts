@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Task } from '../models/konsert.models';
+import { Task } from '../models/syre.models';
 import { TakenControlStore } from './taken-control.store';
 
 const task = (id: string, status: Task['status'], agent = 'shell'): Task =>

@@ -8,7 +8,7 @@ import { E2E_STATE_FILE } from './global-setup';
  * badge wraps under it and, when the column is narrow, shrinks to an icon whose tooltip
  * and accessible name still say the transport. Checked at 1440 and 390 px. The long
  * name arrives as a fleet.update frame for the suite's real machine. Set
- * KONSERT_SHOTS_DIR (and KONSERT_SHOT_PREFIX) to save screenshots.
+ * SYRE_SHOTS_DIR (and SYRE_SHOT_PREFIX) to save screenshots.
  */
 
 interface E2EEnv {
@@ -22,10 +22,10 @@ function loadEnv(): E2EEnv {
 }
 
 async function shot(page: Page, name: string): Promise<void> {
-  const dir = process.env['KONSERT_SHOTS_DIR'];
+  const dir = process.env['SYRE_SHOTS_DIR'];
   if (!dir) return;
   fs.mkdirSync(dir, { recursive: true });
-  await page.screenshot({ path: path.join(dir, (process.env['KONSERT_SHOT_PREFIX'] ?? '') + name) });
+  await page.screenshot({ path: path.join(dir, (process.env['SYRE_SHOT_PREFIX'] ?? '') + name) });
 }
 
 const LONG_NAME = 'mac-studio-build-farm-rack-03';

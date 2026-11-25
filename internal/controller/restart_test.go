@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -27,7 +27,7 @@ func TestRestartTrackerBackoff(t *testing.T) {
 	tr := newTestTracker(c)
 	const id = "w1"
 	down := func() bool {
-		due, _ := tr.failed(id, sshutil.AttachDaemonDown, "konsertd is not running here")
+		due, _ := tr.failed(id, sshutil.AttachDaemonDown, "syred is not running here")
 		return due
 	}
 	if first, second := down(), down(); first || second {
@@ -63,7 +63,7 @@ func TestRestartTrackerBackoff(t *testing.T) {
 		}
 	}
 	v := tr.view(id)
-	if v == nil || v.State != "down" || v.Attempt != 6 || v.NextAt == nil || v.Error != "konsertd is not running here" {
+	if v == nil || v.State != "down" || v.Attempt != 6 || v.NextAt == nil || v.Error != "syred is not running here" {
 		t.Fatalf("view = %+v", v)
 	}
 	if !tr.attached(id) || tr.view(id) != nil || tr.attached(id) {
@@ -105,7 +105,7 @@ func TestRestartTrackerUnreachableAndHold(t *testing.T) {
 	if v := tr.view("w"); v == nil || v.State != "unreachable" || v.Attempt != 0 || !strings.Contains(v.Error, "refused") {
 		t.Fatalf("unreachable view = %+v", v)
 	}
-	// The host answers again but konsertd is down: a fresh count.
+	// The host answers again but syred is down: a fresh count.
 	if due, changed := tr.failed("w", sshutil.AttachDaemonDown, "down"); due || !changed {
 		t.Fatalf("first down failure: due %v changed %v", due, changed)
 	}
@@ -178,7 +178,7 @@ func (lt *launchTest) enableRestarts() *testClock {
 	return c
 }
 
-// The hub's own konsertd dies: the attach loop restarts it with `konsertd install`
+// The hub's own syred dies: the attach loop restarts it with `syred install`
 // (once per outage, never a second daemon), audit-logs it and re-adopts the daemon.
 func TestRestartLocalDaemonThatDied(t *testing.T) {
 	lt := newLaunchTest(t)
@@ -243,7 +243,7 @@ func TestRestartSSHDaemonBacksOffAndShowsState(t *testing.T) {
 			}
 		}
 		<-release
-		return sshutil.BootstrapResult{OK: false, Target: o.Target, Stage: "configuring_service", Error: "konsertd install failed: exit status 1"}
+		return sshutil.BootstrapResult{OK: false, Target: o.Target, Stage: "configuring_service", Error: "syred install failed: exit status 1"}
 	}
 	lt.mu.Unlock()
 	w := lt.addSSHWorker(t, remoteID, "box", "me@box")
@@ -261,7 +261,7 @@ func TestRestartSSHDaemonBacksOffAndShowsState(t *testing.T) {
 	}
 	close(release)
 	waitFor(t, 3*time.Second, "failed start recorded", func() bool {
-		return strings.Contains(lt.worker(t, remoteID).LaunchError, "konsertd install failed")
+		return strings.Contains(lt.worker(t, remoteID).LaunchError, "syred install failed")
 	})
 	// Not again before the backoff ends...
 	time.Sleep(300 * time.Millisecond)

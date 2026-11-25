@@ -8,19 +8,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/linkwatch"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/linkwatch"
+	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/coder/websocket"
 )
 
 // runLocal serves the hub on the local socket (no controller URL configured): the hub
-// attaches, directly or through `konsertd attach` over SSH, and gets exactly the
+// attaches, directly or through `syred attach` over SSH, and gets exactly the
 // session an outbound connection would. Sessions belong to the daemon, so a dropped
 // link or a restarted hub only ends the connection; the next attach sends worker.hello
 // with the live tasks and the hub resyncs. A newer attach replaces an older one (a
 // half-open SSH link the hub already gave up on). Removal by the hub (close 4001)
 // uninstalls this identity (service, that hub's authorized_keys grant, hooks if it was
-// the account's last konsertd) and stops the daemon.
+// the account's last syred) and stops the daemon.
 func (d *Daemon) runLocal(ctx context.Context) error {
 	path := d.SocketPath
 	if path == "" {

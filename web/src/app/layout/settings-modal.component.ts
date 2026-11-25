@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
-import { PermissionMode } from '../core/models/konsert.models';
+import { PermissionMode } from '../core/models/syre.models';
 import { DELIVERY_MODE_OPTIONS, DeliveryMode, MERGE_STYLE_OPTIONS, MergeStyle } from '../core/models/review.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
@@ -21,7 +21,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
   standalone: true,
   imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent],
   template: `
-    <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--ks-radius-xl)] bg-[var(--ks-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
+    <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="settings-title">Settings</h3>
@@ -29,12 +29,12 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
             Saved on the hub and applied right away.
           </p>
         </div>
-        <button type="button" (click)="close.emit()" aria-label="Esc: close dialog" class="ks-kbd cursor-pointer hover:text-[#ececed]">Esc</button>
+        <button type="button" (click)="close.emit()" aria-label="Esc: close dialog" class="sy-kbd cursor-pointer hover:text-[#ececed]">Esc</button>
       </div>
 
       <form (ngSubmit)="save()" class="space-y-4 text-[12px]">
         <!-- Session, Terminal & Fleet Defaults -->
-        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3.5">
+        <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3.5">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
             Session Defaults &amp; Notifications
           </div>
@@ -46,7 +46,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 name="defaultAccount"
                 [ngModel]="defaultAccountKey()"
                 (ngModelChange)="onAccountChange($event)"
-                class="ks-field w-full"
+                class="sy-field w-full"
               >
                 <option value="">Auto (last used)</option>
                 @for (o of accountOptions(); track o.key) {
@@ -62,7 +62,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 [ngModel]="defaultModel()"
                 (ngModelChange)="onModelChange($event)"
                 [disabled]="modelOptions().length === 0"
-                class="ks-field w-full disabled:opacity-50"
+                class="sy-field w-full disabled:opacity-50"
               >
                 <option value="">Account default</option>
                 @for (m of modelOptions(); track m.id) {
@@ -80,7 +80,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                   name="defaultEffort"
                   [ngModel]="defaultEffort()"
                   (ngModelChange)="defaultEffort.set($event)"
-                  class="ks-field w-full"
+                  class="sy-field w-full"
                 >
                   <option value="">Model default</option>
                   @for (e of effortOptions(); track e.id) {
@@ -98,7 +98,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 name="perm"
                 [ngModel]="defaultPerm()"
                 (ngModelChange)="defaultPerm.set($event)"
-                class="ks-field w-full"
+                class="sy-field w-full"
               >
                 <option value="full_access">Full Access (Default)</option>
                 <option value="sandboxed">Sandboxed (Opt-In)</option>
@@ -131,15 +131,15 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
-        <!-- Delivery Defaults (KON-H50YW) -->
-        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3">
+        <!-- Delivery Defaults (SYR-H50YW) -->
+        <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
             Delivery Defaults
           </div>
           <p class="m-0 text-[11.5px] text-[#8e9098]">
             What Approve does with finished work. Projects and repos can override these in Projects &amp; repos.
           </p>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-[1.7fr_1fr] gap-3">
             <div>
               <label for="settings-modal-delivery-mode" class="block text-[11px] text-[#8e9098] mb-1">Default delivery mode</label>
               <select id="settings-modal-delivery-mode"
@@ -147,7 +147,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 data-testid="settings-delivery-mode"
                 [ngModel]="defaultDeliveryMode()"
                 (ngModelChange)="defaultDeliveryMode.set($event)"
-                class="ks-field w-full"
+                class="sy-field w-full"
               >
                 @for (opt of deliveryModeOptions; track opt.value) {
                   <option [value]="opt.value">{{ opt.label }}</option>
@@ -161,7 +161,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 data-testid="settings-merge-style"
                 [ngModel]="defaultMergeStyle()"
                 (ngModelChange)="defaultMergeStyle.set($event)"
-                class="ks-field w-full"
+                class="sy-field w-full"
               >
                 @for (opt of mergeStyleOptions; track opt.value) {
                   <option [value]="opt.value">{{ opt.label }}</option>
@@ -171,41 +171,41 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
-        <!-- Forges (KON-CK7S2) -->
-        <ks-forge-settings />
+        <!-- Forges (SYR-CK7S2) -->
+        <sy-forge-settings />
 
         <!-- Sign-in & devices -->
-        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3">
+        <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-3">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Sign-in &amp; devices</div>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="ks-btn ks-btn-sm" data-testid="settings-devices" (click)="openDevices.emit('list')">Devices…</button>
-            <button type="button" class="ks-btn ks-btn-sm" (click)="openDevices.emit('add')">Add a device…</button>
-            <button type="button" class="ks-btn ks-btn-sm" (click)="openDevices.emit('mcp')">Connect an MCP client…</button>
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="settings-devices" (click)="openDevices.emit('list')">Devices…</button>
+            <button type="button" class="sy-btn sy-btn-sm" (click)="openDevices.emit('add')">Add a device…</button>
+            <button type="button" class="sy-btn sy-btn-sm" (click)="openDevices.emit('mcp')">Connect an MCP client…</button>
           </div>
           <div class="flex items-center gap-2">
             <label for="settings-modal-device-idle-days" class="text-[#d4d4d8]">Keep devices signed in while used every</label>
             <input id="settings-modal-device-idle-days" type="number" name="deviceIdleDays" min="1" max="3650"
               [ngModel]="deviceIdleDays()" (ngModelChange)="deviceIdleDays.set(+$event)"
-              class="ks-field w-20 font-mono-ide" />
+              class="sy-field w-20 font-mono-ide" />
             <span class="text-[#d4d4d8]">days</span>
           </div>
         </div>
 
-        <!-- Shells left running by finished sessions (KON-DCEZV) -->
-        <ks-shell-policy-settings />
+        <!-- Shells left running by finished sessions (SYR-DCEZV) -->
+        <sy-shell-policy-settings />
 
-        <!-- Storage: size, breakdown, retention, Compact now (KON-CSCWP) -->
-        <ks-storage-settings />
+        <!-- Storage: size, breakdown, retention, Compact now (SYR-CSCWP) -->
+        <sy-storage-settings />
 
-        <!-- Orchestrator LLM Section -->
-        <details class="rounded-[var(--ks-radius-lg)] bg-black/20 group" [open]="apiKeySet()">
+        <!-- Commander LLM Section -->
+        <details class="rounded-[var(--sy-radius-lg)] bg-black/20 group" [open]="apiKeySet()">
           <summary class="cursor-pointer list-none px-3.5 py-3 text-[12px] text-[#a1a3ab] hover:text-[#ececed] flex items-center justify-between">
-            <span><span class="font-semibold">Advanced:</span> API-key orchestrator (optional)</span>
+            <span><span class="font-semibold">Advanced:</span> API-key commander (optional)</span>
             <span class="text-[10.5px] text-[#86888f]">{{ apiKeySet() ? 'Configured' : 'Not needed for subscription agents' }}</span>
           </summary>
           <div class="px-3.5 pb-3.5 space-y-3">
           <p class="text-[11.5px] text-[#8e9098]">
-            Chats run on your signed-in agent CLIs by default. Configure a provider API key only if you want the API-key orchestrator as an extra backend.
+            Chats run on your signed-in agent CLIs by default. Configure a provider API key only if you want the API-key commander as an extra backend.
           </p>
 
           <div class="grid grid-cols-2 gap-3">
@@ -215,7 +215,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 name="provider"
                 [ngModel]="provider()"
                 (ngModelChange)="onProviderChange($event)"
-                class="ks-field w-full"
+                class="sy-field w-full"
               >
                 <option value="openai">OpenAI / Compatible</option>
                 <option value="anthropic">Anthropic</option>
@@ -231,7 +231,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
                 [ngModel]="model()"
                 (ngModelChange)="model.set($event)"
                 placeholder="model id (required)"
-                class="ks-field w-full font-mono-ide"
+                class="sy-field w-full font-mono-ide"
               />
             </div>
           </div>
@@ -244,7 +244,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
               [ngModel]="baseUrl()"
               (ngModelChange)="baseUrl.set($event)"
               placeholder="https://api.openai.com/v1 or http://127.0.0.1:11434/v1"
-              class="ks-field w-full font-mono-ide"
+              class="sy-field w-full font-mono-ide"
             />
           </div>
 
@@ -266,13 +266,13 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
               [ngModel]="apiKey()"
               (ngModelChange)="apiKey.set($event)"
               [placeholder]="apiKeySet() ? '•••••••••••••••• (enter new key to replace)' : 'sk-...'"
-              class="ks-field w-full font-mono-ide"
+              class="sy-field w-full font-mono-ide"
             />
           </div>
         </div>
         </details>
 
-        <ks-question-insights />
+        <sy-question-insights />
 
         <app-machine-credentials-security />
 
@@ -291,14 +291,14 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           <button
             type="button"
             (click)="close.emit()"
-            class="ks-btn ks-btn-sm"
+            class="sy-btn sy-btn-sm"
           >
             Close
           </button>
           <button
             type="submit"
             [disabled]="saving()"
-            class="ks-btn ks-btn-primary"
+            class="sy-btn sy-btn-primary"
           >
             {{ saving() ? 'Saving...' : 'Save Settings' }}
           </button>

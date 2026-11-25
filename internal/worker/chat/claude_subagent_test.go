@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/activity"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/activity"
 )
 
 // TestClaudeTaskEvents: claude's own task events (sanitized from claude 2.1.331) become

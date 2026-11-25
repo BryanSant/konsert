@@ -46,7 +46,7 @@ func TestLegacyPlaintextPassesThrough(t *testing.T) {
 
 func TestKeyFilePersistsAndIsPrivate(t *testing.T) {
 	t.Setenv(KeyEnv, "")
-	path := filepath.Join(t.TempDir(), "sub", "konsert-secret.key")
+	path := filepath.Join(t.TempDir(), "sub", "syre-secret.key")
 	b1, err := Load(path)
 	if err != nil {
 		t.Fatal(err)

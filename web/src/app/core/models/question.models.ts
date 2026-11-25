@@ -69,7 +69,7 @@ export interface QuestionDraft {
 
 export interface QuestionThread {
   chat_id: string;
-  answerer: 'fork' | 'orchestrator' | (string & {});
+  answerer: 'fork' | 'commander' | (string & {});
   agent?: string;
   account_id?: string;
   worker_id?: string;
@@ -130,7 +130,7 @@ export interface QuestionView extends Question {
   chat_title?: string;
   machine_name?: string;
   account_label?: string;
-  orchestrator?: boolean;
+  commander?: boolean;
   impact: number;
   group_label?: string;
   messages: QuestionMessage[];
@@ -175,7 +175,7 @@ export interface QuestionSettings {
   delegation_grace_seconds: number;
 }
 
-/** Question categories users can let the orchestrator decide (settings). */
+/** Question categories users can let the commander decide (settings). */
 export const DELEGATABLE_CATEGORIES: ReadonlyArray<{ id: string; label: string; hint: string }> = [
   { id: 'permission', label: 'Tool approvals', hint: "The agents' own permission prompts (run a command, edit a file)." },
   { id: 'routine', label: 'Routine decisions', hint: 'Questions agents tag as routine (naming, small refactors).' },

@@ -85,7 +85,7 @@ export function sentMessage(q: QuestionView): string {
   const what = `“${answerLabel(a)}”`;
   if (a.correction) return `Sent the correction ${what} to the agent`;
   if (a.preparing) return `Sending ${what}… writing a summary of your side conversation`;
-  const by = a.by?.actor === 'orchestrator' ? 'The orchestrator sent' : 'Sent';
+  const by = a.by?.actor === 'commander' ? 'The commander sent' : 'Sent';
   const summary = a.summary ? ' with a summary of your side conversation' : '';
   if (!a.delivered_at) return `${by} ${what}${summary}; the agent gets it before its next turn`;
   const how = a.delivery === 'note' ? ' (as a note before its next turn)' : '';

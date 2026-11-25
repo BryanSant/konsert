@@ -32,7 +32,7 @@ jobs:
       - name: go vet (all target OSes)
         run: |
           go vet ./...
-          GOOS=windows go vet ./internal/worker/... ./internal/gitutil/... ./cmd/konsertd/...
+          GOOS=windows go vet ./internal/worker/... ./internal/gitutil/... ./cmd/syred/...
           GOOS=darwin go vet ./...
 
       - name: staticcheck
@@ -53,7 +53,7 @@ jobs:
           cache: true
 
       - name: Run worker test suite
-        run: go test -count=1 ./internal/worker/... ./internal/gitutil/... ./internal/protocol/... ./cmd/konsertd/...
+        run: go test -count=1 ./internal/worker/... ./internal/gitutil/... ./internal/protocol/... ./cmd/syred/...
 
   web:
     name: Angular Vitest & PWA Build
@@ -113,10 +113,10 @@ jobs:
 
       - name: Verify multi-OS / multi-arch builds
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/konsert ./cmd/konsertd
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/konsert ./cmd/konsertd
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./cmd/konsert ./cmd/konsertd
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./cmd/konsertd
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/syre ./cmd/syred
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/syre ./cmd/syred
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./cmd/syre ./cmd/syred
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./cmd/syred
 
   e2e:
     # Includes the subscription-only chat flow (web/e2e/subscription-chat.spec.ts): the mock
@@ -145,7 +145,7 @@ jobs:
           name: webdist
           path: internal/controller/webdist/
 
-      - name: Build konsert & konsertd
+      - name: Build syre & syred
         run: make build
 
       - name: Install Playwright & Chromium
@@ -165,7 +165,7 @@ jobs:
           retention-days: 7
 
   container:
-    name: Multi-Arch konsertd Containerfile Build
+    name: Multi-Arch syred Containerfile Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -173,7 +173,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build konsertd container (linux/amd64, linux/arm64)
+      - name: Build syred container (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
         with:
           context: .

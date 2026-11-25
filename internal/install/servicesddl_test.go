@@ -66,12 +66,12 @@ func TestServiceSecretFileSDDL(t *testing.T) {
 }
 
 func TestInstanceOfConfig(t *testing.T) {
-	for name, want := range map[string]string{"konsertd.yaml": "", "konsertd-box.yaml": "box"} {
+	for name, want := range map[string]string{"syred.yaml": "", "syred-box.yaml": "box"} {
 		if got, ok := instanceOfConfig(name); !ok || got != want {
 			t.Errorf("%s: %q, %v", name, got, ok)
 		}
 	}
-	for _, name := range []string{"konsertd.service.json", "other.yaml", "konsertdx.yaml"} {
+	for _, name := range []string{"syred.service.json", "other.yaml", "syredx.yaml"} {
 		if _, ok := instanceOfConfig(name); ok {
 			t.Errorf("%s accepted", name)
 		}

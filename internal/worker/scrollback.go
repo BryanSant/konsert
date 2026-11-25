@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// Terminal scrollback on disk (KON-VZR9F). Raw PTY bytes are not spooled (they are
+// Terminal scrollback on disk (SYR-VZR9F). Raw PTY bytes are not spooled (they are
 // large and only the screen matters), so each PTY task's output is also kept in a bounded
-// file: a re-attached terminal redraws from it even when the task has ended or konsertd
+// file: a re-attached terminal redraws from it even when the task has ended or syred
 // restarted (the in-memory ring buffer covers a running task). Each task keeps two
 // halves, <task>.log and <task>.log.1, of at most scrollbackHalf bytes each.
 

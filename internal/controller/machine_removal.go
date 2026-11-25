@@ -10,18 +10,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/sshutil"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/sshutil"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Removing a machine uninstalls konsertd from it (KON-AV0YT). Closing its link with
+// Removing a machine uninstalls syred from it (SYR-AV0YT). Closing its link with
 // 4001 only stops the daemon, and the OS service (launchd KeepAlive, systemd
 // Restart=always, the Windows task's every-minute trigger) would start it again. So:
 //
-//   - A connected konsertd uninstalls itself when it gets 4001 (its service, the
-//     hub's key grant, and the agent hooks if it was the account's last konsertd).
-//   - The hub also runs `konsertd uninstall --worker <id>` itself, over the user's SSH
+//   - A connected syred uninstalls itself when it gets 4001 (its service, the
+//     hub's key grant, and the agent hooks if it was the account's last syred).
+//   - The hub also runs `syred uninstall --worker <id>` itself, over the user's SSH
 //     for an ssh machine and directly for its own machine (idempotent, so after a
 //     self-removal it only confirms nothing is left), and records the result in the
 //     audit log (worker.uninstall).
@@ -32,7 +32,7 @@ import (
 //
 // Pending removals are kept in the settings table (machineRemovalsSetting).
 
-// AuditWorkerUninstall records the outcome of uninstalling konsertd from a removed
+// AuditWorkerUninstall records the outcome of uninstalling syred from a removed
 // machine.
 const AuditWorkerUninstall = "worker.uninstall"
 
@@ -52,7 +52,7 @@ var removalRetryDelays = []time.Duration{2 * time.Minute, 10 * time.Minute, 30 *
 // removalCheckEvery is how often the hub looks for removals due a retry.
 var removalCheckEvery = time.Minute
 
-// pendingRemoval is a removed machine konsertd is not yet uninstalled from.
+// pendingRemoval is a removed machine syred is not yet uninstalled from.
 type pendingRemoval struct {
 	WorkerID  string        `json:"worker_id"`
 	WorkerSID string        `json:"worker_sid,omitempty"`
@@ -164,7 +164,7 @@ func (s *Server) removedCreds(ctx context.Context, workerID string) []removedCre
 	return out
 }
 
-// uninstallRemovedMachine starts uninstalling konsertd from w, just removed. connected
+// uninstallRemovedMachine starts uninstalling syred from w, just removed. connected
 // says whether its daemon was connected (and so got 4001 and removes itself too).
 func (s *Server) uninstallRemovedMachine(ctx context.Context, w store.Worker, connected bool, creds []removedCred) {
 	rec := pendingRemoval{
@@ -187,16 +187,16 @@ func (s *Server) uninstallRemovedMachine(ctx context.Context, w store.Worker, co
 		})
 	default:
 		if connected {
-			s.auditUninstall(actx, rec, true, "konsertd on "+machineLabel(rec)+" uninstalls itself (the hub closed its connection with code 4001)", "")
+			s.auditUninstall(actx, rec, true, "syred on "+machineLabel(rec)+" uninstalls itself (the hub closed its connection with code 4001)", "")
 			return
 		}
 		if len(creds) == 0 {
-			s.auditUninstall(actx, rec, false, "konsertd on "+machineLabel(rec)+" was not connected and has no credential to recognize it by; uninstall it there with `konsertd uninstall`", "")
+			s.auditUninstall(actx, rec, false, "syred on "+machineLabel(rec)+" was not connected and has no credential to recognize it by; uninstall it there with `syred uninstall`", "")
 			return
 		}
 		rec.Creds = creds
 		s.putRemoval(actx, rec)
-		s.auditUninstall(actx, rec, false, "konsertd on "+machineLabel(rec)+" is offline; it uninstalls itself when it next connects", "")
+		s.auditUninstall(actx, rec, false, "syred on "+machineLabel(rec)+" is offline; it uninstalls itself when it next connects", "")
 	}
 }
 
@@ -224,14 +224,14 @@ func (s *Server) attemptUninstall(ctx context.Context, rec pendingRemoval) {
 	rec.Attempts++
 	if err == nil {
 		s.forgetRemoval(ctx, rec.WorkerID)
-		msg := "Uninstalled konsertd from " + machineLabel(rec)
+		msg := "Uninstalled syred from " + machineLabel(rec)
 		switch sum := summarizeUninstall(out); {
 		case strings.Contains(out, "Nothing installed"):
 			// The daemon got 4001 and removed itself first; the hub's run confirms it.
-			msg = "konsertd on " + machineLabel(rec) + " uninstalled itself; nothing of it is left"
+			msg = "syred on " + machineLabel(rec) + " uninstalled itself; nothing of it is left"
 		case !strings.Contains(out, "Removed the ") && strings.Contains(out, "Removed /"):
 			// Only state the stopping daemon wrote on its way out.
-			msg = "konsertd on " + machineLabel(rec) + " was already uninstalled; removed its leftover state"
+			msg = "syred on " + machineLabel(rec) + " was already uninstalled; removed its leftover state"
 		case out != "":
 			msg += ": " + sum
 		}
@@ -250,19 +250,19 @@ func (s *Server) attemptUninstall(ctx context.Context, rec pendingRemoval) {
 			if errors.Is(err, sshutil.ErrUnreachable) {
 				why = "could not reach it to uninstall"
 			}
-			s.auditUninstall(ctx, rec, false, fmt.Sprintf("Removed %s, but %s konsertd (%v); retrying for 30 days", machineLabel(rec), why, err), out)
+			s.auditUninstall(ctx, rec, false, fmt.Sprintf("Removed %s, but %s syred (%v); retrying for 30 days", machineLabel(rec), why, err), out)
 		}
 		return
 	}
 	s.forgetRemoval(ctx, rec.WorkerID)
-	msg := fmt.Sprintf("Could not uninstall konsertd from %s: %v", machineLabel(rec), err)
+	msg := fmt.Sprintf("Could not uninstall syred from %s: %v", machineLabel(rec), err)
 	if rec.Launch == store.LaunchSSH {
-		msg = fmt.Sprintf("Gave up uninstalling konsertd from %s after 30 days: %v", machineLabel(rec), err)
+		msg = fmt.Sprintf("Gave up uninstalling syred from %s after 30 days: %v", machineLabel(rec), err)
 	}
 	s.auditUninstall(ctx, rec, false, msg, out)
 }
 
-// runUninstall runs `konsertd uninstall --worker <id>` for rec: over the user's SSH for
+// runUninstall runs `syred uninstall --worker <id>` for rec: over the user's SSH for
 // an ssh machine, locally for the hub's own.
 func (s *Server) runUninstall(ctx context.Context, rec pendingRemoval) (string, error) {
 	l := s.launch
@@ -277,9 +277,9 @@ func (s *Server) runUninstall(ctx context.Context, rec pendingRemoval) (string, 
 		if l.dryRun {
 			return "nothing to uninstall (" + InstallDryRunEnv + ": nothing was registered)", nil
 		}
-		exe := l.findKonsertd()
+		exe := l.findSyred()
 		if exe == "" {
-			return "", errors.New("konsertd not found on this machine")
+			return "", errors.New("syred not found on this machine")
 		}
 		rctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
@@ -289,13 +289,13 @@ func (s *Server) runUninstall(ctx context.Context, rec pendingRemoval) (string, 
 	return "", fmt.Errorf("machine %s is not hub-installed", rec.WorkerID)
 }
 
-// summarizeUninstall keeps the report lines of `konsertd uninstall` output ("Removed
+// summarizeUninstall keeps the report lines of `syred uninstall` output ("Removed
 // ...", "Kept ...", "Nothing installed ...") for the audit message.
 func summarizeUninstall(out string) string {
 	var keep []string
 	for _, l := range strings.Split(out, "\n") {
 		l = strings.TrimSpace(l)
-		if strings.HasPrefix(l, "Removed the ") || strings.HasPrefix(l, "Kept ") || strings.HasPrefix(l, "Nothing installed") || strings.HasPrefix(l, "konsertd is not installed") {
+		if strings.HasPrefix(l, "Removed the ") || strings.HasPrefix(l, "Kept ") || strings.HasPrefix(l, "Nothing installed") || strings.HasPrefix(l, "syred is not installed") {
 			keep = append(keep, strings.TrimSuffix(l, "."))
 		}
 	}
@@ -345,7 +345,7 @@ func (s *Server) retryRemovals(ctx context.Context) {
 		return out
 	})
 	for _, p := range expired {
-		s.auditUninstall(ctx, p, false, "Gave up waiting for konsertd on "+machineLabel(p)+" to reconnect and uninstall itself (30 days)", "")
+		s.auditUninstall(ctx, p, false, "Gave up waiting for syred on "+machineLabel(p)+" to reconnect and uninstall itself (30 days)", "")
 	}
 	for _, p := range due {
 		if ctx.Err() != nil {

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
-// maxHookStdin caps what `konsertd hook-event` reads from an agent hook's stdin.
+// maxHookStdin caps what `syred hook-event` reads from an agent hook's stdin.
 const maxHookStdin = 256 << 10
 
 // hookStdinWait bounds waiting for a hook's stdin (agents write it at once and close it).

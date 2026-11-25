@@ -185,7 +185,7 @@ func (c *codexConn) respondError(id jsontext.Value, code int, msg string) error 
 // codexHandshake runs initialize + initialized.
 func codexHandshake(ctx context.Context, c *codexConn) error {
 	_, err := c.call(ctx, "initialize", map[string]any{
-		"clientInfo":   map[string]any{"name": "konsert", "title": "Konsert", "version": "1"},
+		"clientInfo":   map[string]any{"name": "syre", "title": "Syre", "version": "1"},
 		"capabilities": map[string]any{"experimentalApi": false, "requestAttestation": false},
 	})
 	if err != nil {

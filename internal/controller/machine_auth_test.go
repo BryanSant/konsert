@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/auth"
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/auth"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 	"github.com/coder/websocket"
 )
 
@@ -58,7 +58,7 @@ func newMachineAuthServer(t *testing.T) (*Server, *httptest.Server, *time.Time) 
 	return srv, ts, &now
 }
 
-// workerConn is a fake konsertd connection.
+// workerConn is a fake syred connection.
 type fakeWorkerConn struct {
 	conn   *websocket.Conn
 	closed chan error
@@ -132,7 +132,7 @@ func TestWorkerCredentialAuthAndRevoke(t *testing.T) {
 	credA := testMachineCredential(t, srv, wA)
 	credB := testMachineCredential(t, srv, wB)
 
-	for _, bad := range []string{"", "fleet-token", "kmc_" + wA + "_" + strings.Repeat("x", 43)} {
+	for _, bad := range []string{"", "fleet-token", "smc_" + wA + "_" + strings.Repeat("x", 43)} {
 		if _, code := dialWorker(t, ts, bad, wA); code != http.StatusUnauthorized {
 			t.Fatalf("bearer %q: got %d, want 401", bad, code)
 		}
@@ -200,7 +200,7 @@ func TestMachineJoinWithCode(t *testing.T) {
 	}
 	jc := body["code"].(string)
 	jcID := body["id"].(string)
-	if body["hub_url"] != "https://hub.example.ts.net" || body["command"] != "konsertd join https://hub.example.ts.net "+jc {
+	if body["hub_url"] != "https://hub.example.ts.net" || body["command"] != "syred join https://hub.example.ts.net "+jc {
 		t.Fatalf("join code response = %v", body)
 	}
 	if _, body := apiCall(t, ts, http.MethodGet, "/api/machines/join-codes/"+jcID, "", machineAdminTok); body["status"] != "pending" {
@@ -378,8 +378,8 @@ func TestJoinHubURL(t *testing.T) {
 	if got := srv.joinHubURL(r); got != "https://desk.example.ts.net" {
 		t.Fatalf("https proxy: %q", got)
 	}
-	srv.cfg.PublicURL = "https://konsert.example.ts.net/"
-	if got := srv.joinHubURL(r); got != "https://konsert.example.ts.net" {
+	srv.cfg.PublicURL = "https://syre.example.ts.net/"
+	if got := srv.joinHubURL(r); got != "https://syre.example.ts.net" {
 		t.Fatalf("public url: %q", got)
 	}
 }

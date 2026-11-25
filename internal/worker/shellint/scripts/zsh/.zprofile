@@ -1,3 +1,3 @@
-# Konsert terminal shell integration: sources your .zprofile (see .zshenv).
-if __konsert_pre .zprofile; then source "$ZDOTDIR/.zprofile"; fi
-__konsert_post
+# Syre terminal shell integration: sources your .zprofile (see .zshenv).
+if __syre_pre .zprofile; then source "$ZDOTDIR/.zprofile"; fi
+__syre_post

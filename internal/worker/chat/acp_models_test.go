@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func loadFixture(t *testing.T, name string) (acpInitResult, *acpSessionResult) {
@@ -98,8 +98,8 @@ func TestACPCatalogAgy(t *testing.T) {
 	if m := modelByID(t, ms, "claude-opus-5-5"); effortIDs(m) != "low,medium,high" || m.DisplayName != "Claude Opus 5.5" || m.DefaultEffort != "high" {
 		t.Errorf("opus = %+v", m)
 	}
-	if m := modelByID(t, ms, "gemini-pro-orchestrator-neon"); len(m.Efforts) != 0 || m.DisplayName != "Orchestrator (Neon)" {
-		t.Errorf("orchestrator = %+v", m)
+	if m := modelByID(t, ms, "gemini-pro-commander-neon"); len(m.Efforts) != 0 || m.DisplayName != "Commander (Neon)" {
+		t.Errorf("commander = %+v", m)
 	}
 	if m := modelByID(t, ms, "gpt-oss-120b"); effortIDs(m) != "medium" || m.DefaultEffort != "medium" {
 		t.Errorf("gpt-oss = %+v", m)
@@ -112,7 +112,7 @@ func TestACPCatalogAgy(t *testing.T) {
 		{"gemini-4-neon", "", "gemini-4-neon-high"},
 		{"claude-sonnet-5-5", "medium", "claude-sonnet-5-5-medium"},
 		{"gemini-4-hydrogen-xhigh", "", "gemini-4-hydrogen-xhigh"}, // raw id accepted
-		{"gemini-pro-orchestrator-neon", "high", "gemini-pro-orchestrator-neon"},
+		{"gemini-pro-commander-neon", "high", "gemini-pro-commander-neon"},
 		{"", "low", "gemini-4-neon-low"},
 	} {
 		sel, ok := cat.resolve(c.model, c.effort)

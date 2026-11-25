@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Audit action names recorded in the fleet-wide audit log (KON-WP2A5).
+// Audit action names recorded in the fleet-wide audit log (SYR-WP2A5).
 const (
 	AuditTakeControl    = "task.take_control"
 	AuditReleaseControl = "task.release_control"
@@ -26,33 +26,33 @@ const (
 	AuditSettingsUpdate = "settings.update"
 	AuditWakeLockFleet  = "wakelock.fleet"
 	AuditWakeLockHost   = "wakelock.host"
-	// Agent chat (KON-TY1XP): settings changes and answers to agent requests.
+	// Agent chat (SYR-TY1XP): settings changes and answers to agent requests.
 	AuditChatModel        = "chat.model"
 	AuditChatApprovalMode = "chat.approval_mode"
 	AuditChatAccount      = "chat.account"
 	AuditChatRespond      = "chat.respond"
-	// Forge credentials (KON-QHGWZ): tokens set/deleted and device-flow sign-ins.
+	// Forge credentials (SYR-QHGWZ): tokens set/deleted and device-flow sign-ins.
 	AuditForgeTokenSet    = "forge.token.set"
 	AuditForgeTokenDelete = "forge.token.delete"
 	AuditForgeDeviceAuth  = "forge.device.auth"
-	// Review & delivery (KON-H50YW).
+	// Review & delivery (SYR-H50YW).
 	AuditTaskReview  = "task.review"
 	AuditTaskDeliver = "task.deliver"
 )
 
 // Audit sources: the path an action arrived through.
 const (
-	auditSourceREST         = "rest"
-	auditSourceCLI          = "cli"
-	auditSourceWS           = "ws"
-	auditSourceMCP          = "mcp"
-	auditSourceOrchestrator = "orchestrator"
+	auditSourceREST      = "rest"
+	auditSourceCLI       = "cli"
+	auditSourceWS        = "ws"
+	auditSourceMCP       = "mcp"
+	auditSourceCommander = "commander"
 )
 
 // clientKindHeader optionally labels first-party API clients ("cli", "mcp") so the
 // audit log can show the path an action took. It is informational only: the
 // recorded user always comes from authentication, never from this header.
-const clientKindHeader = "X-Konsert-Client"
+const clientKindHeader = "X-Syre-Client"
 
 // auditActor identifies who performed an action and through which path.
 type auditActor struct {

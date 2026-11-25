@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FleetSnapshotResponse, Task, Worker } from '../models/konsert.models';
+import { FleetSnapshotResponse, Task, Worker } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 import { FleetStore } from './fleet.store';
 

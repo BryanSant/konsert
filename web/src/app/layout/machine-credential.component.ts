@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, input, signal } from '@angular/core';
-import { MachineCredentialInfo, Worker } from '../core/models/konsert.models';
+import { MachineCredentialInfo, Worker } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -21,7 +21,7 @@ export function ago(iso: string | undefined, now = Date.now()): string {
 }
 
 /**
- * Fleet → machine Details: the machine's own credential (KON-RK9YD) and "Revoke
+ * Fleet → machine Details: the machine's own credential (SYR-RK9YD) and "Revoke
  * credential", which disconnects it at once; it can join again with a new code.
  */
 @Component({
@@ -34,7 +34,7 @@ export function ago(iso: string | undefined, now = Date.now()): string {
         <h4 id="machine-credential-heading" class="text-[#86888f]">Credential</h4>
         @if (info(); as i) {
           @if (i.active.length > 0 && !confirming()) {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" (click)="confirming.set(true)" data-testid="revoke-credential">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" (click)="confirming.set(true)" data-testid="revoke-credential">
               Revoke credential
             </button>
           }
@@ -61,11 +61,11 @@ export function ago(iso: string | undefined, now = Date.now()): string {
       @if (confirming()) {
         <div class="rounded-md bg-[#e05d5d]/10 p-2.5 space-y-2" role="alertdialog" aria-label="Confirm revoking the credential">
           <p class="text-[11.5px] text-[#e6b8b8] leading-relaxed">
-            Revoke the credential of "{{ worker().name }}"? Its konsertd is disconnected right away and stays out until
+            Revoke the credential of "{{ worker().name }}"? Its syred is disconnected right away and stays out until
             it joins again with a new code.
           </p>
           <div class="flex justify-end gap-2">
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-soft" (click)="confirming.set(false)" [disabled]="busy()">Cancel</button>
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="confirming.set(false)" [disabled]="busy()">Cancel</button>
             <button
               type="button"
               class="rounded-md bg-[#c94a4a] hover:bg-[#d85555] disabled:opacity-50 px-3 py-1 text-[11px] font-medium text-white cursor-pointer"

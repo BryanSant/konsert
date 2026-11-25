@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientService } from '../../core/services/api-client.service';
-import { KonsertSocketService } from '../../core/services/konsert-socket.service';
-import { Task } from '../../core/models/konsert.models';
+import { SyreSocketService } from '../../core/services/syre-socket.service';
+import { Task } from '../../core/models/syre.models';
 import { FleetStore } from '../../core/state/fleet.store';
 import { XtermPaneComponent, clampFontSize } from './xterm-pane.component';
 
@@ -37,7 +37,7 @@ describe('XtermPaneComponent', () => {
       providers: [
         { provide: ApiClientService, useValue: { cancelTask: vi.fn(), setTaskControl } },
         {
-          provide: KonsertSocketService,
+          provide: SyreSocketService,
           useValue: { subscribePty, sendPtyResize: vi.fn(), sendPtyStdin: vi.fn() },
         },
       ],

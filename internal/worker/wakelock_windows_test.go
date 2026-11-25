@@ -43,11 +43,11 @@ func TestExecStateBackendFailure(t *testing.T) {
 	}
 }
 
-// TestRealExecutionState sets the real execution state (KONSERT_TEST_REAL_WAKELOCK=1) and,
+// TestRealExecutionState sets the real execution state (SYRE_TEST_REAL_WAKELOCK=1) and,
 // when powercfg can read requests (needs an elevated shell), checks it is listed.
 func TestRealExecutionState(t *testing.T) {
-	if os.Getenv("KONSERT_TEST_REAL_WAKELOCK") != "1" {
-		t.Skip("set KONSERT_TEST_REAL_WAKELOCK=1 to set a real execution state")
+	if os.Getenv("SYRE_TEST_REAL_WAKELOCK") != "1" {
+		t.Skip("set SYRE_TEST_REAL_WAKELOCK=1 to set a real execution state")
 	}
 	exe, _ := os.Executable()
 	exeName := strings.ToLower(exe[strings.LastIndexAny(exe, `\/`)+1:])
@@ -56,7 +56,7 @@ func TestRealExecutionState(t *testing.T) {
 		return strings.ToLower(string(out)), err == nil
 	}
 	m := NewWakeLockManager(nil, nil, nil)
-	st := m.Set(true, "konsert real wakelock test")
+	st := m.Set(true, "syre real wakelock test")
 	if !st.Active || st.Method != "SetThreadExecutionState" {
 		t.Fatalf("enable: %+v", st)
 	}

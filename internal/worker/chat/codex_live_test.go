@@ -8,25 +8,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Live test against a logged-in codex (ChatGPT subscription). Opt-in, one tiny prompt:
 //
-//	KONSERT_LIVE_CODEX=1 go test ./internal/worker/chat -run TestLiveCodex -v
+//	SYRE_LIVE_CODEX=1 go test ./internal/worker/chat -run TestLiveCodex -v
 //
 // The test thread is deleted afterwards (thread/delete). On a logged-out machine it
 // checks the fail-fast auth path instead.
 func TestLiveCodex(t *testing.T) {
-	if os.Getenv("KONSERT_LIVE_CODEX") != "1" {
-		t.Skip("set KONSERT_LIVE_CODEX=1 to run the live codex test")
+	if os.Getenv("SYRE_LIVE_CODEX") != "1" {
+		t.Skip("set SYRE_LIVE_CODEX=1 to run the live codex test")
 	}
 	bin, err := exec.LookPath("codex")
 	if err != nil {
 		t.Skip("codex not installed")
 	}
 	e := newCodexEngine()
-	if path := os.Getenv("KONSERT_LIVE_TRACE"); path != "" {
+	if path := os.Getenv("SYRE_LIVE_TRACE"); path != "" {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			t.Fatal(err)
@@ -52,7 +52,7 @@ func TestLiveCodex(t *testing.T) {
 		return
 	}
 
-	dir, err := os.MkdirTemp("/var/tmp", "konsert-live-codex-")
+	dir, err := os.MkdirTemp("/var/tmp", "syre-live-codex-")
 	if err != nil {
 		t.Fatal(err)
 	}

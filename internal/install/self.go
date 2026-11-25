@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// A daemon the hub removed uninstalls its own registration (KON-AV0YT). The usual
+// A daemon the hub removed uninstalls its own registration (SYR-AV0YT). The usual
 // sequence stops the service first, which would kill the very process running it, or
 // (launchd) block until it exits. The self-removal sequences instead make the
 // registration inert first (files gone, task deleted, unit disabled) and stop the job
@@ -130,15 +130,15 @@ func (s systemdBackend) precheck(ctx context.Context, in *Installer) error {
 	return s.checkUserManager(ctx, in)
 }
 
-// InstalledConfig is one instance config `konsertd install` wrote.
+// InstalledConfig is one instance config `syred install` wrote.
 type InstalledConfig struct {
 	Instance string
 	Path     string
 }
 
-// InstalledConfigs lists the instance configs in the config directory (konsertd.yaml,
-// konsertd-<instance>.yaml): every instance `konsertd install` registered and
-// `konsertd uninstall` has not removed.
+// InstalledConfigs lists the instance configs in the config directory (syred.yaml,
+// syred-<instance>.yaml): every instance `syred install` registered and
+// `syred uninstall` has not removed.
 func (in *Installer) InstalledConfigs() ([]InstalledConfig, error) {
 	entries, err := os.ReadDir(in.Env.ConfigDir)
 	if err != nil {
@@ -158,8 +158,8 @@ func (in *Installer) InstalledConfigs() ([]InstalledConfig, error) {
 	return out, nil
 }
 
-// instanceOfConfig maps an instance config file name (konsertd.yaml,
-// konsertd-<instance>.yaml) to its instance.
+// instanceOfConfig maps an instance config file name (syred.yaml,
+// syred-<instance>.yaml) to its instance.
 func instanceOfConfig(name string) (string, bool) {
 	stem, ok := strings.CutSuffix(name, ".yaml")
 	switch {
@@ -189,5 +189,5 @@ func NohupBase(name string) string {
 	if slug == "" {
 		slug = "worker"
 	}
-	return "konsertd-nohup-" + slug
+	return "syred-nohup-" + slug
 }

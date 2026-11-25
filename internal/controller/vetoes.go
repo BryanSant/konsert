@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Veto acknowledgement (KON-X52J9): a veto is told to the agents it concerns — the
-// orchestrator and, for a chat veto, the vetoed chat — as a note prepended to their next
+// Veto acknowledgement (SYR-X52J9): a veto is told to the agents it concerns — the
+// commander and, for a chat veto, the vetoed chat — as a note prepended to their next
 // prompt (delivery.go). The turn that carried the note ending normally is the agent's
 // acknowledgement: the veto then resolves itself. A veto nobody acknowledged within the
 // deadline (setting veto_ack_minutes, default 10) escalates in Needs you, where the user
-// can dismiss it. A veto with nobody to tell (no orchestrator, not a chat) closes at once.
+// can dismiss it. A veto with nobody to tell (no commander, not a chat) closes at once.
 
 // vetoAckSetting configures the acknowledgement deadline in minutes.
 const vetoAckSetting = "veto_ack_minutes"
@@ -26,7 +26,7 @@ const vetoAckSetting = "veto_ack_minutes"
 const defaultVetoAckTimeout = 10 * time.Minute
 
 // vetoNoAgent is DismissedBy of a veto there was no agent to tell.
-const vetoNoAgent = "konsert: no agent to tell"
+const vetoNoAgent = "syre: no agent to tell"
 
 // Veto statuses as browsers see them (VetoView.Status).
 const (
@@ -45,7 +45,7 @@ type VetoView struct {
 	store.Veto
 	Status      string    `json:"status"`
 	AckDeadline time.Time `json:"ack_deadline"`
-	// DeliveredTo / AckedBy name the chat ("the orchestrator (chat c-…)").
+	// DeliveredTo / AckedBy name the chat ("the commander (chat c-…)").
 	DeliveredTo string `json:"delivered_to,omitempty"`
 	AckedBy     string `json:"acked_by,omitempty"`
 }
@@ -74,7 +74,7 @@ func vetoStatus(v store.Veto) string {
 	return VetoSent
 }
 
-// chatLabel names a chat for people: "the orchestrator (chat c-…)", "chat c-… (title)".
+// chatLabel names a chat for people: "the commander (chat c-…)", "chat c-… (title)".
 func (h *Hub) chatLabel(ctx context.Context, chatID string) string {
 	if chatID == "" {
 		return ""
@@ -84,7 +84,7 @@ func (h *Hub) chatLabel(ctx context.Context, chatID string) string {
 		return "chat " + chatID
 	}
 	if cs.FleetTools {
-		return "the orchestrator (chat " + cs.SID + ")"
+		return "the commander (chat " + cs.SID + ")"
 	}
 	return fmt.Sprintf("chat %s (%s)", cs.SID, cs.Title)
 }
@@ -108,8 +108,8 @@ func (h *Hub) trackVeto(ctx context.Context, ev store.FleetEvent, reason, note s
 		Reason: reason, Note: strings.TrimSpace(note), Summary: ev.Summary,
 		WorkerID: ev.WorkerID, TaskID: ev.TaskID, ChatID: ev.ChatID, FleetEventID: ev.ID, CreatedAt: ev.CreatedAt,
 	}
-	if ev.ChatID == "" && len(h.orchestratorChats(ctx)) == 0 {
-		// Nobody to tell: the veto lives on in orchestrator memory only.
+	if ev.ChatID == "" && len(h.commanderChats(ctx)) == 0 {
+		// Nobody to tell: the veto lives on in commander memory only.
 		at := ev.CreatedAt
 		v.DismissedAt, v.DismissedBy = &at, vetoNoAgent
 	}
@@ -182,7 +182,7 @@ func (h *Hub) escalateVetoes(ctx context.Context, now time.Time) {
 			continue
 		}
 		h.broadcastVeto(ctx, cur)
-		state := "it has not reached an agent yet (no orchestrator or vetoed chat has had a turn since)"
+		state := "it has not reached an agent yet (no commander or vetoed chat has had a turn since)"
 		if cur.DeliveredAt != nil {
 			state = "it was told to " + h.chatLabel(ctx, cur.DeliveredChatID) + " but that turn has not ended normally"
 		}

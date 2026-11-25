@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Durable outbound spool (KON-VZR9F, docs/design/spool.md). konsertd appends every
+// Durable outbound spool (SYR-VZR9F, docs/design/spool.md). syred appends every
 // hub-bound message that matters (chat events, task events and statuses, session
 // reports, activity, vitals) to an on-disk log before sending it, stamped with a
 // per-daemon sequence number (Envelope.Seq). The hub applies each seq at most once,
@@ -56,7 +56,7 @@ type SpoolAck struct {
 	Epoch string `json:"epoch,omitempty"`
 }
 
-// SpoolStatus describes a daemon's spool (worker.spool.status, `konsertd status`,
+// SpoolStatus describes a daemon's spool (worker.spool.status, `syred status`,
 // Fleet).
 type SpoolStatus struct {
 	// Bytes is the spool's size on disk and BudgetBytes its budget.

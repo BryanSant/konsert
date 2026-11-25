@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
-	"github.com/BryanSant/konsert/internal/worker/proctree"
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/proctree"
 )
 
 const (
@@ -445,7 +445,7 @@ type codexPending struct {
 }
 
 type codexTurn struct {
-	id        string // konsert turn id
+	id        string // syre turn id
 	codexID   string
 	cancelled bool
 	errored   bool
@@ -928,7 +928,7 @@ func (s *codexSession) watchdogLoop() {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 && !konsertToolRunning(s.turn.items) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
+		fire := s.turn != nil && !s.watchdogFired && !s.suspended && len(s.pending) == 0 && !syreToolRunning(s.turn.items) && s.eng.now().Sub(s.lastActivity) >= s.eng.watchdog
 		tid := ""
 		if fire {
 			s.watchdogFired = true
@@ -1540,7 +1540,7 @@ func (s *codexSession) onRequest(gen int, id jsontext.Value, method string, para
 	default:
 		// account/chatgptAuthTokens/refresh, attestation/generate, legacy v1 approvals,
 		// item/tool/call (no client tools registered): not supported.
-		_ = conn.respondError(id, -32601, "konsert does not support "+method)
+		_ = conn.respondError(id, -32601, "syre does not support "+method)
 		return
 	}
 	s.mu.Lock()

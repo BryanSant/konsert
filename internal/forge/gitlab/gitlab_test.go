@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/forge"
+	"github.com/BryanSant/syre/internal/forge"
 )
 
 func TestGitLabClient(t *testing.T) {

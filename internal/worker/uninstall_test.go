@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/config"
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/install"
 )
 
 // recRunner records the service commands an uninstall runs.
@@ -62,7 +62,7 @@ func (a *sharedAccount) uninstaller(self bool) *Uninstaller {
 		Installer: a.in, StateDir: a.state, Self: self, LockWait: 300 * time.Millisecond,
 		RemoveHooks: func() ([]string, error) {
 			a.hooksRm++
-			return []string{"removed the Konsert hooks from ~/.claude/settings.json"}, nil
+			return []string{"removed the Syre hooks from ~/.claude/settings.json"}, nil
 		},
 		DropHubGrant: func(hubID, workerID string) (string, bool, error) {
 			a.grants = append(a.grants, hubID+"/"+workerID)
@@ -97,9 +97,9 @@ func (a *sharedAccount) winService(instance, name string) string {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		a.t.Fatal(err)
 	}
-	file := "konsertd.yaml"
+	file := "syred.yaml"
 	if instance != "" {
-		file = "konsertd-" + instance + ".yaml"
+		file = "syred-" + instance + ".yaml"
 	}
 	p := filepath.Join(dir, file)
 	if err := os.WriteFile(p, []byte("name: "+name+"\n"), 0o600); err != nil {
@@ -143,13 +143,13 @@ func (a *sharedAccount) nohup(name string, pid int) string {
 	if err := os.WriteFile(base+".pid", []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
 		a.t.Fatal(err)
 	}
-	a.procArgs[pid] = "/home/me/.local/bin/konsertd run -c " + base + ".yaml"
+	a.procArgs[pid] = "/home/me/.local/bin/syred run -c " + base + ".yaml"
 	return base + ".yaml"
 }
 
 // A host and two containers share one home (bocabox, bocabox-1, bocabox-2): removing a
 // container removes only its own daemon, and the agent hooks stay until the last
-// konsertd on the account goes.
+// syred on the account goes.
 func TestRemoveIdentitySharedHomeKeepsHooksUntilLast(t *testing.T) {
 	a := newSharedAccount(t)
 	host := a.identity("bocabox")
@@ -190,7 +190,7 @@ func TestRemoveIdentitySharedHomeKeepsHooksUntilLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.hooksRm != 0 {
-		t.Error("hooks removed while the host's konsertd remains")
+		t.Error("hooks removed while the host's syred remains")
 	}
 
 	rep, err = a.uninstaller(false).RemoveIdentity(context.Background(), host, "hub1")
@@ -229,7 +229,7 @@ func TestRemoveIdentitySelf(t *testing.T) {
 		t.Fatalf("rep = %+v, %v", rep, err)
 	}
 	for _, c := range a.runner.calls {
-		if strings.Contains(c, "--now") || strings.HasPrefix(c, "schtasks /End") || c == "launchctl bootout gui/501/dev.konsert.konsertd" {
+		if strings.Contains(c, "--now") || strings.HasPrefix(c, "schtasks /End") || c == "launchctl bootout gui/501/dev.syre.syred" {
 			t.Errorf("blocking stop from inside the daemon: %q", c)
 		}
 	}
@@ -250,7 +250,7 @@ func TestRemoveIdentityIgnoresReusedPID(t *testing.T) {
 }
 
 // Nothing installed (the daemon already removed itself): nothing is touched, and the
-// hooks stay even though no other konsertd is installed.
+// hooks stay even though no other syred is installed.
 func TestRemoveIdentityNothingInstalled(t *testing.T) {
 	a := newSharedAccount(t)
 	id := ids.UUID()
@@ -292,7 +292,7 @@ func TestRemoveIdentityLock(t *testing.T) {
 	if err := os.WriteFile(lock, []byte("1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.uninstaller(false).RemoveIdentity(context.Background(), id, ""); err == nil || !strings.Contains(err.Error(), "another konsertd removal") {
+	if _, err := a.uninstaller(false).RemoveIdentity(context.Background(), id, ""); err == nil || !strings.Contains(err.Error(), "another syred removal") {
 		t.Fatalf("err = %v, want a busy lock", err)
 	}
 	old := time.Now().Add(-time.Hour)
@@ -351,7 +351,7 @@ func fileExists(p string) bool {
 func configForName(name string) config.WorkerConfig { return config.WorkerConfig{Name: name} }
 
 // A container's identity file carries its isolation; the installed config is read like
-// `konsertd run` reads it, so the removal finds it.
+// `syred run` reads it, so the removal finds it.
 func TestRemoveIdentityFindsContainerIdentity(t *testing.T) {
 	a := newSharedAccount(t)
 	id := ids.UUID()
@@ -372,7 +372,7 @@ func TestRemoveIdentityFindsContainerIdentity(t *testing.T) {
 
 // A native Windows service (install --service) is found by identity like the other
 // mechanisms, and removed by the hub (over SSH, not elevated) or by the daemon itself
-// on 4001 with the self-safe sequence (KON-28HHD). The hooks go with the last one.
+// on 4001 with the self-safe sequence (SYR-28HHD). The hooks go with the last one.
 func TestRemoveIdentityWindowsService(t *testing.T) {
 	a := newSharedAccount(t)
 	svcID := a.identity("builder")
@@ -391,7 +391,7 @@ func TestRemoveIdentityWindowsService(t *testing.T) {
 		t.Errorf("rep = %+v", rep)
 	}
 	if a.hooksRm != 0 {
-		t.Error("hooks removed while another konsertd remains")
+		t.Error("hooks removed while another syred remains")
 	}
 
 	if _, err := a.uninstaller(true).RemoveIdentity(context.Background(), other, ""); err != nil {

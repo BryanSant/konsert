@@ -1,8 +1,8 @@
-# Forge adapters (KON-QHGWZ)
+# Forge adapters (SYR-QHGWZ)
 
-Konsert talks to code forges (GitHub, GitLab, Forgejo/Gitea) directly from the hub over
+Syre talks to code forges (GitHub, GitLab, Forgejo/Gitea) directly from the hub over
 their HTTP APIs with no CLI dependency. Plain git operations (fetch, branch, commit, push,
-local merge) stay on the worker daemon (`konsertd`) that owns the checkout; the hub only
+local merge) stay on the worker daemon (`syred`) that owns the checkout; the hub only
 performs forge API calls (pull/merge requests, checks, auto-merge, review comments, fork
 lookup).
 
@@ -71,7 +71,7 @@ order:
    personal access token) — wins over discovered credentials because it represents the
    user's deliberate choice for that host.
 2. **`git credential fill`** for `protocol=https` and `host=<host>`, invoked read-only
-   (Konsert never calls `git credential approve` or `reject`) with
+   (Syre never calls `git credential approve` or `reject`) with
    `-c credential.interactive=false`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`,
    `GIT_ASKPASS=`, `SSH_ASKPASS=`, and a 5s timeout so headless hub runs never pop up GUI
    prompts, browser sign-ins, or block waiting for interactive input. Uses whatever helper
@@ -90,8 +90,8 @@ to `CompareURL`.
 `DeviceFlowClient` implements RFC 8628 (OAuth 2.0 Device Authorization Grant) for GitHub
 (`/login/device/code`, `/login/oauth/access_token`) and GitLab (`/oauth/authorize_device`,
 `/oauth/token`). Client IDs are supplied via controller config (`forges.github_client_id`,
-`forges.gitlab_client_id`) or environment variables (`KONSERT_GITHUB_CLIENT_ID`,
-`KONSERT_GITLAB_CLIENT_ID`). When a client ID is empty (or for Forgejo), device flow
+`forges.gitlab_client_id`) or environment variables (`SYRE_GITHUB_CLIENT_ID`,
+`SYRE_GITLAB_CLIENT_ID`). When a client ID is empty (or for Forgejo), device flow
 reports `ErrDeviceFlowUnavailable` (HTTP 501 on the REST API).
 
 ## Storage and security

@@ -9,7 +9,7 @@ import path from 'node:path';
 // other's hub.
 export const E2E_STATE_FILE = path.join(
   os.tmpdir(),
-  `konsert-playwright-e2e-${createHash('sha256').update(__dirname).digest('hex').slice(0, 12)}.json`,
+  `syre-playwright-e2e-${createHash('sha256').update(__dirname).digest('hex').slice(0, 12)}.json`,
 );
 
 export function getFreePort(): Promise<number> {
@@ -45,9 +45,9 @@ export async function waitFor(predicate: () => Promise<boolean>, timeoutMs: numb
 /**
  * The e2e stack must prove the subscription-first promise: nothing may work because an API
  * key happens to be in the developer's or CI runner's environment. Strip every provider key
- * and orchestrator LLM override before spawning konsert and konsertd.
+ * and commander LLM override before spawning syre and syred.
  */
-const API_KEY_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GENAI_|XAI_|GROK_|MISTRAL_|COHERE_|OPENROUTER_|KONSERT_LLM_|CLAUDE_CODE_OAUTH_TOKEN$|CURSOR_API_KEY$|GH_TOKEN$|GITHUB_TOKEN$|COPILOT_)/;
+const API_KEY_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GENAI_|XAI_|GROK_|MISTRAL_|COHERE_|OPENROUTER_|SYRE_LLM_|CLAUDE_CODE_OAUTH_TOKEN$|CURSOR_API_KEY$|GH_TOKEN$|GITHUB_TOKEN$|COPILOT_)/;
 
 export function subscriptionOnlyEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
@@ -61,7 +61,7 @@ export function subscriptionOnlyEnv(extra: Record<string, string> = {}): Record<
 export async function createJoinCode(baseURL: string, cookie: string): Promise<string> {
   const res = await fetch(`${baseURL}/api/machines/join-codes`, {
     method: 'POST',
-    headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Konsert-Request': '1' },
+    headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
     body: '{}',
   });
   if (!res.ok) throw new Error(`create join code: ${res.status} ${await res.text()}`);
@@ -69,32 +69,32 @@ export async function createJoinCode(baseURL: string, cookie: string): Promise<s
 }
 
 /**
- * Runs `konsertd join <hub> <code> --foreground` with its own state dir. Its identity and
- * credential stay out of the developer's ~/.konsert, and it never runs (or reads the
+ * Runs `syred join <hub> <code> --foreground` with its own state dir. Its identity and
+ * credential stay out of the developer's ~/.syre, and it never runs (or reads the
  * logins of) the host's real agent CLIs: only mock accounts.
  */
-export function spawnJoin(konsertdBin: string, cwd: string, baseURL: string, code: string, stateDir: string, extra: string[]): ChildProcess {
-  return spawn(konsertdBin, ['join', baseURL, code, '--foreground', ...extra], {
+export function spawnJoin(syredBin: string, cwd: string, baseURL: string, code: string, stateDir: string, extra: string[]): ChildProcess {
+  return spawn(syredBin, ['join', baseURL, code, '--foreground', ...extra], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: subscriptionOnlyEnv({
-      KONSERT_STATE_DIR: stateDir,
-      KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+      SYRE_STATE_DIR: stateDir,
+      SYRE_DISABLE_AGENT_DISCOVERY: '1',
     }),
   });
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const repoRoot = path.resolve(__dirname, '..', '..');
-  const konsertBin = path.join(repoRoot, 'bin', 'konsert');
-  const konsertdBin = path.join(repoRoot, 'bin', 'konsertd');
+  const syreBin = path.join(repoRoot, 'bin', 'syre');
+  const syredBin = path.join(repoRoot, 'bin', 'syred');
 
-  if (!fs.existsSync(konsertBin) || !fs.existsSync(konsertdBin)) {
-    throw new Error(`Compiled binaries not found at ${konsertBin} and ${konsertdBin}. Run 'make web && make build' first.`);
+  if (!fs.existsSync(syreBin) || !fs.existsSync(syredBin)) {
+    throw new Error(`Compiled binaries not found at ${syreBin} and ${syredBin}. Run 'make web && make build' first.`);
   }
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'konsert-e2e-'));
-  const dbPath = path.join(tmpDir, 'konsert.db');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'syre-e2e-'));
+  const dbPath = path.join(tmpDir, 'syre.db');
   const workdir = path.join(tmpDir, 'workspace');
   fs.mkdirSync(workdir, { recursive: true });
 
@@ -106,7 +106,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const procs: ChildProcess[] = [];
 
   const controller = spawn(
-    konsertBin,
+    syreBin,
     [
       'serve',
       '--listen',
@@ -119,12 +119,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // GET /api/setup runs `konsertd id`, and adding this machine would run `konsertd
-      // install`: keep the identity out of ~/.konsert and never register a real service.
+      // GET /api/setup runs `syred id`, and adding this machine would run `syred
+      // install`: keep the identity out of ~/.syre and never register a real service.
       env: subscriptionOnlyEnv({
-        KONSERT_STATE_DIR: path.join(tmpDir, 'hub-state'),
-        KONSERT_INSTALL_DRY_RUN: '1',
-        KONSERT_DISABLE_AGENT_DISCOVERY: '1',
+        SYRE_STATE_DIR: path.join(tmpDir, 'hub-state'),
+        SYRE_INSTALL_DRY_RUN: '1',
+        SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),
     }
   );
@@ -136,7 +136,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       return res.ok;
     },
     10_000,
-    'konsert /api/health'
+    'syre /api/health'
   );
 
   const loginRes = await fetch(`${baseURL}/api/auth/login`, {
@@ -148,9 +148,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const cookieHeader = setCookie.split(';')[0] || '';
 
   // The worker joins like a manual machine: a one-time code buys its own credential
-  // (KON-RK9YD); --foreground runs it here instead of installing a service.
+  // (SYR-RK9YD); --foreground runs it here instead of installing a service.
   const code = await createJoinCode(baseURL, cookieHeader);
-  const worker = spawnJoin(konsertdBin, repoRoot, baseURL, code, path.join(tmpDir, 'state'), [
+  const worker = spawnJoin(syredBin, repoRoot, baseURL, code, path.join(tmpDir, 'state'), [
     '--name',
     workerName,
     '--host-group',
@@ -159,7 +159,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   ]);
   procs.push(worker);
 
-  // konsertd registers with its own persisted UUIDv7 identity; the hub mints its m- sid.
+  // syred registers with its own persisted UUIDv7 identity; the hub mints its m- sid.
   let workerId = '';
   let workerSid = '';
   await waitFor(
@@ -176,7 +176,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       return true;
     },
     10_000,
-    'konsertd worker registration'
+    'syred worker registration'
   );
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(workerId) || !/^m-[0-9a-z]{5,12}$/.test(workerSid)) {
     throw new Error(`worker registered as id=${workerId} sid=${workerSid}; want a UUIDv7 id and an m- sid`);
@@ -184,7 +184,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   fs.writeFileSync(
     E2E_STATE_FILE,
-    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir, konsertdBin, repoRoot, tmpDir })
+    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir, syredBin, repoRoot, tmpDir })
   );
 
   return async () => {

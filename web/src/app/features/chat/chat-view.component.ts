@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { AgentAccount, ChatStatus } from '../../core/models/agent-chat.models';
 import { accountHealth, alternativeAccounts } from '../../core/models/agent-usage';
-import { ChatSession } from '../../core/models/konsert.models';
-import { KonsertSocketService } from '../../core/services/konsert-socket.service';
+import { ChatSession } from '../../core/models/syre.models';
+import { SyreSocketService } from '../../core/services/syre-socket.service';
 import { AgentAccountsStore } from '../../core/state/agent-accounts.store';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { ATTACHMENT_MARKER } from '../../core/state/chat-transcript';
 import { FleetStore } from '../../core/state/fleet.store';
-import { OrchestratorStore, isAgentChat } from '../../core/state/orchestrator.store';
+import { CommanderStore, isAgentChat } from '../../core/state/commander.store';
 import { IconComponent } from '../../shared/icon.component';
 import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
@@ -64,82 +64,82 @@ export function chatTitleFrom(text: string): string {
     KeepToggleComponent,
   ],
   template: `
-    <div class="flex flex-col h-full w-full bg-[var(--ks-surface-0)]">
+    <div class="flex flex-col h-full w-full bg-[var(--sy-surface-0)]">
       <!-- Header -->
       <header class="flex items-center gap-2 px-3 sm:px-4 h-12 shrink-0">
         @if (renaming()) {
           <form class="flex items-center gap-1.5" (submit)="$event.preventDefault(); commitRename()">
-            <label class="ks-sr-only" for="ks-chat-rename">Chat title</label>
+            <label class="sy-sr-only" for="sy-chat-rename">Chat title</label>
             <input
-              id="ks-chat-rename"
+              id="sy-chat-rename"
               type="text"
               autofocus
-              class="h-8 w-[240px] rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 text-[12.5px] text-[var(--ks-text)] outline-none focus-visible:shadow-[var(--ks-focus-ring)]"
+              class="h-8 w-[240px] rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 text-[12.5px] text-[var(--sy-text)] outline-none focus-visible:shadow-[var(--sy-focus-ring)]"
               [value]="renameDraft()"
               (input)="renameDraft.set($any($event.target).value)"
               (keydown.escape)="renaming.set(false)"
             />
-            <button type="submit" class="ks-btn ks-btn-sm ks-btn-primary">Save</button>
-            <button type="button" class="ks-btn ks-btn-sm" (click)="renaming.set(false)">Cancel</button>
+            <button type="submit" class="sy-btn sy-btn-sm sy-btn-primary">Save</button>
+            <button type="button" class="sy-btn sy-btn-sm" (click)="renaming.set(false)">Cancel</button>
           </form>
         } @else {
-          <ks-popover label="Chats" placement="bottom-start" panelClass="w-[340px] max-h-[420px] overflow-y-auto" [(open)]="switcherOpen">
-            <button type="button" ksPopoverTrigger class="ks-btn gap-2 -ml-1.5 max-w-[38vw] sm:max-w-[min(46vw,320px)]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
+          <sy-popover label="Chats" placement="bottom-start" panelClass="w-[340px] max-h-[420px] overflow-y-auto" [(open)]="switcherOpen">
+            <button type="button" syPopoverTrigger class="sy-btn gap-2 -ml-1.5 max-w-[38vw] sm:max-w-[min(46vw,320px)]" data-testid="chat-switcher" [attr.aria-label]="'Chat: ' + title()">
               @if (active(); as s) {
-                <app-icon [name]="s.agent || 'orchestrator'" [size]="14" />
+                <app-icon [name]="s.agent || 'commander'" [size]="14" />
               }
-              <span class="truncate text-[13px] font-semibold text-[var(--ks-text)]">{{ title() }}</span>
+              <span class="truncate text-[13px] font-semibold text-[var(--sy-text)]">{{ title() }}</span>
               <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" class="shrink-0 opacity-70">
                 <path d="M2.5 4 5 6.5 7.5 4" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </button>
-            <button type="button" role="menuitem" class="ks-menu-item items-center" (click)="newChat()">
+            <button type="button" role="menuitem" class="sy-menu-item items-center" (click)="newChat()">
               <app-icon name="plus" [size]="14" />
-              <span class="ks-menu-label">New chat</span>
+              <span class="sy-menu-label">New chat</span>
             </button>
             @if (orch.sessions().length) {
-              <div class="ks-menu-sep"></div>
+              <div class="sy-menu-sep"></div>
             }
             @for (s of orch.sessions(); track s.id) {
               <button
                 type="button"
                 role="menuitemradio"
-                class="ks-menu-item items-center"
+                class="sy-menu-item items-center"
                 [attr.aria-checked]="s.id === orch.activeSessionId()"
                 [attr.data-chat]="s.id"
                 (click)="select(s)"
               >
-                <app-icon [name]="s.agent || 'orchestrator'" [size]="14" />
+                <app-icon [name]="s.agent || 'commander'" [size]="14" />
                 <span class="flex-1 min-w-0">
-                  <span class="ks-menu-label block truncate">{{ s.title }}</span>
-                  <span class="ks-menu-desc block truncate">{{ sessionSubtitle(s) }}</span>
+                  <span class="sy-menu-label block truncate">{{ s.title }}</span>
+                  <span class="sy-menu-desc block truncate">{{ sessionSubtitle(s) }}</span>
                 </span>
                 @if (statusOf(s); as st) {
                   @if (st !== 'idle') {
-                    <ks-status-pill [status]="st" [compact]="true" />
+                    <sy-status-pill [status]="st" [compact]="true" />
                   }
                 }
               </button>
             }
-          </ks-popover>
+          </sy-popover>
 
           <div aria-live="polite" class="shrink-0 max-w-[45%] overflow-hidden hidden sm:flex items-center">
             @if (active()) {
-              <ks-status-pill [status]="status()" [subtitle]="subtitle()" data-testid="header-status" />
+              <sy-status-pill [status]="status()" [subtitle]="subtitle()" data-testid="header-status" />
             }
           </div>
           @if (active() && (status() === 'working' || status() === 'needs_you' || status() === 'starting')) {
-            <button type="button" class="ks-btn ks-btn-sm ks-btn-danger" data-testid="header-stop" (click)="stopTurn()">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="header-stop" (click)="stopTurn()">
               <app-icon name="stop" [size]="11" />
               Stop
             </button>
           }
           @if (active(); as s) {
             @if (isAgent()) {
-              <ks-session-controls kind="chat" [sessionId]="s.id" [status]="status()" [compact]="true" />
+              <sy-session-controls kind="chat" [sessionId]="s.id" [status]="status()" [compact]="true" />
             }
             @if (causeText()) {
-              <span class="hidden lg:inline truncate text-[11px] text-[var(--ks-text-muted)]" data-testid="header-cause">{{ causeText() }}</span>
+              <span class="hidden lg:inline truncate text-[11px] text-[var(--sy-text-muted)]" data-testid="header-cause">{{ causeText() }}</span>
             }
           }
         }
@@ -148,22 +148,22 @@ export function chatTitleFrom(text: string): string {
 
         @if (active(); as s) {
           @if (!renaming()) {
-            <ks-keep-toggle kind="chat" [id]="s.id" [keep]="!!s.keep" [compact]="true" />
+            <sy-keep-toggle kind="chat" [id]="s.id" [keep]="!!s.keep" [compact]="true" />
           }
         }
         @if (active() && !renaming()) {
-          <button type="button" class="ks-icon-btn hidden sm:inline-flex" aria-label="Rename chat" ksTooltip="Rename chat" (click)="startRename()">
+          <button type="button" class="sy-icon-btn hidden sm:inline-flex" aria-label="Rename chat" syTooltip="Rename chat" (click)="startRename()">
             <app-icon name="edit" [size]="14" />
           </button>
-          <button type="button" class="ks-icon-btn ks-btn-danger hidden sm:inline-flex" aria-label="Delete chat" ksTooltip="Delete chat" (click)="deleteActive()">
+          <button type="button" class="sy-icon-btn sy-btn-danger hidden sm:inline-flex" aria-label="Delete chat" syTooltip="Delete chat" (click)="deleteActive()">
             <app-icon name="trash" [size]="14" />
           </button>
         }
-        <button type="button" class="ks-btn" (click)="newChat()" data-testid="new-chat" aria-label="New chat">
+        <button type="button" class="sy-btn" (click)="newChat()" data-testid="new-chat" aria-label="New chat">
           <app-icon name="plus" [size]="13" />
           <span class="hidden sm:inline">New chat</span>
         </button>
-        <button type="button" class="ks-btn" (click)="openNewTerminal.emit()" aria-label="New terminal">
+        <button type="button" class="sy-btn" (click)="openNewTerminal.emit()" aria-label="New terminal">
           <app-icon name="shell" [size]="13" />
           <span class="hidden sm:inline">Terminal</span>
         </button>
@@ -171,13 +171,13 @@ export function chatTitleFrom(text: string): string {
 
       @if (active()) {
         <div class="sm:hidden flex items-center gap-2 px-3 pb-1" aria-hidden="true">
-          <ks-status-pill [status]="status()" [subtitle]="subtitle()" [compact]="true" />
+          <sy-status-pill [status]="status()" [subtitle]="subtitle()" [compact]="true" />
         </div>
       }
 
       <!-- Body -->
       @if (active(); as s) {
-        <ks-chat-transcript
+        <sy-chat-transcript
           class="flex-1"
           [items]="items()"
           [status]="status()"
@@ -198,24 +198,24 @@ export function chatTitleFrom(text: string): string {
         />
       } @else {
         <div class="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-6 text-center">
-          <img src="icon.svg" alt="" class="h-9 w-9 mb-4 opacity-90" />
-          <h2 class="text-[19px] font-semibold tracking-tight text-[var(--ks-text)] mb-1.5">What should we work on?</h2>
-          <p class="max-w-md text-[13px] text-[var(--ks-text-secondary)] mb-6">
+          <img src="logo.svg" alt="" class="h-9 w-9 mb-4 opacity-90" />
+          <h2 class="text-[19px] font-semibold tracking-tight text-[var(--sy-text)] mb-1.5">What should we work on?</h2>
+          <p class="max-w-md text-[13px] text-[var(--sy-text-secondary)] mb-6">
             Chat with the agents you're already signed in to, on any of your machines. No API key needed.
           </p>
           <div class="flex flex-wrap justify-center gap-1.5 mb-4">
             @for (p of suggestions; track p.label) {
-              <button type="button" class="ks-btn ks-btn-soft" (click)="composer()?.setDraft(p.prompt)">{{ p.label }}</button>
+              <button type="button" class="sy-btn sy-btn-soft" (click)="composer()?.setDraft(p.prompt)">{{ p.label }}</button>
             }
           </div>
           <button
             type="button"
-            class="ks-btn ks-btn-sm"
+            class="sy-btn sy-btn-sm"
             [attr.aria-pressed]="fleetTools()"
-            ksTooltip="Lets the agent see your fleet and dispatch work to other machines"
+            syTooltip="Lets the agent see your fleet and dispatch work to other machines"
             (click)="fleetTools.set(!fleetTools())"
           >
-            <span class="h-3.5 w-6 rounded-full p-0.5 transition-colors" [class.bg-[var(--ks-blue)]]="fleetTools()" [class.bg-[#3a3c44]]="!fleetTools()">
+            <span class="h-3.5 w-6 rounded-full p-0.5 transition-colors" [class.bg-[var(--sy-blue)]]="fleetTools()" [class.bg-[#3a3c44]]="!fleetTools()">
               <span class="block h-2.5 w-2.5 rounded-full bg-white transition-transform" [class.translate-x-2.5]="fleetTools()"></span>
             </span>
             Fleet tools
@@ -225,10 +225,10 @@ export function chatTitleFrom(text: string): string {
 
       @if (bannerError()) {
         <div class="max-w-3xl w-full mx-auto px-4">
-          <div role="alert" class="flex items-center gap-2 rounded-[var(--ks-radius-md)] bg-[var(--ks-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">
+          <div role="alert" class="flex items-center gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">
             <app-icon name="alert" [size]="13" />
             <span class="flex-1">{{ bannerError() }}</span>
-            <button type="button" class="ks-icon-btn ks-icon-btn-sm" aria-label="Dismiss" (click)="clearErrors()">
+            <button type="button" class="sy-icon-btn sy-icon-btn-sm" aria-label="Dismiss" (click)="clearErrors()">
               <app-icon name="close" [size]="11" />
             </button>
           </div>
@@ -238,7 +238,7 @@ export function chatTitleFrom(text: string): string {
       <!-- Composer -->
       <div class="px-3 sm:px-4 pb-3 pt-2 shrink-0">
         <div class="max-w-3xl mx-auto">
-          <ks-chat-composer
+          <sy-chat-composer
             [accounts]="composerAccounts()"
             [(selection)]="selection"
             [mode]="isApiChat() ? 'api' : 'agent'"
@@ -261,11 +261,11 @@ export function chatTitleFrom(text: string): string {
 export class ChatViewComponent implements OnInit {
   readonly openNewTerminal = output<void>();
 
-  readonly orch = inject(OrchestratorStore);
+  readonly orch = inject(CommanderStore);
   readonly agentChat = inject(AgentChatStore);
   readonly accounts = inject(AgentAccountsStore);
   private readonly fleet = inject(FleetStore);
-  private readonly socket = inject(KonsertSocketService);
+  private readonly socket = inject(SyreSocketService);
   private readonly relogin = inject(ReloginService);
   readonly composer = viewChild(ChatComposerComponent);
 
@@ -286,7 +286,7 @@ export class ChatViewComponent implements OnInit {
   readonly active = computed(() => this.orch.sessions().find((s) => s.id === this.orch.activeSessionId()) ?? null);
   readonly isApiChat = computed(() => !!this.active() && !isAgentChat(this.active()));
   readonly isAgent = computed(() => !!this.active() && isAgentChat(this.active()));
-  /** "Suspended by you via the Konsert UI" for user-caused states; empty otherwise. */
+  /** "Suspended by you via the Syre UI" for user-caused states; empty otherwise. */
   readonly causeText = computed(() => {
     const s = this.active();
     const st = this.status();
@@ -400,7 +400,7 @@ export class ChatViewComponent implements OnInit {
   }
 
   sessionSubtitle(s: ChatSession): string {
-    if (!isAgentChat(s)) return 'API-key orchestrator';
+    if (!isAgentChat(s)) return 'API-key commander';
     const acct = s.worker_id ? this.accounts.find(s.worker_id, s.account_id || '') : undefined;
     const host = s.worker_id ? this.fleet.workersById()[s.worker_id]?.name : '';
     return [acct?.label || s.account_id || s.agent, host].filter(Boolean).join(' · ');

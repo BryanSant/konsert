@@ -18,47 +18,47 @@ import { shortWhen } from './pause-everything.component';
  * the user to do (mark done or decline).
  */
 @Component({
-  selector: 'ks-holds-requests',
+  selector: 'sy-holds-requests',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective],
   host: { class: 'block space-y-3' },
   template: `
-    <section aria-labelledby="ks-holds-heading" data-testid="holds-list">
+    <section aria-labelledby="sy-holds-heading" data-testid="holds-list">
       <h3
-        id="ks-holds-heading"
-        class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)] mb-1.5"
+        id="sy-holds-heading"
+        class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)] mb-1.5"
       >
         <app-icon name="lock" [size]="11" />
         Holds
         <span class="font-mono-ide normal-case tracking-normal">{{ holds().length }}</span>
       </h3>
       @if (holds().length === 0) {
-        <p class="text-[11.5px] text-[var(--ks-text-muted)]">
+        <p class="text-[11.5px] text-[var(--sy-text-muted)]">
           No holds. Automatic retries and restarts run normally.
         </p>
       }
       <ul class="space-y-1.5">
         @for (h of holds(); track h.id) {
           <li
-            class="rounded-[var(--ks-radius-md)] bg-[var(--ks-raised)] px-2.5 py-2 text-[11.5px]"
+            class="rounded-[var(--sy-radius-md)] bg-[var(--sy-raised)] px-2.5 py-2 text-[11.5px]"
             [attr.data-hold]="h.sid"
           >
             <div class="flex items-start gap-2">
               <div class="flex-1 min-w-0">
-                <div class="text-[var(--ks-text)] break-words">{{ h.summary || scopeText(h) }}</div>
-                <div class="text-[10.5px] text-[var(--ks-text-muted)] mt-0.5">
+                <div class="text-[var(--sy-text)] break-words">{{ h.summary || scopeText(h) }}</div>
+                <div class="text-[10.5px] text-[var(--sy-text-muted)] mt-0.5">
                   {{ scopeText(h) }} · {{ actor(h) }} ·
                   <span class="font-mono-ide">{{ h.sid }}</span> · {{ when(h.created_at) }}
                 </div>
               </div>
               <button
                 type="button"
-                class="ks-btn ks-btn-sm shrink-0"
+                class="sy-btn sy-btn-sm shrink-0"
                 [attr.data-testid]="'hold-release-' + h.sid"
                 [disabled]="control.isBusy(h.id)"
                 (click)="control.releaseHold(h)"
-                ksTooltip="Allow automatic actions here again"
+                syTooltip="Allow automatic actions here again"
               >
                 Release
               </button>
@@ -68,28 +68,28 @@ import { shortWhen } from './pause-everything.component';
       </ul>
     </section>
 
-    <section aria-labelledby="ks-requests-heading" data-testid="requests-list">
+    <section aria-labelledby="sy-requests-heading" data-testid="requests-list">
       <h3
-        id="ks-requests-heading"
-        class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ks-text-muted)] mb-1.5"
+        id="sy-requests-heading"
+        class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--sy-text-muted)] mb-1.5"
       >
         <app-icon name="hand" [size]="11" />
         Open requests
         <span class="font-mono-ide normal-case tracking-normal">{{ requests().length }}</span>
       </h3>
       @if (requests().length === 0) {
-        <p class="text-[11.5px] text-[var(--ks-text-muted)]">
+        <p class="text-[11.5px] text-[var(--sy-text-muted)]">
           No agent is waiting for you to do something.
         </p>
       }
       <ul class="space-y-1.5">
         @for (r of requests(); track r.id) {
           <li
-            class="rounded-[var(--ks-radius-md)] bg-[var(--ks-amber-soft)] px-2.5 py-2 text-[11.5px]"
+            class="rounded-[var(--sy-radius-md)] bg-[var(--sy-amber-soft)] px-2.5 py-2 text-[11.5px]"
             [attr.data-request]="r.sid"
           >
-            <div class="text-[var(--ks-text)] break-words">{{ r.description }}</div>
-            <div class="text-[10.5px] text-[var(--ks-text-muted)] mt-0.5">
+            <div class="text-[var(--sy-text)] break-words">{{ r.description }}</div>
+            <div class="text-[10.5px] text-[var(--sy-text-muted)] mt-0.5">
               {{ machineName(r.worker_id) }}
               @if (resource(r); as res) {
                 · {{ res }}
@@ -99,7 +99,7 @@ import { shortWhen } from './pause-everything.component';
             <div class="flex justify-end gap-1.5 mt-1.5">
               <button
                 type="button"
-                class="ks-btn ks-btn-sm"
+                class="sy-btn sy-btn-sm"
                 [attr.data-testid]="'request-decline-' + r.sid"
                 [disabled]="control.isBusy(r.id)"
                 (click)="control.resolveRequest(r, 'declined')"
@@ -108,11 +108,11 @@ import { shortWhen } from './pause-everything.component';
               </button>
               <button
                 type="button"
-                class="ks-btn ks-btn-sm ks-btn-soft"
+                class="sy-btn sy-btn-sm sy-btn-soft"
                 [attr.data-testid]="'request-done-' + r.sid"
                 [disabled]="control.isBusy(r.id)"
                 (click)="control.resolveRequest(r, 'done')"
-                ksTooltip="Tell the agent it is done so it continues"
+                syTooltip="Tell the agent it is done so it continues"
               >
                 <app-icon name="check" [size]="11" />
                 Mark done

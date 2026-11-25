@@ -27,7 +27,7 @@ func TestRelayRoundTrip(t *testing.T) {
 			return
 		}
 		got = r
-		fmt.Fprint(c.Stdout(), "Created service konsertd\n")
+		fmt.Fprint(c.Stdout(), "Created service syred\n")
 		fmt.Fprint(c.Stderr(), "Warning: something\n")
 		big := strings.Repeat("x", maxFrame+10) // split into two frames
 		_, _ = io.WriteString(c.Stdout(), big)
@@ -44,7 +44,7 @@ func TestRelayRoundTrip(t *testing.T) {
 	if got.Password != req.Password || got.Dir != req.Dir || strings.Join(got.Args, " ") != strings.Join(req.Args, " ") {
 		t.Errorf("child got %+v", got)
 	}
-	if !strings.HasPrefix(out.String(), "Created service konsertd\n") || out.Len() != len("Created service konsertd\n")+maxFrame+10 {
+	if !strings.HasPrefix(out.String(), "Created service syred\n") || out.Len() != len("Created service syred\n")+maxFrame+10 {
 		t.Errorf("stdout: %d bytes, prefix %q", out.Len(), out.String()[:30])
 	}
 	if errOut.String() != "Warning: something\n" {

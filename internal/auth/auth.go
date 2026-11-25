@@ -19,11 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 // SessionCookieName is the browser cookie that carries the device credential.
-const SessionCookieName = "konsert_session"
+const SessionCookieName = "syre_session"
 
 // cookieMaxAge is the browser-side lifetime of the session cookie. The hub enforces
 // the real (sliding) expiry; 400 days is the most browsers accept.
@@ -33,7 +33,7 @@ const cookieMaxAge = 400 * 24 * 3600
 const DefaultIdleExpiry = 90 * 24 * time.Hour
 
 // Manager handles authentication for browser PWA sessions, the CLI and MCP HTTP
-// clients. Worker (konsertd) connections authenticate with per-machine credentials
+// clients. Worker (syred) connections authenticate with per-machine credentials
 // (see machine.go), which the controller checks against its store.
 type Manager struct {
 	recoveryKey           atomic.Pointer[string]

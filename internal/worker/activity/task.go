@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Task derives the coarse activity of a PTY task from its driver telemetry (the agent's

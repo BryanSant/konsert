@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 func initTestRepo(t *testing.T, withBareRemote bool) (repoDir, bareDir string) {
 	t.Helper()
-	base, err := os.MkdirTemp(tempBaseDir(), "konsert-gitutil-*")
+	base, err := os.MkdirTemp(tempBaseDir(), "syre-gitutil-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func assertNoTempWorktrees(t *testing.T, repoDir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "konsert-merge-") {
+	if strings.Contains(out, "syre-merge-") {
 		t.Fatalf("temp merge worktree was not removed:\n%s", out)
 	}
 }
@@ -139,7 +139,7 @@ func TestRepoGitInfo(t *testing.T) {
 func TestPushBranchToOriginAndForkURL(t *testing.T) {
 	ctx := context.Background()
 	repo, bare := initTestRepo(t, true)
-	wt, _, err := CreateWorktree(ctx, repo, "t-push", "konsert/t-push")
+	wt, _, err := CreateWorktree(ctx, repo, "t-push", "syre/t-push")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,12 +147,12 @@ func TestPushBranchToOriginAndForkURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// PushBranch auto-commits dirty files inside a Konsert task worktree when CommitMessage is provided.
+	// PushBranch auto-commits dirty files inside a Syre task worktree when CommitMessage is provided.
 	res := PushBranch(ctx, wt, protocol.GitPushRequest{CommitMessage: "Add feature"})
-	if !res.OK || res.Branch != "konsert/t-push" || res.RemoteURL != bare || res.HeadSHA == "" {
+	if !res.OK || res.Branch != "syre/t-push" || res.RemoteURL != bare || res.HeadSHA == "" {
 		t.Fatalf("PushBranch(origin) = %+v", res)
 	}
-	if _, err := runGit(ctx, bare, "show-ref", "--verify", "--quiet", "refs/heads/konsert/t-push"); err != nil {
+	if _, err := runGit(ctx, bare, "show-ref", "--verify", "--quiet", "refs/heads/syre/t-push"); err != nil {
 		t.Fatalf("branch not in bare remote: %v", err)
 	}
 
@@ -164,11 +164,11 @@ func TestPushBranchToOriginAndForkURL(t *testing.T) {
 	if _, err := runGit(ctx, forkDir, "init", "--bare"); err != nil {
 		t.Fatal(err)
 	}
-	forkRes := PushBranch(ctx, wt, protocol.GitPushRequest{Branch: "konsert/t-push", RemoteURL: forkDir})
+	forkRes := PushBranch(ctx, wt, protocol.GitPushRequest{Branch: "syre/t-push", RemoteURL: forkDir})
 	if !forkRes.OK || forkRes.RemoteURL != forkDir {
 		t.Fatalf("PushBranch(fork) = %+v", forkRes)
 	}
-	if _, err := runGit(ctx, forkDir, "show-ref", "--verify", "--quiet", "refs/heads/konsert/t-push"); err != nil {
+	if _, err := runGit(ctx, forkDir, "show-ref", "--verify", "--quiet", "refs/heads/syre/t-push"); err != nil {
 		t.Fatalf("branch not in fork remote: %v", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestMergeBranchPreservesMainCheckoutAllStyles(t *testing.T) {
 	for _, style := range styles {
 		t.Run("remote_main_checked_out_dirty_"+style, func(t *testing.T) {
 			repo, bare := initTestRepo(t, true)
-			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "konsert/"+style)
+			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "syre/"+style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +227,7 @@ func TestMergeBranchPreservesMainCheckoutAllStyles(t *testing.T) {
 	for _, style := range styles {
 		t.Run("remote_main_not_checked_out_"+style, func(t *testing.T) {
 			repo, bare := initTestRepo(t, true)
-			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "konsert/"+style)
+			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "syre/"+style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +268,7 @@ func TestMergeBranchPreservesMainCheckoutAllStyles(t *testing.T) {
 	for _, style := range styles {
 		t.Run("local_main_not_checked_out_"+style, func(t *testing.T) {
 			repo, _ := initTestRepo(t, false)
-			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "konsert/"+style)
+			wt, _, err := CreateWorktree(ctx, repo, "sid-"+style, "syre/"+style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -306,12 +306,12 @@ func TestMergeBranchPreservesMainCheckoutAllStyles(t *testing.T) {
 	}
 
 	// 4. Without remote (local-only), main checked out and DIRTY:
-	//    do NOT touch main checkout; leave result on konsert/merged/<sid>.
+	//    do NOT touch main checkout; leave result on syre/merged/<sid>.
 	for _, style := range styles {
 		t.Run("local_main_checked_out_dirty_"+style, func(t *testing.T) {
 			repo, _ := initTestRepo(t, false)
 			sid := "T-" + style
-			wt, _, err := CreateWorktree(ctx, repo, sid, "konsert/"+style)
+			wt, _, err := CreateWorktree(ctx, repo, sid, "syre/"+style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -329,7 +329,7 @@ func TestMergeBranchPreservesMainCheckoutAllStyles(t *testing.T) {
 				CommitMessage: "Local dirty " + style,
 				TaskSID:       sid,
 			})
-			wantBranch := "konsert/merged/" + sid
+			wantBranch := "syre/merged/" + sid
 			wantMsg := "main is checked out with uncommitted changes; the merge is ready on branch " + wantBranch + " — fast-forward main when you're ready"
 			if !res.OK || !res.Merged || res.Pushed || res.MergedBranch != wantBranch || res.Message != wantMsg || res.MergeSHA == "" {
 				t.Fatalf("MergeBranch(%s) = %+v", style, res)
@@ -353,7 +353,7 @@ func TestMergeBranchLocalOnlyCheckedOutAndCleanFastForwards(t *testing.T) {
 	for _, style := range []string{"squash", "merge", "rebase"} {
 		t.Run(style, func(t *testing.T) {
 			repo, _ := initTestRepo(t, false)
-			wt, _, err := CreateWorktree(ctx, repo, "t-clean-"+style, "konsert/"+style)
+			wt, _, err := CreateWorktree(ctx, repo, "t-clean-"+style, "syre/"+style)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -386,7 +386,7 @@ func TestMergeBranchNonFastForwardPushRaceRetry(t *testing.T) {
 
 	pushConcurrentCommit := func(t *testing.T, bareDir, filename, content string) {
 		t.Helper()
-		cloneDir, err := os.MkdirTemp(tempBaseDir(), "konsert-race-clone-*")
+		cloneDir, err := os.MkdirTemp(tempBaseDir(), "syre-race-clone-*")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -412,7 +412,7 @@ func TestMergeBranchNonFastForwardPushRaceRetry(t *testing.T) {
 
 	t.Run("retries_once_and_succeeds", func(t *testing.T) {
 		repo, bare := initTestRepo(t, true)
-		wt, _, err := CreateWorktree(ctx, repo, "t-race", "konsert/race")
+		wt, _, err := CreateWorktree(ctx, repo, "t-race", "syre/race")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -455,7 +455,7 @@ func TestMergeBranchNonFastForwardPushRaceRetry(t *testing.T) {
 
 	t.Run("fails_after_single_retry", func(t *testing.T) {
 		repo, bare := initTestRepo(t, true)
-		wt, _, err := CreateWorktree(ctx, repo, "t-race2", "konsert/race2")
+		wt, _, err := CreateWorktree(ctx, repo, "t-race2", "syre/race2")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -495,7 +495,7 @@ func TestMergeBranchConflictIsReportedAbortedAndCleansTempWorktree(t *testing.T)
 		}
 		t.Run(name, func(t *testing.T) {
 			repo, _ := initTestRepo(t, withRemote)
-			wt, _, err := CreateWorktree(ctx, repo, "t-conflict", "konsert/conflict")
+			wt, _, err := CreateWorktree(ctx, repo, "t-conflict", "syre/conflict")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -553,7 +553,7 @@ func TestRefuseAutoCommitOutsideTaskWorktree(t *testing.T) {
 		before := snapshotCheckout(t, repo, "README.md")
 
 		res := PushBranch(ctx, repo, protocol.GitPushRequest{CommitMessage: "Should refuse"})
-		if res.OK || !strings.Contains(res.Error, "outside a Konsert task worktree") {
+		if res.OK || !strings.Contains(res.Error, "outside a Syre task worktree") {
 			t.Fatalf("PushBranch on main checkout = %+v, want refusal", res)
 		}
 		assertCheckoutUnchanged(t, repo, before)
@@ -573,7 +573,7 @@ func TestRefuseAutoCommitOutsideTaskWorktree(t *testing.T) {
 			Style:         "squash",
 			CommitMessage: "Should refuse",
 		})
-		if res.OK || !strings.Contains(res.Error, "outside a Konsert task worktree") {
+		if res.OK || !strings.Contains(res.Error, "outside a Syre task worktree") {
 			t.Fatalf("MergeBranch on dirty non-task checkout = %+v, want refusal", res)
 		}
 		assertCheckoutUnchanged(t, repo, before)
@@ -605,7 +605,7 @@ func TestRefuseAutoCommitOutsideTaskWorktree(t *testing.T) {
 
 func TestMissingGitIdentityFailsClearly(t *testing.T) {
 	ctx := context.Background()
-	base, err := os.MkdirTemp(tempBaseDir(), "konsert-noident-*")
+	base, err := os.MkdirTemp(tempBaseDir(), "syre-noident-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ func TestMissingGitIdentityFailsClearly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wt, _, err := CreateWorktree(ctx, repo, "t-noident", "konsert/noident")
+	wt, _, err := CreateWorktree(ctx, repo, "t-noident", "syre/noident")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +643,7 @@ func TestMissingGitIdentityFailsClearly(t *testing.T) {
 
 	// 1. Auto-commit during PushBranch fails clearly.
 	pRes := PushBranch(ctx, wt, protocol.GitPushRequest{CommitMessage: "Try commit"})
-	if pRes.OK || !strings.Contains(pRes.Error, "set git user.name and user.email on") || !strings.Contains(pRes.Error, "to let Konsert commit") {
+	if pRes.OK || !strings.Contains(pRes.Error, "set git user.name and user.email on") || !strings.Contains(pRes.Error, "to let Syre commit") {
 		t.Fatalf("PushBranch without identity = %+v", pRes)
 	}
 
@@ -661,7 +661,7 @@ func TestMissingGitIdentityFailsClearly(t *testing.T) {
 			Push:          false,
 			CommitMessage: "Try " + style,
 		})
-		if mRes.OK || !strings.Contains(mRes.Error, "set git user.name and user.email on") || !strings.Contains(mRes.Error, "to let Konsert commit") {
+		if mRes.OK || !strings.Contains(mRes.Error, "set git user.name and user.email on") || !strings.Contains(mRes.Error, "to let Syre commit") {
 			t.Fatalf("MergeBranch(%s) without identity = %+v", style, mRes)
 		}
 		assertNoTempWorktrees(t, repo)

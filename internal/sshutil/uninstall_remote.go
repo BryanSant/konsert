@@ -12,12 +12,12 @@ import (
 // as opposed to one the host refused or that failed there.
 var ErrUnreachable = errors.New("host unreachable")
 
-// UninstallRemote removes konsertd identity workerID from target over the user's own
+// UninstallRemote removes syred identity workerID from target over the user's own
 // SSH access (the hub key itself may only attach), when the hub removes the machine:
-// `konsertd uninstall --worker <id> --hub <hub id>` removes its service (so nothing
+// `syred uninstall --worker <id> --hub <hub id>` removes its service (so nothing
 // restarts it), its config, credential and state, hubID's key grant for it, and the
-// agent hooks if no other konsertd remains on the account. It returns what the remote
-// uninstall printed. A host without konsertd has nothing to remove.
+// agent hooks if no other syred remains on the account. It returns what the remote
+// uninstall printed. A host without syred has nothing to remove.
 func UninstallRemote(parent context.Context, target, hubID, workerID string) (string, error) {
 	t, err := ParseTarget(target)
 	if err != nil {
@@ -41,22 +41,22 @@ func UninstallRemote(parent context.Context, target, hubID, workerID string) (st
 		}
 		sh = windowsShell{}
 	}
-	findOut, err := sess.ssh(ctx, sh.findKonsertd(), nil)
+	findOut, err := sess.ssh(ctx, sh.findSyred(), nil)
 	if err != nil {
-		return "", fmt.Errorf("look for konsertd on %s: %w", target, err)
+		return "", fmt.Errorf("look for syred on %s: %w", target, err)
 	}
 	exe, found, _ := parseFind(findOut)
 	if !found {
-		return "konsertd is not installed on " + target, nil
+		return "syred is not installed on " + target, nil
 	}
 	args := []string{"uninstall", "--worker", workerID}
 	if hubID != "" {
 		args = append(args, "--hub", hubID)
 	}
-	res, err := sess.ssh(ctx, sh.konsertd(exe, args, false), nil)
+	res, err := sess.ssh(ctx, sh.syred(exe, args, false), nil)
 	res = strings.TrimSpace(res)
 	if err != nil {
-		return res, fmt.Errorf("konsertd uninstall on %s: %w", target, err)
+		return res, fmt.Errorf("syred uninstall on %s: %w", target, err)
 	}
 	return res, nil
 }

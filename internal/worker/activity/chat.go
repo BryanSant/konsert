@@ -1,5 +1,5 @@
 // Package activity derives a session's live activity (thinking, working, speaking, asking,
-// blocked, queued, done, error) from what konsertd already sees of it, and publishes it to
+// blocked, queued, done, error) from what syred already sees of it, and publishes it to
 // the hub at a bounded rate. See docs/design/activity.md.
 package activity
 
@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/BryanSant/konsert/internal/nowline"
-	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/syre/internal/nowline"
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // maxLabel caps Label (runes).
@@ -25,9 +25,9 @@ const rateWindow = 2 * time.Second
 // charsPerToken estimates tokens from streamed text (no engine reports per-delta tokens).
 const charsPerToken = 4.0
 
-// userToolRe matches tools whose call means the agent is waiting for the user: Konsert's
-// own MCP tools, however the agent names them (mcp__konsert__ask_user, konsert.ask_user,
-// "konsert: ask_user").
+// userToolRe matches tools whose call means the agent is waiting for the user: Syre's
+// own MCP tools, however the agent names them (mcp__syre__ask_user, syre.ask_user,
+// "syre: ask_user").
 var userToolRe = regexp.MustCompile(`(^|[^a-z0-9])(ask_user|request_user_action)($|[^a-z0-9_])`)
 
 // IsUserTool reports whether a tool call (by name or title) waits for the user.

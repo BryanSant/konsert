@@ -6,11 +6,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/ids"
-	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/store"
 )
 
-// Machine credentials and join codes (KON-RK9YD).
+// Machine credentials and join codes (SYR-RK9YD).
 
 const machineCredCols = `id, sid, worker_id, source, created_at, last_used_at, revoked_at, revoked_reason`
 

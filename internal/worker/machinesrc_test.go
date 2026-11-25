@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The machine fingerprint must be available on every platform konsertd supports, or
+// The machine fingerprint must be available on every platform syred supports, or
 // cloned state dirs go undetected.
 func TestOSMachineHashAvailableAndStable(t *testing.T) {
 	switch runtime.GOOS {

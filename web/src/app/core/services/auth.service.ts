@@ -37,7 +37,7 @@ export class AuthService {
       this.provider.set(me.provider || 'openai');
       this.model.set(me.model || '');
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Unable to reach Konsert controller');
+      this.error.set(err instanceof Error ? err.message : 'Unable to reach Syre controller');
       this.authenticated.set(false);
     } finally {
       this.loading.set(false);

@@ -1,6 +1,6 @@
 package worker
 
-import "github.com/BryanSant/konsert/internal/worker/chat"
+import "github.com/BryanSant/syre/internal/worker/chat"
 
 // registerACPEngines adds the ACP chat engine for grok, agy, copilot and cursor.
 var registerACPEngines = func(engines map[string]chat.Engine) {
