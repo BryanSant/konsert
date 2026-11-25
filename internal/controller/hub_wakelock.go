@@ -93,6 +93,7 @@ func (h *Hub) withWakeLock(item any) any {
 	switch v := item.(type) {
 	case WorkerStatusView:
 		v.WakeLock = h.workerWakeLockView(v.ID)
+		v.Restart = h.workerRestartView(v.ID)
 		if v.Status == "online" {
 			v.Heat = h.workerHeat(v.ID)
 		}
@@ -101,6 +102,7 @@ func (h *Hub) withWakeLock(item any) any {
 		if v != nil {
 			cp := *v
 			cp.WakeLock = h.workerWakeLockView(v.ID)
+			cp.Restart = h.workerRestartView(v.ID)
 			if cp.Status == "online" {
 				cp.Heat = h.workerHeat(v.ID)
 			}

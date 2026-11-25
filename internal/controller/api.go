@@ -132,6 +132,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		removals:         &removals{clock: func() time.Time { return time.Now().UTC() }},
 	}
 	s.attach = newAttacher(s)
+	hub.restarts = newRestartTracker()
 	hub.version = version
 	hub.chatFleetBackend = serverControlPlane{FleetService: svc, srv: s, admin: false}
 	hub.chatMCP = s.serveRelayedChatMCP

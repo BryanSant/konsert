@@ -32,6 +32,7 @@ func DefaultEnv() (Env, error) {
 		User:       os.Getenv("USERNAME"),
 		UserSID:    sid,
 		SystemRoot: os.Getenv("SystemRoot"),
+		Elevated:   IsElevated(),
 		PATH:       CleanPATH(os.Getenv("PATH"), os.PathListSeparator),
 	}, nil
 }

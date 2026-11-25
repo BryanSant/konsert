@@ -24,8 +24,9 @@ import (
 // sshutil.BootstrapRemoteWorker, which runs the remote `konsertd install` and allows the
 // hub key). Both run konsertd without a controller URL, serving the hub on its local
 // socket, and the hub attaches to them (transport.go). A machine row records how
-// (workers.launch), so after a restart the hub starts every configured daemon it
-// cannot attach to. It never starts a second daemon for a machine that is connected.
+// (workers.launch), so the hub restarts a configured daemon that is down on a host it
+// can reach (restart.go). It never starts a second daemon for a machine that is
+// connected.
 
 // setupCompletedSetting marks first-run setup as done (a host was added, or the user
 // dismissed the Add Machine dialog), so the web app stops opening it automatically.
@@ -56,9 +57,8 @@ type launcher struct {
 	connectTimeout time.Duration
 	dryRun         bool
 
-	mu        sync.Mutex
-	inFlight  map[string]bool // worker id -> a start is running
-	attempted map[string]bool // worker id -> the reconciler already tried this hub run
+	mu       sync.Mutex
+	inFlight map[string]bool // worker id -> a start is running
 }
 
 func newLauncher() *launcher {
@@ -72,7 +72,6 @@ func newLauncher() *launcher {
 		connectTimeout:  45 * time.Second,
 		dryRun:          envTrue(os.Getenv(InstallDryRunEnv)),
 		inFlight:        map[string]bool{},
-		attempted:       map[string]bool{},
 	}
 }
 
@@ -101,15 +100,11 @@ func (l *launcher) end(workerID string) {
 	delete(l.inFlight, workerID)
 }
 
-// firstAttempt reports whether the reconciler has not tried workerID yet, and records it.
-func (l *launcher) firstAttempt(workerID string) bool {
+// starting reports whether a start of workerID is running.
+func (l *launcher) starting(workerID string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.attempted[workerID] {
-		return false
-	}
-	l.attempted[workerID] = true
-	return true
+	return l.inFlight[workerID]
 }
 
 // startChildDaemon runs konsertd as a child of the hub until ctx ends (dry-run mode).
@@ -389,6 +384,8 @@ func (s *Server) startWorker(ctx context.Context, w store.Worker) error {
 			s.setLaunchState(hctx, waitID, store.LaunchStateFailed, err.Error())
 			return
 		}
+		// The daemon is coming up: attach now rather than after the loop's backoff.
+		s.attach.poke(waitID)
 		s.awaitConnect(hctx, waitID, deferred)
 	})
 	if !started {
@@ -516,7 +513,7 @@ func deferredMessage(res sshutil.BootstrapResult) string {
 	if !res.StartDeferred {
 		return ""
 	}
-	return "installed; konsertd will start at the next Windows login of the SSH user (a logon task only runs while that user is logged on)"
+	return "installed; konsertd will start at the next Windows login of the SSH user (a logon task only runs while that user is signed in). " + install.HeadlessHint
 }
 
 // recordSSHWorker stores the machine an SSH bootstrap installed, so the hub knows it
@@ -560,11 +557,12 @@ func (s *Server) afterSSHBootstrap(ctx context.Context, res sshutil.BootstrapRes
 	}
 }
 
-// StartLaunchReconciler attaches to every ssh and local machine right away and, after
-// grace, starts every configured machine (launch local or ssh) that is still not
-// connected: one attempt per machine per hub run (POST /api/workers/{id}/start retries).
-// The grace lets running daemons attach (or reconnect) first.
+// StartLaunchReconciler attaches to every ssh and local machine right away. Daemons
+// that are down are restarted by the attach loops (restart.go), but not before grace
+// has passed: it lets running daemons attach (or reconnect) first. After grace it also
+// clears launch states a previous hub run left behind.
 func (s *Server) StartLaunchReconciler(grace time.Duration) {
+	s.hub.restarts.holdUntil(time.Now().Add(grace))
 	s.hub.goBackground(s.removalLoop)
 	s.hub.goBackground(func(ctx context.Context) {
 		s.startAttachers(ctx)
@@ -579,6 +577,8 @@ func (s *Server) StartLaunchReconciler(grace time.Duration) {
 	})
 }
 
+// reconcileLaunches clears stale launch states: a connected machine has none, and a
+// "starting" with no start running is left over from an earlier hub run.
 func (s *Server) reconcileLaunches(ctx context.Context) {
 	workers, err := s.store.ListWorkers(ctx)
 	if err != nil {
@@ -586,21 +586,11 @@ func (s *Server) reconcileLaunches(ctx context.Context) {
 		return
 	}
 	for _, w := range workers {
-		if w.Launch == store.LaunchManual {
+		if w.Launch == store.LaunchManual || w.LaunchState == store.LaunchStateNone {
 			continue
 		}
-		if s.hub.IsWorkerConnected(w.ID) {
-			if w.LaunchState != store.LaunchStateNone {
-				s.setLaunchState(ctx, w.ID, store.LaunchStateNone, "")
-			}
-			continue
-		}
-		if !s.launch.firstAttempt(w.ID) {
-			continue
-		}
-		s.logger.Info("starting configured konsertd that did not reconnect", "worker_id", w.ID, "sid", w.SID, "launch", w.Launch, "target", w.SSHTarget)
-		if err := s.startWorker(ctx, w); err != nil && !errors.Is(err, errAlreadyStarting) {
-			s.logger.Warn("launch reconciler: start failed", "worker_id", w.ID, "err", err)
+		if s.hub.IsWorkerConnected(w.ID) || (w.LaunchState == store.LaunchStateStarting && !s.launch.starting(w.ID)) {
+			s.setLaunchState(ctx, w.ID, store.LaunchStateNone, "")
 		}
 	}
 }

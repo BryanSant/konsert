@@ -35,6 +35,7 @@ func CollectMachineFacts(parentCtx context.Context) protocol.MachineFacts {
 	}
 
 	collectPlatformFacts(ctx, &f)
+	collectStartMode(&f)
 	f.Virtualization = classifyVirtualization(&f)
 	collectToolAndAuthCapabilities(ctx, &f)
 	return f

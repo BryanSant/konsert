@@ -198,7 +198,11 @@ type MachineFacts struct {
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm" | "unknown"
 	Tools          map[string]string `json:"tools,omitempty"`
 	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
-	CollectedAt    time.Time         `json:"collected_at"`
+	// StartMode (Windows) is how konsertd was started: "service", "background_task" (an
+	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
+	// only runs while the user is signed in); "" elsewhere or when unknown.
+	StartMode   string    `json:"start_mode,omitempty"`
+	CollectedAt time.Time `json:"collected_at"`
 }
 
 type WorkerFactsPayload struct {
