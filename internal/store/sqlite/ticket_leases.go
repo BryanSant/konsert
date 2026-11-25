@@ -40,6 +40,7 @@ func (s *SQLiteStore) ClaimTicket(ctx context.Context, ticketID, workerID, taskI
 	res, err := tx.ExecContext(ctx, `
 		UPDATE tickets
 		SET status = 'running',
+		    attempt = 1,
 		    lease_worker_id = ?,
 		    lease_task_id = ?,
 		    lease_expires_at = ?,

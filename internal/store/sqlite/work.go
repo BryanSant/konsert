@@ -330,9 +330,9 @@ func (s *SQLiteStore) DeleteRepo(ctx context.Context, id string) error {
 
 // --- Tickets ---
 
-const ticketColumns = `id, sid, project_id, parent_id, kind, title, body, acceptance_json, labels_json, priority, status, orphan_policy, hints_json, verify_cmd, autonomy_json, lease_worker_id, lease_task_id, lease_expires_at, lease_heartbeat_at, created_at, updated_at`
+const ticketColumns = `id, sid, project_id, parent_id, kind, title, body, acceptance_json, labels_json, priority, status, orphan_policy, hints_json, verify_cmd, autonomy_json, attempt, lease_worker_id, lease_task_id, lease_expires_at, lease_heartbeat_at, created_at, updated_at`
 
-const ticketColumnsAliased = `t.id, t.sid, t.project_id, t.parent_id, t.kind, t.title, t.body, t.acceptance_json, t.labels_json, t.priority, t.status, t.orphan_policy, t.hints_json, t.verify_cmd, t.autonomy_json, t.lease_worker_id, t.lease_task_id, t.lease_expires_at, t.lease_heartbeat_at, t.created_at, t.updated_at`
+const ticketColumnsAliased = `t.id, t.sid, t.project_id, t.parent_id, t.kind, t.title, t.body, t.acceptance_json, t.labels_json, t.priority, t.status, t.orphan_policy, t.hints_json, t.verify_cmd, t.autonomy_json, t.attempt, t.lease_worker_id, t.lease_task_id, t.lease_expires_at, t.lease_heartbeat_at, t.created_at, t.updated_at`
 
 func scanTicket(scanner interface{ Scan(...any) error }) (store.Ticket, error) {
 	var (
@@ -352,7 +352,7 @@ func scanTicket(scanner interface{ Scan(...any) error }) (store.Ticket, error) {
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ProjectID, &parentID, &t.Kind, &t.Title, &t.Body,
 		&acceptanceJSON, &labelsJSON, &t.Priority, &t.Status, &t.OrphanPolicy,
-		&hintsJSON, &t.VerifyCmd, &autonomyJSON,
+		&hintsJSON, &t.VerifyCmd, &autonomyJSON, &t.Attempt,
 		&leaseWorkerID, &leaseTaskID, &leaseExpiresAt, &leaseHeartbeatAt,
 		&createdAt, &updatedAt,
 	); err != nil {
@@ -493,11 +493,11 @@ func (s *SQLiteStore) CreateTicket(ctx context.Context, t store.Ticket) (store.T
 		INSERT INTO tickets (
 			id, sid, project_id, parent_id, kind, title, body,
 			acceptance_json, labels_json, priority, status, orphan_policy,
-			hints_json, verify_cmd, autonomy_json, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			hints_json, verify_cmd, autonomy_json, attempt, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, t.ID, t.SID, t.ProjectID, parentVal, t.Kind, t.Title, t.Body,
 		string(acceptanceJSON), string(labelsJSON), t.Priority, t.Status, t.OrphanPolicy,
-		string(hintsJSON), t.VerifyCmd, autonomyJSON, formatTime(t.CreatedAt), formatTime(t.UpdatedAt)); err != nil {
+		string(hintsJSON), t.VerifyCmd, autonomyJSON, t.Attempt, formatTime(t.CreatedAt), formatTime(t.UpdatedAt)); err != nil {
 		return store.Ticket{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -593,11 +593,11 @@ func (s *SQLiteStore) UpdateTicket(ctx context.Context, t store.Ticket) (store.T
 		UPDATE tickets
 		SET parent_id = ?, kind = ?, title = ?, body = ?,
 		    acceptance_json = ?, labels_json = ?, priority = ?, status = ?, orphan_policy = ?,
-		    hints_json = ?, verify_cmd = ?, autonomy_json = ?, updated_at = ?
+		    hints_json = ?, verify_cmd = ?, autonomy_json = ?, attempt = ?, updated_at = ?
 		WHERE id = ?
 	`, parentVal, t.Kind, t.Title, t.Body,
 		string(acceptanceJSON), string(labelsJSON), t.Priority, t.Status, t.OrphanPolicy,
-		string(hintsJSON), t.VerifyCmd, autonomyJSON, formatTime(t.UpdatedAt), t.ID); err != nil {
+		string(hintsJSON), t.VerifyCmd, autonomyJSON, t.Attempt, formatTime(t.UpdatedAt), t.ID); err != nil {
 		return store.Ticket{}, err
 	}
 	updated, err := scanTicket(tx.QueryRowContext(ctx, `SELECT `+ticketColumns+` FROM tickets WHERE id = ?`, t.ID))

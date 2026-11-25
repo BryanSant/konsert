@@ -127,6 +127,8 @@ type Hub struct {
 	ReapInterval       time.Duration
 	// TicketLeaseTTL overrides the ticket lease TTL (0 uses controller setting / 10m default).
 	TicketLeaseTTL time.Duration
+	// VerifyTimeout overrides the ticket verification command timeout (0 uses controller setting / 20m default).
+	VerifyTimeout time.Duration
 	// WorktreeRetention overrides the failed/canceled ticket worktree retention period
 	// (0 uses worktree_retention_days setting / 7 days default).
 	WorktreeRetention time.Duration

@@ -812,6 +812,8 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 	}
 	if cs.TicketID != "" && cs.QuestionID == "" {
 		open.TicketSID, open.Bindings = h.ticketChatBindings(ctx, cs.TicketID, cs.WorkerID)
+		open.VerifyCmd = h.ticketVerifyCmd(ctx, cs.TicketID)
+		open.VerifyTimeoutSeconds = int(h.verifyTimeout(ctx) / time.Second)
 	}
 	if cs.QuestionID != "" {
 		// A side-conversation answerer: no Syre tools (it must not ask the user or act

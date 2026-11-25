@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -423,6 +425,19 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {
+	case s.opts.TicketSID != "" && strings.Contains(text, "verification failed") && strings.Contains(text, "mock_fix_file"):
+		reply := "Fixed verification failure."
+		if s.opts.Cwd != "" {
+			if err := os.WriteFile(filepath.Join(s.opts.Cwd, "verify_fixed.ok"), []byte("ok\n"), 0o644); err != nil {
+				reply = "failed to write fix marker: " + err.Error()
+			}
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
 	case s.opts.TicketSID != "" && strings.Contains(text, "check_item_0"):
 		out, ok := s.callSyre(ctx, turn, "ticket_check", map[string]any{"index": 0})
 		reply := "Checked acceptance item 0.\nInterface: MockHandler updated in repo/handler.go"
