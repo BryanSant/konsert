@@ -35,7 +35,9 @@ func TestReviewsSaveGetList(t *testing.T) {
 	// Updating keeps the identity and creation time.
 	upd := r
 	upd.Decision, upd.Note, upd.DecidedBy, upd.DecidedAt = store.ReviewApproved, "ship it", "admin", &at
-	upd.GitHubStatus, upd.GitHubURL = "sent", "https://github.com/acme/wc/pull/12"
+	upd.DeliveryMode, upd.DeliveryStatus, upd.DeliveryMessage = store.DeliveryModePRMerge, store.DeliveryStatusAutoMerge, "Auto-merge enabled"
+	upd.MergeMethod, upd.PRNumber, upd.PRURL, upd.PRState, upd.PRChecks, upd.PRAutoMerge = store.MergeStyleSquash, 12, "https://github.com/acme/wc/pull/12", "open", "pending", true
+	upd.PRRemoteURL, upd.PRLastCommentAt = "https://github.com/acme/wc.git", &at
 	upd.ID, upd.SID = "", "" // ignored: the session's row is updated
 	got, err := st.SaveReview(ctx, upd)
 	if err != nil {
@@ -49,8 +51,19 @@ func TestReviewsSaveGetList(t *testing.T) {
 		t.Fatal(err)
 	}
 	if back.Decision != store.ReviewApproved || back.Note != "ship it" || !back.Expedite || back.ExpeditedAt == nil ||
-		!back.ExpeditedAt.Equal(at) || back.DecidedAt == nil || back.GitHubStatus != "sent" || back.GitHubURL == "" {
+		!back.ExpeditedAt.Equal(at) || back.DecidedAt == nil || back.DeliveryStatus != store.DeliveryStatusAutoMerge ||
+		back.PRNumber != 12 || back.PRURL == "" || !back.PRAutoMerge || back.PRLastCommentAt == nil {
 		t.Fatalf("GetReview = %+v", back)
+	}
+
+	// Seen review comment deduplication is persisted.
+	inserted, err := st.MarkReviewCommentSeen(ctx, "t1", "c-101", at)
+	if err != nil || !inserted {
+		t.Fatalf("first MarkReviewCommentSeen = (%v, %v), want (true, nil)", inserted, err)
+	}
+	inserted, err = st.MarkReviewCommentSeen(ctx, "t1", "c-101", at)
+	if err != nil || inserted {
+		t.Fatalf("duplicate MarkReviewCommentSeen = (%v, %v), want (false, nil)", inserted, err)
 	}
 
 	if _, err := st.SaveReview(ctx, store.Review{ChatID: "c1", Expedite: true}); err != nil {

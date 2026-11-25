@@ -53,27 +53,33 @@ CREATE TABLE workspaces (
 );
 
 CREATE TABLE projects (
-    id           TEXT PRIMARY KEY,
-    sid          TEXT NOT NULL UNIQUE,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    name         TEXT NOT NULL,
-    is_default   INTEGER NOT NULL DEFAULT 0,
+    id            TEXT PRIMARY KEY,
+    sid           TEXT NOT NULL UNIQUE,
+    workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name          TEXT NOT NULL,
+    is_default    INTEGER NOT NULL DEFAULT 0,
     -- headline is the project's current goal, set by the orchestrator (set_narration).
-    headline     TEXT NOT NULL DEFAULT '',
-    headline_at  TEXT,
-    created_at   TEXT NOT NULL
+    headline      TEXT NOT NULL DEFAULT '',
+    headline_at   TEXT,
+    -- Delivery overrides (KON-H50YW): '' inherits global default.
+    delivery_mode TEXT NOT NULL DEFAULT '',
+    merge_style   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL
 );
 CREATE INDEX idx_projects_workspace ON projects(workspace_id);
 
 CREATE TABLE repos (
-    id         TEXT PRIMARY KEY,
-    sid        TEXT NOT NULL UNIQUE,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    worker_id  TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    path       TEXT NOT NULL,
-    remote_url TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    id            TEXT PRIMARY KEY,
+    sid           TEXT NOT NULL UNIQUE,
+    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    worker_id     TEXT NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    name          TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    remote_url    TEXT NOT NULL DEFAULT '',
+    -- Delivery overrides (KON-H50YW): '' inherits project / global default.
+    delivery_mode TEXT NOT NULL DEFAULT '',
+    merge_style   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL
 );
 CREATE INDEX idx_repos_project ON repos(project_id);
 CREATE INDEX idx_repos_worker ON repos(worker_id);
@@ -529,31 +535,50 @@ CREATE TABLE question_rejects (
 );
 CREATE INDEX idx_question_rejects_time ON question_rejects(created_at);
 
--- Reviews (KON-BM8JR): the user's review decision on a finished task and the Expedite
--- flag of a task or chat, one row per session. Expedited queued tasks are placed first.
+-- Reviews and delivery outcomes (KON-H50YW): the user's review decision on finished work,
+-- the delivery outcome (direct merge, PR/MR + merge, open PR/MR, keep branch), PR state
+-- tracking and the Expedite flag, one row per session. Expedited queued tasks are placed first.
 CREATE TABLE reviews (
-    id             TEXT PRIMARY KEY,
-    sid            TEXT NOT NULL UNIQUE, -- rv-…
-    task_id        TEXT NOT NULL DEFAULT '',
-    chat_id        TEXT NOT NULL DEFAULT '',
-    decision       TEXT NOT NULL DEFAULT '', -- '' | approved | changes_requested
-    note           TEXT NOT NULL DEFAULT '',
-    decided_by     TEXT NOT NULL DEFAULT '',
-    decided_at     TEXT,
-    -- github_*: what happened to the decision on the task's pull request (gh):
-    -- '' | sent | failed | no_github | no_gh | no_pr | offline, gh's message, the PR URL.
-    github_status  TEXT NOT NULL DEFAULT '',
-    github_message TEXT NOT NULL DEFAULT '',
-    github_url     TEXT NOT NULL DEFAULT '',
+    id                TEXT PRIMARY KEY,
+    sid               TEXT NOT NULL UNIQUE, -- rv-…
+    task_id           TEXT NOT NULL DEFAULT '',
+    chat_id           TEXT NOT NULL DEFAULT '',
+    decision          TEXT NOT NULL DEFAULT '', -- '' | approved | changes_requested
+    note              TEXT NOT NULL DEFAULT '',
+    decided_by        TEXT NOT NULL DEFAULT '',
+    decided_at        TEXT,
+    -- Delivery outcome (KON-H50YW): mode used, status ('' | delivered | pr_open | auto_merge |
+    -- manual | conflict | closed | failed | offline), human message, merge method/SHA, PR info.
+    delivery_mode     TEXT NOT NULL DEFAULT '',
+    delivery_status   TEXT NOT NULL DEFAULT '',
+    delivery_message  TEXT NOT NULL DEFAULT '',
+    merge_method      TEXT NOT NULL DEFAULT '',
+    merge_sha         TEXT NOT NULL DEFAULT '',
+    pr_number         INTEGER NOT NULL DEFAULT 0,
+    pr_url            TEXT NOT NULL DEFAULT '',
+    pr_state          TEXT NOT NULL DEFAULT '', -- '' | open | merged | closed
+    pr_checks         TEXT NOT NULL DEFAULT '', -- '' | none | pending | passed | failed
+    pr_auto_merge     INTEGER NOT NULL DEFAULT 0,
+    compare_url       TEXT NOT NULL DEFAULT '',
+    pr_remote_url     TEXT NOT NULL DEFAULT '',
+    pr_last_comment_at TEXT,
     -- follow_up_task_id: the session that received requested changes ('' otherwise).
     follow_up_task_id TEXT NOT NULL DEFAULT '',
-    expedite       INTEGER NOT NULL DEFAULT 0,
-    expedited_at   TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
+    expedite          INTEGER NOT NULL DEFAULT 0,
+    expedited_at      TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
 );
 CREATE UNIQUE INDEX idx_reviews_task ON reviews(task_id) WHERE task_id != '';
 CREATE UNIQUE INDEX idx_reviews_chat ON reviews(chat_id) WHERE chat_id != '';
+
+-- Persisted deduplication of PR/MR review comments already delivered to the agent.
+CREATE TABLE review_seen_comments (
+    task_id    TEXT NOT NULL,
+    comment_id TEXT NOT NULL,
+    seen_at    TEXT NOT NULL,
+    PRIMARY KEY (task_id, comment_id)
+) WITHOUT ROWID;
 
 -- The Default workspace and project (ids.DefaultWorkspaceID/DefaultProjectID, sids
 -- ids.DefaultWorkspaceSID/DefaultProjectSID) are seeded by EnsureTaxonomyDefaults.

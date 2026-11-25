@@ -63,6 +63,7 @@ var TaskEventKeepKinds = []string{
 	"control",          // human interventions: steer, take control, input
 	"steer",            // review "request changes" sent back to the agent
 	"review",           // review decisions
+	"delivery",         // delivery outcomes (merge, push, PR/MR)
 	"command",          // operator commands run on the machine
 	"konsert_worktree", // where the work happened
 	"git_worktree",

@@ -117,8 +117,10 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		WorkspaceID string `json:"workspace_id"`
-		Name        string `json:"name"`
+		WorkspaceID  string `json:"workspace_id"`
+		Name         string `json:"name"`
+		DeliveryMode string `json:"delivery_mode"`
+		MergeStyle   string `json:"merge_style"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -126,6 +128,16 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
+		return
+	}
+	body.DeliveryMode = strings.TrimSpace(body.DeliveryMode)
+	body.MergeStyle = strings.TrimSpace(body.MergeStyle)
+	if !store.ValidDeliveryMode(body.DeliveryMode) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid delivery_mode"})
+		return
+	}
+	if !store.ValidMergeStyle(body.MergeStyle) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid merge_style"})
 		return
 	}
 	wsID := resolveRef(r.Context(), s.store, ids.Workspace, body.WorkspaceID)
@@ -146,12 +158,14 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proj := store.Project{
-		ID:          ids.UUID(),
-		SID:         projectSID,
-		WorkspaceID: wsID,
-		Name:        name,
-		IsDefault:   false,
-		CreatedAt:   time.Now().UTC(),
+		ID:           ids.UUID(),
+		SID:          projectSID,
+		WorkspaceID:  wsID,
+		Name:         name,
+		IsDefault:    false,
+		DeliveryMode: body.DeliveryMode,
+		MergeStyle:   body.MergeStyle,
+		CreatedAt:    time.Now().UTC(),
 	}
 	if err := s.store.CreateProject(r.Context(), proj); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -159,6 +173,49 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.broadcastFleetUpdate("project", proj)
 	writeJSON(w, http.StatusCreated, proj)
+}
+
+func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	proj, err := s.store.GetProject(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	var body struct {
+		DeliveryMode *string `json:"delivery_mode"`
+		MergeStyle   *string `json:"merge_style"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	mode := proj.DeliveryMode
+	if body.DeliveryMode != nil {
+		mode = strings.TrimSpace(*body.DeliveryMode)
+		if !store.ValidDeliveryMode(mode) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid delivery_mode"})
+			return
+		}
+	}
+	style := proj.MergeStyle
+	if body.MergeStyle != nil {
+		style = strings.TrimSpace(*body.MergeStyle)
+		if !store.ValidMergeStyle(style) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid merge_style"})
+			return
+		}
+	}
+	if err := s.store.UpdateProjectDelivery(r.Context(), id, mode, style); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	proj.DeliveryMode, proj.MergeStyle = mode, style
+	s.hub.broadcastFleetUpdate("project", proj)
+	writeJSON(w, http.StatusOK, proj)
 }
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -192,18 +249,30 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectID string `json:"project_id"`
-		WorkerID  string `json:"worker_id"`
-		Name      string `json:"name"`
-		Path      string `json:"path"`
-		RemoteURL string `json:"remote_url"`
-		Branch    string `json:"branch"`
+		ProjectID    string `json:"project_id"`
+		WorkerID     string `json:"worker_id"`
+		Name         string `json:"name"`
+		Path         string `json:"path"`
+		RemoteURL    string `json:"remote_url"`
+		Branch       string `json:"branch"`
+		DeliveryMode string `json:"delivery_mode"`
+		MergeStyle   string `json:"merge_style"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 	body.WorkerID = resolveRef(r.Context(), s.store, ids.Machine, body.WorkerID)
 	body.Path = strings.TrimSpace(body.Path)
+	body.DeliveryMode = strings.TrimSpace(body.DeliveryMode)
+	body.MergeStyle = strings.TrimSpace(body.MergeStyle)
+	if !store.ValidDeliveryMode(body.DeliveryMode) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid delivery_mode"})
+		return
+	}
+	if !store.ValidMergeStyle(body.MergeStyle) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid merge_style"})
+		return
+	}
 	if body.WorkerID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker_id is required"})
 		return
@@ -243,14 +312,16 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repo := store.Repo{
-		ID:        ids.UUID(),
-		SID:       repoSID,
-		ProjectID: projID,
-		WorkerID:  body.WorkerID,
-		Name:      name,
-		Path:      body.Path,
-		RemoteURL: strings.TrimSpace(body.RemoteURL),
-		CreatedAt: now,
+		ID:           ids.UUID(),
+		SID:          repoSID,
+		ProjectID:    projID,
+		WorkerID:     body.WorkerID,
+		Name:         name,
+		Path:         body.Path,
+		RemoteURL:    strings.TrimSpace(body.RemoteURL),
+		DeliveryMode: body.DeliveryMode,
+		MergeStyle:   body.MergeStyle,
+		CreatedAt:    now,
 	}
 	if err := s.store.CreateRepo(r.Context(), repo); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -278,6 +349,54 @@ func (s *Server) handleCreateRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, repo)
+}
+
+func (s *Server) handleUpdateRepo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	repo, err := s.store.GetRepo(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "repo not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	var body struct {
+		DeliveryMode *string `json:"delivery_mode"`
+		MergeStyle   *string `json:"merge_style"`
+		RemoteURL    *string `json:"remote_url"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	mode := repo.DeliveryMode
+	if body.DeliveryMode != nil {
+		mode = strings.TrimSpace(*body.DeliveryMode)
+		if !store.ValidDeliveryMode(mode) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid delivery_mode"})
+			return
+		}
+	}
+	style := repo.MergeStyle
+	if body.MergeStyle != nil {
+		style = strings.TrimSpace(*body.MergeStyle)
+		if !store.ValidMergeStyle(style) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid merge_style"})
+			return
+		}
+	}
+	remoteURL := repo.RemoteURL
+	if body.RemoteURL != nil {
+		remoteURL = strings.TrimSpace(*body.RemoteURL)
+	}
+	if err := s.store.UpdateRepoDelivery(r.Context(), id, mode, style, remoteURL); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	repo.DeliveryMode, repo.MergeStyle, repo.RemoteURL = mode, style, remoteURL
+	s.hub.broadcastFleetUpdate("repo", repo)
+	writeJSON(w, http.StatusOK, repo)
 }
 
 func (s *Server) handleDeleteRepo(w http.ResponseWriter, r *http.Request) {

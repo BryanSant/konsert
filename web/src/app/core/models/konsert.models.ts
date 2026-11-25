@@ -1,7 +1,7 @@
 import type { Device } from './device.models';
 import type { SessionActivity, WorkerHeat } from './activity.models';
 import { Cause, FleetPause } from './control.models';
-import type { Review } from './review.models';
+import type { DeliveryMode, MergeStyle, Review } from './review.models';
 
 export type PermissionMode = 'full_access' | 'sandboxed';
 export type TaskOrigin = 'orchestrator' | 'direct' | 'scratch';
@@ -310,6 +310,8 @@ export interface Project {
   /** The project's current goal as the orchestrator states it (set_narration). */
   headline?: string;
   headline_at?: string;
+  delivery_mode?: DeliveryMode;
+  merge_style?: MergeStyle;
   created_at: string;
 }
 
@@ -322,6 +324,8 @@ export interface Repo {
   name: string;
   path: string;
   remote_url?: string;
+  delivery_mode?: DeliveryMode;
+  merge_style?: MergeStyle;
   created_at: string;
 }
 
@@ -459,6 +463,10 @@ export interface AppSettings {
   notify_desktop: boolean;
   /** Devices stay signed in while used at least this often (sliding expiry, days). */
   device_idle_days?: number;
+  /** Global default delivery mode ('' = auto: pr_merge with remote, direct without). */
+  default_delivery_mode?: DeliveryMode;
+  /** Global default merge style ('squash' | 'merge' | 'rebase'). */
+  default_merge_style?: MergeStyle;
 }
 
 export interface Task {

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Project, Repo, Worktree } from '../../core/models/konsert.models';
+import { DELIVERY_MODE_OPTIONS, MERGE_STYLE_OPTIONS } from '../../core/models/review.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore, basenamePath } from '../../core/state/fleet.store';
 import { IconComponent } from '../../shared/icon.component';
@@ -65,6 +66,21 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
             @if (p.headline) {
               <p class="m-0 mt-1 text-[12px] text-[var(--ks-text-secondary)]">{{ p.headline }} <span class="text-[var(--ks-text-muted)]" aria-hidden="true">✦</span><span class="ks-sr-only">(written by the orchestrator)</span></p>
             }
+            <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--ks-text-muted)]">
+              <span>Delivery:</span>
+              <select class="ks-field ks-field-sm text-[11px] py-0.5" [attr.aria-label]="'Delivery mode for project ' + p.name" [ngModel]="p.delivery_mode || ''" (ngModelChange)="updateProjectDelivery(p, $event, p.merge_style || '')">
+                <option value="">Inherit global</option>
+                @for (opt of deliveryModeChoices; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+              <select class="ks-field ks-field-sm text-[11px] py-0.5" [attr.aria-label]="'Merge style for project ' + p.name" [ngModel]="p.merge_style || ''" (ngModelChange)="updateProjectDelivery(p, p.delivery_mode || '', $event)">
+                <option value="">Inherit style</option>
+                @for (opt of mergeStyleChoices; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </div>
             @if (form() === 'repo' && parentId() === p.id) {
               <form class="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2 rounded-[var(--ks-radius-md)] bg-black/20 p-3" (ngSubmit)="submit()">
                 <label class="flex flex-col gap-1 text-[11px] text-[var(--ks-text-muted)]">Machine
@@ -97,6 +113,20 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                     <button type="button" class="ks-btn ks-btn-sm" (click)="startChat(r, null)" [attr.aria-label]="'Start a chat in ' + r.name">Chat here</button>
                     <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Add a worktree to ' + r.name" ksTooltip="Add a worktree" (click)="startForm('worktree', r.id, r.path)"><app-icon name="git-branch" [size]="12" /></button>
                     <button type="button" class="ks-icon-btn ks-icon-btn-sm" [attr.aria-label]="'Remove repo ' + r.name" ksTooltip="Remove the repo from the project (the folder stays)" (click)="deleteRepo(r)"><app-icon name="close" [size]="12" /></button>
+                  </div>
+                  <div class="ml-5 mb-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--ks-text-muted)]">
+                    <select class="ks-field ks-field-sm text-[11px] py-0.5" [attr.aria-label]="'Delivery mode for repo ' + r.name" [ngModel]="r.delivery_mode || ''" (ngModelChange)="updateRepoDelivery(r, $event, r.merge_style || '')">
+                      <option value="">Inherit project</option>
+                      @for (opt of deliveryModeChoices; track opt.value) {
+                        <option [value]="opt.value">{{ opt.label }}</option>
+                      }
+                    </select>
+                    <select class="ks-field ks-field-sm text-[11px] py-0.5" [attr.aria-label]="'Merge style for repo ' + r.name" [ngModel]="r.merge_style || ''" (ngModelChange)="updateRepoDelivery(r, r.delivery_mode || '', $event)">
+                      <option value="">Inherit style</option>
+                      @for (opt of mergeStyleChoices; track opt.value) {
+                        <option [value]="opt.value">{{ opt.label }}</option>
+                      }
+                    </select>
                   </div>
                   @if (form() === 'worktree' && parentId() === r.id) {
                     <form class="ml-6 my-1 flex gap-2 rounded-[var(--ks-radius-md)] bg-black/20 p-2" (ngSubmit)="submit()">
@@ -147,6 +177,8 @@ export class ProjectsDialogComponent {
   readonly workerId = signal('');
   readonly busy = signal(false);
   readonly error = signal('');
+  readonly deliveryModeChoices = DELIVERY_MODE_OPTIONS.filter((o) => o.value !== '');
+  readonly mergeStyleChoices = MERGE_STYLE_OPTIONS;
 
   readonly activeWorkspaceId = computed(() => {
     const sel = this.workspaceId();
@@ -221,6 +253,18 @@ export class ProjectsDialogComponent {
     await this.run(async () => {
       await this.api.deleteProject(p.id);
       this.fleet.removeProject(p.id);
+    });
+  }
+
+  async updateProjectDelivery(p: Project, delivery_mode: string, merge_style: string): Promise<void> {
+    await this.run(async () => {
+      this.fleet.upsertProject(await this.api.updateProject(p.id, { delivery_mode, merge_style }));
+    });
+  }
+
+  async updateRepoDelivery(r: Repo, delivery_mode: string, merge_style: string): Promise<void> {
+    await this.run(async () => {
+      this.fleet.upsertRepo(await this.api.updateRepo(r.id, { delivery_mode, merge_style }));
     });
   }
 

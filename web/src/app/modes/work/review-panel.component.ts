@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { TaskEvent } from '../../core/models/konsert.models';
-import { Acceptance, AcceptanceItem, githubLine } from '../../core/models/review.models';
+import { Acceptance, AcceptanceItem, DeliveryPlan, approveActionLabel, deliveryOutcomeLine, prStatusLine } from '../../core/models/review.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { FleetStore } from '../../core/state/fleet.store';
@@ -72,10 +72,28 @@ import { receiptsFor } from './review-logic';
           </section>
         </div>
 
+        @if (prInfo(); as pr) {
+          <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 py-2 text-[12px] flex flex-wrap items-center gap-2" data-testid="review-pr">
+            @if (pr.url) {
+              <a [href]="pr.url" target="_blank" rel="noopener noreferrer" class="underline text-[var(--ks-text)] font-medium">{{ pr.label }}</a>
+            } @else {
+              <span class="font-medium text-[var(--ks-text)]">{{ pr.label }}</span>
+            }
+          </div>
+        }
+        @if (compareUrl(); as cmp) {
+          <div class="rounded-[var(--ks-radius-md)] bg-[var(--ks-surface-2)] px-3 py-2 text-[12px]" data-testid="review-compare-url">
+            <a [href]="cmp" target="_blank" rel="noopener noreferrer" class="underline text-[var(--ks-text)]">Open PR/MR by hand →</a>
+          </div>
+        }
+
         @if (decision(); as d) {
           <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" data-testid="review-decision">{{ d }}</p>
         }
         @if (it.column === 'review') {
+          @if (approvePreview(); as preview) {
+            <p class="m-0 text-[12px] text-[var(--ks-text-secondary)]" data-testid="review-delivery-action">{{ preview }}</p>
+          }
           <div class="flex flex-wrap gap-1.5 pt-1" role="group" aria-label="Decision">
             <button type="button" class="ks-btn ks-btn-sm bg-[var(--ks-green-soft)] text-[#a8dbb3]" data-testid="review-approve" [disabled]="sending()" (click)="approve(it)">
               <app-icon name="check" [size]="11" />
@@ -169,6 +187,8 @@ export class ReviewPanelComponent {
   });
   /** What the work was asked to achieve: the ka ticket's items (from the hub), else the prompt's. */
   readonly acceptanceInfo = signal<Acceptance | null>(null);
+  /** What Approve will do (from GET /api/tasks/{id}/delivery). */
+  readonly deliveryPlan = signal<DeliveryPlan | null>(null);
   readonly acceptance = computed<AcceptanceItem[]>(() => {
     const it = this.item();
     if (!it) return [];
@@ -184,20 +204,58 @@ export class ReviewPanelComponent {
     const it = this.item();
     return it ? receiptsFor(it, this.events()) : [];
   });
-  /** The decision already made (on the hub, by anyone) and what happened on GitHub. */
+  /** What Approve will do for the selected review item. */
+  readonly approvePreview = computed(() => {
+    const it = this.item();
+    if (!it || it.kind !== 'task') return '';
+    const plan = this.deliveryPlan();
+    if (plan) return approveActionLabel(plan);
+    const t = it.task;
+    const repo = t?.repo_id ? this.fleet.repos().find((r) => r.id === t.repo_id) : undefined;
+    const proj = t?.project_id ? this.fleet.projects().find((p) => p.id === t.project_id) : undefined;
+    const settings = this.fleet.settings();
+    const hasRemote = !!repo?.remote_url;
+    const mode = repo?.delivery_mode || proj?.delivery_mode || settings?.default_delivery_mode || (hasRemote ? 'pr_merge' : 'direct');
+    const mergeStyle = repo?.merge_style || proj?.merge_style || settings?.default_merge_style || 'squash';
+    return approveActionLabel(null, { mode, mergeStyle, hasRemote, branch: t?.branch, review: this.work.reviewOf(it.id) });
+  });
+  /** Linked PR/MR state and checks when one exists. */
+  readonly prInfo = computed(() => {
+    const it = this.item();
+    if (!it) return null;
+    const r = this.work.reviewOf(it.id);
+    const p = this.deliveryPlan();
+    const prNumber = r?.pr_number || p?.pr_number || 0;
+    if (!prNumber) return null;
+    const label = prStatusLine({
+      pr_number: prNumber,
+      pr_state: r?.pr_state || p?.pr_state,
+      pr_checks: r?.pr_checks || p?.pr_checks,
+      pr_auto_merge: r?.pr_auto_merge ?? p?.pr_auto_merge,
+    });
+    return { label, url: r?.pr_url || p?.pr_url || '' };
+  });
+  readonly compareUrl = computed(() => {
+    const it = this.item();
+    if (!it) return '';
+    const r = this.work.reviewOf(it.id);
+    if (r?.pr_url) return '';
+    return r?.compare_url || this.deliveryPlan()?.compare_url || '';
+  });
+  /** The decision already made (on the hub, by anyone) and its delivery outcome. */
   readonly decision = computed(() => {
     const it = this.item();
     const r = it ? this.work.reviewOf(it.id) : undefined;
     if (!r?.decision) return '';
     const who = r.decided_by ? ` by ${r.decided_by}` : '';
     const what = r.decision === 'approved' ? `Approved${who}.` : `Changes requested${who}: ${r.note ?? ''}`;
-    return [what, githubLine(r)].filter(Boolean).join(' ');
+    return [what, deliveryOutcomeLine(r)].filter(Boolean).join(' ');
   });
   readonly noteLabel = computed(() => {
     const it = this.item();
     if (!it) return '';
     if (it.kind === 'chat') return 'What should change? (sent to the agent as your next message)';
-    if (it.column === 'review') return 'What should change? (requested on the PR and sent to the agent in a follow-up session)';
+    if (it.column === 'review') return 'What should change? (sent to the agent in a follow-up session)';
     if (it.live) return 'Type into the session (sent as input, with Enter)';
     return 'What should change?';
   });
@@ -213,6 +271,7 @@ export class ReviewPanelComponent {
         this.error.set('');
         this.events.set([]);
         this.acceptanceInfo.set(null);
+        this.deliveryPlan.set(null);
         if (it?.kind === 'task') {
           const id = it.id;
           this.api
@@ -225,6 +284,12 @@ export class ReviewPanelComponent {
             .getTaskAcceptance(id)
             .then((a) => {
               if (this.item()?.id === id) this.acceptanceInfo.set(a);
+            })
+            .catch(() => undefined);
+          this.api
+            .getTaskDelivery(id)
+            .then((d) => {
+              if (this.item()?.id === id) this.deliveryPlan.set(d);
             })
             .catch(() => undefined);
         }
@@ -241,7 +306,8 @@ export class ReviewPanelComponent {
     this.error.set('');
     try {
       const res = await this.work.review(it.id, 'approved');
-      this.message.set(['Approved. It moves to Done.', githubLine(res.review)].filter(Boolean).join(' '));
+      const outcome = deliveryOutcomeLine(res.review);
+      this.message.set(outcome ? `Approved. ${outcome}` : 'Approved. It moves to Done.');
       this.decided.emit();
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Could not approve');
@@ -273,7 +339,7 @@ export class ReviewPanelComponent {
         if (!this.agentChat.send(it.chat, note)) throw new Error('Not connected to the hub; try again in a moment.');
         this.message.set('Sent to the agent.');
       } else if (it.column === 'review' && it.task) {
-        // The hub records it, requests changes on the PR and hands the note to the agent.
+        // The hub records the change request and hands the note to the agent.
         const res = await this.work.review(it.id, 'changes_requested', note);
         let sent = 'Changes requested.';
         if (res.delivered === 'steered') sent = 'Sent to the session.';
@@ -282,7 +348,7 @@ export class ReviewPanelComponent {
           const sid = res.follow_up_task_sid || this.fleet.tasksById()[res.follow_up_task_id ?? '']?.sid;
           sent = `Started ${sid ?? 'a follow-up session'} with your changes.`;
         }
-        this.message.set([sent, githubLine(res.review)].filter(Boolean).join(' '));
+        this.message.set([sent, deliveryOutcomeLine(res.review)].filter(Boolean).join(' '));
       } else if (it.live && it.task) {
         await this.api.steerTask(it.id, note);
         this.message.set('Sent to the session.');

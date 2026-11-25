@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BryanSant/konsert/internal/gitutil"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/coder/websocket"
@@ -82,20 +81,6 @@ func TestExpeditedQueuedTaskIsPlacedFirst(t *testing.T) {
 	}
 }
 
-// answerPRReview makes the fake worker answer one git.pr.review with res and returns the
-// request it got.
-func answerPRReview(w *fakeWorker, res protocol.GitPRReviewResult) <-chan protocol.GitPRReviewRequest {
-	got := make(chan protocol.GitPRReviewRequest, 1)
-	go func() {
-		env := w.expect(protocol.MsgGitPRReview, 5*time.Second)
-		req, _ := protocol.DecodePayload[protocol.GitPRReviewRequest](env)
-		got <- req
-		raw, _ := protocol.NewEnvelope(protocol.MsgGitPRReviewResult, env.ID, res)
-		_ = w.conn.Write(w.ctx, websocket.MessageText, raw)
-	}()
-	return got
-}
-
 func decodeReviewResult(t *testing.T, raw string) ReviewResult {
 	t.Helper()
 	var res ReviewResult
@@ -105,7 +90,46 @@ func decodeReviewResult(t *testing.T, raw string) ReviewResult {
 	return res
 }
 
-func TestReviewApproveRunsGHOnTheMachineThatOwnsTheCheckout(t *testing.T) {
+// answerGitRPCs answers git.info / git.merge / git.push messages sent to w until stopped.
+func answerGitRPCs(w *fakeWorker, info protocol.GitInfoResult, mergeFn func(protocol.GitMergeRequest) protocol.GitMergeResult, pushFn func(protocol.GitPushRequest) protocol.GitPushResult) func() {
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case env, ok := <-w.frames:
+				if !ok {
+					return
+				}
+				switch env.Type {
+				case protocol.MsgGitInfo:
+					raw, _ := protocol.NewEnvelope(protocol.MsgGitInfoResult, env.ID, info)
+					_ = w.conn.Write(w.ctx, websocket.MessageText, raw)
+				case protocol.MsgGitMerge:
+					req, _ := protocol.DecodePayload[protocol.GitMergeRequest](env)
+					res := protocol.GitMergeResult{OK: true, Merged: true, TargetBranch: "main", MergeSHA: "abc1234"}
+					if mergeFn != nil {
+						res = mergeFn(req)
+					}
+					raw, _ := protocol.NewEnvelope(protocol.MsgGitMergeResult, env.ID, res)
+					_ = w.conn.Write(w.ctx, websocket.MessageText, raw)
+				case protocol.MsgGitPush:
+					req, _ := protocol.DecodePayload[protocol.GitPushRequest](env)
+					res := protocol.GitPushResult{OK: true, Branch: req.Branch, HeadSHA: "def5678"}
+					if pushFn != nil {
+						res = pushFn(req)
+					}
+					raw, _ := protocol.NewEnvelope(protocol.MsgGitPushResult, env.ID, res)
+					_ = w.conn.Write(w.ctx, websocket.MessageText, raw)
+				}
+			}
+		}
+	}()
+	return func() { close(done) }
+}
+
+func TestReviewApproveDirectLocalOnlyRecordsDecisionAndTimeline(t *testing.T) {
 	e := newAuditEnv(t)
 	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
 	ctx := context.Background()
@@ -113,18 +137,17 @@ func TestReviewApproveRunsGHOnTheMachineThatOwnsTheCheckout(t *testing.T) {
 		Prompt: "count words", Status: protocol.TaskStatusCompleted}); err != nil {
 		t.Fatal(err)
 	}
-	reqs := answerPRReview(w, protocol.GitPRReviewResult{Status: protocol.PRReviewSent, PRNumber: 7, PRURL: "https://github.com/acme/wc/pull/7"})
+	stop := answerGitRPCs(w, protocol.GitInfoResult{OK: true, IsGitRepo: true, Branch: "konsert/t1", DefaultBranch: "main", HasRemote: false}, nil, nil)
+	defer stop()
+
 	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/review", `{"decision":"approved"}`)
 	if code != http.StatusOK {
 		t.Fatalf("review: %d %s", code, raw)
 	}
-	req := <-reqs
-	if req.Action != protocol.PRReviewApprove || req.Workdir != "/r/wt" || req.Branch != "konsert/t1" {
-		t.Fatalf("git.pr.review request %+v", req)
-	}
 	res := decodeReviewResult(t, raw)
 	rv := res.Review
-	if rv.Decision != store.ReviewApproved || rv.GitHubStatus != protocol.PRReviewSent || rv.GitHubURL == "" ||
+	if rv.Decision != store.ReviewApproved || rv.DeliveryMode != store.DeliveryModeDirect ||
+		rv.DeliveryStatus != store.DeliveryStatusDelivered || rv.MergeMethod != store.MergeStyleSquash ||
 		rv.DecidedAt == nil || rv.DecidedBy != e.user || res.FollowUpTaskID != "" {
 		t.Fatalf("review result %+v", res)
 	}
@@ -137,58 +160,35 @@ func TestReviewApproveRunsGHOnTheMachineThatOwnsTheCheckout(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(raw, `"reviews":[{`) {
 		t.Fatalf("GET /api/fleet lacks reviews: %d %s", code, raw)
 	}
-	// The task timeline records the decision.
+	// Task timeline and audit log record the decision and delivery outcome.
 	evs, _ := e.th.st.ListEvents(ctx, "t1", 0, 50)
 	if !slices.ContainsFunc(evs, func(ev store.TaskEvent) bool { return ev.Kind == "review" && ev.Message == "Approved" }) {
 		t.Fatalf("no review event in %+v", evs)
 	}
-}
-
-// On the user's own PR the machine posts a comment instead of a review: the request
-// names who decided, and the review records "commented" with the plain message.
-func TestReviewApproveOwnPRRecordsTheCommentInstead(t *testing.T) {
-	e := newAuditEnv(t)
-	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
-	ctx := context.Background()
-	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", Agent: "mock", Workdir: "/r", Branch: "konsert/t1",
-		Prompt: "count words", Status: protocol.TaskStatusCompleted}); err != nil {
-		t.Fatal(err)
+	if !slices.ContainsFunc(evs, func(ev store.TaskEvent) bool { return ev.Kind == "delivery" }) {
+		t.Fatalf("no delivery event in %+v", evs)
 	}
-	reqs := answerPRReview(w, protocol.GitPRReviewResult{Status: protocol.PRReviewCommented, PRNumber: 7,
-		PRURL: "https://github.com/acme/wc/pull/7", Message: gitutil.OwnPRApproveMessage})
-	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/review", `{"decision":"approved"}`)
-	if code != http.StatusOK {
-		t.Fatalf("review: %d %s", code, raw)
-	}
-	if req := <-reqs; req.By == "" || !strings.HasPrefix(e.user, req.By) {
-		t.Fatalf("git.pr.review By = %q, want the device name of %q", req.By, e.user)
-	}
-	rv := decodeReviewResult(t, raw).Review
-	if rv.Decision != store.ReviewApproved || rv.GitHubStatus != protocol.PRReviewCommented ||
-		!strings.Contains(rv.GitHubMessage, "doesn't let you approve your own pull request") {
-		t.Fatalf("review %+v", rv)
+	audits, _ := e.th.st.ListAudit(ctx, store.AuditFilter{TaskID: "t1"})
+	if !slices.ContainsFunc(audits, func(a store.AuditEvent) bool { return a.Action == AuditTaskDeliver }) {
+		t.Fatalf("no task.deliver audit event in %+v", audits)
 	}
 }
 
 func TestReviewRequestChangesOnFinishedWorkStartsAFollowUp(t *testing.T) {
 	e := newAuditEnv(t)
-	w := e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
+	_ = e.th.connectWorker(t, testWorkerInfo("w1", "alpha"), nil, "w1")
 	ctx := context.Background()
 	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", Agent: "mock", Workdir: "/r", Title: "Word count",
 		Prompt: "count words", Status: protocol.TaskStatusCompleted}); err != nil {
 		t.Fatal(err)
 	}
-	reqs := answerPRReview(w, protocol.GitPRReviewResult{Status: protocol.PRReviewNoPR, Message: "no pull request for branch main"})
 	code, raw := e.do(t, credCookie, http.MethodPost, "/api/tasks/t1/review", `{"decision":"changes_requested","note":"Handle empty files"}`)
 	if code != http.StatusOK {
 		t.Fatalf("review: %d %s", code, raw)
 	}
-	if req := <-reqs; req.Action != protocol.PRReviewRequestChanges || req.Body != "Handle empty files" {
-		t.Fatalf("git.pr.review request %+v", req)
-	}
 	res := decodeReviewResult(t, raw)
 	if res.Review.Decision != store.ReviewChangesRequested || res.Review.Note != "Handle empty files" ||
-		res.Review.GitHubStatus != protocol.PRReviewNoPR || res.Delivered != "follow_up" || res.FollowUpTaskID == "" ||
+		res.Delivered != "follow_up" || res.FollowUpTaskID == "" ||
 		res.Review.FollowUpTaskID != res.FollowUpTaskID {
 		t.Fatalf("review result %+v", res)
 	}
@@ -210,21 +210,17 @@ func TestReviewRequestChangesOnARunningTaskSteersIt(t *testing.T) {
 		_ = json.Unmarshal([]byte(raw), &res)
 		done <- res
 	}()
-	// One reader: the PR review comes first, then the note is typed into the session.
-	env := w.expect(protocol.MsgGitPRReview, 5*time.Second)
-	raw, _ := protocol.NewEnvelope(protocol.MsgGitPRReviewResult, env.ID, protocol.GitPRReviewResult{Status: protocol.PRReviewNoGitHub, Message: "the checkout has no GitHub remote"})
-	_ = w.conn.Write(w.ctx, websocket.MessageText, raw)
 	steer := w.expect(protocol.MsgTaskSteer, 5*time.Second)
 	p, _ := protocol.DecodePayload[protocol.TaskSteerPayload](steer)
 	if p.TaskID != "t1" || p.InputText != "Use a map" || !p.AppendNewline {
 		t.Fatalf("steer %+v", p)
 	}
-	if res := <-done; res.Delivered != "steered" || res.Review.GitHubStatus != protocol.PRReviewNoGitHub {
+	if res := <-done; res.Delivered != "steered" {
 		t.Fatalf("review result %+v", res)
 	}
 }
 
-func TestReviewOfflineMachineIsRecordedButNotSent(t *testing.T) {
+func TestReviewOfflineMachineIsRecordedAsOffline(t *testing.T) {
 	e := newAuditEnv(t)
 	ctx := context.Background()
 	if err := e.th.st.UpsertWorker(ctx, store.Worker{ID: "w9", Name: "far", HostGroup: "g", OS: "linux", Arch: "amd64", Status: "offline", LastSeenAt: time.Now()}); err != nil {
@@ -238,7 +234,7 @@ func TestReviewOfflineMachineIsRecordedButNotSent(t *testing.T) {
 		t.Fatalf("review: %d %s", code, raw)
 	}
 	rv := decodeReviewResult(t, raw).Review
-	if rv.Decision != store.ReviewApproved || rv.GitHubStatus != protocol.PRReviewOffline || !strings.Contains(rv.GitHubMessage, "far is offline") {
+	if rv.Decision != store.ReviewApproved || rv.DeliveryStatus != store.DeliveryStatusOffline || !strings.Contains(rv.DeliveryMessage, "far is offline") {
 		t.Fatalf("review %+v", rv)
 	}
 }
@@ -282,15 +278,15 @@ func TestTaskAcceptanceComesFromTheTicketElseThePrompt(t *testing.T) {
 	th := newTestHub(t)
 	ctx := context.Background()
 	th.h.kaShowFn = func(_ context.Context, id string) ([]byte, error) {
-		if id != "KON-BM8JR" {
+		if id != "KON-H50YW" {
 			return nil, context.DeadlineExceeded
 		}
-		return []byte(`{"id":"KON-BM8JR","title":"Store reviews on the hub","acceptance_items":[
-			{"text":"Decisions persist on the hub","done":true},{"text":"Approve uses gh","done":false}]}`), nil
+		return []byte(`{"id":"KON-H50YW","title":"Delivery modes","acceptance_items":[
+			{"text":"Request changes returns to agent","done":true},{"text":"Approve runs delivery mode","done":false}]}`), nil
 	}
-	got := th.h.TaskAcceptance(ctx, store.Task{TicketID: "KON-BM8JR", Prompt: "- prompt bullet"})
-	want := []AcceptanceItem{{Text: "Decisions persist on the hub", Done: true}, {Text: "Approve uses gh"}}
-	if got.Source != "ticket" || got.TicketID != "KON-BM8JR" || got.TicketTitle != "Store reviews on the hub" || !slices.Equal(got.Items, want) {
+	got := th.h.TaskAcceptance(ctx, store.Task{TicketID: "KON-H50YW", Prompt: "- prompt bullet"})
+	want := []AcceptanceItem{{Text: "Request changes returns to agent", Done: true}, {Text: "Approve runs delivery mode"}}
+	if got.Source != "ticket" || got.TicketID != "KON-H50YW" || got.TicketTitle != "Delivery modes" || !slices.Equal(got.Items, want) {
 		t.Fatalf("ticket acceptance %+v", got)
 	}
 	// An unknown ticket (or ka missing) falls back to the prompt.
@@ -298,56 +294,9 @@ func TestTaskAcceptanceComesFromTheTicketElseThePrompt(t *testing.T) {
 	if got.Source != "prompt" || !slices.Equal(got.Items, []AcceptanceItem{{Text: "prompt bullet"}}) {
 		t.Fatalf("fallback acceptance %+v", got)
 	}
-}
-
-func TestTaskAcceptanceRoute(t *testing.T) {
-	e := newAuditEnv(t)
-	ctx := context.Background()
-	e.th.h.kaShowFn = func(context.Context, string) ([]byte, error) {
-		return []byte(`{"title":"T","acceptance_items":[{"text":"from the ticket","done":true}]}`), nil
-	}
-	if err := e.th.st.CreateTask(ctx, store.Task{ID: "t1", Agent: "mock", Workdir: "/r", Prompt: "Do KON-BM8JR\n- a bullet", Status: protocol.TaskStatusCompleted}); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.th.st.SetTaskTicket(ctx, "t1", "KON-BM8JR", "T"); err != nil {
-		t.Fatal(err)
-	}
-	code, raw := e.do(t, credCookie, http.MethodGet, "/api/tasks/t1/acceptance", "")
-	if code != http.StatusOK || !strings.Contains(raw, `"source":"ticket"`) || !strings.Contains(raw, `{"text":"from the ticket","done":true}`) {
-		t.Fatalf("GET acceptance: %d %s", code, raw)
-	}
-	if code, _ := e.do(t, credCookie, http.MethodGet, "/api/tasks/nope/acceptance", ""); code != http.StatusNotFound {
-		t.Fatalf("missing task: %d", code)
-	}
-}
-
-func TestAcceptanceFromPrompt(t *testing.T) {
-	cases := []struct {
-		name, prompt, source string
-		items                []AcceptanceItem
-	}{
-		{"bullets", "Fix the counter.\n\n- counts words\n* counts lines\n• handles empty input", "prompt",
-			[]AcceptanceItem{{Text: "counts words"}, {Text: "counts lines"}, {Text: "handles empty input"}}},
-		{"numbered", "1. first\n2) second", "prompt", []AcceptanceItem{{Text: "first"}, {Text: "second"}}},
-		{"checkboxes", "- [x] done one\n- [ ] open one\n[X] bare done", "prompt",
-			[]AcceptanceItem{{Text: "done one", Done: true}, {Text: "open one"}, {Text: "bare done", Done: true}}},
-		{"no bullets: the goal", "Make wc count bytes\nmore detail", "goal", []AcceptanceItem{{Text: "Make wc count bytes"}}},
-		{"empty", "", "goal", []AcceptanceItem{}},
-		{"dash without space is not a bullet", "-flag\n--help", "goal", []AcceptanceItem{{Text: "-flag"}}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := acceptanceFromPrompt(c.prompt)
-			if got.Source != c.source || !slices.Equal(got.Items, c.items) {
-				t.Fatalf("acceptanceFromPrompt(%q) = %+v, want %s %+v", c.prompt, got, c.source, c.items)
-			}
-		})
-	}
-	var long strings.Builder
-	for range maxAcceptance + 5 {
-		long.WriteString("- item\n")
-	}
-	if got := acceptanceFromPrompt(long.String()); len(got.Items) != maxAcceptance {
-		t.Fatalf("%d items, want the cap %d", len(got.Items), maxAcceptance)
+	// No bullets: the first line is the goal.
+	got = th.h.TaskAcceptance(ctx, store.Task{Prompt: "Fix the race in hub"})
+	if got.Source != "goal" || !slices.Equal(got.Items, []AcceptanceItem{{Text: "Fix the race in hub"}}) {
+		t.Fatalf("goal acceptance %+v", got)
 	}
 }

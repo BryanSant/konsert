@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, output, signal } from '@angular/co
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { PermissionMode } from '../core/models/konsert.models';
+import { DELIVERY_MODE_OPTIONS, DeliveryMode, MERGE_STYLE_OPTIONS, MergeStyle } from '../core/models/review.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
@@ -126,6 +127,46 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
               <input type="checkbox" name="notifyDesktop" [ngModel]="notifyDesktop()" (ngModelChange)="onToggleDesktop($event)" class="accent-[#4a668a]" />
               <span>Desktop notifications</span>
             </label>
+          </div>
+        </div>
+
+        <!-- Delivery Defaults (KON-H50YW) -->
+        <div class="rounded-[var(--ks-radius-lg)] bg-black/20 p-4 space-y-3">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">
+            Delivery Defaults
+          </div>
+          <p class="m-0 text-[11.5px] text-[#8e9098]">
+            What Approve does with finished work. Projects and repos can override these in Projects &amp; repos.
+          </p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="settings-modal-delivery-mode" class="block text-[11px] text-[#8e9098] mb-1">Default delivery mode</label>
+              <select id="settings-modal-delivery-mode"
+                name="defaultDeliveryMode"
+                data-testid="settings-delivery-mode"
+                [ngModel]="defaultDeliveryMode()"
+                (ngModelChange)="defaultDeliveryMode.set($event)"
+                class="ks-field w-full"
+              >
+                @for (opt of deliveryModeOptions; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </div>
+            <div>
+              <label for="settings-modal-merge-style" class="block text-[11px] text-[#8e9098] mb-1">Default merge style</label>
+              <select id="settings-modal-merge-style"
+                name="defaultMergeStyle"
+                data-testid="settings-merge-style"
+                [ngModel]="defaultMergeStyle()"
+                (ngModelChange)="defaultMergeStyle.set($event)"
+                class="ks-field w-full"
+              >
+                @for (opt of mergeStyleOptions; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </div>
           </div>
         </div>
 
@@ -313,6 +354,10 @@ export class SettingsModalComponent implements OnInit {
   readonly notifySound = signal(true);
   readonly notifyDesktop = signal(false);
   readonly deviceIdleDays = signal(90);
+  readonly defaultDeliveryMode = signal<DeliveryMode>('');
+  readonly defaultMergeStyle = signal<MergeStyle>('squash');
+  readonly deliveryModeOptions = DELIVERY_MODE_OPTIONS;
+  readonly mergeStyleOptions = MERGE_STYLE_OPTIONS;
 
   readonly saving = signal(false);
   readonly error = signal('');
@@ -335,6 +380,8 @@ export class SettingsModalComponent implements OnInit {
       this.notifySound.set(!!s.notify_sound);
       this.notifyDesktop.set(!!s.notify_desktop);
       this.deviceIdleDays.set(s.device_idle_days || 90);
+      this.defaultDeliveryMode.set(s.default_delivery_mode || '');
+      this.defaultMergeStyle.set(s.default_merge_style || 'squash');
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
     }
@@ -390,6 +437,8 @@ export class SettingsModalComponent implements OnInit {
         notify_sound: this.notifySound(),
         notify_desktop: this.notifyDesktop(),
         device_idle_days: Math.min(3650, Math.max(1, Math.round(this.deviceIdleDays() || 90))),
+        default_delivery_mode: this.defaultDeliveryMode(),
+        default_merge_style: this.defaultMergeStyle(),
       });
       this.fleet.settings.set(updated);
       this.auth.provider.set(updated.llm_provider);

@@ -43,6 +43,9 @@ type SettingsUpdate struct {
 	VetoAckMinutes        *int    `json:"veto_ack_minutes"`
 	// DeviceIdleDays is the sliding expiry of device credentials (1-3650 days).
 	DeviceIdleDays *int `json:"device_idle_days"`
+	// Global delivery defaults (KON-H50YW).
+	DefaultDeliveryMode *string `json:"default_delivery_mode"`
+	DefaultMergeStyle   *string `json:"default_merge_style"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -128,6 +131,20 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 			return errInvalidSettings{errors.New("device_idle_days must be between 1 and 3650")}
 		}
 		updates[deviceIdleSetting] = strconv.Itoa(*u.DeviceIdleDays)
+	}
+	if u.DefaultDeliveryMode != nil {
+		v := strings.TrimSpace(*u.DefaultDeliveryMode)
+		if !store.ValidDeliveryMode(v) {
+			return errInvalidSettings{fmt.Errorf("invalid default_delivery_mode %q", v)}
+		}
+		updates[deliveryModeSetting] = v
+	}
+	if u.DefaultMergeStyle != nil {
+		v := strings.TrimSpace(*u.DefaultMergeStyle)
+		if !store.ValidMergeStyle(v) {
+			return errInvalidSettings{fmt.Errorf("invalid default_merge_style %q", v)}
+		}
+		updates[mergeStyleSetting] = v
 	}
 
 	if len(updates) > 0 {
@@ -222,6 +239,10 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.DeviceIdleDays = &n
+		case deliveryModeSetting:
+			u.DefaultDeliveryMode = str(v)
+		case mergeStyleSetting:
+			u.DefaultMergeStyle = str(v)
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -258,6 +279,8 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"notify_desktop":          r.NotifyDesktop,
 		"veto_ack_minutes":        r.VetoAckMinutes,
 		"device_idle_days":        r.DeviceIdleDays,
+		"default_delivery_mode":   r.DefaultDeliveryMode,
+		"default_merge_style":     r.DefaultMergeStyle,
 		"orchestrator_backend":    r.OrchestratorBackend,
 		"api_key_required":        r.APIKeyRequired,
 	}

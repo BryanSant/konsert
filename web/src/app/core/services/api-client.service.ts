@@ -36,7 +36,7 @@ import {
 } from '../models/konsert.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
-import { Acceptance, Review, ReviewDecision, ReviewResult } from '../models/review.models';
+import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
 import { AgentChatCreateRequest, AgentChatEvent, AgentChatPatch } from '../models/agent-chat.models';
 import {
   ChatActionResult,
@@ -329,6 +329,11 @@ export class ApiClientService {
   /** The task's acceptance criteria: its ka ticket's items, else its prompt's bullets. */
   getTaskAcceptance(taskId: string): Promise<Acceptance> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/acceptance`);
+  }
+
+  /** What Approve will do for this task (mode, merge style, PR/fork info, approve label). */
+  getTaskDelivery(taskId: string): Promise<DeliveryPlan> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/delivery`);
   }
 
   steerTask(taskId: string, inputText: string, appendNewline = true): Promise<{ ok: boolean }> {
@@ -850,10 +855,17 @@ export class ApiClientService {
     return this.request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  createProject(req: { workspace_id?: string; name: string }): Promise<Project> {
+  createProject(req: { workspace_id?: string; name: string; delivery_mode?: string; merge_style?: string }): Promise<Project> {
     return this.request('/api/projects', {
       method: 'POST',
       body: JSON.stringify(req),
+    });
+  }
+
+  updateProject(id: string, patch: { delivery_mode?: string; merge_style?: string }): Promise<Project> {
+    return this.request(`/api/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
     });
   }
 
@@ -861,10 +873,17 @@ export class ApiClientService {
     return this.request(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  createRepo(req: { project_id?: string; worker_id: string; name?: string; path: string; remote_url?: string; branch?: string }): Promise<Repo> {
+  createRepo(req: { project_id?: string; worker_id: string; name?: string; path: string; remote_url?: string; branch?: string; delivery_mode?: string; merge_style?: string }): Promise<Repo> {
     return this.request('/api/repos', {
       method: 'POST',
       body: JSON.stringify(req),
+    });
+  }
+
+  updateRepo(id: string, patch: { delivery_mode?: string; merge_style?: string; remote_url?: string }): Promise<Repo> {
+    return this.request(`/api/repos/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
     });
   }
 

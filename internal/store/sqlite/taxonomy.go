@@ -163,9 +163,9 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p store.Project) error 
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects (id, sid, workspace_id, name, is_default, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, p.ID, p.SID, p.WorkspaceID, p.Name, boolToInt(p.IsDefault), formatTime(p.CreatedAt))
+		INSERT INTO projects (id, sid, workspace_id, name, is_default, delivery_mode, merge_style, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.ID, p.SID, p.WorkspaceID, p.Name, boolToInt(p.IsDefault), p.DeliveryMode, p.MergeStyle, formatTime(p.CreatedAt))
 	return err
 }
 
@@ -175,8 +175,8 @@ func (s *SQLiteStore) GetProject(ctx context.Context, id string) (store.Project,
 	var createdAt string
 	var headlineAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &createdAt)
+		SELECT id, sid, workspace_id, name, is_default, headline, headline_at, delivery_mode, merge_style, created_at FROM projects WHERE id = ?
+	`, id).Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &p.DeliveryMode, &p.MergeStyle, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Project{}, store.ErrNotFound
 	}
@@ -198,6 +198,11 @@ func (s *SQLiteStore) SetProjectHeadline(ctx context.Context, id, headline strin
 	return s.execOne(ctx, `UPDATE projects SET headline = ?, headline_at = ? WHERE id = ?`, headline, atVal, id)
 }
 
+// UpdateProjectDelivery updates a project's delivery mode and merge style overrides.
+func (s *SQLiteStore) UpdateProjectDelivery(ctx context.Context, id, deliveryMode, mergeStyle string) error {
+	return s.execOne(ctx, `UPDATE projects SET delivery_mode = ?, merge_style = ? WHERE id = ?`, deliveryMode, mergeStyle, id)
+}
+
 // parseOptTime parses a nullable timestamp column.
 func parseOptTime(v sql.NullString) *time.Time {
 	if !v.Valid || v.String == "" {
@@ -214,12 +219,12 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 	)
 	if workspaceID != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at
+			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, delivery_mode, merge_style, created_at
 			FROM projects WHERE workspace_id = ? ORDER BY is_default DESC, created_at ASC
 		`, workspaceID)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, created_at
+			SELECT id, sid, workspace_id, name, is_default, headline, headline_at, delivery_mode, merge_style, created_at
 			FROM projects ORDER BY is_default DESC, created_at ASC
 		`)
 	}
@@ -234,7 +239,7 @@ func (s *SQLiteStore) ListProjects(ctx context.Context, workspaceID string) ([]s
 		var isDef int
 		var createdAt string
 		var headlineAt sql.NullString
-		if err := rows.Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &createdAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.SID, &p.WorkspaceID, &p.Name, &isDef, &p.Headline, &headlineAt, &p.DeliveryMode, &p.MergeStyle, &createdAt); err != nil {
 			return nil, err
 		}
 		p.IsDefault = isDef != 0
@@ -287,9 +292,9 @@ func (s *SQLiteStore) CreateRepo(ctx context.Context, r store.Repo) error {
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO repos (id, sid, project_id, worker_id, name, path, remote_url, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, r.ID, r.SID, r.ProjectID, r.WorkerID, r.Name, r.Path, r.RemoteURL, formatTime(r.CreatedAt))
+		INSERT INTO repos (id, sid, project_id, worker_id, name, path, remote_url, delivery_mode, merge_style, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, r.ID, r.SID, r.ProjectID, r.WorkerID, r.Name, r.Path, r.RemoteURL, r.DeliveryMode, r.MergeStyle, formatTime(r.CreatedAt))
 	return err
 }
 
@@ -297,9 +302,9 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, id string) (store.Repo, error
 	var r store.Repo
 	var createdAt string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, sid, project_id, worker_id, name, path, remote_url, created_at
+		SELECT id, sid, project_id, worker_id, name, path, remote_url, delivery_mode, merge_style, created_at
 		FROM repos WHERE id = ?
-	`, id).Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt)
+	`, id).Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &r.DeliveryMode, &r.MergeStyle, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.Repo{}, store.ErrNotFound
 	}
@@ -308,6 +313,11 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, id string) (store.Repo, error
 	}
 	r.CreatedAt = parseTime(createdAt)
 	return r, nil
+}
+
+// UpdateRepoDelivery updates a repo's delivery mode, merge style, and remote URL.
+func (s *SQLiteStore) UpdateRepoDelivery(ctx context.Context, id, deliveryMode, mergeStyle, remoteURL string) error {
+	return s.execOne(ctx, `UPDATE repos SET delivery_mode = ?, merge_style = ?, remote_url = ? WHERE id = ?`, deliveryMode, mergeStyle, remoteURL, id)
 }
 
 func (s *SQLiteStore) ListRepos(ctx context.Context, projectID, workerID string) ([]store.Repo, error) {
@@ -321,7 +331,7 @@ func (s *SQLiteStore) ListRepos(ctx context.Context, projectID, workerID string)
 		conds = append(conds, "worker_id = ?")
 		args = append(args, workerID)
 	}
-	q := `SELECT id, sid, project_id, worker_id, name, path, remote_url, created_at FROM repos`
+	q := `SELECT id, sid, project_id, worker_id, name, path, remote_url, delivery_mode, merge_style, created_at FROM repos`
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")
 	}
@@ -337,7 +347,7 @@ func (s *SQLiteStore) ListRepos(ctx context.Context, projectID, workerID string)
 	for rows.Next() {
 		var r store.Repo
 		var createdAt string
-		if err := rows.Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &createdAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.SID, &r.ProjectID, &r.WorkerID, &r.Name, &r.Path, &r.RemoteURL, &r.DeliveryMode, &r.MergeStyle, &createdAt); err != nil {
 			return nil, err
 		}
 		r.CreatedAt = parseTime(createdAt)

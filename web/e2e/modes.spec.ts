@@ -278,17 +278,21 @@ test.describe('Mode UI (desktop)', () => {
     const env = loadEnv();
     await signIn(page, env, '/work');
     // A git checkout for the agent to change (the mock touches a file and leaves it uncommitted).
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'konsert-e2e-review-'));
+    const repo = fs.mkdtempSync(path.join('/var/tmp', 'konsert-e2e-review-'));
     try {
       const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
-      git('init', '-q');
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'e2e@example.invalid');
+      git('config', 'user.name', 'e2e');
       fs.writeFileSync(path.join(repo, 'README.md'), '# demo\n');
       git('add', 'README.md');
-      git('-c', 'user.email=e2e@users.noreply.github.com', '-c', 'user.name=e2e', 'commit', '-qm', 'init');
+      git('commit', '-qm', 'init');
       const res = await api<{ task_id: string }>(page, 'POST', '/api/tasks', {
         worker_selector: { worker_id: env.workerId },
         agent: 'mock',
         repo_path: repo,
+        use_worktree: true,
+        branch: 'konsert/e2e-review',
         prompt: 'Add the changelog entry\n- mention the new modes\nTOUCH_FILE=CHANGELOG.md',
         mode: 'oneshot',
         origin: 'orchestrator',
@@ -311,24 +315,147 @@ test.describe('Mode UI (desktop)', () => {
       const panel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
       await expect(panel).toContainText('mention the new modes');
       await expect(panel.getByTestId('review-receipts')).toContainText('CHANGELOG.md');
+      // No remote: defaults to direct local-only merge.
+      await expect(panel.getByTestId('review-delivery-action')).toContainText('local only');
       await panel.getByTestId('review-approve').click();
       await expect(panel.getByTestId('review-message')).toContainText('Approved');
-      // No GitHub remote: the decision is recorded and the panel says it wasn't sent.
-      await expect(panel.getByTestId('review-message')).toContainText('Not sent to GitHub');
+      await expect(panel.getByTestId('review-message')).toContainText('local only');
       await expect.poll(column).toBe('done');
       if (await dialog.isVisible()) await page.keyboard.press('Escape');
 
-      // The decision is kept on the hub: after a reload the card is still done, and its
-      // panel shows who approved it and what happened on GitHub.
+      // The decision and delivery outcome are kept on the hub across a reload.
       await page.reload();
       await expect.poll(column).toBe('done');
       await card.click();
       const aside = page.locator('aside[aria-label="Review"]').getByTestId('review-panel');
       await expect(aside.getByTestId('review-decision')).toContainText('Approved');
-      await expect(aside.getByTestId('review-decision')).toContainText('no GitHub remote');
+      await expect(aside.getByTestId('review-decision')).toContainText('local only');
       await expect(aside.getByTestId('review-approve')).toHaveCount(0);
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Work: Approve in direct mode pushes to a local bare remote; pr_merge without forge shows compare URL text', async ({ page }) => {
+    const env = loadEnv();
+    await signIn(page, env, '/work');
+    const base = fs.mkdtempSync(path.join('/var/tmp', 'konsert-e2e-delivery-'));
+    const bare = path.join(base, 'origin.git');
+    const repoDirect = path.join(base, 'repo-direct');
+    const repoPR = path.join(base, 'repo-pr');
+    let repoDirectId = '';
+    let repoPRId = '';
+    try {
+      fs.mkdirSync(bare, { recursive: true });
+      fs.mkdirSync(repoDirect, { recursive: true });
+      fs.mkdirSync(repoPR, { recursive: true });
+      const gitIn = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+
+      gitIn(bare, 'init', '--bare', '-b', 'main');
+      gitIn(repoDirect, 'init', '-b', 'main');
+      gitIn(repoDirect, 'config', 'user.email', 'e2e@example.invalid');
+      gitIn(repoDirect, 'config', 'user.name', 'e2e');
+      fs.writeFileSync(path.join(repoDirect, 'README.md'), '# direct\n');
+      gitIn(repoDirect, 'add', 'README.md');
+      gitIn(repoDirect, 'commit', '-qm', 'init');
+      gitIn(repoDirect, 'remote', 'add', 'origin', bare);
+      gitIn(repoDirect, 'push', '-u', 'origin', 'main');
+
+      const createdDirect = await api<{ id: string }>(page, 'POST', '/api/repos', {
+        worker_id: env.workerId,
+        name: 'e2e-direct',
+        path: repoDirect,
+        remote_url: bare,
+        delivery_mode: 'direct',
+        merge_style: 'squash',
+      });
+      repoDirectId = createdDirect.id;
+
+      const directTask = await api<{ task_id: string }>(page, 'POST', '/api/tasks', {
+        worker_selector: { worker_id: env.workerId },
+        repo_id: repoDirectId,
+        agent: 'mock',
+        repo_path: repoDirect,
+        use_worktree: true,
+        branch: 'konsert/e2e-direct',
+        prompt: 'Direct delivery test\nTOUCH_FILE=DIRECT.md',
+        mode: 'oneshot',
+        origin: 'orchestrator',
+      });
+      let directSid = '';
+      await expect
+        .poll(async () => {
+          const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${directTask.task_id}`);
+          directSid = t.task_sid;
+          return t.status;
+        })
+        .toBe('completed');
+
+      const board = page.getByTestId('work-board');
+      const directCard = board.locator(`[data-card="${directSid}"]`);
+      await expect(directCard).toBeVisible();
+      await directCard.click();
+      const dialog = page.getByTestId('questions-panel');
+      const panel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
+      await expect(panel.getByTestId('review-delivery-action')).toContainText('Approve → squash-merge into main and push');
+      await panel.getByTestId('review-approve').click();
+      await expect(panel.getByTestId('review-message')).toContainText('pushed to origin/main; your local main is behind — pull when ready');
+      if (await dialog.isVisible()) await page.keyboard.press('Escape');
+
+      // Confirm the file actually landed on the bare remote's main branch,
+      // while the user's primary checkout on main was left untouched.
+      expect(gitIn(bare, 'ls-tree', '-r', '--name-only', 'main')).toContain('DIRECT.md');
+      expect(fs.existsSync(path.join(repoDirect, 'DIRECT.md'))).toBe(false);
+
+      // Now verify the panel text in pr_merge mode with no forge credential.
+      gitIn(repoPR, 'init', '-b', 'main');
+      gitIn(repoPR, 'config', 'user.email', 'e2e@example.invalid');
+      gitIn(repoPR, 'config', 'user.name', 'e2e');
+      fs.writeFileSync(path.join(repoPR, 'README.md'), '# pr\n');
+      gitIn(repoPR, 'add', 'README.md');
+      gitIn(repoPR, 'commit', '-qm', 'init');
+      gitIn(repoPR, 'remote', 'add', 'origin', bare);
+
+      const createdPR = await api<{ id: string }>(page, 'POST', '/api/repos', {
+        worker_id: env.workerId,
+        name: 'e2e-pr-merge',
+        path: repoPR,
+        remote_url: bare,
+        delivery_mode: 'pr_merge',
+        merge_style: 'squash',
+      });
+      repoPRId = createdPR.id;
+
+      const prTask = await api<{ task_id: string }>(page, 'POST', '/api/tasks', {
+        worker_selector: { worker_id: env.workerId },
+        repo_id: repoPRId,
+        agent: 'mock',
+        repo_path: repoPR,
+        use_worktree: true,
+        branch: 'konsert/e2e-pr',
+        prompt: 'PR merge panel test\nTOUCH_FILE=PRMERGE.md',
+        mode: 'oneshot',
+        origin: 'orchestrator',
+      });
+      let prSid = '';
+      await expect
+        .poll(async () => {
+          const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${prTask.task_id}`);
+          prSid = t.task_sid;
+          return t.status;
+        })
+        .toBe('completed');
+
+      const prCard = board.locator(`[data-card="${prSid}"]`);
+      await expect(prCard).toBeVisible();
+      await prCard.click();
+      const prPanel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
+      await expect(prPanel.getByTestId('review-delivery-action')).toContainText('Approve → push branch and show compare URL (no forge credential)');
+      if (await dialog.isVisible()) await page.keyboard.press('Escape');
+    } finally {
+      if (repoDirectId) await api(page, 'DELETE', `/api/repos/${repoDirectId}`).catch(() => undefined);
+      if (repoPRId) await api(page, 'DELETE', `/api/repos/${repoPRId}`).catch(() => undefined);
+      fs.rmSync(base, { recursive: true, force: true });
     }
   });
 

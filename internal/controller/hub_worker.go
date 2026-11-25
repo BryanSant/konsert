@@ -603,6 +603,11 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 	updated, err := h.setTaskStatus(ctx, p.TaskID, p.Status, p.Summary, gitJSON, p.ExitCode, cause)
 	if err == nil && protocol.IsTerminalTaskStatus(updated.Status) {
 		h.kickScheduler()
+		if updated.Status == protocol.TaskStatusCompleted && cur.Status != protocol.TaskStatusCompleted &&
+			updated.Origin != protocol.TaskOriginExternal && updated.Origin != protocol.TaskOriginScratch &&
+			taskHasGitChanges(updated) {
+			h.onTaskEnteredReview(updated)
+		}
 	}
 }
 
