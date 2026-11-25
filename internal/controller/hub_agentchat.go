@@ -395,8 +395,8 @@ func (h *Hub) failInterruptedChats(ctx context.Context, wc *workerConn) {
 		default:
 			continue
 		}
-		if wc.activeChats[cs.ID] {
-			continue // the turn still runs on the daemon; its events arrive from the spool
+		if wc.isChatActive(cs.ID) {
+			continue // the turn still runs on the daemon (from hello or started on this conn)
 		}
 		rt := h.chatRT(cs.ID)
 		rt.mu.Lock()
@@ -943,6 +943,10 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		h.hubError(ctx, cs.ID, e)
 		return errors.New(e.Message)
 	}
+	// Mark the chat active on wc before setting ChatStatusWorking so a concurrent
+	// finishReplay -> failInterruptedChats on wc never misclassifies this new turn as
+	// interrupted by a prior disconnect.
+	wc.markChatActive(cs.ID)
 	h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{Kind: eventUserMessage, TurnID: turnID, Text: req.Content}, emitOpts{
 		update: func(s *store.ChatSession) {
 			s.Status = protocol.ChatStatusWorking

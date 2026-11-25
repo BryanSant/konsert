@@ -46,8 +46,27 @@ type workerConn struct {
 	helloLastSeq uint64
 	replayDone   atomic.Bool
 	replayDoneCh chan struct{}
-	// activeChats are the chats whose turn still runs on the daemon (from hello).
+	// activeChats are the chats whose turn still runs on the daemon (from hello, or
+	// started on this connection while its spool replay is still in flight). Guarded by mu.
 	activeChats map[string]bool
+}
+
+// markChatActive records that chatID has a live turn on this connection so a late
+// finishReplay -> failInterruptedChats cannot fail a turn started on wc itself.
+func (wc *workerConn) markChatActive(chatID string) {
+	wc.mu.Lock()
+	if wc.activeChats == nil {
+		wc.activeChats = map[string]bool{}
+	}
+	wc.activeChats[chatID] = true
+	wc.mu.Unlock()
+}
+
+// isChatActive reports whether chatID is running on this connection.
+func (wc *workerConn) isChatActive(chatID string) bool {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	return wc.activeChats[chatID]
 }
 
 // activeCount returns the number of tasks the worker is running, under wc.mu.

@@ -69,6 +69,10 @@ type Daemon struct {
 	spoolKick     chan struct{} // report the spool status now
 	// hbKick asks the heartbeat loop for a heartbeat now (a quiet link, a new connection).
 	hbKick chan struct{}
+	// bgCancel / bgWG stop and join the daemon-wide background loops (heartbeatLoop,
+	// spoolDisconnectedLoop) before shutdown closes the outbound spool.
+	bgCancel context.CancelFunc
+	bgWG     sync.WaitGroup
 
 	// helloAt is when worker.hello was last written on a connection (zero if the last
 	// attempt never got that far). Only touched by the Run goroutine.
@@ -262,8 +266,12 @@ func (d *Daemon) shutdown() {
 	d.shutdownChat()
 	d.runner.ShutdownAll()
 	d.wake.Shutdown()
+	if d.bgCancel != nil {
+		d.bgCancel()
+		d.bgWG.Wait()
+	}
 	if d.spool != nil {
-		// After the chats and tasks stopped: their last events are kept.
+		// After the chats, tasks and background loops stopped: their last events are kept.
 		_ = d.spool.Close()
 	}
 }
@@ -371,8 +379,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return nil
 	}
 	// Vitals are sampled (and spooled) whether or not a hub is connected.
-	go d.heartbeatLoop(ctx, d.hbKick, linkwatch.New(d.linkConfig(), nil).Config().QuietAfter*4)
-	go d.spoolDisconnectedLoop(ctx)
+	bgCtx, bgCancel := context.WithCancel(ctx)
+	d.bgCancel = bgCancel
+	d.bgWG.Add(2)
+	go func() {
+		defer d.bgWG.Done()
+		d.heartbeatLoop(bgCtx, d.hbKick, linkwatch.New(d.linkConfig(), nil).Config().QuietAfter*4)
+	}()
+	go func() {
+		defer d.bgWG.Done()
+		d.spoolDisconnectedLoop(bgCtx)
+	}()
 	if strings.TrimSpace(d.cfg.ControllerURL) == "" {
 		return d.runLocal(ctx)
 	}

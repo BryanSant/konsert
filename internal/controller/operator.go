@@ -111,6 +111,7 @@ func (h *Hub) ingestOperatorCommand(ctx context.Context, workerID string, p prot
 			summary += fmt.Sprintf(", answering request %s", req.SID)
 		}
 	}
+	defer h.beginDeliveryBatch()()
 	h.recordFleetEvent(ctx, store.FleetEvent{
 		Kind: store.EventKindAction, Action: "command", Cause: cause, WorkerID: workerID, TaskID: t.ID, CreatedAt: at,
 		Summary: summary,
