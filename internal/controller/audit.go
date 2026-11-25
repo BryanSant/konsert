@@ -31,6 +31,10 @@ const (
 	AuditChatApprovalMode = "chat.approval_mode"
 	AuditChatAccount      = "chat.account"
 	AuditChatRespond      = "chat.respond"
+	// Forge credentials (KON-QHGWZ): tokens set/deleted and device-flow sign-ins.
+	AuditForgeTokenSet    = "forge.token.set"
+	AuditForgeTokenDelete = "forge.token.delete"
+	AuditForgeDeviceAuth  = "forge.device.auth"
 )
 
 // Audit sources: the path an action arrived through.

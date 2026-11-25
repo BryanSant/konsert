@@ -71,6 +71,8 @@ type Server struct {
 	// creating the hub id.
 	hubKeyFile string
 	hubIDMu    sync.Mutex
+	// forges manages forge detection, encrypted credentials, and OAuth device flows (forges.go).
+	forges *forgeManager
 }
 
 // NewServer creates a fully wired Konsert controller HTTP handler.
@@ -130,6 +132,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 		launch:           newLauncher(),
 		machines:         newMachineAuth(),
 		removals:         &removals{clock: func() time.Time { return time.Now().UTC() }},
+		forges:           newForgeManager(cfg.Forges, st, box),
 	}
 	s.attach = newAttacher(s)
 	hub.restarts = newRestartTracker()
@@ -221,6 +224,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/sessions", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
 	s.mux.Handle("PUT /api/settings", s.requireBrowserAuth(s.handleUpdateSettings))
+	s.registerForgeRoutes()
 	s.mux.Handle("GET /api/git/inspect", s.requireBrowserAuth(s.handleGitInspect))
 	s.mux.Handle("POST /api/git/commit", s.requireBrowserAuth(s.handleGitCommit))
 	s.mux.Handle("POST /api/git/worktree/cleanup", s.requireBrowserAuth(s.handleGitWorktreeCleanup))

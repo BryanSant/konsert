@@ -48,6 +48,26 @@ func (c ControllerConfig) Validate() error {
 	if err := c.Orchestrator.Validate(); err != nil {
 		errs = append(errs, err)
 	}
+	if err := c.Forges.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks forge host overrides.
+func (f ForgesConfig) Validate() error {
+	var errs []error
+	for host, kind := range f.Hosts {
+		if strings.TrimSpace(host) == "" {
+			errs = append(errs, errors.New("forges.hosts contains an empty host"))
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(kind)) {
+		case "github", "gitlab", "forgejo":
+		default:
+			errs = append(errs, fmt.Errorf("forges.hosts[%q]: unsupported forge kind %q (want github, gitlab, or forgejo)", host, kind))
+		}
+	}
 	return errors.Join(errs...)
 }
 

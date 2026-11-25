@@ -1,0 +1,232 @@
+package controller
+
+import (
+	"bytes"
+	"context"
+	"encoding/json/v2"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/forge"
+	"github.com/BryanSant/konsert/internal/secrets"
+	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/konsert/internal/store/sqlite"
+)
+
+type noopCredRunner struct{}
+
+func (noopCredRunner) Run(context.Context, string, []string, []string, string) (string, error) {
+	return "", context.Canceled
+}
+
+func newForgeTestServer(t *testing.T, cfgMod func(*config.ControllerConfig)) (*Server, func()) {
+	t.Helper()
+	st, err := sqlite.Open(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultControllerConfig()
+	cfg.DBPath = ":memory:"
+	cfg.NoAuth = true
+	if cfgMod != nil {
+		cfgMod(&cfg)
+	}
+	srv := NewServer(cfg, st, nil, "test")
+	// Isolate credential discovery from host git/gh/glab binaries.
+	srv.forges.resolver = forge.NewResolver(forge.ResolverOptions{
+		Detector: &forge.Detector{Overrides: map[string]forge.Kind{}},
+		Creds: &forge.CredDiscovery{
+			Runner:         noopCredRunner{},
+			Store:          srv.forges.tokenStore,
+			GlabConfigPath: "/nonexistent/glab/config.yml",
+		},
+	})
+	return srv, func() { _ = st.Close() }
+}
+
+func TestForgeTokenEndpointsEncryptedAndAudited(t *testing.T) {
+	srv, cleanup := newForgeTestServer(t, nil)
+	defer cleanup()
+
+	secretTok := "fj_super_secret_token_999"
+
+	// PUT /api/forges/codeberg.org/token
+	req := httptest.NewRequest(http.MethodPut, "/api/forges/codeberg.org/token",
+		bytes.NewBufferString(`{"token":"`+secretTok+`","kind":"forgejo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT token status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secretTok) {
+		t.Fatalf("PUT response leaked token")
+	}
+
+	// Verify encrypted in SQLite settings.
+	saved, err := srv.store.GetAllSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := saved["forge_token:codeberg.org"]
+	if !secrets.IsSealed(raw) || strings.Contains(raw, secretTok) {
+		t.Fatalf("token not sealed in settings: %q", raw)
+	}
+
+	// GET /api/forges lists host and source, never the token.
+	req = httptest.NewRequest(http.MethodGet, "/api/forges", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/forges status = %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), secretTok) {
+		t.Fatalf("GET /api/forges leaked token")
+	}
+	var listResp struct {
+		Forges []forgeHostResponse `json:"forges"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(listResp.Forges) != 1 || listResp.Forges[0].Host != "codeberg.org" || listResp.Forges[0].CredentialSource != "pasted" {
+		t.Fatalf("unexpected /api/forges: %+v", listResp.Forges)
+	}
+
+	// DELETE /api/forges/codeberg.org/token
+	req = httptest.NewRequest(http.MethodDelete, "/api/forges/codeberg.org/token", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE token status = %d", rec.Code)
+	}
+
+	// Verify audit events recorded without ever containing the secret token.
+	events, err := srv.store.ListAudit(context.Background(), store.AuditFilter{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawSet, sawDel bool
+	for _, e := range events {
+		if strings.Contains(e.Message, secretTok) || strings.Contains(e.MetaJSON, secretTok) {
+			t.Fatalf("audit event leaked token: %+v", e)
+		}
+		if e.Action == AuditForgeTokenSet {
+			sawSet = true
+		}
+		if e.Action == AuditForgeTokenDelete {
+			sawDel = true
+		}
+	}
+	if !sawSet || !sawDel {
+		t.Fatalf("missing audit events: set=%v del=%v", sawSet, sawDel)
+	}
+}
+
+func TestForgeDeviceFlowEndpoints(t *testing.T) {
+	var polls atomic.Int32
+	fakeOAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/login/device/code":
+			_, _ = w.Write([]byte(`{
+				"device_code":"dc-secret",
+				"user_code":"TEST-CODE",
+				"verification_uri":"https://github.com/login/device",
+				"expires_in":600,
+				"interval":5
+			}`))
+		case "/login/oauth/access_token":
+			if polls.Add(1) == 1 {
+				_, _ = w.Write([]byte(`{"error":"authorization_pending"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"access_token":"gho_device_secret_777"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer fakeOAuth.Close()
+
+	// Without client ID -> 501 Not Implemented.
+	srvNoID, cleanupNoID := newForgeTestServer(t, nil)
+	defer cleanupNoID()
+	req := httptest.NewRequest(http.MethodPost, "/api/forges/github.com/device", nil)
+	rec := httptest.NewRecorder()
+	srvNoID.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 without client ID, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// With client ID -> start + poll pending + poll authorized.
+	oauthHost := strings.TrimPrefix(fakeOAuth.URL, "http://")
+	srv, cleanup := newForgeTestServer(t, func(cfg *config.ControllerConfig) {
+		cfg.Forges.GitHubClientID = "cid-gh"
+	})
+	defer cleanup()
+	srv.forges.device.HTTPClient = fakeOAuth.Client()
+	srv.forges.device.Scheme = "http"
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/forges/"+oauthHost+"/device",
+		bytes.NewBufferString(`{"kind":"github"}`))
+	startReq.Header.Set("Content-Type", "application/json")
+	startRec := httptest.NewRecorder()
+	srv.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start device status = %d, body = %s", startRec.Code, startRec.Body.String())
+	}
+	if strings.Contains(startRec.Body.String(), "dc-secret") {
+		t.Fatalf("start response leaked device_code")
+	}
+	var startResp struct {
+		ID       string `json:"id"`
+		UserCode string `json:"user_code"`
+	}
+	if err := json.Unmarshal(startRec.Body.Bytes(), &startResp); err != nil {
+		t.Fatal(err)
+	}
+	if startResp.ID == "" || startResp.UserCode != "TEST-CODE" {
+		t.Fatalf("unexpected start response: %+v", startResp)
+	}
+
+	// First poll -> pending
+	p1Rec := httptest.NewRecorder()
+	srv.ServeHTTP(p1Rec, httptest.NewRequest(http.MethodGet, "/api/forges/"+oauthHost+"/device/"+startResp.ID, nil))
+	if p1Rec.Code != http.StatusOK || !strings.Contains(p1Rec.Body.String(), `"pending"`) {
+		t.Fatalf("poll 1 = %d %s", p1Rec.Code, p1Rec.Body.String())
+	}
+
+	// Second poll -> authorized, token stored encrypted, never returned
+	p2Rec := httptest.NewRecorder()
+	srv.ServeHTTP(p2Rec, httptest.NewRequest(http.MethodGet, "/api/forges/"+oauthHost+"/device/"+startResp.ID, nil))
+	if p2Rec.Code != http.StatusOK || !strings.Contains(p2Rec.Body.String(), `"authorized"`) {
+		t.Fatalf("poll 2 = %d %s", p2Rec.Code, p2Rec.Body.String())
+	}
+	if strings.Contains(p2Rec.Body.String(), "gho_device_secret_777") {
+		t.Fatalf("poll 2 leaked access token")
+	}
+
+	// Stored token is present and decryptable with source="device".
+	tok, ok, err := srv.forges.tokenStore.GetToken(context.Background(), oauthHost)
+	if err != nil || !ok || tok.Token != "gho_device_secret_777" || tok.Source != "device" {
+		t.Fatalf("stored device token: %+v ok=%v err=%v", tok, ok, err)
+	}
+}
+
+func TestForgeEndpointsRequireAuth(t *testing.T) {
+	srv, cleanup := newForgeTestServer(t, func(cfg *config.ControllerConfig) {
+		cfg.NoAuth = false
+		cfg.RecoveryKey = "test-recovery-key"
+	})
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/forges", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthenticated, got %d", rec.Code)
+	}
+}
