@@ -467,6 +467,7 @@ type TaskStatusPayload struct {
 	ExitCode     *int           `json:"exit_code,omitzero"`
 	Summary      string         `json:"summary,omitempty"`
 	GitSummary   *GitSummary    `json:"git_summary,omitzero"`
+	Digest       *RunDigest     `json:"digest,omitzero"`
 }
 
 type TaskEventPayload struct {

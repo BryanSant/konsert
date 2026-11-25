@@ -609,6 +609,11 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 			gitJSON = string(b)
 		}
 	}
+	if p.Digest != nil {
+		if b, err := json.Marshal(p.Digest, protocol.JSONOptions); err == nil {
+			_ = h.store.UpdateTaskDigest(ctx, p.TaskID, string(b))
+		}
+	}
 	cause := h.taskCauseForWorkerStatus(cur, p.Status, p.ExitCode)
 
 	wc.mu.Lock()

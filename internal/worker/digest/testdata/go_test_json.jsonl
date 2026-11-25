@@ -1,0 +1,7 @@
+{"Time":"2026-11-25T14:00:00Z","Action":"run","Package":"github.com/acme/api/pkg/auth","Test":"TestRotateToken"}
+{"Time":"2026-11-25T14:00:00Z","Action":"pass","Package":"github.com/acme/api/pkg/auth","Test":"TestRotateToken","Elapsed":0.01}
+{"Time":"2026-11-25T14:00:00Z","Action":"run","Package":"github.com/acme/api/pkg/auth","Test":"TestRevokeFamily"}
+{"Time":"2026-11-25T14:00:00Z","Action":"output","Package":"github.com/acme/api/pkg/auth","Test":"TestRevokeFamily","Output":"    token_test.go:42: expected family revoked\n"}
+{"Time":"2026-11-25T14:00:00Z","Action":"fail","Package":"github.com/acme/api/pkg/auth","Test":"TestRevokeFamily","Elapsed":0.02}
+{"Time":"2026-11-25T14:00:00Z","Action":"pass","Package":"github.com/acme/api/pkg/auth","Test":"TestParseClaims","Elapsed":0.00}
+{"Time":"2026-11-25T14:00:00Z","Action":"fail","Package":"github.com/acme/api/pkg/auth","Elapsed":0.05}

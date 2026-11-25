@@ -174,6 +174,7 @@ type Task struct {
 	Status             string         `json:"status"` // "queued","assigned","running","waiting_input","suspended","completed","failed","canceled"
 	Summary            string         `json:"summary"`
 	GitSummaryJSON     string         `json:"git_summary_json,omitempty"`
+	DigestJSON         string         `json:"digest_json,omitempty"`
 	Worktrees          []TaskWorktree `json:"worktrees,omitempty"`
 	WorktreesCleanedAt *time.Time     `json:"worktrees_cleaned_at,omitzero"`
 	ExitCode           *int           `json:"exit_code,omitzero"`
@@ -558,6 +559,8 @@ type Store interface {
 	UpdateTaskAssignment(ctx context.Context, id, workerID, effectiveDir string) error
 	// UpdateTaskWorktrees persists the worktree paths reported back by the daemon for a task.
 	UpdateTaskWorktrees(ctx context.Context, id string, worktrees []TaskWorktree) error
+	// UpdateTaskDigest persists the JSON-encoded post-run RunDigest reported by the daemon.
+	UpdateTaskDigest(ctx context.Context, id, digestJSON string) error
 	// MarkTaskWorktreesCleaned records that the task's provisioned worktrees have been removed.
 	MarkTaskWorktreesCleaned(ctx context.Context, id string, at time.Time) error
 	// ListTasksByTicket returns tasks linked to ticketID, newest first.

@@ -510,13 +510,13 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 		INSERT INTO tasks (
 			id, sid, worker_id, project_id, repo_id,
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-			orphan_policy, prompt, status, summary, git_summary_json, exit_code,
+			orphan_policy, prompt, status, summary, git_summary_json, digest_json, exit_code,
 			cause_json, suspended_by, parent_chat_id, title, ticket_id, ticket_title,
 			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, t.ID, t.SID, workerID, t.ProjectID, t.RepoID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
-		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.ExitCode,
+		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.DigestJSON, t.ExitCode,
 		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID, t.Title, t.TicketID, t.TicketTitle,
 		formatTime(t.CreatedAt), startedAt, completedAt)
 	return err
@@ -690,6 +690,10 @@ func (s *SQLiteStore) execOne(ctx context.Context, q string, args ...any) error 
 	return nil
 }
 
+func (s *SQLiteStore) UpdateTaskDigest(ctx context.Context, id, digestJSON string) error {
+	return s.execOne(ctx, `UPDATE tasks SET digest_json = ? WHERE id = ?`, digestJSON, id)
+}
+
 func (s *SQLiteStore) UpdateTaskWorktrees(ctx context.Context, id string, worktrees []store.TaskWorktree) error {
 	raw := ""
 	if len(worktrees) > 0 {
@@ -773,7 +777,7 @@ func (s *SQLiteStore) ListTasksPendingWorktreeCleanup(ctx context.Context, limit
 
 const taskSelectColumns = `id, sid, external_id, worker_id, project_id, repo_id,
 		       agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
-		       orphan_policy, prompt, status, summary, git_summary_json, worktrees_json, worktrees_cleaned_at, exit_code,
+		       orphan_policy, prompt, status, summary, git_summary_json, digest_json, worktrees_json, worktrees_cleaned_at, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
 		       keep, compacted_at, created_at, started_at, completed_at`
@@ -797,7 +801,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	if err := scanner.Scan(
 		&t.ID, &t.SID, &t.ExternalID, &workerID, &t.ProjectID, &t.RepoID,
 		&t.Agent, &t.Model, &t.SessionKind, &t.Workdir, &t.EffectiveDir, &t.Branch, &t.Mode, &t.Origin, &perm,
-		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
+		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &t.DigestJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
 		&keep, &compactedAt, &createdAt, &startedAt, &completedAt,

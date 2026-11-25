@@ -1,0 +1,13 @@
+=== RUN   TestRotateToken
+--- PASS: TestRotateToken (0.01s)
+=== RUN   TestRevokeFamily
+    token_test.go:42: expected family revoked, got active
+--- FAIL: TestRevokeFamily (0.02s)
+=== RUN   TestRefreshHandler
+=== RUN   TestRefreshHandler/expired
+    handler_test.go:88: status = 200, want 401
+--- FAIL: TestRefreshHandler/expired (0.00s)
+--- FAIL: TestRefreshHandler (0.01s)
+FAIL
+FAIL	github.com/acme/api/pkg/auth	0.045s
+ok  	github.com/acme/api/pkg/util	0.012s

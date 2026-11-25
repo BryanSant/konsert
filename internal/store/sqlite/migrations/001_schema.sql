@@ -172,6 +172,7 @@ CREATE TABLE tasks (
     status             TEXT NOT NULL,
     summary            TEXT NOT NULL DEFAULT '',
     git_summary_json   TEXT NOT NULL DEFAULT '',
+    digest_json        TEXT NOT NULL DEFAULT '',
     worktrees_json     TEXT NOT NULL DEFAULT '',
     worktrees_cleaned_at TEXT,
     exit_code          INTEGER,

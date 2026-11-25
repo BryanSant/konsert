@@ -1,0 +1,11 @@
+> Task :test
+
+com.example.AuthTest > testParse() PASSED
+com.example.AuthTest > testRotate() FAILED
+    org.opentest4j.AssertionFailedError: expected: <200> but was: <401>
+com.example.AuthTest > testReuse() FAILED
+    org.opentest4j.AssertionFailedError: expected revoked
+
+10 tests completed, 2 failed
+
+> Task :test FAILED

@@ -1,0 +1,16 @@
+running 14 tests
+test auth::tests::test_parse ... ok
+test auth::tests::test_rotate ... FAILED
+test auth::tests::test_reuse ... FAILED
+test auth::tests::test_claims ... ok
+
+failures:
+    auth::tests::test_reuse
+    auth::tests::test_rotate
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+running 4 tests
+test util::test_hash ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

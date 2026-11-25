@@ -12,14 +12,10 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/digest"
 )
 
 var (
-	authRe  = regexp.MustCompile(`(?i)(authentication required|not (signed|logged) in|unauthenticated|unauthori[sz]ed|please (run|use) .{0,30}login|login required|run '?\S*\s?login|sign in (again|to continue)|token (has )?expired|expired token|invalid (api key|token|credentials)|re-?authenticate|\b401\b)`)
-	usageRe = regexp.MustCompile(`(?i)(usage limit|limit reached|quota (exceeded|reached|exhausted)|individual quota|out of (credits|requests|usage)|premium requests?|monthly limit|weekly limit|exceeded your|you('ve| have) (reached|hit|used up)|resource.?exhausted|insufficient (credits|quota))`)
-	rateRe  = regexp.MustCompile(`(?i)(rate.?limit|too many requests|\b429\b|overloaded|\b529\b|\b503\b|temporarily unavailable|capacity|try again (later|shortly|in a (few|moment)))`)
-	modelRe = regexp.MustCompile(`(?i)(invalid model|unknown model|model .{0,60}(not (found|available|supported)|does not exist|unavailable)|cannot use this model|unsupported model|no such model)`)
-
 	resetsInRe = regexp.MustCompile(`(?i)(?:resets?|try again|available again|retry)\s+in\s+((?:\d+\s*(?:d|h|m|s|days?|hours?|hrs?|minutes?|mins?|seconds?|secs?)\s*,?\s*(?:and\s+)?)+)`)
 	resetsAtRe = regexp.MustCompile(`(?i)(?:resets?|reset|available again|try again)\s+(?:at|on)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.]+(?:Z|[+-][0-9:]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?(?:\s*\(?[A-Z]{2,5}\)?)?)`)
 	tzSuffixRe = regexp.MustCompile(`\s+\(?([A-Z]{2,5})\)?$`)
@@ -27,20 +23,9 @@ var (
 )
 
 // classifyText decides an error kind from free text ("" = no match).
+// Delegates to the shared classifier in internal/worker/digest.
 func classifyText(s string) string {
-	switch {
-	case s == "":
-		return ""
-	case usageRe.MatchString(s):
-		return protocol.ErrKindUsageLimit
-	case authRe.MatchString(s):
-		return protocol.ErrKindAuth
-	case modelRe.MatchString(s):
-		return protocol.ErrKindModel
-	case rateRe.MatchString(s):
-		return protocol.ErrKindRateLimit
-	}
-	return ""
+	return digest.ClassifyText(s)
 }
 
 // parseUsageWindow extracts the reset time and window from usage-limit text.

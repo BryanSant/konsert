@@ -1,0 +1,18 @@
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.example.AuthTest
+[ERROR] Tests run: 5, Failures: 1, Errors: 1, Skipped: 0, Time elapsed: 0.42 s <<< FAILURE! - in com.example.AuthTest
+[INFO] Running com.example.UtilTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.10 s - in com.example.UtilTest
+[INFO]
+[INFO] Results:
+[INFO]
+[ERROR] Failures:
+[ERROR]   AuthTest.testRotate:42 expected:<200> but was:<401>
+[ERROR] Errors:
+[ERROR]   AuthTest.testReuse:67 NullPointerException
+[INFO]
+[ERROR] Tests run: 12, Failures: 1, Errors: 1, Skipped: 0
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE

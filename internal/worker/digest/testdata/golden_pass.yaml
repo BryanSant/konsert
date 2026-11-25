@@ -1,0 +1,7 @@
+ticket: SYR-7QK3M
+status: review
+machine: bocabox (claude, opus)
+duration_s: 412
+git: {api: "2 files, +74 -9", web: "1 file, +28 -4"}
+interface: "RefreshHandler rotates tokens; api/pkg/auth/handler.go"
+summary: Rotation with reuse detection and a single 401 retry; tests pass.

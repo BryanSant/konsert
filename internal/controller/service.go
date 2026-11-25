@@ -779,6 +779,7 @@ type TaskResult struct {
 	ExitCode         *int                 `json:"exit_code,omitzero"`
 	DurationSeconds  int64                `json:"duration_seconds"`
 	Summary          string               `json:"summary"`
+	Digest           *protocol.RunDigest  `json:"digest,omitzero"`
 	GitSummary       *protocol.GitSummary `json:"git_summary,omitzero"`
 	RecentMilestones []string             `json:"recent_milestones,omitempty"`
 	// LastCause attributes the last status change; Holds lists active holds covering it.
@@ -842,6 +843,18 @@ func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bo
 		}
 	}
 
+	var runDigest *protocol.RunDigest
+	summary := t.Summary
+	if t.DigestJSON != "" {
+		var d protocol.RunDigest
+		if err := json.Unmarshal([]byte(t.DigestJSON), &d, protocol.JSONOptions); err == nil {
+			runDigest = &d
+			if text := d.Text(); text != "" {
+				summary = text
+			}
+		}
+	}
+
 	var milestones []string
 	if evs, err := s.store.ListEvents(ctx, t.ID, 0, 100); err == nil {
 		startIdx := 0
@@ -861,7 +874,8 @@ func (s *FleetService) GetTaskResult(ctx context.Context, taskID string, wait bo
 		Status:           t.Status,
 		ExitCode:         t.ExitCode,
 		DurationSeconds:  dur,
-		Summary:          t.Summary,
+		Summary:          summary,
+		Digest:           runDigest,
 		GitSummary:       gitSum,
 		RecentMilestones: milestones,
 		LastCause:        t.Cause,
