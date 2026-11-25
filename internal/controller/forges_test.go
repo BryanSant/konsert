@@ -152,10 +152,13 @@ func TestForgeDeviceFlowEndpoints(t *testing.T) {
 	}))
 	defer fakeOAuth.Close()
 
-	// Without client ID -> 501 Not Implemented.
+	// GHES host without a configured client ID -> 501 Not Implemented (the built-in
+	// client ID only applies to github.com).
 	srvNoID, cleanupNoID := newForgeTestServer(t, nil)
 	defer cleanupNoID()
-	req := httptest.NewRequest(http.MethodPost, "/api/forges/github.com/device", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/forges/github.corp.example/device",
+		bytes.NewBufferString(`{"kind":"github"}`))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srvNoID.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotImplemented {

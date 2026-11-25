@@ -15,8 +15,17 @@ func TestDeviceFlowUnavailable(t *testing.T) {
 	ctx := context.Background()
 	client := &DeviceFlowClient{}
 
-	if _, err := client.Start(ctx, "github.com", GitHub); !errors.Is(err, ErrDeviceFlowUnavailable) {
-		t.Fatalf("github without client ID: err = %v, want ErrDeviceFlowUnavailable", err)
+	if _, err := client.Start(ctx, "github.corp.example", GitHub); !errors.Is(err, ErrDeviceFlowUnavailable) {
+		t.Fatalf("GHES without client ID: err = %v, want ErrDeviceFlowUnavailable", err)
+	}
+	if !client.Available("github.com", GitHub) {
+		t.Fatalf("github.com should use the built-in client ID")
+	}
+	if id, err := client.clientIDFor("github.com", GitHub); err != nil || id != DefaultGitHubClientID {
+		t.Fatalf("github.com client ID = %q, %v; want built-in", id, err)
+	}
+	if client.Available("github.corp.example", GitHub) {
+		t.Fatalf("GHES must not use the built-in client ID")
 	}
 	if _, err := client.Start(ctx, "gitlab.com", GitLab); !errors.Is(err, ErrDeviceFlowUnavailable) {
 		t.Fatalf("gitlab without client ID: err = %v, want ErrDeviceFlowUnavailable", err)
