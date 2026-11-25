@@ -27,10 +27,29 @@ func TestDeviceFlowUnavailable(t *testing.T) {
 	if client.Available("github.corp.example", GitHub) {
 		t.Fatalf("GHES must not use the built-in client ID")
 	}
-	if _, err := client.Start(ctx, "gitlab.com", GitLab); !errors.Is(err, ErrDeviceFlowUnavailable) {
-		t.Fatalf("gitlab without client ID: err = %v, want ErrDeviceFlowUnavailable", err)
+	if _, err := client.Start(ctx, "gitlab.corp.example", GitLab); !errors.Is(err, ErrDeviceFlowUnavailable) {
+		t.Fatalf("self-managed gitlab without client ID: err = %v, want ErrDeviceFlowUnavailable", err)
+	}
+	if !client.Available("gitlab.com", GitLab) {
+		t.Fatalf("gitlab.com should use the built-in client ID")
+	}
+	if id, err := client.clientIDFor("gitlab.com", GitLab); err != nil || id != DefaultGitLabClientID {
+		t.Fatalf("gitlab.com client ID = %q, %v; want built-in", id, err)
+	}
+	if client.Available("gitlab.corp.example", GitLab) {
+		t.Fatalf("self-managed gitlab must not use the built-in client ID")
 	}
 	client.GitHubClientID = "cid"
+	if id, err := client.clientIDFor("github.com", GitHub); err != nil || id != "cid" {
+		t.Fatalf("github.com override client ID = %q, %v; want %q", id, err, "cid")
+	}
+	client.GitLabClientID = "gl-override"
+	if id, err := client.clientIDFor("gitlab.com", GitLab); err != nil || id != "gl-override" {
+		t.Fatalf("gitlab.com override client ID = %q, %v; want %q", id, err, "gl-override")
+	}
+	if !client.Available("gitlab.corp.example", GitLab) {
+		t.Fatalf("self-managed gitlab should be available with explicit client ID")
+	}
 	if _, err := client.Start(ctx, "codeberg.org", Forgejo); !errors.Is(err, ErrDeviceFlowUnavailable) {
 		t.Fatalf("forgejo: err = %v, want ErrDeviceFlowUnavailable", err)
 	}

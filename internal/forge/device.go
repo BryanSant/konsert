@@ -51,6 +51,11 @@ type DevicePollResult struct {
 // configured via forges.github_client_id or SYRE_GITHUB_CLIENT_ID.
 const DefaultGitHubClientID = "Ov23limGWxnHWpQ8jPGO"
 
+// DefaultGitLabClientID is Syre's public OAuth Application ID on gitlab.com. Device-flow
+// client IDs are not secrets; self-managed GitLab hosts need their own OAuth Application,
+// configured via forges.gitlab_client_id or SYRE_GITLAB_CLIENT_ID.
+const DefaultGitLabClientID = "f57d36e99ac8b009d0b9ee16f2abbf9f5ed8991620fdbc1c29c168f0595a73f3"
+
 // DeviceFlowClient implements the OAuth 2.0 Device Authorization Grant (RFC 8628) for
 // GitHub and GitLab.
 type DeviceFlowClient struct {
@@ -83,6 +88,9 @@ func (d *DeviceFlowClient) clientIDFor(host string, kind Kind) (string, error) {
 		return id, nil
 	case GitLab:
 		id := strings.TrimSpace(d.GitLabClientID)
+		if id == "" && NormalizeHost(host) == "gitlab.com" {
+			id = DefaultGitLabClientID
+		}
 		if id == "" {
 			return "", fmt.Errorf("%w: no GitLab OAuth client ID configured", ErrDeviceFlowUnavailable)
 		}
