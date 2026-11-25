@@ -16,7 +16,12 @@ func DefaultEnv() (Env, error) {
 	if err != nil || home == "" {
 		return Env{}, fmt.Errorf("cannot determine your home directory: %v", err)
 	}
-	env := Env{Home: home, UID: os.Getuid(), PATH: CleanPATH(os.Getenv("PATH"), os.PathListSeparator)}
+	env := Env{
+		Home:       home,
+		UID:        os.Getuid(),
+		PATH:       CleanPATH(os.Getenv("PATH"), os.PathListSeparator),
+		ManagedBin: filepath.Join(home, ".local", "bin", "konsertd"),
+	}
 	if u, err := user.Current(); err == nil {
 		env.User = u.Username
 	} else {

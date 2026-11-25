@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -84,6 +85,9 @@ type Env struct {
 	// PATH is persisted into launchd/systemd definitions, whose default PATH lacks
 	// Homebrew, ~/.local/bin and friends where agent CLIs live.
 	PATH string
+	// ManagedBin is the konsertd binary path that konsertd / SSH bootstrap installs
+	// (~/.local/bin/konsertd on Unix, %LOCALAPPDATA%\Programs\konsertd\konsertd.exe on Windows).
+	ManagedBin string
 }
 
 // Spec describes what to register.
@@ -177,6 +181,25 @@ func (in *Installer) ConfigPath(instance string) string {
 // LogPath is the instance's log file (unused on Linux, which logs to the journal).
 func (in *Installer) LogPath(instance string) string {
 	return filepath.Join(in.Env.LogDir, unitBase(instance)+".log")
+}
+
+// ManagedBinPath is the path where konsertd installs its own binary on this OS
+// (~/.local/bin/konsertd on Unix, %LOCALAPPDATA%\Programs\konsertd\konsertd.exe on Windows).
+func (in *Installer) ManagedBinPath() string {
+	if in.Env.ManagedBin != "" {
+		return in.Env.ManagedBin
+	}
+	if in.Env.Home == "" {
+		return ""
+	}
+	if runtime.GOOS == "windows" {
+		local := filepath.Join(in.Env.Home, "AppData", "Local")
+		if in.Env.ConfigDir != "" {
+			local = filepath.Dir(in.Env.ConfigDir)
+		}
+		return filepath.Join(local, "Programs", "konsertd", "konsertd.exe")
+	}
+	return filepath.Join(in.Env.Home, ".local", "bin", "konsertd")
 }
 
 // runArgs is the argv after the binary: run --config <path> [extra...].

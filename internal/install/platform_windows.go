@@ -34,6 +34,7 @@ func DefaultEnv() (Env, error) {
 		SystemRoot: os.Getenv("SystemRoot"),
 		Elevated:   IsElevated(),
 		PATH:       CleanPATH(os.Getenv("PATH"), os.PathListSeparator),
+		ManagedBin: filepath.Join(local, "Programs", "konsertd", "konsertd.exe"),
 	}, nil
 }
 

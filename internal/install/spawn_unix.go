@@ -3,6 +3,7 @@
 package install
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -15,4 +16,9 @@ func spawnDetached(name string, args ...string) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// ScheduleDeleteOnExit is only needed on Windows (Unix unlinks running executables directly).
+func ScheduleDeleteOnExit(string, string) error {
+	return errors.New("scheduled delete on exit is Windows-only")
 }

@@ -17,3 +17,21 @@ func spawnDetached(name string, args ...string) error {
 	}
 	return cmd.Process.Release()
 }
+
+// ScheduleDeleteOnExit spawns a detached cmd.exe that waits briefly for this process to
+// exit and then deletes exePath (and emptyDir if empty).
+func ScheduleDeleteOnExit(exePath, emptyDir string) error {
+	cmdLine, err := BuildWindowsDeleteCmdLine(exePath, emptyDir)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command("cmd.exe")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
+		CmdLine:       cmdLine,
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}

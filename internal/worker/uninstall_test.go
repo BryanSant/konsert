@@ -84,6 +84,8 @@ func (a *sharedAccount) uninstaller(self bool) *Uninstaller {
 			}
 			return nil
 		},
+		Executable:   func() (string, error) { return a.in.ManagedBinPath(), nil },
+		OtherRunning: func(string) (bool, error) { return false, nil },
 	}
 }
 
@@ -251,7 +253,7 @@ func TestRemoveIdentityIgnoresReusedPID(t *testing.T) {
 // hooks stay even though no other konsertd is installed.
 func TestRemoveIdentityNothingInstalled(t *testing.T) {
 	a := newSharedAccount(t)
-	id := a.identity("gone")
+	id := ids.UUID()
 	u := a.uninstaller(false)
 	u.DropHubGrant = func(string, string) (string, bool, error) { return "", false, nil }
 	rep, err := u.RemoveIdentity(context.Background(), id, "hub1")
@@ -263,6 +265,9 @@ func TestRemoveIdentityNothingInstalled(t *testing.T) {
 	}
 	if l := rep.Lines(); len(l) != 1 || !strings.Contains(l[0], "already removed") {
 		t.Fatalf("lines = %q", l)
+	}
+	if fileExists(a.state) {
+		t.Errorf("empty state dir %s was created and left behind", a.state)
 	}
 }
 

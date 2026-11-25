@@ -316,7 +316,16 @@ func (in *Installer) removeService(ctx context.Context, instance string, self bo
 			in.printf("Removed %s\n", p)
 		}
 	}
-	in.printf("Logs were kept in %s\n", filepath.Dir(serviceLogPath(instance)))
+	logPath := serviceLogPath(instance)
+	for _, lp := range []string{logPath, logPath + ".1"} {
+		if removed, err := removeFile(lp); err == nil && removed {
+			in.printf("Removed %s\n", lp)
+		} else if err != nil && !self {
+			in.printf("Kept %s (%v)\n", lp, err)
+		}
+	}
+	_ = os.Remove(filepath.Dir(logPath)) // only when empty
+	_ = os.Remove(serviceDir())          // only when empty
 	return nil
 }
 
