@@ -220,11 +220,13 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 
 	// Anything descending from syred itself (PTY tasks, chat engines and their helpers)
 	// is managed, not an external session.
-	self := os.Getpid()
-	isManaged := func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) }
-	d.discovery = NewSessionDiscovery("", isManaged, func(p protocol.ExternalSessionPayload) {
-		d.sendJSON(protocol.MsgExternalSession, p)
-	})
+	if !agentDiscoveryDisabled() {
+		self := os.Getpid()
+		isManaged := func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) }
+		d.discovery = NewSessionDiscovery("", isManaged, func(p protocol.ExternalSessionPayload) {
+			d.sendJSON(protocol.MsgExternalSession, p)
+		})
+	}
 
 	d.wake = NewWakeLockManager(nil, logger, func(st protocol.HostWakeLockState) {
 		d.sendJSON(protocol.MsgHostWakeLockState, st)
@@ -690,7 +692,9 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 	}()
 
 	// Lightweight Hook + Passive Session Discovery (zero blind spots for externally SSH-launched agents).
-	go d.discovery.Run(connCtx)
+	if d.discovery != nil {
+		go d.discovery.Run(connCtx)
+	}
 
 	// Shells under hosted sessions, from the process tree (~1 s).
 	go d.shellLoop(connCtx)

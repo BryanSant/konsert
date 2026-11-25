@@ -172,3 +172,130 @@ func TestPassiveScanPerProcessTimeout(t *testing.T) {
 		t.Fatalf("a slow lookup for one process must not starve the others: %+v", got)
 	}
 }
+
+func TestAgentDiscoveryDisabledHelper(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"", false},
+		{"0", false},
+		{"false", false},
+		{"no", false},
+		{"1", true},
+		{" 1 ", true},
+		{"true", true},
+		{"TRUE", true},
+		{" True ", true},
+	}
+	for _, tc := range cases {
+		t.Setenv(DisableAgentDiscoveryEnv, tc.val)
+		if got := agentDiscoveryDisabled(); got != tc.want {
+			t.Errorf("%s=%q: agentDiscoveryDisabled() = %v, want %v", DisableAgentDiscoveryEnv, tc.val, got, tc.want)
+		}
+	}
+}
+
+func TestDisableAgentDiscoverySkipsPassiveAndHooks(t *testing.T) {
+	for _, envVal := range []string{"1", "true"} {
+		t.Run(envVal, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv(DisableAgentDiscoveryEnv, envVal)
+
+			// Pre-populate hook-events.jsonl directly (as if written by a host hook)
+			// and verify PollHookEvents, scanProcessList, ScanPassiveProcesses, Resync, and Run emit nothing.
+			path := HookEventsPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			line := `{"session_id":"host-1","agent":"claude","event":"working","cwd":"/host/repo","ts":"2026-01-01T00:00:00Z"}` + "\n"
+			if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			var log emitLog
+			disc := NewSessionDiscovery(home, nil, log.emit)
+			stubCwd(disc, func(context.Context, int) string { return "/host/repo" })
+
+			// Seed activeExternal to verify Resync is also suppressed.
+			disc.activeExternal["seeded"] = protocol.ExternalSessionPayload{
+				ExternalID: "seeded",
+				Agent:      "claude",
+				Status:     "working",
+				Source:     "hook",
+			}
+
+			disc.PollHookEvents(context.Background())
+			disc.scanProcessList(context.Background(), []psEntry{
+				{pid: 6000, ppid: 1, pcpu: 12.0, comm: "/usr/local/bin/claude"},
+				{pid: 6001, ppid: 1, pcpu: 0.5, comm: "codex"},
+			})
+			disc.ScanPassiveProcesses(context.Background())
+			disc.Resync()
+
+			// Run must return immediately without starting tickers or emitting.
+			done := make(chan struct{})
+			go func() {
+				disc.Run(context.Background())
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("SessionDiscovery.Run did not return promptly when agent discovery is disabled")
+			}
+
+			if got := log.all(); len(got) != 0 {
+				t.Fatalf("expected no external sessions when %s=%s, got %+v", DisableAgentDiscoveryEnv, envVal, got)
+			}
+		})
+	}
+}
+
+func TestDisableAgentDiscoveryDaemonKeepsManagedSessions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(StateDirEnv, t.TempDir())
+	t.Setenv(DisableAgentDiscoveryEnv, "1")
+
+	// Pre-populate a host hook event that a normal daemon would pick up.
+	path := HookEventsPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"session_id":"host-ext","agent":"claude","event":"working","cwd":"/host","ts":"2026-01-01T00:00:00Z"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	hub := newFakeHub(t)
+	d, _ := startTestDaemon(t, hub, nil)
+	if d.discovery != nil {
+		t.Fatal("Daemon.discovery must be nil when agent discovery is disabled")
+	}
+	c := hub.accept(t)
+	c.waitFor(t, 5*time.Second, "worker.hello", isType(protocol.MsgWorkerHello))
+
+	// Managed mock chat must continue to work normally.
+	c.send(t, protocol.MsgAgentChatOpen, "", protocol.AgentChatOpen{ChatID: "managed-1", Agent: "mock", AccountID: "mock", Cwd: t.TempDir()})
+	c.send(t, protocol.MsgAgentChatPrompt, "", protocol.AgentChatPrompt{ChatID: "managed-1", TurnID: "t1", Text: "hello"})
+
+	var sawExternal bool
+	for {
+		env := c.waitFor(t, 10*time.Second, "managed chat turn_end", func(e protocol.Envelope) bool {
+			if e.Type == protocol.MsgExternalSession {
+				sawExternal = true
+				return false
+			}
+			if e.Type != protocol.MsgAgentChatEvent {
+				return false
+			}
+			ev, err := protocol.DecodePayload[protocol.AgentChatEvent](e)
+			return err == nil && ev.ChatID == "managed-1" && ev.Kind == protocol.EventTurnEnd && ev.TurnID == "t1"
+		})
+		_ = env
+		break
+	}
+	if sawExternal {
+		t.Fatal("daemon emitted MsgExternalSession while agent discovery is disabled")
+	}
+}
