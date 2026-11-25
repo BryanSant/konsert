@@ -149,22 +149,28 @@ func (in *Installer) InstalledConfigs() ([]InstalledConfig, error) {
 	}
 	var out []InstalledConfig
 	for _, e := range entries {
-		n := e.Name()
-		if e.IsDir() || !strings.HasSuffix(n, ".yaml") {
+		instance, ok := instanceOfConfig(e.Name())
+		if e.IsDir() || !ok {
 			continue
 		}
-		stem := strings.TrimSuffix(n, ".yaml")
-		var instance string
-		switch {
-		case stem == BaseName:
-		case strings.HasPrefix(stem, BaseName+"-"):
-			instance = strings.TrimPrefix(stem, BaseName+"-")
-		default:
-			continue
-		}
-		out = append(out, InstalledConfig{Instance: instance, Path: filepath.Join(in.Env.ConfigDir, n)})
+		out = append(out, InstalledConfig{Instance: instance, Path: filepath.Join(in.Env.ConfigDir, e.Name())})
 	}
 	return out, nil
+}
+
+// instanceOfConfig maps an instance config file name (konsertd.yaml,
+// konsertd-<instance>.yaml) to its instance.
+func instanceOfConfig(name string) (string, bool) {
+	stem, ok := strings.CutSuffix(name, ".yaml")
+	switch {
+	case !ok:
+		return "", false
+	case stem == BaseName:
+		return "", true
+	case strings.HasPrefix(stem, BaseName+"-"):
+		return strings.TrimPrefix(stem, BaseName+"-"), true
+	}
+	return "", false
 }
 
 // NohupBase is the stem of the nohup daemon files for a worker name, in the state dir:

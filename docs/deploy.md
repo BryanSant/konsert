@@ -333,7 +333,13 @@ task is ended. A logon task only runs while you are logged on to Windows (it sta
 your next logon if you install it over SSH with nobody logged on).
 
 To run konsertd at boot without a logon, as a dedicated account, install a native
-service from an elevated ("Run as administrator") terminal:
+service. Installing needs administrator rights: in an ordinary terminal at the desktop,
+konsertd asks for the account password, then for approval (UAC), and shows the elevated
+install's output in the same terminal. Over SSH, an administrator account already has an
+elevated session (OpenSSH), so it just works; without administrator rights, or with
+`--no-elevate`, or with no desktop to show the prompt on (SSH, services, CI), konsertd
+never waits for a prompt: it says what to run instead (`sudo konsertd ...` when Windows
+sudo is enabled in inline mode, otherwise an elevated "Run as administrator" terminal).
 
 ```powershell
 konsertd.exe install --service --user .\builder --controller wss://hub/ws/worker
@@ -341,11 +347,19 @@ konsertd.exe install --service --user .\builder --controller wss://hub/ws/worker
 # "Log on as a service", sets restart-on-failure and starts the service. Join as builder
 # first (konsertd join ... --foreground, then Ctrl-C) so its ~/.konsert has a credential.
 konsertd.exe status --service
-konsertd.exe uninstall --service   # also revokes "Log on as a service" if install granted it
+konsertd.exe uninstall --service   # no elevation needed; see below
 ```
 
+Removing the service needs no elevation: install grants the service account stop and
+delete on its own service (and nothing else: it cannot start, reconfigure or re-permission
+it), so `konsertd uninstall --service` run as that account, the daemon removing itself
+when the hub removes the machine, and the hub's uninstall over SSH all work without
+administrator rights. Revoking "Log on as a service" (which install granted, if the account
+lacked it) does need them: without them the right is kept and a later elevated
+`konsertd uninstall --service` revokes it.
+
 The service's config and logs are in `%ProgramData%\konsert` (config readable only by
-SYSTEM, Administrators and the service account). Agents use that account's CLI logins, so
+SYSTEM, Administrators and the service account, which may also delete it). Agents use that account's CLI logins, so
 log in to `claude`, `codex`, ... as that account first. konsertd answers the service
 manager's Stop and Shutdown requests by stopping its agent sessions and releasing the
 wake lock.

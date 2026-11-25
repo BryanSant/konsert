@@ -52,6 +52,10 @@ type Uninstaller struct {
 	DropHubGrant func(hubID, workerID string) (path string, changed bool, err error)
 	ProcArgs     func(pid int) (string, error)
 	Kill         func(pid int) error
+	// ServiceConfigs lists this account's native Windows services (--service);
+	// RemoveService removes one (self: from inside the daemon it runs).
+	ServiceConfigs func() ([]install.InstalledConfig, error)
+	RemoveService  func(ctx context.Context, instance string, self bool) error
 }
 
 // UninstallReport says what a removal did.
@@ -95,6 +99,10 @@ type installedIdentity struct {
 	instance string
 	config   string
 	nohup    bool
+	// service is a native Windows service (`install --service`), whose config is in
+	// %ProgramData%\konsert. Install granted the account stop and delete on it, so
+	// removing it needs no elevation (KON-28HHD).
+	service bool
 }
 
 func (i installedIdentity) label() string {
@@ -116,6 +124,19 @@ func (u *Uninstaller) installed() ([]installedIdentity, error) {
 		cfg, _ := readWorkerConfig(c.Path)
 		id, _ := lookupWorkerIDIn(dir, cfg)
 		out = append(out, installedIdentity{workerID: id, name: cfg.Name, instance: c.Instance, config: c.Path})
+	}
+	listServices := u.ServiceConfigs
+	if listServices == nil {
+		listServices = u.Installer.ServiceConfigs
+	}
+	services, err := listServices()
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range services {
+		cfg, _ := readWorkerConfig(c.Path)
+		id, _ := lookupWorkerIDIn(dir, cfg)
+		out = append(out, installedIdentity{workerID: id, name: cfg.Name, instance: c.Instance, config: c.Path, service: true})
 	}
 	if dir != "" {
 		matches, _ := filepath.Glob(filepath.Join(dir, "konsertd-nohup-*.yaml"))
@@ -192,9 +213,14 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 			continue
 		}
 		var err error
-		if u.Self {
+		kind := serviceKind()
+		switch {
+		case it.service:
+			kind = "Windows service"
+			err = u.removeService(ctx, it.instance)
+		case u.Self:
 			err = u.Installer.UninstallSelf(ctx, it.instance)
-		} else {
+		default:
 			err = u.Installer.Uninstall(ctx, it.instance)
 		}
 		if err != nil {
@@ -202,7 +228,7 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 			continue
 		}
 		rep.Services++
-		rep.Removed = append(rep.Removed, "the "+serviceKind()+" for "+it.label())
+		rep.Removed = append(rep.Removed, "the "+kind+" for "+it.label())
 	}
 
 	for _, p := range u.identityState(workerID) {
@@ -224,6 +250,16 @@ func (u *Uninstaller) RemoveIdentity(ctx context.Context, workerID, hubID string
 		}
 	}
 	return rep, errors.Join(errs...)
+}
+
+func (u *Uninstaller) removeService(ctx context.Context, instance string) error {
+	if u.RemoveService != nil {
+		return u.RemoveService(ctx, instance, u.Self)
+	}
+	if u.Self {
+		return u.Installer.UninstallServiceSelf(ctx, instance)
+	}
+	return u.Installer.UninstallService(ctx, instance)
 }
 
 // RemoveHooksIfLast removes the agent hooks unless another identity on the account is

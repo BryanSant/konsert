@@ -24,12 +24,6 @@ func userFileSDDL(owner string) string {
 	return "D:P(A;;FA;;;SY)(A;;FA;;;" + owner + ")"
 }
 
-// serviceFileSDDL is the DACL of a service's secret file outside the account's profile:
-// SYSTEM and Administrators full control, the service account read-only.
-func serviceFileSDDL(account string) string {
-	return "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;" + account + ")"
-}
-
 // serviceDirSDDL is the DACL of the service log directory: SYSTEM and Administrators
 // full control, the service account modify (0x1301bf), inherited by files.
 func serviceDirSDDL(account string) string {

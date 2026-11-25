@@ -114,10 +114,11 @@ func (in *Installer) InstallService(ctx context.Context, spec Spec, opts Service
 		in.printf("Granted %s the \"Log on as a service\" right (SeServiceLogonRight)\n", scmAccount)
 	}
 
-	// Config (with the token): SYSTEM/Administrators full, the account read-only.
+	// Config (with the token): SYSTEM/Administrators full, the account read and
+	// delete (so it can remove the service without elevation), nobody else.
 	cfgPath := serviceConfigPath(spec.Instance)
 	if err := writeRestricted(cfgPath, spec.Config, func(p string) error {
-		return setProtectedDACL(p, serviceFileSDDL(sidStr))
+		return setProtectedDACL(p, serviceSecretFileSDDL(sidStr))
 	}); err != nil {
 		return err
 	}
@@ -181,6 +182,11 @@ func (in *Installer) InstallService(ctx context.Context, spec Spec, opts Service
 	}
 	defer func() { _ = s.Close() }()
 
+	if err := grantServiceRemoval(s.Handle, sidStr); err != nil {
+		return fmt.Errorf("grant %s the right to stop and delete service %s: %w", scmAccount, name, err)
+	}
+	in.printf("Granted %s stop and delete on service %s, so removing it needs no elevation\n", scmAccount, name)
+
 	// Restart on failure, including a non-zero exit (not just a crash).
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
@@ -210,42 +216,100 @@ func (in *Installer) InstallService(ctx context.Context, spec Spec, opts Service
 	return nil
 }
 
+// ErrServiceAccessDenied means this account may not stop or delete the service: it was
+// installed for another account (or before install granted the right).
+var ErrServiceAccessDenied = errors.New("this account may not remove the service")
+
+// serviceRemovalAccess is what removing a service needs; install grants exactly this
+// to the account the service runs as (ServiceAccountRights).
+const serviceRemovalAccess = windows.SERVICE_STOP | windows.DELETE | windows.SERVICE_QUERY_STATUS | windows.SERVICE_QUERY_CONFIG
+
+// openServiceForRemoval opens the service with only the rights removal needs, through
+// an SCM handle that needs no elevation. It returns nil when there is no such service.
+func openServiceForRemoval(name string) (*mgr.Service, func(), error) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connect to the service manager: %w", err)
+	}
+	closeSCM := func() { _ = windows.CloseServiceHandle(scm) }
+	h, err := windows.OpenService(scm, windows.StringToUTF16Ptr(name), serviceRemovalAccess)
+	if err != nil {
+		closeSCM()
+		switch {
+		case errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST):
+			return nil, nil, nil
+		case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+			return nil, nil, fmt.Errorf("open service %s: %w", name, ErrServiceAccessDenied)
+		}
+		return nil, nil, fmt.Errorf("open service %s: %w", name, err)
+	}
+	s := &mgr.Service{Name: name, Handle: h}
+	return s, func() { _ = s.Close(); closeSCM() }, nil
+}
+
 // UninstallService stops and deletes the service, revokes the logon right if install
-// granted it, and removes the service's config.
+// granted it, and removes the service's config. It needs no elevation when run as the
+// account the service runs as (install granted it stop and delete); revoking the logon
+// right does, so without elevation the right and the marker recording it are kept for
+// a later elevated `konsertd uninstall --service`.
 func (in *Installer) UninstallService(ctx context.Context, instance string) error {
-	if !IsElevated() {
-		return errors.New("removing a Windows service needs administrator rights: run this from an elevated terminal")
-	}
-	m, err := mgr.Connect()
-	if err != nil {
-		return fmt.Errorf("connect to the service manager: %w", err)
-	}
-	defer func() { _ = m.Disconnect() }()
+	return in.removeService(ctx, instance, false)
+}
+
+// UninstallServiceSelf removes the service from inside the daemon it runs (close code
+// 4001): the service is marked for deletion without stopping it (that would end this
+// very process mid-removal); it is deleted when the daemon exits, and a service marked
+// for deletion is never started again.
+func (in *Installer) UninstallServiceSelf(ctx context.Context, instance string) error {
+	return in.removeService(ctx, instance, true)
+}
+
+func (in *Installer) removeService(ctx context.Context, instance string, self bool) error {
 	name := ServiceName(instance)
-	s, err := m.OpenService(name)
+	s, closeService, err := openServiceForRemoval(name)
 	if err != nil {
+		return err
+	}
+	if s == nil {
 		in.printf("No service %s\n", name)
 	} else {
-		if err := stopService(ctx, s, 30*time.Second); err != nil {
-			in.printf("Warning: stopping %s: %v\n", name, err)
+		if !self {
+			if err := stopService(ctx, s, 30*time.Second); err != nil {
+				in.printf("Warning: stopping %s: %v\n", name, err)
+			}
 		}
-		if err := s.Delete(); err != nil {
-			_ = s.Close()
+		err := s.Delete()
+		closeService()
+		switch {
+		case err == nil:
+		case errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE):
+		case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+			return fmt.Errorf("delete service %s: %w", name, ErrServiceAccessDenied)
+		default:
 			return fmt.Errorf("delete service %s: %w", name, err)
 		}
-		_ = s.Close()
-		in.printf("Stopped and deleted service %s\n", name)
+		if self {
+			in.printf("Deleted service %s (it stops when this daemon exits)\n", name)
+		} else {
+			in.printf("Stopped and deleted service %s\n", name)
+		}
 	}
+	keepMarker := false
 	if marker, ok := readServiceMarker(instance); ok && marker.GrantedLogonRight {
 		if sid, err := windows.StringToSid(marker.AccountSID); err == nil {
 			if err := revokeServiceLogonRight(sid); err != nil {
-				in.printf("Warning: could not revoke \"Log on as a service\" from %s: %v\n", marker.Account, err)
+				keepMarker = true
+				in.printf("Kept the \"Log on as a service\" right of %s (granted by install): revoking it needs administrator rights; run `konsertd uninstall --service%s` from an elevated terminal to revoke it (%v)\n", marker.Account, nameFlagHint(instance), err)
 			} else {
 				in.printf("Revoked \"Log on as a service\" from %s (granted by install)\n", marker.Account)
 			}
 		}
 	}
-	for _, p := range []string{serviceConfigPath(instance), serviceMarkerPath(instance)} {
+	paths := []string{serviceConfigPath(instance)}
+	if !keepMarker {
+		paths = append(paths, serviceMarkerPath(instance))
+	}
+	for _, p := range paths {
 		if removed, err := removeFile(p); err != nil {
 			return fmt.Errorf("remove %s: %w", p, err)
 		} else if removed {
@@ -254,6 +318,65 @@ func (in *Installer) UninstallService(ctx context.Context, instance string) erro
 	}
 	in.printf("Logs were kept in %s\n", filepath.Dir(serviceLogPath(instance)))
 	return nil
+}
+
+// nameFlagHint is the --name argument that selects instance in a suggested command.
+func nameFlagHint(instance string) string {
+	if instance == "" {
+		return ""
+	}
+	return " --name " + instance
+}
+
+// ServiceConfigs lists the native-service instances installed for the account running
+// this process: the configs in %ProgramData%\konsert whose marker names this account.
+// Services of other accounts on the machine are left out.
+func (in *Installer) ServiceConfigs() ([]InstalledConfig, error) {
+	me, err := currentUserSID()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(serviceDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []InstalledConfig
+	for _, e := range entries {
+		instance, ok := instanceOfConfig(e.Name())
+		if e.IsDir() || !ok {
+			continue
+		}
+		if m, ok := readServiceMarker(instance); !ok || !strings.EqualFold(m.AccountSID, me) {
+			continue
+		}
+		out = append(out, InstalledConfig{Instance: instance, Path: filepath.Join(serviceDir(), e.Name())})
+	}
+	return out, nil
+}
+
+// grantServiceRemoval adds the ACE granting sid ServiceAccountRights to the service's
+// DACL, replacing any earlier ACE for sid (see servicesddl.go).
+func grantServiceRemoval(h windows.Handle, sid string) error {
+	sd, err := windows.GetSecurityInfo(h, windows.SE_SERVICE, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("read the service DACL: %w", err)
+	}
+	sddl, err := serviceDACLWithAccount(sd.String(), sid)
+	if err != nil {
+		return err
+	}
+	nsd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", sddl, err)
+	}
+	dacl, _, err := nsd.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetSecurityInfo(h, windows.SE_SERVICE, windows.DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
 }
 
 // ServiceStatus inspects the service.
@@ -364,12 +487,16 @@ func readServiceMarker(instance string) (serviceMarker, bool) {
 	return m, true
 }
 
+// writeServiceMarker writes the marker readable and deletable by the account (so an
+// unelevated uninstall can remove it) and writable only by administrators.
 func writeServiceMarker(instance string, m serviceMarker) error {
 	data, err := json.Marshal(m, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}
-	return writeFile(serviceMarkerPath(instance), data, 0o644)
+	return writeRestricted(serviceMarkerPath(instance), data, func(p string) error {
+		return setProtectedDACL(p, serviceSecretFileSDDL(m.AccountSID))
+	})
 }
 
 // LSA (advapi32) account-rights calls; x/sys/windows does not wrap them.

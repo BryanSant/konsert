@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/elevate"
 	"github.com/BryanSant/konsert/internal/install"
 	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/spf13/cobra"
@@ -25,7 +26,7 @@ import (
 var installOnlyFlags = map[string]bool{
 	"status": true, "service": true, "user": true, "password-stdin": true,
 	"no-start": true, "no-linger": true, "dry-run": true,
-	"foreground": true,
+	"foreground": true, "no-elevate": true,
 }
 
 // installFlags are install's own flags; join accepts them too.
@@ -37,16 +38,18 @@ type installFlags struct {
 	noStart       bool
 	noLinger      bool
 	dryRun        bool
+	noElevate     bool
 }
 
 func (f *installFlags) bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&f.showStatus, "status", false, "Show whether konsertd is installed and running (same as `konsertd status`)")
-	fs.BoolVar(&f.service, "service", false, "Windows: install a native service running as --user instead of a logon task (needs an elevated prompt)")
+	fs.BoolVar(&f.service, "service", false, "Windows: install a native service running as --user instead of a logon task (needs administrator rights: asks for approval (UAC) at the desktop)")
 	fs.StringVar(&f.account, "user", "", `Windows --service: account to run as, e.g. .\alice or DOMAIN\alice`)
 	fs.BoolVar(&f.passwordStdin, "password-stdin", false, "Windows --service: read the account password from stdin instead of prompting")
 	fs.BoolVar(&f.noStart, "no-start", false, "Register only; start at the next login/boot")
 	fs.BoolVar(&f.noLinger, "no-linger", false, "Linux: do not run `loginctl enable-linger`")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "Print the definition and config that would be installed and change nothing")
+	fs.BoolVar(&f.noElevate, "no-elevate", false, "Windows --service: never ask for approval (UAC); without administrator rights, print what to do instead")
 }
 
 func newInstallCmd() *cobra.Command {
@@ -65,7 +68,9 @@ logins (profile, keychain, Credential Manager), and start it now.
            logs in ~/Library/Logs/konsert/
   Windows  Scheduled Task \konsertd at your logon (not elevated, no console window),
            logs in %LOCALAPPDATA%\konsert\logs; or, with --service --user .\NAME, a
-           native service running as that account (needs an elevated prompt)
+           native service running as that account (needs administrator rights: in
+           a terminal at the desktop it asks for approval (UAC) and shows the result
+           there; over SSH, connect as an administrator)
 
 The run flags given here (--controller, --name, --sandbox, --tag, ...) are written to a
 per-user config file readable only by you (0600, or a user-only ACL on Windows), which
@@ -110,6 +115,18 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 		return errors.New("--password-stdin only applies with --service")
 	}
 	stdin := bufio.NewReader(cmd.InOrStdin())
+	if f.service && !f.dryRun && install.ServiceSupported {
+		if strings.TrimSpace(f.account) == "" {
+			return errors.New("--service needs --user, the account to run as (e.g. --user .\\alice); agents use that account's CLI logins")
+		}
+		args := append([]string{"install"}, flagArgs(fs, newInstallCmd().Flags(), map[string]bool{"password-stdin": true, "no-elevate": true})...)
+		handled, err := maybeElevate(cmd, elevate.OpInstall, f.noElevate, args, func() (string, error) {
+			return readServicePassword(stdin, f)
+		})
+		if handled {
+			return err
+		}
+	}
 
 	cfg, extra, err := buildInstallConfig(fs)
 	if err != nil {
@@ -163,15 +180,12 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 		if !install.ServiceSupported || !install.IsElevated() || strings.TrimSpace(f.account) == "" {
 			return in.InstallService(ctx, spec, opts)
 		}
-		if f.passwordStdin {
-			opts.Password, err = readLine(stdin)
-		} else {
-			opts.Password, err = install.ReadPassword("Password for " + f.account + ": ")
-		}
-		if err != nil {
+		if opts.Password, err = readServicePassword(stdin, f); err != nil {
 			return err
 		}
-		if err := in.InstallService(ctx, spec, opts); err != nil {
+		err = in.InstallService(ctx, spec, opts)
+		opts.Password = ""
+		if err != nil {
 			return err
 		}
 	} else if err := in.Install(ctx, spec); err != nil {
@@ -179,6 +193,19 @@ func runInstall(cmd *cobra.Command, f *installFlags) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Check it with: konsertd status%s\n", statusHint(cfg.Name, instance, f.service))
 	return nil
+}
+
+// readServicePassword is the --service account password: the one the unelevated parent
+// handed over the elevation pipe, else from stdin (--password-stdin) or a no-echo
+// console prompt. It is never logged, put in argv or the environment, or written down.
+func readServicePassword(stdin *bufio.Reader, f *installFlags) (string, error) {
+	if elevatedRun.child && elevatedRun.password != "" {
+		return elevatedRun.password, nil
+	}
+	if f.passwordStdin {
+		return readLine(stdin)
+	}
+	return install.ReadPassword("Password for " + f.account + ": ")
 }
 
 func newUninstallCmd() *cobra.Command {
@@ -199,20 +226,50 @@ and its host, share them); pass --keep-hooks to keep them regardless. The rest o
 ~/.konsert are kept, so a reinstall keeps the same identity.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runUninstall(cmd.Context(), cmd.OutOrStdout(), o)
+			err := runUninstall(cmd.Context(), cmd.OutOrStdout(), o)
+			if o.service && errors.Is(err, install.ErrServiceAccessDenied) {
+				// Installed without granting this account the right to remove it
+				// (another account's service): elevate the way install does.
+				if handled, eerr := maybeElevate(cmd, elevate.OpUninstall, o.noElevate, o.args(), nil); handled {
+					return eerr
+				}
+			}
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&o.name, "name", "", "Instance to remove: the --name given to install")
 	cmd.Flags().StringVar(&o.workerID, "worker", "", "Remove everything installed for this konsertd identity (worker id)")
 	cmd.Flags().StringVar(&o.hubID, "hub", "", "With --worker: also remove this hub's key grant for the identity")
 	cmd.Flags().BoolVar(&o.keepHooks, "keep-hooks", false, "Keep the agent hooks install-hooks added")
-	cmd.Flags().BoolVar(&o.service, "service", false, "Windows: remove the native service instead of the logon task (needs an elevated prompt)")
+	cmd.Flags().BoolVar(&o.service, "service", false, "Windows: remove the native service instead of the logon task (no elevation needed: install granted the account the right)")
+	cmd.Flags().BoolVar(&o.noElevate, "no-elevate", false, "Windows --service: never ask for approval (UAC) when the account may not remove the service; print what to do instead")
 	return cmd
 }
 
 type uninstallOptions struct {
-	name, workerID, hubID string
-	keepHooks, service    bool
+	name, workerID, hubID         string
+	keepHooks, service, noElevate bool
+}
+
+// args is the uninstall command line for the elevated child.
+func (o uninstallOptions) args() []string {
+	args := []string{"uninstall"}
+	if o.name != "" {
+		args = append(args, "--name="+o.name)
+	}
+	if o.workerID != "" {
+		args = append(args, "--worker="+o.workerID)
+	}
+	if o.hubID != "" {
+		args = append(args, "--hub="+o.hubID)
+	}
+	if o.keepHooks {
+		args = append(args, "--keep-hooks")
+	}
+	if o.service {
+		args = append(args, "--service")
+	}
+	return args
 }
 
 // runUninstall is `konsertd uninstall`.

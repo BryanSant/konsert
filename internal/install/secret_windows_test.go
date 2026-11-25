@@ -49,12 +49,44 @@ func TestWriteSecretFileIsUserOnly(t *testing.T) {
 }
 
 func TestServiceSDDL(t *testing.T) {
-	if got := serviceFileSDDL("S-1-5-21-9"); got != "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;S-1-5-21-9)" {
-		t.Errorf("serviceFileSDDL = %s", got)
-	}
-	for _, s := range []string{serviceFileSDDL("S-1-5-21-9"), serviceDirSDDL("S-1-5-21-9"), userFileSDDL("S-1-5-21-9")} {
+	for _, s := range []string{serviceSecretFileSDDL("S-1-5-21-9"), serviceDirSDDL("S-1-5-21-9"), userFileSDDL("S-1-5-21-9")} {
 		if _, err := windows.SecurityDescriptorFromString(s); err != nil {
 			t.Errorf("%s does not parse: %v", s, err)
+		}
+	}
+}
+
+// The SDDL tokens of the service account's ACE parse to exactly ServiceAccountRights
+// (SERVICE_QUERY_CONFIG|SERVICE_QUERY_STATUS|SERVICE_STOP|DELETE), and the config
+// file ACE to FILE_GENERIC_READ|DELETE.
+func TestServiceAccountACEMask(t *testing.T) {
+	for _, tc := range []struct {
+		sddl string
+		want uint32
+	}{
+		{"D:" + serviceAccountACE("S-1-5-21-1-2-3-1001"), ServiceAccountRights},
+		{"D:(A;;0x130089;;;S-1-5-21-1-2-3-1001)", windows.FILE_GENERIC_READ | windows.DELETE},
+	} {
+		sd, err := windows.SecurityDescriptorFromString(tc.sddl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dacl, _, err := sd.DACL()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, 0, &ace); err != nil {
+			t.Fatal(err)
+		}
+		if uint32(ace.Mask) != tc.want {
+			t.Errorf("%s: mask %#x, want %#x", tc.sddl, ace.Mask, tc.want)
+		}
+	}
+	want := uint32(windows.SERVICE_QUERY_CONFIG | windows.SERVICE_QUERY_STATUS | windows.SERVICE_STOP | windows.DELETE)
+	for name, got := range map[string]uint32{"ServiceAccountRights": ServiceAccountRights, "serviceRemovalAccess": serviceRemovalAccess} {
+		if got != want {
+			t.Errorf("%s = %#x, want %#x", name, got, want)
 		}
 	}
 }
