@@ -57,6 +57,9 @@ type vitalsBucket struct {
 	gpuN                       int
 	heatMax                    float64
 	cause                      string // cause at heatMax
+	// spoolSeq is the highest daemon spool seq folded in: storing the bucket advances the
+	// machine's applied seq with it (hub_spool.go).
+	spoolSeq uint64
 }
 
 // add folds one heartbeat at now into the bucket. When now falls in a later bucket the
@@ -96,7 +99,7 @@ func (b vitalsBucket) sample(workerID string) store.VitalsSample {
 	s := store.VitalsSample{
 		WorkerID: workerID, At: b.start, N: b.n,
 		CPU: b.cpu / n, Load: b.load / n, Mem: b.mem / n, MemTotal: b.memTotal, Swap: b.swap / n,
-		Heat: b.heat / n, HeatMax: b.heatMax, Cause: b.cause,
+		Heat: b.heat / n, HeatMax: b.heatMax, Cause: b.cause, SpoolSeq: b.spoolSeq,
 	}
 	if b.gpuN > 0 {
 		g := b.gpu / float64(b.gpuN)

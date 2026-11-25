@@ -37,6 +37,16 @@ type workerConn struct {
 
 	mu          sync.Mutex
 	activeTasks map[string]bool
+
+	// Spool (KON-VZR9F, hub_spool.go): the daemon's applied-seq state (nil when the
+	// daemon does not spool), its last seq at hello, and whether the replay of what it
+	// spooled before this connection is done (replayDoneCh closes then).
+	spool        *workerSpool
+	helloLastSeq uint64
+	replayDone   atomic.Bool
+	replayDoneCh chan struct{}
+	// activeChats are the chats whose turn still runs on the daemon (from hello).
+	activeChats map[string]bool
 }
 
 // activeCount returns the number of tasks the worker is running, under wc.mu.
@@ -117,6 +127,19 @@ type Hub struct {
 	// ping after 15 s quiet, dead after 45 s silent). Tests shorten them.
 	LinkQuiet time.Duration
 	LinkDead  time.Duration
+
+	// WakeGrace is how long after a detected hub wake (sleep, SIGSTOP) stale-machine and
+	// lost-task actions wait for links to re-attach (2 min); WakeWatchEvery how often the
+	// clock is checked (5 s) and WakeAfter the clock jump that counts as a wake (30 s).
+	// See hub_wake.go.
+	WakeGrace      time.Duration
+	WakeWatchEvery time.Duration
+	WakeAfter      time.Duration
+	sleepWake      wakeGuard
+
+	// spools holds each machine's applied spool state (hub_spool.go), guarded by spoolMu.
+	spoolMu sync.Mutex
+	spools  map[string]*workerSpool
 
 	// LostTaskGrace is how long a task may be missing from a connected worker's
 	// hello/heartbeat active list before the hub treats it as lost. konsertd

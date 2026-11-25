@@ -25,6 +25,8 @@ func (h *Hub) RunReaper(ctx context.Context) {
 
 	// Decided delegations wait out their grace period across restarts.
 	h.resumeDelegations(ctx)
+	// Hub wake detection: a grace for links to re-attach after a sleep (hub_wake.go).
+	go h.wakeLoop(ctx)
 
 	interval := h.ReapInterval
 	if interval <= 0 {
@@ -37,8 +39,13 @@ func (h *Hub) RunReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			h.reapStaleWorkers(ctx)
-			h.sweepControl(ctx, time.Now().UTC())
+			now := time.Now()
+			// After a hub wake every machine looks stale: give links the grace to
+			// re-attach first (hub_wake.go). Real-time deadlines still apply.
+			if !h.checkWake(now) && !h.sleepWake.active(now) {
+				h.reapStaleWorkers(ctx)
+			}
+			h.sweepControl(ctx, now.UTC())
 		}
 	}
 }
@@ -153,6 +160,15 @@ func (h *Hub) scheduleLostTaskCheck(wc *workerConn, taskIDs []string) {
 // orphan policy go back to the queue; others fail with exit code -1. If the
 // worker disconnected meanwhile, the reaper's orphan handling owns the tasks.
 func (h *Hub) reconcileLostTasks(ctx context.Context, wc *workerConn, taskIDs []string) {
+	// After a hub wake this connection may be one the hub has not noticed is dead yet, and
+	// a re-attached daemon may still be replaying the final statuses of these tasks: wait
+	// for the wake grace and the replay first.
+	if h.inWakeGrace(wc.id) {
+		h.sleepWake.wait(ctx, wc.id)
+	}
+	if !h.waitReplay(ctx, wc) {
+		return
+	}
 	h.mu.RLock()
 	current := h.workers[wc.id] == wc
 	h.mu.RUnlock()

@@ -292,6 +292,9 @@ type VitalsSample struct {
 	Heat    float64 // mean smoothed heat 0..1
 	HeatMax float64
 	Cause   string // heat cause at HeatMax
+	// SpoolSeq is the highest daemon spool seq folded into the sample (0: none): storing
+	// it advances the worker's applied seq in the same transaction.
+	SpoolSeq uint64
 }
 
 // VitalsStat is a metric's min, sample-weighted mean and max over a roll-up period.
@@ -453,6 +456,7 @@ type UsageSummary struct {
 
 type Store interface {
 	RetentionStore
+	SpoolStore
 
 	// NewSID mints a unique short ID (sid) of the given kind (see internal/ids). Create*
 	// methods mint one themselves when the record's SID is empty; callers that need the sid

@@ -157,7 +157,11 @@ type heatState struct {
 // updateHeat folds a heartbeat into a worker's heat and returns it. The heartbeat's
 // vitals and the smoothed score are also folded into the worker's current history bucket;
 // a finished bucket waits in pending for the next flush.
-func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, active, maxConcurrent int, now time.Time) WorkerHeat {
+func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, active, maxConcurrent int, now time.Time, spoolSeq ...uint64) WorkerHeat {
+	var seq uint64
+	if len(spoolSeq) > 0 {
+		seq = spoolSeq[0]
+	}
 	comps := HeatComponents(m, cores, active, maxConcurrent)
 	raw, cause := rawHeat(comps)
 	full := comps[HeatCauseSlots] >= 1
@@ -178,6 +182,7 @@ func (h *Hub) updateHeat(workerID string, m *protocol.WorkerMetrics, cores, acti
 		Components: comps, Full: full, UpdatedAt: now.UTC(),
 	}
 	bucket, finished := prev.bucket.add(now, m, score, cause)
+	bucket.spoolSeq = max(bucket.spoolSeq, seq)
 	h.heat.workers[workerID] = heatEntry{heat: wh, at: now, bucket: bucket}
 	if finished.n > 0 {
 		h.heat.pending = append(h.heat.pending, finished.sample(workerID))
