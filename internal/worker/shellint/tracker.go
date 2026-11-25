@@ -136,16 +136,24 @@ type Tracker struct {
 	emit    func(protocol.OperatorCommandPayload)
 	now     func() time.Time
 
-	mu      sync.Mutex
-	cwd     string
-	pending *string  // command line from the last valid E mark, awaiting C
-	running *Command // started, not yet finished
+	mu            sync.Mutex
+	translateMSYS bool
+	cwd           string
+	pending       *string  // command line from the last valid E mark, awaiting C
+	running       *Command // started, not yet finished
 }
 
 // NewTracker returns a tracker for the terminal taskID whose shell was given nonce.
 // history may be nil.
 func NewTracker(taskID, nonce string, history *History, emit func(protocol.OperatorCommandPayload)) *Tracker {
 	return &Tracker{taskID: taskID, nonce: nonce, history: history, emit: emit, now: time.Now}
+}
+
+// SetTranslateMSYS enables MSYS-to-Windows cwd translation (used for Git Bash on Windows).
+func (t *Tracker) SetTranslateMSYS(enable bool) {
+	t.mu.Lock()
+	t.translateMSYS = enable
+	t.mu.Unlock()
 }
 
 // Handle processes marks in stream order.
@@ -161,7 +169,11 @@ func (t *Tracker) handle(m Mark) {
 	switch m.Kind {
 	case MarkCwd:
 		if t.nonceOK(m.Nonce) {
-			t.cwd = m.Value
+			cwd := m.Value
+			if t.translateMSYS {
+				cwd = TranslateMSYSPath(cwd)
+			}
+			t.cwd = cwd
 		}
 	case MarkCommandLine:
 		if t.nonceOK(m.Nonce) {

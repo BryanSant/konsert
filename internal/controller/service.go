@@ -69,6 +69,9 @@ type WorkerStatusView struct {
 	// Drained machines finish their current work and accept nothing new.
 	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
+	// DefaultShell is the operator's preferred terminal shell ID for this machine
+	// ("" = worker default).
+	DefaultShell string `json:"default_shell,omitempty"`
 	// Spool is the machine's outbound spool as it last reported it (size, oldest unsent
 	// record, replay progress, full); nil before its first report.
 	Spool *protocol.SpoolStatus `json:"spool,omitzero"`
@@ -106,6 +109,7 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		LaunchAt:       w.LaunchAt,
 		Drained:        w.Drained,
 		DrainedAt:      w.DrainedAt,
+		DefaultShell:   w.DefaultShell,
 	}
 }
 
@@ -351,6 +355,9 @@ type DispatchRequest struct {
 	AccountID    string `json:"account_id,omitempty" jsonschema:"Agent account on the worker (see GET /api/agents/accounts); empty = the agent's default account"`
 	ApprovalMode string `json:"approval_mode,omitempty" jsonschema:"The agent's approval mode ID (from its capabilities); empty = the account default"`
 	Effort       string `json:"effort,omitempty" jsonschema:"Reasoning effort ID of the model (from capabilities); empty = the model default"`
+	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
+	// "zsh", "bash", "fish") for terminal sessions; empty = machine default.
+	Shell string `json:"shell,omitempty" jsonschema:"Terminal shell ID (git-bash, pwsh, powershell, zsh, bash, fish); empty = machine default"`
 }
 
 type DispatchResult struct {
@@ -642,6 +649,14 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		}
 	}
 
+	shell := strings.TrimSpace(req.Shell)
+	if shell != "" && !protocol.ValidTerminalShellID(shell) {
+		return DispatchResult{}, fmt.Errorf("unknown terminal shell %q", shell)
+	}
+	if shell == "" && ok && (req.Agent == "shell" || sessionKind == "terminal") {
+		shell = selected.DefaultShell
+	}
+
 	startPayload := protocol.TaskStartPayload{
 		TaskID:         taskID,
 		SID:            taskSID,
@@ -658,6 +673,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		AccountID:      req.AccountID,
 		ApprovalMode:   strings.TrimSpace(req.ApprovalMode),
 		Effort:         strings.TrimSpace(req.Effort),
+		Shell:          shell,
 	}
 
 	// Persist the selector and full start payload so a queued (or later requeued)

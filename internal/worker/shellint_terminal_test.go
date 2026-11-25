@@ -33,6 +33,10 @@ type terminalHarness struct {
 }
 
 func startTerminal(t *testing.T, workdir, prompt string) *terminalHarness {
+	return startTerminalWithShell(t, workdir, prompt, "")
+}
+
+func startTerminalWithShell(t *testing.T, workdir, prompt, shell string) *terminalHarness {
 	t.Helper()
 	h := &terminalHarness{t: t, taskID: ids.UUID(), final: make(chan protocol.TaskStatusPayload, 1), done: make(chan struct{})}
 	h.runner = NewRunner(drivers.DefaultRegistry, false, nil, RunnerCallbacks{
@@ -63,6 +67,7 @@ func startTerminal(t *testing.T, workdir, prompt string) *terminalHarness {
 		Prompt:         prompt,
 		Mode:           protocol.TaskModeInteractive,
 		PermissionMode: protocol.PermissionFullAccess,
+		Shell:          shell,
 		Cols:           200,
 		Rows:           50,
 	}); err != nil {
@@ -404,5 +409,67 @@ func testPowerShellTerminal(t *testing.T, unicodeInput bool) {
 	s, _ := h.snapshot()
 	if strings.Contains(s, "633;") {
 		t.Fatalf("browser stream contains OSC 633: %q", tail(s, 800))
+	}
+}
+
+func TestShellIntegrationGitBash(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Git Bash terminals are tested on Windows")
+	}
+	if _, ok := drivers.DetectGitBash(); !ok {
+		t.Skip("Git Bash not installed")
+	}
+	const origBashrc = "export SYRE_TEST_BASHRC=untouched\n"
+	home := fakeHome(t, map[string]string{
+		".bash_profile": "if [ -f ~/.bashrc ]; then . ~/.bashrc; fi\nPS1='$ '\n",
+		".bashrc":       origBashrc,
+	})
+	workdir := t.TempDir()
+	sub := filepath.Join(workdir, "sub dir")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	h := startTerminalWithShell(t, workdir, "", protocol.ShellGitBash)
+	h.waitPrompt(1)
+
+	start, end := h.run("true")
+	if start.Command != "true" || exitOf(t, end) != 0 || !sameDir(start.Cwd, workdir) {
+		t.Fatalf("true: %+v / %+v (want cwd %q)", start, end, workdir)
+	}
+	if strings.HasPrefix(start.Cwd, "/") {
+		t.Fatalf("MSYS cwd was not translated to Windows path: %q", start.Cwd)
+	}
+
+	_, end = h.run("sh -c 'exit 7'")
+	if exitOf(t, end) != 7 {
+		t.Fatalf("exit 7: %+v", end)
+	}
+
+	_, end = h.run(`test "$SYRE_TEST_BASHRC" = untouched && test -z "$SYRE_SHELL_NONCE"`)
+	if exitOf(t, end) != 0 {
+		t.Fatalf("user startup file not sourced or nonce leaked: %+v", end)
+	}
+
+	start, end = h.run(`cd "sub dir"`)
+	if exitOf(t, end) != 0 || !sameDir(start.Cwd, workdir) {
+		t.Fatalf("cd: %+v / %+v", start, end)
+	}
+	start, _ = h.run("mytool --password=hunter2")
+	if !sameDir(start.Cwd, sub) || start.Command != "mytool --password=…" {
+		t.Fatalf("cwd/redaction after cd: %+v (want cwd %q)", start, sub)
+	}
+
+	s, _ := h.snapshot()
+	if strings.Contains(s, "633;") {
+		t.Fatalf("browser stream contains OSC 633: %q", tail(s, 800))
+	}
+	if !strings.Contains(s, "\x1b]133;D;7\a") {
+		t.Fatalf("browser stream lacks OSC 133;D;7")
+	}
+
+	gotBashrc, err := os.ReadFile(filepath.Join(home, ".bashrc"))
+	if err != nil || string(gotBashrc) != origBashrc {
+		t.Fatalf("~/.bashrc was modified: %q (err=%v)", string(gotBashrc), err)
 	}
 }

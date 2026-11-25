@@ -407,17 +407,17 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	}
 
 	spec := drv.BuildCommand(drivers.LaunchOptions{
-		TaskID:         req.TaskID,
-		Prompt:         req.Prompt,
-		Workdir:        effectiveDir,
-		Model:          req.Model,
-		Mode:           req.Mode,
-		PermissionMode: permMode,
-		Env:            acctEnv,
-		AccountID:      req.AccountID,
-		ApprovalMode:   req.ApprovalMode,
-		Effort:         req.Effort,
-
+		TaskID:           req.TaskID,
+		Prompt:           req.Prompt,
+		Workdir:          effectiveDir,
+		Model:            req.Model,
+		Mode:             req.Mode,
+		PermissionMode:   permMode,
+		Env:              acctEnv,
+		AccountID:        req.AccountID,
+		ApprovalMode:     req.ApprovalMode,
+		Effort:           req.Effort,
+		Shell:            req.Shell,
 		ShellIntegration: integ,
 	})
 
@@ -463,6 +463,9 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	if spec.ShellIntegration && integ != nil {
 		rt.shellParser = &shellint.Parser{}
 		rt.shellTracker = shellint.NewTracker(req.TaskID, integ.Nonce, r.commands, r.callbacks.OnOperatorCommand)
+		if runtime.GOOS == "windows" && shellint.Kind(spec.Binary) == "bash" {
+			rt.shellTracker.SetTranslateMSYS(true)
+		}
 	}
 
 	r.mu.Lock()

@@ -140,6 +140,8 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		wModel.SID = stored.SID
 		wModel.Launch, wModel.SSHTarget = stored.Launch, stored.SSHTarget
 		wModel.LaunchAt = stored.LaunchAt
+		wModel.Drained, wModel.DrainedAt = stored.Drained, stored.DrainedAt
+		wModel.DefaultShell = stored.DefaultShell
 		// The daemon is up: a pending or failed start is resolved.
 		if stored.LaunchState != store.LaunchStateNone {
 			if err := h.store.SetWorkerLaunchState(ctx, wModel.ID, store.LaunchStateNone, "", now); err == nil {

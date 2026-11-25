@@ -279,9 +279,20 @@ func (s *SQLiteStore) UpdateWorkerFacts(ctx context.Context, id, factsJSON strin
 	return nil
 }
 
+func (s *SQLiteStore) SetWorkerDefaultShell(ctx context.Context, id, shell string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE workers SET default_shell = ? WHERE id = ?`, shell, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // workerColumns is the column list scanWorker reads, in order.
 const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
-		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at`
+		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at, default_shell`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
@@ -299,7 +310,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
-		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt,
+		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt, &w.DefaultShell,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound

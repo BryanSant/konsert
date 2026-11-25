@@ -41,7 +41,9 @@ CREATE TABLE workers (
     launch_at        TEXT,
     -- Drained machines finish their current work and receive nothing new.
     drained          INTEGER NOT NULL DEFAULT 0,
-    drained_at       TEXT
+    drained_at       TEXT,
+    -- Per-machine default terminal shell ID ('' = worker default).
+    default_shell    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE workspaces (
