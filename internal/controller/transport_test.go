@@ -23,7 +23,6 @@ import (
 	"github.com/BryanSant/konsert/internal/sshutil"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
 )
@@ -320,7 +319,7 @@ func TestSSHTransportSurvivesDroppedLinkAndHubRestart(t *testing.T) {
 	wCfg.WorkerID = wid
 	wCfg.Name = "box"
 	wCfg.EnableMockDriver = true
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemon.SocketPath = sock
 	daemonErr := make(chan error, 1)
 	go func() { daemonErr <- daemon.Run(ctx) }()

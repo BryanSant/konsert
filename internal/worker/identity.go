@@ -99,7 +99,7 @@ func WorkerIDFor(cfg config.WorkerConfig) string {
 	if hostGroup == "" {
 		hostGroup = name
 	}
-	return ResolveStableWorkerID("", name, hostGroup, cfg.Isolation)
+	return ResolveStableWorkerID(cfg.StateDir, name, hostGroup, cfg.Isolation)
 }
 
 // osHostname is this machine's hostname ("" if unknown).

@@ -24,7 +24,7 @@ import (
 func (d *Daemon) runLocal(ctx context.Context) error {
 	path := d.SocketPath
 	if path == "" {
-		path = LocalSocketPath("", d.cfg.WorkerID)
+		path = LocalSocketPath(d.stateDir(), d.cfg.WorkerID)
 	}
 	ln, err := listenLocal(path)
 	if err != nil {

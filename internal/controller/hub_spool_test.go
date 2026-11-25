@@ -2,11 +2,17 @@ package controller
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
+	"github.com/BryanSant/konsert/internal/worker/drivers"
+	"github.com/BryanSant/konsert/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
@@ -316,5 +322,150 @@ func TestLateVitalsTierPlacement(t *testing.T) {
 	h, _ := th.st.ListVitalsRollups(ctx, store.VitalsHourly, rawT.Truncate(time.Hour), rawT.Truncate(time.Hour).Add(time.Hour))
 	if len(h) != 1 || h[0].CPU.Avg != 50 {
 		t.Fatalf("rolled-up raw sample %+v", h)
+	}
+}
+
+// A daemon whose spool holds unacked records from hub A must archive that spool instead
+// of replaying it when it connects to hub B (a different hub or a reset database), then
+// continue live on hub B under a fresh epoch.
+func TestSpoolDoesNotReplayAcrossHubs(t *testing.T) {
+	ctx := context.Background()
+	thA := newTestHub(t)
+	thB := newTestHub(t)
+	hubIDA, err := thA.h.hubID(ctx)
+	if err != nil || hubIDA == "" {
+		t.Fatalf("hub A id %q: %v", hubIDA, err)
+	}
+	hubIDB, err := thB.h.hubID(ctx)
+	if err != nil || hubIDB == "" || hubIDB == hubIDA {
+		t.Fatalf("hub B id %q (hub A %q): %v", hubIDB, hubIDA, err)
+	}
+
+	const wid = "w-cross-hub"
+	stateDir := t.TempDir()
+
+	// 1. Run a real konsertd against hub A so its spool binds to hub A.
+	ctxA, cancelA := context.WithCancel(ctx)
+	cfgA := config.DefaultWorkerConfig()
+	cfgA.ControllerURL = thA.wsURL("/ws/worker")
+	cfgA.WorkerID = wid
+	cfgA.Name = wid
+	cfgA.StateDir = stateDir
+	cfgA.EnableMockDriver = true
+	dA := newTestDaemon(t, cfgA, drivers.DefaultRegistry, nil)
+	dA.HeartbeatInterval = time.Hour
+	dA.FactsInterval = time.Hour
+	doneA := make(chan struct{})
+	go func() {
+		defer close(doneA)
+		_ = dA.Run(ctxA)
+	}()
+	waitFor(t, 5*time.Second, "worker connected to hub A", func() bool {
+		return thA.h.IsWorkerConnected(wid)
+	})
+	spoolPath := filepath.Join(stateDir, "spool", wid)
+	waitFor(t, 5*time.Second, "spool bound to hub A", func() bool {
+		raw, err := os.ReadFile(filepath.Join(spoolPath, "spool.json"))
+		return err == nil && strings.Contains(string(raw), hubIDA)
+	})
+	cancelA()
+	<-doneA
+
+	// 2. Append unacked records produced for hub A while disconnected.
+	sp, err := spool.Open(spool.Options{Dir: spoolPath, SyncEvery: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp.HubID() != hubIDA {
+		sp.Close()
+		t.Fatalf("spool hub id %q, want %q", sp.HubID(), hubIDA)
+	}
+	oldEpoch := sp.Epoch()
+	rawEv, err := protocol.NewEnvelope(protocol.MsgTaskEvent, "", protocol.TaskEventPayload{
+		TaskID: "task-from-a", Kind: "log", Message: "secret from hub A",
+	})
+	if err != nil {
+		sp.Close()
+		t.Fatal(err)
+	}
+	if _, err := sp.Append(spool.ClassTaskEvent, "", rawEv); err != nil {
+		sp.Close()
+		t.Fatal(err)
+	}
+	if err := sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed the same worker and task id in hub B so that if anything from A were replayed,
+	// hub B would store it.
+	if err := thB.st.UpsertWorker(ctx, store.Worker{ID: wid, Name: wid, Status: "offline"}); err != nil {
+		t.Fatal(err)
+	}
+	seedRunningTask(t, thB, "task-from-a", wid, protocol.OrphanPolicyFail)
+
+	// 3. Start konsertd with the same stateDir pointing at hub B.
+	ctxB, cancelB := context.WithCancel(ctx)
+	cfgB := config.DefaultWorkerConfig()
+	cfgB.ControllerURL = thB.wsURL("/ws/worker")
+	cfgB.WorkerID = wid
+	cfgB.Name = wid
+	cfgB.StateDir = stateDir
+	cfgB.EnableMockDriver = true
+	dB := newTestDaemon(t, cfgB, drivers.DefaultRegistry, nil)
+	dB.HeartbeatInterval = 50 * time.Millisecond
+	dB.FactsInterval = time.Hour
+	doneB := make(chan struct{})
+	go func() {
+		defer close(doneB)
+		_ = dB.Run(ctxB)
+	}()
+	defer func() {
+		cancelB()
+		<-doneB
+	}()
+
+	waitFor(t, 5*time.Second, "worker connected to hub B", func() bool {
+		return thB.h.IsWorkerConnected(wid)
+	})
+	waitFor(t, 5*time.Second, "hub B replay finished and live record applied", func() bool {
+		thB.h.spoolMu.Lock()
+		ws := thB.h.spools[wid]
+		thB.h.spoolMu.Unlock()
+		if ws == nil {
+			return false
+		}
+		ws.mu.Lock()
+		defer ws.mu.Unlock()
+		return ws.epoch != "" && ws.epoch != oldEpoch && ws.applied > 0
+	})
+
+	// Nothing from hub A's spool may appear in hub B.
+	evs, err := thB.st.ListEvents(ctx, "task-from-a", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if strings.Contains(ev.Message, "secret from hub A") {
+			t.Fatalf("hub A record leaked into hub B: %+v", ev)
+		}
+	}
+
+	// The old spool was archived and the active spool is bound to hub B.
+	entries, err := os.ReadDir(filepath.Join(stateDir, "spool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundArchive := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "spool-orphaned-"+hubIDA+"-") {
+			foundArchive = true
+		}
+	}
+	if !foundArchive {
+		t.Fatalf("expected spool-orphaned-%s-* archive in %s, entries: %v", hubIDA, filepath.Join(stateDir, "spool"), entries)
+	}
+	rawMeta, err := os.ReadFile(filepath.Join(spoolPath, "spool.json"))
+	if err != nil || !strings.Contains(string(rawMeta), hubIDB) {
+		t.Fatalf("active spool.json not bound to hub B %q: %s (%v)", hubIDB, rawMeta, err)
 	}
 }

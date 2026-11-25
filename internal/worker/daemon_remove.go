@@ -31,7 +31,7 @@ func (d *Daemon) removedByHub(ctx context.Context, hubID string) {
 		remove = defaultSelfRemove(d)
 	}
 	d.link.forget()
-	if err := WriteRemovedMarker("", d.cfg.WorkerID, hubID); err != nil {
+	if err := WriteRemovedMarker(d.stateDir(), d.cfg.WorkerID, hubID); err != nil {
 		d.logger.Warn("could not record the removal", "err", err)
 	}
 	stopPending, err := remove(ctx, hubID)
@@ -61,6 +61,7 @@ func (d *Daemon) uninstallSelf(ctx context.Context, hubID string) (bool, error) 
 	}
 	u := &Uninstaller{
 		Installer: &install.Installer{Runner: install.ExecRunner{}, Env: env},
+		StateDir:  d.stateDir(),
 		Self:      true,
 		LockWait:  20 * time.Second,
 	}
@@ -83,7 +84,7 @@ func (d *Daemon) uninstallSelf(ctx context.Context, hubID string) (bool, error) 
 // finishPendingRemoval completes a removal interrupted earlier (the marker is still
 // there). It reports whether the daemon must stop instead of serving.
 func (d *Daemon) finishPendingRemoval(ctx context.Context) bool {
-	hubID, removed := ReadRemovedMarker("", d.cfg.WorkerID)
+	hubID, removed := ReadRemovedMarker(d.stateDir(), d.cfg.WorkerID)
 	if !removed {
 		return false
 	}

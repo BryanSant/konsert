@@ -22,7 +22,6 @@ import (
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 	"github.com/coder/websocket"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -129,7 +128,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	wCfg.HostGroup = "homelab-1"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemon.HeartbeatInterval = 500 * time.Millisecond
 	daemonDone := make(chan struct{})
 	go func() {
@@ -236,7 +235,7 @@ func TestBrowserPtySubscribeInteractiveAndUnsubscribe(t *testing.T) {
 	wCfg.WorkerID = "worker-pty-1"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemonDone := make(chan struct{})
 	go func() {
 		defer close(daemonDone)
@@ -339,7 +338,7 @@ func TestControllerRestartTaskReadoption(t *testing.T) {
 	wCfg.WorkerID = "worker-restart-1"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemonDone := make(chan struct{})
 	go func() {
 		defer close(daemonDone)
@@ -478,7 +477,7 @@ func TestSpacesRESTAndTaskAssociation(t *testing.T) {
 	wCfg.Name = "space-node"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -597,7 +596,7 @@ func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 	wCfg.WorkerID = "w-git-1"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -674,7 +673,7 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 	wCfg.Name = "fs-node"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -784,7 +783,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	reg := drivers.NewRegistry()
 	reg.Register(&drivers.MockDriver{})
 	reg.Register(&drivers.ShellDriver{})
-	daemon := worker.NewDaemon(wCfg, reg, nil)
+	daemon := newTestDaemon(t, wCfg, reg, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -971,7 +970,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndOrchestratorMemory(t *testing.T) 
 	wCfg.EnableMockDriver = true
 	wCfg.AllowedRoots = []string{rootDir}
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1068,7 +1067,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		wCfg.Name = name
 		wCfg.EnableMockDriver = true
 		wCfg.AllowedRoots = []string{root}
-		d := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+		d := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -1265,7 +1264,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	wCfg.Name = "localhost"
 	wCfg.EnableMockDriver = true
 
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1358,7 +1357,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	wCfg1.EnableMockDriver = true
 
 	d1Ctx, d1Cancel := context.WithCancel(ctx)
-	d1 := worker.NewDaemon(wCfg1, drivers.DefaultRegistry, nil)
+	d1 := newTestDaemon(t, wCfg1, drivers.DefaultRegistry, nil)
 	d1Done := make(chan struct{})
 	go func() {
 		defer close(d1Done)
@@ -1375,7 +1374,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	wCfg2.Isolation = "host"
 	wCfg2.EnableMockDriver = true
 
-	d2 := worker.NewDaemon(wCfg2, drivers.DefaultRegistry, nil)
+	d2 := newTestDaemon(t, wCfg2, drivers.DefaultRegistry, nil)
 	d2Done := make(chan struct{})
 	go func() {
 		defer close(d2Done)
@@ -1468,7 +1467,7 @@ func TestAuditLogEndToEndWithRealWorker(t *testing.T) {
 	wCfg.ControllerURL = "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	wCfg.WorkerID = "worker-audit-1"
 	wCfg.EnableMockDriver = true
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemonDone := make(chan struct{})
 	go func() {
 		defer close(daemonDone)

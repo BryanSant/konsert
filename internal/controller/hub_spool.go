@@ -116,7 +116,11 @@ func (h *Hub) startSpool(ctx, connCtx context.Context, wc *workerConn, hello pro
 	} else {
 		h.logger.Info("machine replays what it spooled", "worker_id", wc.id, "from_seq", applied+1, "to_seq", hello.Spool.LastSeq)
 	}
-	h.sendWorkerJSON(wc, protocol.MsgWorkerSpoolResume, protocol.SpoolResume{Epoch: hello.Spool.Epoch, AppliedSeq: applied})
+	hubID, err := h.hubID(ctx)
+	if err != nil {
+		h.logger.Warn("load hub id failed", "worker_id", wc.id, "err", err)
+	}
+	h.sendWorkerJSON(wc, protocol.MsgWorkerSpoolResume, protocol.SpoolResume{HubID: hubID, Epoch: hello.Spool.Epoch, AppliedSeq: applied})
 	go h.spoolAckLoop(connCtx, wc)
 }
 
@@ -168,7 +172,8 @@ func spoolPersistNow(msgType string) bool {
 }
 
 // onSpoolCaughtUp ends the replay: records up to Seq the daemon did not send were
-// superseded or compacted, so they count as applied.
+// superseded or compacted, so they count as applied. If the daemon archived an orphaned
+// spool and switched to a fresh epoch for this hub, the hub adopts that epoch here.
 func (h *Hub) onSpoolCaughtUp(ctx context.Context, wc *workerConn, env protocol.Envelope) {
 	p, err := protocol.DecodePayload[protocol.SpoolAck](env)
 	if err != nil || wc.spool == nil {
@@ -176,6 +181,12 @@ func (h *Hub) onSpoolCaughtUp(ctx context.Context, wc *workerConn, env protocol.
 	}
 	ws := wc.spool
 	ws.mu.Lock()
+	if p.Epoch != "" && p.Epoch != ws.epoch {
+		if err := h.store.ResetSpoolEpoch(ctx, wc.id, p.Epoch); err != nil {
+			h.logger.Warn("reset spool epoch failed", "worker_id", wc.id, "err", err)
+		}
+		ws.epoch, ws.applied, ws.persisted, ws.acked, ws.dups = p.Epoch, 0, 0, 0, 0
+	}
 	ws.applied = max(ws.applied, p.Seq)
 	dups := ws.dups
 	ws.mu.Unlock()

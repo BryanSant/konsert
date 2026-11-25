@@ -92,6 +92,10 @@ const (
 	// keepActiveBytes: a fully acknowledged active segment is only deleted once it is
 	// this large (avoids creating a file per ack).
 	keepActiveBytes = 1 << 20
+	// MaxOrphanedArchives is the maximum number of archived spool directories kept next
+	// to the active spool after hub identity changes.
+	MaxOrphanedArchives = 2
+	orphanedPrefix      = "spool-orphaned-"
 )
 
 // ErrFull is returned by Append for a compactable record while the spool is full.
@@ -150,6 +154,7 @@ func (g *segment) last() uint64 {
 
 type meta struct {
 	Epoch    string `json:"epoch"`
+	HubID    string `json:"hub_id,omitempty"`
 	Acked    uint64 `json:"acked"`
 	Reserved uint64 `json:"reserved"`
 }
@@ -253,13 +258,17 @@ func (s *Spool) loadMeta() error {
 		return err
 	}
 	if s.meta.Epoch == "" {
-		var b [8]byte
-		_, _ = rand.Read(b[:])
-		s.meta = meta{Epoch: hex.EncodeToString(b[:])}
+		s.meta = meta{Epoch: randomEpoch()}
 		// A new epoch: segments of an unknown one cannot be resumed.
 		s.removeSegmentFiles()
 	}
 	return nil
+}
+
+func randomEpoch() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func (s *Spool) removeSegmentFiles() {
@@ -732,6 +741,7 @@ func (s *Spool) closeFiles() {
 	for _, g := range s.segs {
 		if g.f != nil {
 			g.f.Close()
+			g.f = nil
 		}
 	}
 }
@@ -741,6 +751,169 @@ func (s *Spool) Epoch() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.meta.Epoch
+}
+
+// HubID returns the hub identity this spool is bound to ("" when never bound).
+func (s *Spool) HubID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.meta.HubID
+}
+
+// BindHubResult describes what BindHub did.
+type BindHubResult struct {
+	// Archived is true when the existing spool belonged to a different hub (or had no
+	// hub id while holding unacked records) and was archived in favor of a fresh epoch.
+	Archived   bool
+	OldHubID   string
+	ArchiveDir string
+	NewEpoch   string
+}
+
+func (s *Spool) hasUnackedLocked() bool {
+	_, _, ok := s.findLocked(s.meta.Acked + 1)
+	return ok
+}
+
+// BindHub binds the spool to hubID. If the spool is already bound to hubID, nothing
+// changes. If it has never been bound and holds no unacked records, it is tagged in
+// place. Otherwise (it belonged to a different hub, or had no hub id while holding
+// unacked records), all open segment files are closed, the spool directory is renamed to
+// spool-orphaned-<oldHubID or "unknown">-<timestamp> (keeping at most
+// MaxOrphanedArchives), and a fresh epoch bound to hubID is started.
+func (s *Spool) BindHub(hubID string) (BindHubResult, error) {
+	hubID = strings.TrimSpace(hubID)
+	if hubID == "" {
+		return BindHubResult{}, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return BindHubResult{}, ErrClosed
+	}
+	if s.meta.HubID == hubID {
+		return BindHubResult{}, nil
+	}
+	if s.meta.HubID == "" && !s.hasUnackedLocked() {
+		s.meta.HubID = hubID
+		if err := s.writeMetaLocked(); err != nil {
+			s.meta.HubID = ""
+			return BindHubResult{}, err
+		}
+		return BindHubResult{}, nil
+	}
+
+	oldHub := s.meta.HubID
+	s.syncLocked()
+	// Windows cannot rename a directory containing open files: close every segment first.
+	s.closeFiles()
+
+	parent := filepath.Dir(s.opts.Dir)
+	label := sanitizeHubLabel(oldHub)
+	ts := s.opts.Now().UTC().Format("20060102T150405.000000000Z")
+	archiveDir := uniqueArchivePath(parent, fmt.Sprintf("%s%s-%s", orphanedPrefix, label, ts))
+	if err := os.Rename(s.opts.Dir, archiveDir); err != nil {
+		// Reopen segments so the spool stays usable on failure.
+		s.segs = nil
+		s.bytes = 0
+		s.latest = map[string]uint64{}
+		_ = s.recover()
+		return BindHubResult{}, err
+	}
+	if err := os.MkdirAll(s.opts.Dir, 0o700); err != nil {
+		return BindHubResult{}, err
+	}
+
+	newEpoch := randomEpoch()
+	s.meta = meta{Epoch: newEpoch, HubID: hubID}
+	s.metaDirty = false
+	s.segs = nil
+	s.next = 1
+	s.bytes = 0
+	s.latest = map[string]uint64{}
+	s.dirty = false
+	s.sent = 0
+	s.full = ""
+	s.dropped = 0
+	s.writeErr = nil
+	if err := s.reserveLocked(); err != nil {
+		return BindHubResult{}, err
+	}
+	pruneOrphanedArchives(parent, MaxOrphanedArchives)
+	syncDir(parent)
+	s.notifyLocked()
+	return BindHubResult{
+		Archived:   true,
+		OldHubID:   oldHub,
+		ArchiveDir: archiveDir,
+		NewEpoch:   newEpoch,
+	}, nil
+}
+
+func sanitizeHubLabel(hubID string) string {
+	if hubID == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	b.Grow(len(hubID))
+	for i := 0; i < len(hubID); i++ {
+		c := hubID[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
+}
+
+func uniqueArchivePath(parent, base string) string {
+	p := filepath.Join(parent, base)
+	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
+		return p
+	}
+	for i := 1; ; i++ {
+		cand := filepath.Join(parent, fmt.Sprintf("%s.%d", base, i))
+		if _, err := os.Stat(cand); errors.Is(err, os.ErrNotExist) {
+			return cand
+		}
+	}
+}
+
+func archiveSortKey(name string) string {
+	if idx := strings.LastIndexByte(name, '-'); idx >= 0 && idx+1 < len(name) {
+		return name[idx+1:]
+	}
+	return name
+}
+
+func pruneOrphanedArchives(parent string, keep int) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	var archives []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), orphanedPrefix) {
+			archives = append(archives, e.Name())
+		}
+	}
+	if len(archives) <= keep {
+		return
+	}
+	sort.Slice(archives, func(i, j int) bool {
+		ki, kj := archiveSortKey(archives[i]), archiveSortKey(archives[j])
+		if ki != kj {
+			return ki < kj
+		}
+		return archives[i] < archives[j]
+	})
+	for _, name := range archives[:len(archives)-keep] {
+		_ = os.RemoveAll(filepath.Join(parent, name))
+	}
 }
 
 // Bounds returns the oldest record not yet acknowledged (the next seq when none) and the

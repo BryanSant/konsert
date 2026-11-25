@@ -67,10 +67,8 @@ type Server struct {
 	attach *attacher
 	// removals guards the pending uninstalls of removed machines (machine_removal.go).
 	removals *removals
-	// hubKeyFile overrides where the hub's SSH key lives (tests); hubIDMu serializes
-	// creating the hub id.
+	// hubKeyFile overrides where the hub's SSH key lives (tests).
 	hubKeyFile string
-	hubIDMu    sync.Mutex
 	// forges manages forge detection, encrypted credentials, and OAuth device flows (forges.go).
 	forges *forgeManager
 }
