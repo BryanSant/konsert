@@ -25,9 +25,10 @@ One spool per daemon identity: `<state dir>/spool/<worker id>/` (`~/.konsert` or
   after it. On open every segment is scanned: a torn or corrupt record ends the segment and the
   file is truncated there (a crash mid-write loses at most the record being written).
 * **`spool.json`**: the spool's **epoch** (random; a wiped state directory gets a new one), the
-  highest seq the hub acknowledged, and a **seq reservation**. Seqs are reserved 4096 at a time
-  and the reservation is fsynced before any of them is used, so after a crash the daemon never
-  reuses a seq it may already have sent (the next seq jumps past the reservation).
+  **hub id** (`hub_id`) its unacked records were produced for (empty until the daemon learns a
+  hub's id), the highest seq the hub acknowledged, and a **seq reservation**. Seqs are reserved
+  4096 at a time and the reservation is fsynced before any of them is used, so after a crash the
+  daemon never reuses a seq it may already have sent (the next seq jumps past the reservation).
 * **fsync**: batched every 100 ms; task statuses and agent questions (elicitations) are
   fsynced as soon as they are written.
 * **Acks** are cumulative. Segments whose records are all acknowledged are deleted (the active
@@ -64,9 +65,9 @@ behind the replay.
 ```
 konsertd                                       hub
   worker.hello {…, spool: {epoch, first_seq, last_seq}, active_chats}  →
-                                  ←  worker.spool.resume {epoch, applied_seq}
+                              ←  worker.spool.resume {hub_id, epoch, applied_seq}
   {seq: applied+1, type: …}  …  {seq: last_seq, …}   (replay)          →
-  worker.spool.caught_up {seq: last_seq at resume}                      →
+  worker.spool.caught_up {seq: last_seq at resume, epoch?}             →
   {seq: …} …                                          (live)            →
                                   ←  worker.spool.ack {seq}   (≥ 1/s while records arrive)
   worker.spool.status {bytes, records, oldest_unsent_at, replay…}  (not spooled, for Fleet)
@@ -76,6 +77,16 @@ konsertd                                       hub
   that are not spooled first, then streams the spool from the resume point, then live PTY data.
   Live records are appended to the spool and reached by the same cursor, so the replay and live
   traffic are **one ordered stream**: nothing produced during a replay overtakes it.
+* **Hub identity binding (KON-3R7J7):** the hub includes its persistent `hub_id` (from the
+  `settings` table; a fresh or reset database generates a new UUIDv7) in `worker.spool.resume`
+  on every transport (outbound, ssh, local socket). When konsertd learns a `hub_id` that differs
+  from `spool.json` — or `spool.json` has none yet while holding unacked records — it does not
+  replay: it closes its open segment files, renames the spool directory to
+  `spool-orphaned-<old hub id or "unknown">-<timestamp>` (keeping at most 2 archives and
+  deleting older ones), starts a fresh epoch bound to the new `hub_id`, sends
+  `worker.spool.caught_up` with the new `epoch` (so the hub adopts it before any live records
+  arrive), and continues live. Records produced while disconnected from a known hub remain
+  tagged with that hub's id; a daemon that has never seen a hub tags nothing until it learns one.
 * `worker.spool.caught_up` goes out in stream order once the cursor passes the last seq at
   resume time; records up to it that were never sent (superseded activity, compacted vitals)
   count as applied.

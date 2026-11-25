@@ -528,3 +528,156 @@ func TestBackgroundSync(t *testing.T) {
 		t.Fatalf("append after close: %v", err)
 	}
 }
+
+func TestBindHubMatchAndReopen(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w1")
+	c := newClock()
+	s := open(t, dir, c, nil)
+	if s.HubID() != "" {
+		t.Fatalf("fresh spool hub id %q, want empty", s.HubID())
+	}
+	epoch := s.Epoch()
+	res, err := s.BindHub("hub-A")
+	if err != nil || res.Archived || s.HubID() != "hub-A" || s.Epoch() != epoch {
+		t.Fatalf("first bind: res=%+v err=%v hub=%q epoch=%q", res, err, s.HubID(), s.Epoch())
+	}
+	// Records written while disconnected stay tagged with hub-A across restarts.
+	mustAppend(t, s, ClassChat, "", "m1")
+	mustAppend(t, s, ClassChat, "", "m2")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s2 := open(t, dir, c, nil)
+	defer s2.Close()
+	if s2.HubID() != "hub-A" || s2.Epoch() != epoch {
+		t.Fatalf("after reopen: hub=%q epoch=%q", s2.HubID(), s2.Epoch())
+	}
+	res, err = s2.BindHub("hub-A")
+	if err != nil || res.Archived || s2.Epoch() != epoch {
+		t.Fatalf("matching bind: res=%+v err=%v epoch=%q", res, err, s2.Epoch())
+	}
+	if got := datas(readAll(s2, 1)); len(got) != 2 || got[0] != "m1" || got[1] != "m2" {
+		t.Fatalf("replayed records %v, want [m1 m2]", got)
+	}
+}
+
+func TestBindHubMismatchArchivesAndStartsFreshEpoch(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w1")
+	c := newClock()
+	s := open(t, dir, c, nil)
+	if _, err := s.BindHub("hub-A"); err != nil {
+		t.Fatal(err)
+	}
+	oldEpoch := s.Epoch()
+	mustAppend(t, s, ClassChat, "", "from-A-1")
+	mustAppend(t, s, ClassChat, "", "from-A-2")
+
+	c.add(time.Minute)
+	res, err := s.BindHub("hub-B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Archived || res.OldHubID != "hub-A" || res.NewEpoch == "" || res.NewEpoch == oldEpoch {
+		t.Fatalf("mismatch bind result: %+v (oldEpoch=%q)", res, oldEpoch)
+	}
+	if s.HubID() != "hub-B" || s.Epoch() != res.NewEpoch {
+		t.Fatalf("post-mismatch spool: hub=%q epoch=%q", s.HubID(), s.Epoch())
+	}
+	if got := readAll(s, 1); len(got) != 0 {
+		t.Fatalf("active spool must be empty after archive, got %v", datas(got))
+	}
+	if seq := mustAppend(t, s, ClassChat, "", "from-B-1"); seq != 1 {
+		t.Fatalf("first seq in new epoch = %d, want 1", seq)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Archive directory exists with the expected prefix and holds the old records.
+	base := filepath.Base(res.ArchiveDir)
+	if !strings.HasPrefix(base, "spool-orphaned-hub-A-") {
+		t.Fatalf("archive name %q, want prefix spool-orphaned-hub-A-", base)
+	}
+	archived := open(t, res.ArchiveDir, c, nil)
+	defer archived.Close()
+	if archived.HubID() != "hub-A" {
+		t.Fatalf("archived hub id %q, want hub-A", archived.HubID())
+	}
+	if got := datas(readAll(archived, 1)); len(got) != 2 || got[0] != "from-A-1" || got[1] != "from-A-2" {
+		t.Fatalf("archived records %v, want [from-A-1 from-A-2]", got)
+	}
+
+	// Reopening the active spool keeps hub-B and its new record.
+	s2 := open(t, dir, c, nil)
+	defer s2.Close()
+	if s2.HubID() != "hub-B" || s2.Epoch() != res.NewEpoch {
+		t.Fatalf("reopened active spool: hub=%q epoch=%q", s2.HubID(), s2.Epoch())
+	}
+	if got := datas(readAll(s2, 1)); len(got) != 1 || got[0] != "from-B-1" {
+		t.Fatalf("reopened active records %v, want [from-B-1]", got)
+	}
+}
+
+func TestBindHubUnknownWithUnackedRecordsArchives(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w1")
+	c := newClock()
+	s := open(t, dir, c, nil)
+	defer s.Close()
+	mustAppend(t, s, ClassChat, "", "legacy-unacked")
+
+	res, err := s.BindHub("hub-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Archived || res.OldHubID != "" || !strings.HasPrefix(filepath.Base(res.ArchiveDir), "spool-orphaned-unknown-") {
+		t.Fatalf("unknown archive result: %+v", res)
+	}
+	if s.HubID() != "hub-A" || len(readAll(s, 1)) != 0 {
+		t.Fatalf("post-archive state: hub=%q recs=%d", s.HubID(), len(readAll(s, 1)))
+	}
+}
+
+func TestBindHubArchiveRotation(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "w1")
+	c := newClock()
+	s := open(t, dir, c, nil)
+	defer s.Close()
+
+	// Use non-alphabetical hub IDs so rotation must sort by timestamp, not hub ID.
+	hubs := []string{"hub-z", "hub-a", "hub-m", "hub-b"}
+	if _, err := s.BindHub(hubs[0]); err != nil {
+		t.Fatal(err)
+	}
+	for _, nextHub := range hubs[1:] {
+		mustAppend(t, s, ClassChat, "", "for-"+s.HubID())
+		c.add(time.Minute)
+		res, err := s.BindHub(nextHub)
+		if err != nil || !res.Archived {
+			t.Fatalf("bind %s: res=%+v err=%v", nextHub, res, err)
+		}
+	}
+
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archives []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), orphanedPrefix) {
+			archives = append(archives, e.Name())
+		}
+	}
+	if len(archives) != MaxOrphanedArchives {
+		t.Fatalf("kept %d archives (%v), want %d", len(archives), archives, MaxOrphanedArchives)
+	}
+	// hub-z was oldest and must be pruned; hub-a and hub-m must remain.
+	joined := strings.Join(archives, ",")
+	if strings.Contains(joined, "hub-z") || !strings.Contains(joined, "hub-a") || !strings.Contains(joined, "hub-m") {
+		t.Fatalf("unexpected archives kept: %v", archives)
+	}
+}

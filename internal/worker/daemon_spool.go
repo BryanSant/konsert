@@ -29,7 +29,7 @@ func spoolDir(stateDir, workerID string) string {
 // openSpool opens the daemon's spool (nil when it cannot: messages are then sent live
 // only and discarded while disconnected).
 func (d *Daemon) openSpool(cfg config.WorkerConfig) *spool.Spool {
-	dir := spoolDir(defaultStateDir(), cfg.WorkerID)
+	dir := spoolDir(d.stateDir(), cfg.WorkerID)
 	if dir == "" {
 		d.logger.Warn("no state directory: hub-bound messages are not spooled")
 		return nil
@@ -155,12 +155,13 @@ func (d *Daemon) spoolMessage(class spool.Class, key string, raw []byte) bool {
 
 // spoolConn is one connection's position in the spool.
 type spoolConn struct {
-	mu      sync.Mutex
-	cursor  uint64 // next seq to send; 0 until the hub resumed this connection
-	start   uint64 // cursor at resume
-	target  uint64 // last seq at resume: the replay ends after it
-	caught  bool   // the replay reached target (worker.spool.caught_up sent)
-	resumed chan struct{}
+	mu         sync.Mutex
+	cursor     uint64 // next seq to send; 0 until the hub resumed this connection
+	start      uint64 // cursor at resume
+	target     uint64 // last seq at resume: the replay ends after it
+	caught     bool   // the replay reached target (worker.spool.caught_up sent)
+	resetEpoch string // non-empty when the spool was archived and reset to a fresh epoch
+	resumed    chan struct{}
 }
 
 func newSpoolConn() *spoolConn { return &spoolConn{resumed: make(chan struct{})} }
@@ -174,6 +175,22 @@ func (c *spoolConn) resume(applied, last uint64) bool {
 	}
 	c.cursor, c.start, c.target = applied+1, applied+1, last
 	c.caught = last <= applied
+	close(c.resumed)
+	return true
+}
+
+// resumeReset starts a fresh epoch stream after archiving an orphaned spool: writeSpool
+// sends worker.spool.caught_up{epoch: newEpoch, seq: 0} before any live records so the
+// hub adopts the new epoch and finishes waiting for the old replay.
+func (c *spoolConn) resumeReset(newEpoch string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cursor != 0 {
+		return false
+	}
+	c.cursor, c.start, c.target = 1, 1, 0
+	c.caught = false
+	c.resetEpoch = newEpoch
 	close(c.resumed)
 	return true
 }
@@ -192,6 +209,24 @@ func (d *Daemon) handleSpoolMessage(sc *spoolConn, env protocol.Envelope) bool {
 		p, err := protocol.DecodePayload[protocol.SpoolResume](env)
 		if err != nil || d.spool == nil {
 			return true
+		}
+		if p.HubID != "" {
+			res, berr := d.spool.BindHub(p.HubID)
+			if berr != nil {
+				d.logger.Error("failed to bind outbound spool to hub", "hub_id", p.HubID, "err", berr)
+			} else if res.Archived {
+				oldHub := res.OldHubID
+				if oldHub == "" {
+					oldHub = "unknown"
+				}
+				d.logger.Warn("hub id changed; archived old spool and started a new epoch",
+					"old_hub_id", oldHub, "new_hub_id", p.HubID,
+					"archive", filepath.Base(res.ArchiveDir), "epoch", res.NewEpoch)
+				if sc.resumeReset(res.NewEpoch) {
+					d.kickSpoolStatus()
+				}
+				return true
+			}
 		}
 		if p.Epoch != d.spool.Epoch() {
 			// The hub tracks another epoch: it applied nothing of this one.
@@ -228,9 +263,25 @@ func (d *Daemon) writeSpool(sc *spoolConn, write func(outboundMsg) error) (bool,
 	if d.spool == nil {
 		return false, nil
 	}
-	cursor, _, target, caught := sc.position()
+	sc.mu.Lock()
+	cursor, target, caught, resetEpoch := sc.cursor, sc.target, sc.caught, sc.resetEpoch
+	sc.mu.Unlock()
 	if cursor == 0 {
 		return false, nil
+	}
+	if !caught && cursor > target {
+		raw, err := protocol.NewEnvelope(protocol.MsgWorkerSpoolCaughtUp, "", protocol.SpoolAck{Seq: target, Epoch: resetEpoch})
+		if err == nil {
+			if err := write(outboundMsg{msgType: websocket.MessageText, data: raw}); err != nil {
+				return false, err
+			}
+		}
+		sc.mu.Lock()
+		sc.caught = true
+		sc.resetEpoch = ""
+		sc.mu.Unlock()
+		d.kickSpoolStatus()
+		return true, nil
 	}
 	recs, next := d.spool.Read(cursor, spoolBatch, 1<<20)
 	for _, r := range recs {

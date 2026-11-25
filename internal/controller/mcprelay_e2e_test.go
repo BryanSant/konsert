@@ -38,7 +38,7 @@ func TestMCPRelayOverSSHTransport(t *testing.T) {
 	wCfg.WorkerID = wid
 	wCfg.Name = "relaybox"
 	wCfg.EnableMockDriver = true
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemon.SocketPath = sock
 	daemonDone := make(chan struct{})
 	go func() {

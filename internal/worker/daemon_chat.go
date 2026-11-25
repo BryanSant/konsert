@@ -92,7 +92,7 @@ func (d *Daemon) initChat() {
 		Status:   status,
 		Logger:   d.logger,
 		// Exhausted usage windows survive a konsertd restart (no secrets stored).
-		PersistPath: usageCachePath(),
+		PersistPath: usageCachePath(d.stateDir()),
 		Sandboxed:   d.cfg.Sandbox,
 	})
 	d.runner.SetAccounts(d.accounts)
@@ -273,8 +273,10 @@ func (d *Daemon) shutdownChat() {
 }
 
 // usageCachePath is <state dir>/usage-cache.json ("" when there is no state dir).
-func usageCachePath() string {
-	dir := defaultStateDir()
+func usageCachePath(dir string) string {
+	if dir == "" {
+		dir = defaultStateDir()
+	}
 	if dir == "" {
 		return ""
 	}

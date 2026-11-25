@@ -112,7 +112,9 @@ type Hub struct {
 	// Scheduler single-flight: schedMu serializes SchedulePending runs and
 	// schedRunning/schedDirty coalesce kicks into at most one queued rerun.
 	// identityMu serializes worker identity resolution and registration on hello.
+	// hubIDMu serializes creating the hub's persistent hub_id setting.
 	identityMu sync.Mutex
+	hubIDMu    sync.Mutex
 
 	schedMu sync.Mutex
 	// reviewMu serializes review read-modify-writes (reviews.go).

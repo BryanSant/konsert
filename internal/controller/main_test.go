@@ -5,12 +5,25 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 
+	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/secrets"
 	"github.com/BryanSant/konsert/internal/worker"
+	"github.com/BryanSant/konsert/internal/worker/drivers"
 )
+
+// newTestDaemon constructs a worker.Daemon with its own per-test state directory so
+// tests (and -count=N runs) never share a spool, scrollback or link status file.
+func newTestDaemon(t *testing.T, cfg config.WorkerConfig, reg *drivers.Registry, logger *slog.Logger) *worker.Daemon {
+	t.Helper()
+	if cfg.StateDir == "" {
+		cfg.StateDir = t.TempDir()
+	}
+	return worker.NewDaemon(cfg, reg, logger)
+}
 
 // fakeSSHSocketEnv makes the test binary stand in for `ssh host konsertd attach`: on the
 // real machine sshd runs the hub key's forced command, which bridges the session's

@@ -15,7 +15,6 @@ import (
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/store"
-	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 )
 
@@ -260,7 +259,7 @@ func mockFleet(t *testing.T) (*chatServer, string) {
 	wCfg.Name = "q-box"
 	wCfg.HostGroup = "q"
 	wCfg.EnableMockDriver = true
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

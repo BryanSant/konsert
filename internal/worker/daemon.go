@@ -150,9 +150,14 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	if cfg.HostGroup == "" {
 		cfg.HostGroup = cfg.Name
 	}
+	stateDir := strings.TrimSpace(cfg.StateDir)
+	if stateDir == "" {
+		stateDir = defaultStateDir()
+	}
+	cfg.StateDir = stateDir
 	cfg.WorkerID = WorkerIDFor(cfg)
 	if cfg.Credential == "" {
-		cfg.Credential, _ = LoadCredential("", cfg.WorkerID)
+		cfg.Credential, _ = LoadCredential(stateDir, cfg.WorkerID)
 	}
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 2
@@ -174,7 +179,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		transport = "local socket"
 	}
 	d.spool = d.openSpool(cfg)
-	d.link = newLinkTracker(logger, LinkStatusPath(defaultStateDir(), cfg.WorkerID), cfg.WorkerID, cfg.Name, transport)
+	d.link = newLinkTracker(logger, LinkStatusPath(d.stateDir(), cfg.WorkerID), cfg.WorkerID, cfg.Name, transport)
 
 	d.activity = activity.NewPublisher(activity.PublisherOptions{}, func(a protocol.SessionActivity) {
 		d.sendJSON(protocol.MsgSessionActivity, a)
@@ -211,7 +216,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		},
 	}, logger)
 
-	d.runner.SetScrollbackDir(scrollbackDir(defaultStateDir(), cfg.WorkerID))
+	d.runner.SetScrollbackDir(scrollbackDir(d.stateDir(), cfg.WorkerID))
 
 	// Anything descending from konsertd itself (PTY tasks, chat engines and their helpers)
 	// is managed, not an external session.
@@ -228,6 +233,14 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	d.initChat()
 
 	return d
+}
+
+// stateDir returns the daemon's state directory (cfg.StateDir, else defaultStateDir).
+func (d *Daemon) stateDir() string {
+	if dir := strings.TrimSpace(d.cfg.StateDir); dir != "" {
+		return dir
+	}
+	return defaultStateDir()
 }
 
 // WakeLock returns the host wake lock manager (useful for testing).

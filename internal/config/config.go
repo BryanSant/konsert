@@ -105,6 +105,11 @@ type WorkerConfig struct {
 	// the YAML config: konsertd keeps it in its state directory (worker.LoadCredential),
 	// next to its identity, and `konsertd join` or the hub puts it there.
 	Credential string `yaml:"-"`
+
+	// StateDir overrides konsertd's state directory ($KONSERT_STATE_DIR / ~/.konsert)
+	// for this daemon (spool, scrollback, link status, credential, worker id). Tests set
+	// it to isolate daemons run in the same process.
+	StateDir string `yaml:"-"`
 }
 
 // SpoolConfig is the outbound spool's budget:

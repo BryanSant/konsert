@@ -10,7 +10,6 @@ import (
 
 	"github.com/BryanSant/konsert/internal/config"
 	"github.com/BryanSant/konsert/internal/store/sqlite"
-	"github.com/BryanSant/konsert/internal/worker"
 	"github.com/BryanSant/konsert/internal/worker/drivers"
 )
 
@@ -63,7 +62,7 @@ func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 	wCfg.WorkerID = "worker-ver-1"
 	wCfg.Name = "ver-node"
 	wCfg.EnableMockDriver = true
-	daemon := worker.NewDaemon(wCfg, drivers.DefaultRegistry, nil)
+	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
 	daemon.SetVersion("1.4.2")
 	daemon.HeartbeatInterval = 200 * time.Millisecond
 	done := make(chan struct{})

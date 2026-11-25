@@ -40,6 +40,10 @@ type SpoolHello struct {
 
 // SpoolResume is the payload of worker.spool.resume.
 type SpoolResume struct {
+	// HubID is the hub's stable identity (settings hub_id). A daemon whose spool is
+	// bound to a different hub archives the old spool and starts a fresh epoch instead
+	// of replaying records from another hub (or a reset database).
+	HubID      string `json:"hub_id,omitempty"`
 	Epoch      string `json:"epoch"`
 	AppliedSeq uint64 `json:"applied_seq"`
 }
@@ -47,6 +51,9 @@ type SpoolResume struct {
 // SpoolAck is the payload of worker.spool.ack and worker.spool.caught_up.
 type SpoolAck struct {
 	Seq uint64 `json:"seq"`
+	// Epoch is set on worker.spool.caught_up when the daemon archived an orphaned spool
+	// and switched to a fresh epoch for this hub.
+	Epoch string `json:"epoch,omitempty"`
 }
 
 // SpoolStatus describes a daemon's spool (worker.spool.status, `konsertd status`,

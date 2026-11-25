@@ -95,9 +95,18 @@ func (s *Server) hubKeyPath() string {
 
 // hubID returns the hub's id, creating it on first use.
 func (s *Server) hubID(ctx context.Context) (string, error) {
-	s.hubIDMu.Lock()
-	defer s.hubIDMu.Unlock()
-	saved, err := s.store.GetAllSettings(ctx)
+	return s.hub.hubID(ctx)
+}
+
+// hubID returns the hub's id from the settings table, creating a new UUIDv7 on first
+// use (a fresh or reset database gets a new id).
+func (h *Hub) hubID(ctx context.Context) (string, error) {
+	if h.store == nil {
+		return "", nil
+	}
+	h.hubIDMu.Lock()
+	defer h.hubIDMu.Unlock()
+	saved, err := h.store.GetAllSettings(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +114,7 @@ func (s *Server) hubID(ctx context.Context) (string, error) {
 		return id, nil
 	}
 	id := ids.UUID()
-	if err := s.store.SetSettings(ctx, map[string]string{hubIDSetting: id}); err != nil {
+	if err := h.store.SetSettings(ctx, map[string]string{hubIDSetting: id}); err != nil {
 		return "", err
 	}
 	return id, nil
