@@ -230,10 +230,14 @@ func (s *Spool) replaceLocked(g *segment, recs []Record) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	// Windows cannot rename over an open file.
+	// Windows can rename neither an open source nor over an open target (Go opens files
+	// without FILE_SHARE_DELETE): close both, rename, then reopen the segment.
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 	g.f.Close()
 	if err := os.Rename(tmp, g.path); err != nil {
-		f.Close()
 		_ = os.Remove(tmp)
 		if old, oerr := os.OpenFile(g.path, os.O_RDWR, 0o600); oerr == nil {
 			g.f = old
@@ -241,8 +245,12 @@ func (s *Spool) replaceLocked(g *segment, recs []Record) error {
 		return err
 	}
 	syncDir(s.opts.Dir)
+	nf, err := os.OpenFile(g.path, os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
 	s.bytes += off - g.size
 	// An emptied segment stays (its name orders the segments) until acknowledged.
-	g.f, g.size, g.entries = f, off, entries
+	g.f, g.size, g.entries = nf, off, entries
 	return nil
 }
