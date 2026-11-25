@@ -53,6 +53,8 @@ export function offlineText(w: Worker, now: number): string {
     return r?.attempt ? `konsertd down — restarting (attempt ${r.attempt})…` : 'starting konsertd…';
   }
   if (r?.state === 'down') {
+    // A logon task cannot be restarted while its user is signed out: say why.
+    if (w.facts?.start_mode === 'user_session') return `konsertd down${tail}. ${windowsStartText(w)}`;
     if (!r.attempt) return `konsertd down${tail}`;
     const next = r.next_at ? Date.parse(r.next_at) - now : 0;
     const when = next > 0 ? `next in ${shortWait(next)}` : 'next soon';
@@ -60,7 +62,31 @@ export function offlineText(w: Worker, now: number): string {
   }
   if (r?.state === 'unreachable') return `unreachable over SSH — re-dialing${r.error ? `: ${r.error}` : ''}`;
   if (w.launch_state === 'failed') return `could not start: ${w.launch_error || 'see Details'}`;
+  if (w.facts?.start_mode === 'user_session') return windowsStartText(w);
   return 'offline: not reporting';
+}
+
+/**
+ * When a Windows machine's konsertd starts (KON-224K5), from what the daemon last
+ * reported: a logon task only runs while its user is signed in, so a headless machine
+ * needs an S4U task or a service. Empty for other systems or when unknown.
+ */
+export function windowsStartText(w: Worker): string {
+  if (w.os !== 'windows') return '';
+  const who = w.ssh_target ? w.ssh_target.split('@')[0] : 'its user';
+  switch (w.facts?.start_mode) {
+    case 'background_task':
+      return 'Windows: konsertd starts at boot and runs whether or not anyone is signed in (S4U task).';
+    case 'service':
+      return 'Windows: konsertd runs as a Windows service.';
+    case 'user_session':
+      return (
+        `Windows: konsertd starts only when ${who} signs in (logon task). For headless use, ` +
+        'remove and re-add the machine over SSH as an administrator (that registers an S4U task), ' +
+        'or run `konsertd install` from an elevated terminal on it, or `konsertd install --service`.'
+      );
+  }
+  return '';
 }
 
 /** "macOS · arm64 · 10c / 16G" */

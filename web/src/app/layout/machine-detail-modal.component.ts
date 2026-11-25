@@ -9,7 +9,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { offlineText, transportHint, transportLabel } from '../modes/fleet/fleet-logic';
+import { offlineText, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -176,6 +176,9 @@ import { MachineCredentialComponent } from './machine-credential.component';
               }
             }
           </div>
+          @if (windowsStart()) {
+            <div class="text-[11px] text-[#86888f] break-words" data-testid="worker-windows-start">{{ windowsStart() }}</div>
+          }
           @if (worker().status !== 'online' && worker().restart) {
             <div class="text-[11px] text-[#e6b763] break-words" data-testid="worker-restart-state">{{ restartText() }}</div>
           }
@@ -488,6 +491,8 @@ export class MachineDetailModalComponent {
   readonly transport = computed(() => transportLabel(this.worker()));
   readonly transportHint = computed(() => transportHint(this.worker()));
 
+  /** When a Windows machine's konsertd starts (S4U task, service or logon task). */
+  readonly windowsStart = computed(() => windowsStartText(this.worker()));
   /** The hub's restart (or re-dial) state of this machine's konsertd. */
   readonly restartText = computed(() => offlineText(this.worker(), Date.now()));
   readonly launchLabel = computed(() => {

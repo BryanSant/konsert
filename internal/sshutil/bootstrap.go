@@ -73,8 +73,9 @@ type BootstrapResult struct {
 	Name     string `json:"name,omitempty"`
 	// KonsertdPath is the remote konsertd binary the service and the hub key run.
 	KonsertdPath string `json:"konsertd_path,omitempty"`
-	// StartDeferred is set when konsertd was installed but is not running yet: a Windows
-	// logon task only runs while the user is logged on, so it starts at the next login.
+	// StartDeferred is set when konsertd was installed on Windows but is not running yet:
+	// the SSH session was not elevated, so `konsertd install` registered a logon task
+	// (an S4U task needs an administrator), which only runs while the user is signed in.
 	StartDeferred bool `json:"start_deferred,omitzero"`
 	// HostKeyConfirmationRequired is set (with HostKeys) when the remote host key is
 	// unknown. Re-submit with accept_host_key set to the confirmed fingerprint.
@@ -358,9 +359,11 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		serviceMode = "nohup"
 	}
 	if rOS == "windows" {
-		// A logon task (InteractiveToken) only runs while the user is logged on to Windows,
-		// and its first /Run can be ignored (the previous version still exiting). Start it
-		// now and wait for the daemon itself (its local socket) before calling it deferred.
+		// An administrator's (elevated) SSH session registers an S4U task, which /Run starts
+		// with nobody signed in; anyone else gets a logon task (InteractiveToken), which only
+		// runs while the user is signed in. The first /Run can be ignored (the previous
+		// version still exiting): start it now and wait for the daemon itself (its local
+		// socket) before calling it deferred.
 		args := []string{"status", "--name", name, "--start", "--wait", windowsStartWait.String()}
 		if st, err := sess.ssh(ctx, sh.konsertd(exe, args, false), nil); err == nil && notRunning(st) {
 			startDeferred = true
@@ -371,12 +374,12 @@ func BootstrapRemoteWorker(parentCtx context.Context, opts BootstrapOptions) Boo
 		detail = "running (started via schtasks)"
 	}
 	if startDeferred {
-		detail = "installed as a logon task; starts at the next Windows login of this user"
+		detail = "installed as a logon task (the SSH user is not an administrator); starts at the next Windows login of this user"
 	}
 	stages = append(stages, BootstrapStage{Stage: "configuring_service", Label: "Starting konsertd", Status: "ok", Detail: detail})
 	msg := fmt.Sprintf("Connected %s (%s/%s, %s, hooks=%t)", target, rOS, rArch, serviceMode, hooksInstalled)
 	if startDeferred {
-		msg = fmt.Sprintf("Installed konsertd on %s; it will start at the next Windows login (no one is logged on now)", target)
+		msg = fmt.Sprintf("Installed konsertd on %s; it will start at the next Windows login of the SSH user (a logon task: no one is signed in now). %s", target, install.HeadlessHint)
 		notify("ready", "Installed", msg)
 	} else {
 		notify("ready", "Ready", fmt.Sprintf("konsertd started on %s (%s/%s)", target, rOS, rArch))

@@ -64,6 +64,12 @@ export interface MachineFacts {
   virtualization?: string;
   tools?: Record<string, string>;
   auth_ready?: Record<string, boolean>;
+  /**
+   * Windows: how konsertd was started. 'background_task' (an S4U task: starts at boot,
+   * runs whether or not anyone is signed in), 'service', or 'user_session' (a logon task:
+   * only runs while the user is signed in).
+   */
+  start_mode?: 'background_task' | 'service' | 'user_session';
   collected_at?: string;
 }
 

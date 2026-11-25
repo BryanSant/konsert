@@ -513,7 +513,7 @@ func deferredMessage(res sshutil.BootstrapResult) string {
 	if !res.StartDeferred {
 		return ""
 	}
-	return "installed; konsertd will start at the next Windows login of the SSH user (a logon task only runs while that user is logged on)"
+	return "installed; konsertd will start at the next Windows login of the SSH user (a logon task only runs while that user is signed in). " + install.HeadlessHint
 }
 
 // recordSSHWorker stores the machine an SSH bootstrap installed, so the hub knows it
