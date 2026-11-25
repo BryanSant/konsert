@@ -432,10 +432,15 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Device = item
 	case "shell_reminder":
 		p.ShellReminder = item
+	case "autopilot":
+		p.Autopilot = item
 	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}
 	}
 	h.broadcastJSON(protocol.MsgFleetUpdate, p)
+	if kind == "ticket" || kind == "ticket_deleted" || kind == "project_deleted" {
+		h.broadcastAutopilotUpdate(context.Background())
+	}
 }

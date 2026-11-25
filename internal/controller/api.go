@@ -207,10 +207,13 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/ssh/bootstrap", s.requireBrowserAuth(s.handleSSHBootstrap))
 	s.mux.Handle("GET /api/usage", s.requireBrowserAuth(s.handleGetUsage))
 	s.mux.Handle("POST /api/usage/quotas", s.requireBrowserAuth(s.handleUpsertQuotas))
+	s.mux.Handle("GET /api/autopilot", s.requireBrowserAuth(s.handleGetAutopilot))
 	s.mux.Handle("GET /api/projects", s.requireBrowserAuth(s.handleListProjects))
 	s.mux.Handle("POST /api/projects", s.requireBrowserAuth(s.handleCreateProject))
 	s.mux.Handle("PATCH /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProject)))
 	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProject)))
+	s.mux.Handle("GET /api/projects/{id}/autopilot", s.requireBrowserAuth(s.byRef(ids.Project, s.handleGetProjectAutopilot)))
+	s.mux.Handle("POST /api/projects/{id}/autopilot", s.requireBrowserAuth(s.byRef(ids.Project, s.handleSetProjectAutopilot)))
 	s.mux.Handle("GET /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleListProjectRepos)))
 	s.mux.Handle("POST /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleCreateProjectRepo)))
 	s.mux.Handle("PATCH /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProjectRepo)))
@@ -433,6 +436,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"usage":              usage,
 		"controller_version": s.version,
 		"pause":              res.Pause,
+		"autopilot":          s.hub.AutopilotState(r.Context()),
 		"activity":           s.hub.activityList(),
 		"reviews":            reviews,
 	})
@@ -741,6 +745,8 @@ type settingsResponse struct {
 	VerifyTimeoutSeconds int `json:"verify_timeout_seconds"`
 	// PulseDebounceSeconds is the board pulse batching window in seconds (default 20s).
 	PulseDebounceSeconds int `json:"pulse_debounce_seconds"`
+	// AutopilotGlobal enables Autopilot Play across all projects unless explicitly paused.
+	AutopilotGlobal bool `json:"autopilot_global"`
 	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -787,6 +793,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		TicketLeaseTTLSeconds: int(s.hub.ticketLeaseTTL(ctx).Seconds()),
 		VerifyTimeoutSeconds:  int(s.hub.verifyTimeout(ctx).Seconds()),
 		PulseDebounceSeconds:  int(s.hub.pulseDebounce(ctx).Seconds()),
+		AutopilotGlobal:       s.hub.autopilotGlobal(ctx),
 		CommanderBackend:      store.ChatBackendAgent,
 		CommanderChatID:       saved[commanderChatSetting],
 	}

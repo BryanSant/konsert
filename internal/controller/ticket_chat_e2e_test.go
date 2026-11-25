@@ -204,6 +204,14 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	})
 
 	// 3. Engine error -> ticket failed with failure category + chat closed.
+	// Wait for autopilot auto-off after tk1 emptied the board, then re-enable Play.
+	waitFor(t, 3*time.Second, "autopilot auto-off after tk1", func() bool {
+		p, err := cs.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := cs.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	tkErr, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,
 		Kind:      store.TicketKindBug,
@@ -239,6 +247,13 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	})
 
 	// 4. Elicitation ("ask") -> ticket needs_you, answered -> running -> review.
+	waitFor(t, 3*time.Second, "autopilot auto-off after tkErr", func() bool {
+		p, err := cs.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := cs.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	tkAsk, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,
 		Kind:      store.TicketKindFeature,
@@ -285,6 +300,13 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	})
 
 	// 5. Requeue closes the chat.
+	waitFor(t, 3*time.Second, "autopilot auto-off after tkAsk", func() bool {
+		p, err := cs.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := cs.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	tkSlow, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,
 		Kind:      store.TicketKindFeature,

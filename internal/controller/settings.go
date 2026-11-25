@@ -52,6 +52,8 @@ type SettingsUpdate struct {
 	VerifyTimeoutSeconds *int `json:"verify_timeout_seconds"`
 	// PulseDebounceSeconds is the board pulse batching window in seconds (default 20s).
 	PulseDebounceSeconds *int `json:"pulse_debounce_seconds"`
+	// AutopilotGlobal enables Autopilot Play across all projects unless explicitly paused.
+	AutopilotGlobal *bool `json:"autopilot_global"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -170,6 +172,9 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		}
 		updates[pulseDebounceSetting] = strconv.Itoa(*u.PulseDebounceSeconds)
 	}
+	if u.AutopilotGlobal != nil {
+		updates[autopilotGlobalSetting] = strconv.FormatBool(*u.AutopilotGlobal)
+	}
 
 	if len(updates) > 0 {
 		if err := s.store.SetSettings(ctx, updates); err != nil {
@@ -187,6 +192,22 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 		s.auth.SetIdleExpiry(idleDuration(*u.DeviceIdleDays))
 	}
 	recordSettingsAudit(ctx, s.hub, updates)
+	if u.AutopilotGlobal != nil {
+		if *u.AutopilotGlobal {
+			s.hub.clearAllAutopilotFinished()
+			if projects, err := s.store.ListProjects(ctx); err == nil {
+				for _, p := range projects {
+					if !p.AutopilotPaused {
+						s.hub.markProjectActive(p.ID)
+					}
+				}
+			}
+		}
+		s.hub.broadcastAutopilotUpdate(ctx)
+		if *u.AutopilotGlobal && !s.hub.fleetPaused(ctx) {
+			s.hub.kickScheduler()
+		}
+	}
 	return nil
 }
 
@@ -285,6 +306,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.PulseDebounceSeconds = &n
+		case autopilotGlobalSetting:
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
+			}
+			u.AutopilotGlobal = &b
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -326,6 +353,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"ticket_lease_ttl_seconds": r.TicketLeaseTTLSeconds,
 		"verify_timeout_seconds":   r.VerifyTimeoutSeconds,
 		"pulse_debounce_seconds":   r.PulseDebounceSeconds,
+		"autopilot_global":         r.AutopilotGlobal,
 		"commander_backend":        r.CommanderBackend,
 		"api_key_required":         r.APIKeyRequired,
 	}

@@ -59,8 +59,9 @@ CREATE TABLE projects (
     -- Verification and autonomy defaults (docs/design/work.md).
     verify_cmd    TEXT NOT NULL DEFAULT '',
     autonomy_json TEXT NOT NULL DEFAULT '{}',
-    -- Autopilot Play toggle: only projects with autopilot=1 auto-dispatch ready tickets.
-    autopilot     INTEGER NOT NULL DEFAULT 0,
+    -- Autopilot Play toggle and explicit pause override (blocks global autopilot when 1).
+    autopilot        INTEGER NOT NULL DEFAULT 0,
+    autopilot_paused INTEGER NOT NULL DEFAULT 0,
     -- Delivery overrides (SYR-H50YW): '' inherits global default.
     delivery_mode TEXT NOT NULL DEFAULT '',
     merge_style   TEXT NOT NULL DEFAULT '',

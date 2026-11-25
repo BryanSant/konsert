@@ -199,15 +199,19 @@ func pickWorkerAgent(w store.Worker) string {
 }
 
 // scheduleDispatchableTickets runs at the end of each scheduler pass, after queued tasks.
-// Only tickets belonging to projects with autopilot=true are dispatched.
+// Precedence: fleet paused > project paused/directive > global/project play.
 func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.Worker, counts map[string]int, slots slotPlan) {
+	if h.fleetPaused(ctx) {
+		return
+	}
 	projects, err := h.store.ListProjects(ctx)
 	if err != nil {
 		return
 	}
+	globalOn := h.autopilotGlobal(ctx)
 	autopilotProjects := make(map[string]store.Project, len(projects))
 	for _, p := range projects {
-		if p.Autopilot {
+		if isProjectAutopilotPlaying(p, globalOn, false) {
 			autopilotProjects[p.ID] = p
 		}
 	}
@@ -983,6 +987,8 @@ func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditA
 	h.broadcastFleetUpdate("ticket", updated)
 	if nextStatus == store.TicketStatusReady {
 		h.kickScheduler()
+	} else if nextStatus == store.TicketStatusCanceled {
+		h.checkProjectBoardIdle(ctx, updated.ProjectID)
 	}
 	return updated, nil
 }

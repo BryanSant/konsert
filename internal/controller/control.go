@@ -133,6 +133,7 @@ func (h *Hub) PauseEverything(ctx context.Context) (FleetPauseState, error) {
 		fmt.Sprintf("%s paused everything: dispatching stopped and %d running session(s) suspended", capitalize(describeActor(cause)), affected))
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditPause, Message: fmt.Sprintf("Paused everything (%d sessions suspended)", affected)})
 	h.broadcastFleetUpdate("pause", p)
+	h.broadcastAutopilotUpdate(ctx)
 	return FleetPauseState{FleetPause: p, Affected: affected}, nil
 }
 
@@ -168,6 +169,7 @@ func (h *Hub) ResumeEverything(ctx context.Context) (FleetPauseState, error) {
 		fmt.Sprintf("%s resumed everything: dispatching restarted and %d session(s) resumed", capitalize(describeActor(cause)), affected))
 	h.recordAudit(ctx, store.AuditEvent{Action: AuditUnpause, Message: fmt.Sprintf("Resumed everything (%d sessions resumed)", affected)})
 	h.broadcastFleetUpdate("pause", store.FleetPause{})
+	h.broadcastAutopilotUpdate(ctx)
 	h.kickScheduler()
 	return FleetPauseState{Affected: affected}, nil
 }

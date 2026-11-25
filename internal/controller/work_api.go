@@ -106,6 +106,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("project", proj)
+	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusCreated, proj)
 }
 
@@ -141,11 +142,14 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		proj.Autonomy = *body.Autonomy
 	}
 	autopilotTurnedOn := false
+	autopilotChanged := false
 	if body.Autopilot != nil {
 		if *body.Autopilot && !proj.Autopilot {
 			autopilotTurnedOn = true
 		}
 		proj.Autopilot = *body.Autopilot
+		proj.AutopilotPaused = !*body.Autopilot
+		autopilotChanged = true
 	}
 	if body.DeliveryMode != nil {
 		mode := strings.TrimSpace(*body.DeliveryMode)
@@ -167,8 +171,15 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeWorkError(w, err)
 		return
 	}
+	if autopilotChanged {
+		s.hub.setProjectAutopilotFinished(proj.ID, false)
+		if proj.Autopilot {
+			s.hub.markProjectActive(proj.ID)
+		}
+	}
 	s.hub.broadcastFleetUpdate("project", proj)
-	if autopilotTurnedOn {
+	s.hub.broadcastAutopilotUpdate(r.Context())
+	if autopilotTurnedOn && !s.hub.fleetPaused(r.Context()) {
 		s.hub.kickScheduler()
 	}
 	writeJSON(w, http.StatusOK, proj)
@@ -650,6 +661,7 @@ func (s *Server) handleAddTicketEdge(w http.ResponseWriter, r *http.Request) {
 		writeWorkError(w, err)
 		return
 	}
+	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusCreated, map[string]any{"ticket_id": id, "blocked_by_id": blockerID})
 }
 
@@ -660,6 +672,7 @@ func (s *Server) handleRemoveTicketEdge(w http.ResponseWriter, r *http.Request) 
 		writeWorkError(w, err)
 		return
 	}
+	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ticket_id": id, "blocked_by_id": blockerID})
 }
 
@@ -706,6 +719,7 @@ func (s *Server) handlePutTicketRepoBinding(w http.ResponseWriter, r *http.Reque
 	if tk, gErr := s.store.GetTicket(r.Context(), id); gErr == nil {
 		s.hub.pulseTicketDecompositionCheck(r.Context(), tk)
 	}
+	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusOK, b)
 }
 
@@ -720,6 +734,7 @@ func (s *Server) handleRemoveTicketRepoBinding(w http.ResponseWriter, r *http.Re
 		writeWorkError(w, err)
 		return
 	}
+	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ticket_id": id, "repo_id": repoID})
 }
 

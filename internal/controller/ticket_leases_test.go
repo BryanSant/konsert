@@ -221,6 +221,14 @@ func TestTicketHeartbeatRenewalAndStatusTransitions(t *testing.T) {
 	})
 
 	// Engine error -> ticket failed + chat closed.
+	// Wait for auto-off on idle after tkComplete reached review, then re-enable Play.
+	waitFor(t, 2*time.Second, "autopilot auto-off after tkComplete", func() bool {
+		p, err := th.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := th.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	tkFail := mkReady("Fail flow")
 	th.h.SchedulePending(ctx)
 	openEnv2 := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
@@ -239,6 +247,13 @@ func TestTicketHeartbeatRenewalAndStatusTransitions(t *testing.T) {
 	_ = fw.expect(protocol.MsgAgentChatClose, 3*time.Second)
 
 	// Cancelled turn -> ticket canceled + chat closed.
+	waitFor(t, 2*time.Second, "autopilot auto-off after tkFail", func() bool {
+		p, err := th.st.GetProject(ctx, proj.ID)
+		return err == nil && !p.Autopilot
+	})
+	if _, err := th.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	tkCancel := mkReady("Cancel flow")
 	th.h.SchedulePending(ctx)
 	openEnv3 := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
