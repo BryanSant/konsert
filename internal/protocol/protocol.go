@@ -530,48 +530,78 @@ type GitCommitResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// MsgGitPRReview (hub->worker) asks konsertd to review the pull request of a checkout's
-// branch with gh on the machine that owns the checkout; the reply is MsgGitPRReviewResult.
+// Plain-git delivery operations (KON-H50YW) run on the daemon that owns the checkout,
+// using that machine's git credentials.
 const (
-	MsgGitPRReview       = "git.pr.review"
-	MsgGitPRReviewResult = "git.pr.review.result"
+	MsgGitInfo        = "git.info"
+	MsgGitInfoResult  = "git.info.result"
+	MsgGitPush        = "git.push"
+	MsgGitPushResult  = "git.push.result"
+	MsgGitMerge       = "git.merge"
+	MsgGitMergeResult = "git.merge.result"
 )
 
-// PR review actions.
-const (
-	PRReviewApprove        = "approve"
-	PRReviewRequestChanges = "request_changes"
-)
-
-// PR review outcomes (GitPRReviewResult.Status).
-const (
-	PRReviewSent = "sent" // gh submitted the review
-	// PRReviewCommented: the PR is the user's own, which GitHub does not let them
-	// approve or request changes on, so the decision was posted as a comment.
-	PRReviewCommented = "commented"
-	PRReviewFailed    = "failed"    // gh (or GitHub) refused; Message says why
-	PRReviewNoGitHub  = "no_github" // the checkout has no GitHub remote
-	PRReviewNoGH      = "no_gh"     // gh is not installed on the machine
-	PRReviewNoPR      = "no_pr"     // no pull request for the branch
-	PRReviewOffline   = "offline"   // set by the hub: the machine is not connected
-)
-
-type GitPRReviewRequest struct {
+type GitInfoRequest struct {
 	Workdir string `json:"workdir"`
-	// Branch whose PR is reviewed ("" = the checkout's current branch).
-	Branch string `json:"branch,omitempty"`
-	Action string `json:"action"` // approve | request_changes
-	Body   string `json:"body,omitempty"`
-	// By names who decided (device or user label), for the comment posted instead of a
-	// review on the user's own PR.
-	By string `json:"by,omitempty"`
 }
 
-type GitPRReviewResult struct {
-	Status   string `json:"status"`
-	Message  string `json:"message,omitempty"`
-	PRNumber int    `json:"pr_number,omitzero"`
-	PRURL    string `json:"pr_url,omitempty"`
+type GitInfoResult struct {
+	OK            bool   `json:"ok"`
+	IsGitRepo     bool   `json:"is_git_repo"`
+	Branch        string `json:"branch,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	RemoteName    string `json:"remote_name,omitempty"`
+	RemoteURL     string `json:"remote_url,omitempty"`
+	HasRemote     bool   `json:"has_remote"`
+	Dirty         bool   `json:"dirty"`
+	Error         string `json:"error,omitempty"`
+}
+
+type GitPushRequest struct {
+	Workdir string `json:"workdir"`
+	// Branch to push ("" = current branch of Workdir).
+	Branch string `json:"branch,omitempty"`
+	// Remote name (default "origin"). Ignored when RemoteURL is set.
+	Remote string `json:"remote,omitempty"`
+	// RemoteURL pushes directly to a URL (e.g. a user's fork when upstream is read-only).
+	RemoteURL string `json:"remote_url,omitempty"`
+	// CommitMessage: when non-empty and the working tree has uncommitted changes, stage
+	// and commit them before pushing.
+	CommitMessage string `json:"commit_message,omitempty"`
+}
+
+type GitPushResult struct {
+	OK        bool   `json:"ok"`
+	Branch    string `json:"branch,omitempty"`
+	RemoteURL string `json:"remote_url,omitempty"`
+	HeadSHA   string `json:"head_sha,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type GitMergeRequest struct {
+	Workdir string `json:"workdir"`
+	// SourceBranch is the task branch to merge ("" = current branch of Workdir).
+	SourceBranch string `json:"source_branch,omitempty"`
+	// TargetBranch is the branch to merge into ("" = repo default branch).
+	TargetBranch string `json:"target_branch,omitempty"`
+	// Style is "squash" (default), "merge", or "rebase".
+	Style string `json:"style,omitempty"`
+	// Push pushes TargetBranch to Remote (default "origin") after merging when a remote exists.
+	Push   bool   `json:"push"`
+	Remote string `json:"remote,omitempty"`
+	// CommitMessage is used for squash/merge commits (and auto-committing dirty worktree changes).
+	CommitMessage string `json:"commit_message,omitempty"`
+}
+
+type GitMergeResult struct {
+	OK            bool     `json:"ok"`
+	Merged        bool     `json:"merged"`
+	Pushed        bool     `json:"pushed"`
+	Conflict      bool     `json:"conflict,omitzero"`
+	ConflictFiles []string `json:"conflict_files,omitempty"`
+	TargetBranch  string   `json:"target_branch,omitempty"`
+	MergeSHA      string   `json:"merge_sha,omitempty"`
+	Error         string   `json:"error,omitempty"`
 }
 
 type GitWorktreeCleanupRequest struct {

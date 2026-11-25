@@ -77,13 +77,6 @@ type Daemon struct {
 	// wake holds the host Keep Awake inhibitor requested by the hub (host.wakelock).
 	wake *WakeLockManager
 
-	// ghRun runs gh for PR reviews (git.pr.review); nil = gh from PATH. Tests replace it.
-	ghRun gitutil.GHRunner
-	// prReviewer sends PR reviews and caches this machine's gh login (created on first
-	// use with ghRun).
-	prReviewerOnce sync.Once
-	prReviewer     *gitutil.PRReviewer
-
 	// activity publishes session activity (chats and PTY tasks) at a bounded rate;
 	// taskActivity derives PTY tasks' activity from their telemetry (guarded by taskActMu).
 	activity     *activity.Publisher
@@ -927,21 +920,52 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.sendJSONWithID(protocol.MsgGitCommitResult, reqID, res)
 		}(env.ID, p)
 
-	case protocol.MsgGitPRReview:
-		p, err := protocol.DecodePayload[protocol.GitPRReviewRequest](env)
+	case protocol.MsgGitInfo:
+		p, err := protocol.DecodePayload[protocol.GitInfoRequest](env)
 		if err != nil {
 			return
 		}
-		go func(reqID string, req protocol.GitPRReviewRequest) {
-			ctx, cancel := context.WithTimeout(daemonCtx, 45*time.Second)
+		go func(reqID string, req protocol.GitInfoRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 15*time.Second)
 			defer cancel()
 			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
 			if vErr != nil {
-				d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: vErr.Error()})
+				d.sendJSONWithID(protocol.MsgGitInfoResult, reqID, protocol.GitInfoResult{Error: vErr.Error()})
 				return
 			}
-			d.prReviewerOnce.Do(func() { d.prReviewer = &gitutil.PRReviewer{GH: d.ghRun} })
-			d.sendJSONWithID(protocol.MsgGitPRReviewResult, reqID, d.prReviewer.Review(ctx, dir, req))
+			d.sendJSONWithID(protocol.MsgGitInfoResult, reqID, gitutil.RepoGitInfo(ctx, dir))
+		}(env.ID, p)
+
+	case protocol.MsgGitPush:
+		p, err := protocol.DecodePayload[protocol.GitPushRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitPushRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 60*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitPushResult, reqID, protocol.GitPushResult{Error: vErr.Error()})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitPushResult, reqID, gitutil.PushBranch(ctx, dir, req))
+		}(env.ID, p)
+
+	case protocol.MsgGitMerge:
+		p, err := protocol.DecodePayload[protocol.GitMergeRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.GitMergeRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 60*time.Second)
+			defer cancel()
+			dir, vErr := gitutil.ValidateWorkdir(req.Workdir, d.cfg.AllowedRoots)
+			if vErr != nil {
+				d.sendJSONWithID(protocol.MsgGitMergeResult, reqID, protocol.GitMergeResult{Error: vErr.Error()})
+				return
+			}
+			d.sendJSONWithID(protocol.MsgGitMergeResult, reqID, gitutil.MergeBranch(ctx, dir, req))
 		}(env.ID, p)
 
 	case protocol.MsgGitWorktreeCleanup:

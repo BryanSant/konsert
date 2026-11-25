@@ -3,7 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { VETO_REASONS, VetoReason, causeLine } from '../../core/models/control.models';
-import { githubLine } from '../../core/models/review.models';
+import { deliveryOutcomeLine } from '../../core/models/review.models';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { ControlStore } from '../../core/state/control.store';
 import { formatSince } from '../../core/state/questions-logic';
@@ -199,7 +199,7 @@ export class MobileSessionComponent {
     this.approving.set(true);
     try {
       const res = await this.work.review(it.id, 'approved');
-      this.reviewNote.set(['Approved.', githubLine(res.review)].filter(Boolean).join(' '));
+      this.reviewNote.set(['Approved.', deliveryOutcomeLine(res.review)].filter(Boolean).join(' '));
     } catch (err) {
       this.reviewNote.set(err instanceof Error ? err.message : 'Could not approve');
     } finally {

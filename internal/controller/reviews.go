@@ -14,19 +14,16 @@ import (
 	"github.com/BryanSant/konsert/internal/store"
 )
 
-// Reviews (KON-BM8JR): the user's decision on finished work (approve / request changes)
-// and the Expedite flag live on the hub, so every client sees the same board. Approving
-// also approves the task's pull request with gh on the machine that owns the checkout;
-// requesting changes requests them on the PR and hands the note to the agent. Expedited
-// queued tasks are placed before the rest (SchedulePending).
-
-// prReviewTimeout bounds the gh round trip through the worker.
-var prReviewTimeout = 50 * time.Second
+// Reviews and delivery (KON-H50YW): the Work board is private between the user and their
+// agents. Review decisions (approve / request changes) and Expedite live on the hub.
+// Request changes returns the note to the agent; Approve delivers the branch according to
+// the repo's delivery mode (direct / pr_merge / pr_open / keep_branch). Expedited queued
+// tasks are placed before the rest (SchedulePending).
 
 // ReviewResult is the reply to a review decision.
 type ReviewResult struct {
 	Review store.Review `json:"review"`
-	// FollowUpTaskID/SID: the session started with the requested changes.
+	// FollowUpTaskID/SID: the session started with the requested changes (or conflict).
 	FollowUpTaskID  string `json:"follow_up_task_id,omitempty"`
 	FollowUpTaskSID string `json:"follow_up_task_sid,omitempty"`
 	// Delivered says how requested changes reached the agent: "steered" (typed into the
@@ -90,10 +87,10 @@ func (h *Hub) expeditedTasks(ctx context.Context) map[string]bool {
 	return out
 }
 
-// ReviewTask records the user's decision on a finished task, sends it to the task's pull
-// request with gh, and delivers requested changes to the agent. A failure to reach GitHub
-// is recorded on the review (GitHubStatus/GitHubMessage), never an error: the decision
-// stands either way.
+// ReviewTask records the user's decision on finished work. Request changes hands the note
+// back to the agent (steer or follow-up session). Approve runs the repo's delivery mode
+// (direct, pr_merge, pr_open, or keep_branch). Outcomes are recorded on the task timeline
+// and audit log.
 func (h *Hub) ReviewTask(ctx context.Context, svc *FleetService, taskID, decision, note string) (ReviewResult, error) {
 	var res ReviewResult
 	if decision != store.ReviewApproved && decision != store.ReviewChangesRequested {
@@ -108,11 +105,12 @@ func (h *Hub) ReviewTask(ctx context.Context, svc *FleetService, taskID, decisio
 		return res, err
 	}
 	cause := causeFrom(ctx)
-	now := time.Now().UTC()
-	if _, err := h.saveReview(ctx, t.ID, "", func(r *store.Review) {
+	now := h.deliveryClock()
+	cur, err := h.saveReview(ctx, t.ID, "", func(r *store.Review) {
 		r.Decision, r.Note, r.DecidedBy, r.DecidedAt = decision, note, firstNonEmpty(cause.ActorID, cause.Actor), &now
-		r.GitHubStatus, r.GitHubMessage, r.GitHubURL, r.FollowUpTaskID = "", "", "", ""
-	}); err != nil {
+		r.FollowUpTaskID = ""
+	})
+	if err != nil {
 		return res, err
 	}
 	verb := "Approved"
@@ -120,64 +118,31 @@ func (h *Hub) ReviewTask(ctx context.Context, svc *FleetService, taskID, decisio
 		verb = "Changes requested: " + oneLine(note, 200)
 	}
 	h.appendTaskEvent(ctx, t.ID, "review", verb)
-
-	action := protocol.PRReviewApprove
-	if decision == store.ReviewChangesRequested {
-		action = protocol.PRReviewRequestChanges
-	}
-	gh := h.reviewPullRequest(ctx, t, action, note)
+	h.recordAudit(ctx, store.AuditEvent{
+		Action:   AuditTaskReview,
+		WorkerID: t.WorkerID,
+		TaskID:   t.ID,
+		Message:  verb,
+		MetaJSON: auditMeta(map[string]any{"decision": decision}),
+	})
 
 	if decision == store.ReviewChangesRequested {
 		res.Delivered, res.FollowUpTaskID, res.FollowUpTaskSID, err = h.deliverChanges(ctx, svc, t, note)
+		var delMsg string
 		if err != nil {
 			h.logger.Warn("could not deliver requested changes", "task_id", t.ID, "err", err)
-			gh.Message = strings.TrimSpace(gh.Message + " The note did not reach the agent: " + err.Error())
+			delMsg = "The note did not reach the agent: " + err.Error()
 		}
+		res.Review, err = h.saveReview(ctx, t.ID, "", func(r *store.Review) {
+			r.FollowUpTaskID = res.FollowUpTaskID
+			if delMsg != "" {
+				r.DeliveryMessage = delMsg
+			}
+		})
+		return res, err
 	}
-	res.Review, err = h.saveReview(ctx, t.ID, "", func(r *store.Review) {
-		r.GitHubStatus, r.GitHubMessage, r.GitHubURL = gh.Status, gh.Message, gh.PRURL
-		r.FollowUpTaskID = res.FollowUpTaskID
-	})
-	return res, err
-}
 
-// reviewerLabel names who decided a review, for the comment Konsert posts on the user's
-// own PR: the signed-in device's name, else the acting user.
-func reviewerLabel(ctx context.Context) string {
-	if id := identityFrom(ctx); id.Device != nil && id.Device.Name != "" {
-		return id.Device.Name
-	}
-	c := causeFrom(ctx)
-	if c.Actor == store.ActorUser && c.ActorID != "" {
-		return c.ActorID
-	}
-	return ""
-}
-
-// reviewPullRequest runs the PR review with gh on the machine that owns the task's
-// checkout (git.pr.review).
-func (h *Hub) reviewPullRequest(ctx context.Context, t store.Task, action, note string) protocol.GitPRReviewResult {
-	dir := firstNonEmpty(t.EffectiveDir, t.Workdir)
-	if dir == "" || t.WorkerID == "" {
-		return protocol.GitPRReviewResult{Status: protocol.PRReviewNoGitHub, Message: "the task has no checkout"}
-	}
-	if !h.IsWorkerConnected(t.WorkerID) {
-		return protocol.GitPRReviewResult{Status: protocol.PRReviewOffline,
-			Message: h.workerLabel(ctx, t.WorkerID) + " is offline, so the review was not sent to GitHub"}
-	}
-	rctx, cancel := context.WithTimeout(ctx, prReviewTimeout)
-	defer cancel()
-	env, err := h.RequestWorker(rctx, t.WorkerID, protocol.MsgGitPRReview, protocol.GitPRReviewRequest{
-		Workdir: dir, Branch: t.Branch, Action: action, Body: note, By: reviewerLabel(ctx),
-	})
-	if err != nil {
-		return protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: "asking " + h.workerLabel(ctx, t.WorkerID) + " to run gh: " + err.Error()}
-	}
-	res, err := protocol.DecodePayload[protocol.GitPRReviewResult](env)
-	if err != nil || res.Status == "" {
-		return protocol.GitPRReviewResult{Status: protocol.PRReviewFailed, Message: "unexpected reply from the machine"}
-	}
-	return res
+	return h.deliverApproved(ctx, svc, t, cur)
 }
 
 // deliverChanges hands requested changes to the agent the way a human message reaches a

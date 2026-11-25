@@ -106,6 +106,7 @@ func NewServer(cfg config.ControllerConfig, st store.Store, logger *slog.Logger,
 	orch := orchestrator.NewService(cfg.Orchestrator, st, svc)
 	orch.SetMaxTokens(cfg.Orchestrator.MaxTokens)
 	hub.SetOrchestrator(orch)
+	hub.SetDeliveryService(svc)
 
 	s := &Server{
 		cfg:     cfg,
@@ -210,9 +211,11 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("DELETE /api/workspaces/{id}", s.requireBrowserAuth(s.byRef(ids.Workspace, s.handleDeleteWorkspace)))
 	s.mux.Handle("GET /api/projects", s.requireBrowserAuth(s.handleListProjects))
 	s.mux.Handle("POST /api/projects", s.requireBrowserAuth(s.handleCreateProject))
+	s.mux.Handle("PATCH /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProject)))
 	s.mux.Handle("DELETE /api/projects/{id}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProject)))
 	s.mux.Handle("GET /api/repos", s.requireBrowserAuth(s.handleListRepos))
 	s.mux.Handle("POST /api/repos", s.requireBrowserAuth(s.handleCreateRepo))
+	s.mux.Handle("PATCH /api/repos/{id}", s.requireBrowserAuth(s.byRef(ids.Repo, s.handleUpdateRepo)))
 	s.mux.Handle("DELETE /api/repos/{id}", s.requireBrowserAuth(s.byRef(ids.Repo, s.handleDeleteRepo)))
 	s.mux.Handle("GET /api/worktrees", s.requireBrowserAuth(s.handleListWorktrees))
 	s.mux.Handle("POST /api/worktrees", s.requireBrowserAuth(s.handleCreateWorktree))
@@ -232,6 +235,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskEvents)))
 	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskControl)))
 	s.mux.Handle("POST /api/tasks/{id}/review", s.requireBrowserAuth(s.byRef(ids.Task, s.handleReviewTask)))
+	s.mux.Handle("GET /api/tasks/{id}/delivery", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskDeliveryPlan)))
 	s.mux.Handle("GET /api/tasks/{id}/acceptance", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskAcceptance)))
 	s.mux.Handle("PUT /api/tasks/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Task, s.handleExpedite("task"))))
 	s.mux.Handle("PUT /api/chats/{id}/expedite", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleExpedite("chat"))))
@@ -738,6 +742,9 @@ type settingsResponse struct {
 	// DeviceIdleDays is how long a signed-in device may go unused before it must pair
 	// again (sliding expiry).
 	DeviceIdleDays int `json:"device_idle_days"`
+	// Global delivery defaults (KON-H50YW).
+	DefaultDeliveryMode string `json:"default_delivery_mode"`
+	DefaultMergeStyle   string `json:"default_merge_style"`
 	// OrchestratorBackend is "agent": the orchestrator is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -779,6 +786,8 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		NotifyDesktop:         notifyDesktop,
 		VetoAckMinutes:        int(s.hub.vetoAckTimeout(ctx).Minutes()),
 		DeviceIdleDays:        deviceIdleDays(saved),
+		DefaultDeliveryMode:   saved[deliveryModeSetting],
+		DefaultMergeStyle:     firstNonEmpty(saved[mergeStyleSetting], store.MergeStyleSquash),
 		OrchestratorBackend:   store.ChatBackendAgent,
 		OrchestratorChatID:    saved[orchestratorChatSetting],
 	}

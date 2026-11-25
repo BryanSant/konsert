@@ -8,8 +8,55 @@ const (
 	ReviewChangesRequested = "changes_requested"
 )
 
-// Review is the user's review decision on a finished task and the Expedite flag of a task
-// or chat: one per session (TaskID or ChatID), shared by every client.
+// Delivery modes (KON-H50YW): what Approve does with an agent's branch.
+// Empty string on a project/repo/global setting means "inherit / auto default".
+const (
+	DeliveryModeDirect     = "direct"
+	DeliveryModePRMerge    = "pr_merge"
+	DeliveryModePROpen     = "pr_open"
+	DeliveryModeKeepBranch = "keep_branch"
+)
+
+// Merge styles (KON-H50YW). Empty string means "inherit / default (squash)".
+const (
+	MergeStyleSquash = "squash"
+	MergeStyleMerge  = "merge"
+	MergeStyleRebase = "rebase"
+)
+
+// Delivery statuses (Review.DeliveryStatus).
+const (
+	DeliveryStatusDelivered = "delivered"  // merged (direct or PR) or keep_branch accepted
+	DeliveryStatusPROpen    = "pr_open"    // PR/MR is open (pre-approval in pr_merge, or delivered in pr_open)
+	DeliveryStatusAutoMerge = "auto_merge" // PR/MR has auto-merge enabled when checks pass
+	DeliveryStatusManual    = "manual"     // branch pushed; no forge credential, CompareURL shown
+	DeliveryStatusConflict  = "conflict"   // direct merge conflicted; sent back to the agent
+	DeliveryStatusClosed    = "closed"     // tracked PR/MR was closed without merging
+	DeliveryStatusFailed    = "failed"     // delivery failed; DeliveryMessage explains why
+	DeliveryStatusOffline   = "offline"    // owning machine was offline
+)
+
+// ValidDeliveryMode reports whether m is empty (inherit/auto) or a known delivery mode.
+func ValidDeliveryMode(m string) bool {
+	switch m {
+	case "", DeliveryModeDirect, DeliveryModePRMerge, DeliveryModePROpen, DeliveryModeKeepBranch:
+		return true
+	}
+	return false
+}
+
+// ValidMergeStyle reports whether s is empty (inherit/default) or a known merge style.
+func ValidMergeStyle(s string) bool {
+	switch s {
+	case "", MergeStyleSquash, MergeStyleMerge, MergeStyleRebase:
+		return true
+	}
+	return false
+}
+
+// Review is the user's review decision on finished work, its delivery outcome, PR/MR
+// tracking state, and the Expedite flag: one per session (TaskID or ChatID), shared by
+// every client.
 type Review struct {
 	ID     string `json:"id"`
 	SID    string `json:"sid"`
@@ -21,11 +68,20 @@ type Review struct {
 	Note      string     `json:"note,omitempty"`
 	DecidedBy string     `json:"decided_by,omitempty"`
 	DecidedAt *time.Time `json:"decided_at,omitzero"`
-	// GitHub* say what became of the decision on the task's pull request (gh):
-	// protocol.PRReview* status ("" = not tried), gh's message, the PR URL.
-	GitHubStatus  string `json:"github_status,omitempty"`
-	GitHubMessage string `json:"github_message,omitempty"`
-	GitHubURL     string `json:"github_url,omitempty"`
+	// Delivery outcome and PR/MR tracking (KON-H50YW).
+	DeliveryMode    string     `json:"delivery_mode,omitempty"`
+	DeliveryStatus  string     `json:"delivery_status,omitempty"`
+	DeliveryMessage string     `json:"delivery_message,omitempty"`
+	MergeMethod     string     `json:"merge_method,omitempty"`
+	MergeSHA        string     `json:"merge_sha,omitempty"`
+	PRNumber        int        `json:"pr_number,omitzero"`
+	PRURL           string     `json:"pr_url,omitempty"`
+	PRState         string     `json:"pr_state,omitempty"`
+	PRChecks        string     `json:"pr_checks,omitempty"`
+	PRAutoMerge     bool       `json:"pr_auto_merge,omitzero"`
+	CompareURL      string     `json:"compare_url,omitempty"`
+	PRRemoteURL     string     `json:"pr_remote_url,omitempty"`
+	PRLastCommentAt *time.Time `json:"pr_last_comment_at,omitzero"`
 	// FollowUpTaskID is the session that received requested changes.
 	FollowUpTaskID string     `json:"follow_up_task_id,omitempty"`
 	Expedite       bool       `json:"expedite"`

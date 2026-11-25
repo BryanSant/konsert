@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BryanSant/konsert/internal/forge"
 	"github.com/BryanSant/konsert/internal/mcprelay"
 	"github.com/BryanSant/konsert/internal/orchestrator"
 	"github.com/BryanSant/konsert/internal/protocol"
@@ -195,6 +196,13 @@ type Hub struct {
 	// restarts is the automatic restart state of hub-started daemons the hub cannot
 	// attach to (restart.go); the Server sets it, machine views show it.
 	restarts *restartTracker
+
+	// Delivery modes & forge integration (KON-H50YW). forge may be nil (no forge
+	// adapter available → PR modes push and show a compare URL).
+	forge             forge.Resolver
+	deliverySvc       *FleetService
+	DeliveryPollEvery time.Duration
+	deliveryNow       func() time.Time
 }
 
 // NewHub constructs a Hub backed by store.Store.
@@ -229,6 +237,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		retentionNow:        time.Now,
 		ShellPolicyEvery:    shellPolicyEvery,
 		shellNow:            time.Now,
+		DeliveryPollEvery:   deliveryPollEvery,
+		deliveryNow:         time.Now,
 	}
 	h.questions.init()
 	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
@@ -237,7 +247,36 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 	h.goBackground(h.retentionLoop)
 	// Shells left running by finished sessions: remind, ask or stop (shell_policy.go).
 	h.goBackground(h.shellPolicyLoop)
+	// Open PR/MR state tracking & review comment feedback (delivery_modes.go).
+	h.goBackground(h.deliveryPollLoop)
 	return h
+}
+
+// SetForge injects the forge resolver used by delivery modes (nil = no forge available).
+func (h *Hub) SetForge(r forge.Resolver) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.forge = r
+}
+
+func (h *Hub) forgeResolver() forge.Resolver {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.forge
+}
+
+// SetDeliveryService attaches the FleetService so background PR review-comment polling
+// can dispatch follow-up sessions when changes are requested on a PR/MR.
+func (h *Hub) SetDeliveryService(svc *FleetService) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.deliverySvc = svc
+}
+
+func (h *Hub) deliveryService() *FleetService {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.deliverySvc
 }
 
 // SetOrchestrator attaches the built-in Orchestrator Chat service to the Hub.

@@ -31,6 +31,9 @@ const (
 	AuditChatApprovalMode = "chat.approval_mode"
 	AuditChatAccount      = "chat.account"
 	AuditChatRespond      = "chat.respond"
+	// Review & delivery (KON-H50YW).
+	AuditTaskReview  = "task.review"
+	AuditTaskDeliver = "task.deliver"
 )
 
 // Audit sources: the path an action arrived through.

@@ -140,21 +140,25 @@ type Project struct {
 	IsDefault   bool   `json:"is_default"`
 	// Headline is the project's current goal as the orchestrator states it ("" = none;
 	// the UI falls back to facts). HeadlineAt is when it was set.
-	Headline   string     `json:"headline,omitempty"`
-	HeadlineAt *time.Time `json:"headline_at,omitzero"`
-	CreatedAt  time.Time  `json:"created_at"`
+	Headline     string     `json:"headline,omitempty"`
+	HeadlineAt   *time.Time `json:"headline_at,omitzero"`
+	DeliveryMode string     `json:"delivery_mode,omitempty"`
+	MergeStyle   string     `json:"merge_style,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
 }
 
 // Repo represents a repository or working folder on a specific machine belonging to a Project.
 type Repo struct {
-	ID        string    `json:"id"`
-	SID       string    `json:"sid"`
-	ProjectID string    `json:"project_id"`
-	WorkerID  string    `json:"worker_id"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	RemoteURL string    `json:"remote_url,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	SID          string    `json:"sid"`
+	ProjectID    string    `json:"project_id"`
+	WorkerID     string    `json:"worker_id"`
+	Name         string    `json:"name"`
+	Path         string    `json:"path"`
+	RemoteURL    string    `json:"remote_url,omitempty"`
+	DeliveryMode string    `json:"delivery_mode,omitempty"`
+	MergeStyle   string    `json:"merge_style,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Worktree represents a branch checkout or git worktree within a Repo.
@@ -531,11 +535,13 @@ type Store interface {
 	GetProject(ctx context.Context, id string) (Project, error)
 	// SetProjectHeadline sets (or, with "", clears) a project's headline.
 	SetProjectHeadline(ctx context.Context, id, headline string, at time.Time) error
+	UpdateProjectDelivery(ctx context.Context, id, deliveryMode, mergeStyle string) error
 	ListProjects(ctx context.Context, workspaceID string) ([]Project, error)
 	DeleteProject(ctx context.Context, id string) error
 
 	CreateRepo(ctx context.Context, r Repo) error
 	GetRepo(ctx context.Context, id string) (Repo, error)
+	UpdateRepoDelivery(ctx context.Context, id, deliveryMode, mergeStyle, remoteURL string) error
 	ListRepos(ctx context.Context, projectID, workerID string) ([]Repo, error)
 	DeleteRepo(ctx context.Context, id string) error
 
@@ -686,13 +692,16 @@ type Store interface {
 	AddQuestionReject(ctx context.Context, r QuestionReject) error
 	ListQuestionRejects(ctx context.Context, since time.Time) ([]QuestionReject, error)
 
-	// Reviews (KON-BM8JR): one per task or chat. GetReview takes a task id or a chat id
+	// Reviews (KON-H50YW): one per task or chat. GetReview takes a task id or a chat id
 	// (the other "") and is ErrNotFound when the session has none. SaveReview inserts or
 	// updates the session's review (id/sid assigned on insert, updated_at bumped).
 	GetReview(ctx context.Context, taskID, chatID string) (Review, error)
 	SaveReview(ctx context.Context, r Review) (Review, error)
 	// ListReviews returns every review, oldest first.
 	ListReviews(ctx context.Context) ([]Review, error)
+	// MarkReviewCommentSeen records a PR/MR review comment as processed for taskID.
+	// Returns true if it was not seen before, false if already recorded.
+	MarkReviewCommentSeen(ctx context.Context, taskID, commentID string, at time.Time) (bool, error)
 
 	// Devices (KON-W0P8B). CreateDevice assigns id/sid when empty. GetDeviceBySecretHash
 	// returns revoked and expired devices too: callers decide. ListDevices returns the

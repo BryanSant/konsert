@@ -488,11 +488,11 @@ describe('needs-you queue', () => {
       fleet.upsertTask(task('v', 'completed', { git_summary_json: changes, completed_at: new Date().toISOString() }));
       const work = TestBed.inject(WorkStore);
       expect(work.reviews().map((i) => i.id)).toEqual(['v']);
-      const decided = { id: 'rv2', sid: 'rv-2', task_id: 'v', decision: 'approved' as const, github_status: 'no_pr' as const, expedite: false, created_at: '', updated_at: new Date().toISOString() };
+      const decided = { id: 'rv2', sid: 'rv-2', task_id: 'v', decision: 'approved' as const, delivery_mode: 'keep_branch' as const, delivery_status: 'delivered' as const, expedite: false, created_at: '', updated_at: new Date().toISOString() };
       api['reviewTask'] = vi.fn(async () => ({ review: decided }));
       const res = await work.review('v', 'approved');
       expect(api['reviewTask']).toHaveBeenCalledWith('v', 'approved', undefined);
-      expect(res.review.github_status).toBe('no_pr');
+      expect(res.review.delivery_status).toBe('delivered');
       expect(work.reviews()).toEqual([]);
       expect(work.byId()['v'].column).toBe('done');
       expect(localStorage.length).toBe(0);
