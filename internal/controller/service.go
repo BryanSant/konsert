@@ -72,6 +72,9 @@ type WorkerStatusView struct {
 	// DefaultShell is the operator's preferred terminal shell ID for this machine
 	// ("" = worker default).
 	DefaultShell string `json:"default_shell,omitempty"`
+	// AgentsUseGitBash, on Windows machines with Git Bash installed, configures
+	// supported agent drivers to use Git Bash for their shell tool (default true).
+	AgentsUseGitBash bool `json:"agents_use_git_bash"`
 	// Spool is the machine's outbound spool as it last reported it (size, oldest unsent
 	// record, replay progress, full); nil before its first report.
 	Spool *protocol.SpoolStatus `json:"spool,omitzero"`
@@ -84,32 +87,33 @@ type WorkerStatusView struct {
 // active-task count and latest metrics. Facts are decoded from the cached JSON.
 func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
 	return WorkerStatusView{
-		ID:             w.ID,
-		SID:            w.SID,
-		Name:           w.Name,
-		HostGroup:      w.HostGroup,
-		OS:             w.OS,
-		Arch:           w.Arch,
-		Isolation:      w.Isolation,
-		PermissionMode: string(w.PermissionMode),
-		Agents:         w.Agents,
-		Tags:           w.Tags,
-		MaxConcurrent:  w.MaxConcurrent,
-		Status:         w.Status,
-		ActiveTasks:    active,
-		LastSeenAt:     w.LastSeenAt,
-		Metrics:        metrics,
-		Facts:          decodeWorkerFacts(w.FactsJSON),
-		Version:        w.Version,
-		Launch:         w.Launch,
-		Transport:      transportFor(w.Launch),
-		SSHTarget:      w.SSHTarget,
-		LaunchState:    w.LaunchState,
-		LaunchError:    w.LaunchError,
-		LaunchAt:       w.LaunchAt,
-		Drained:        w.Drained,
-		DrainedAt:      w.DrainedAt,
-		DefaultShell:   w.DefaultShell,
+		ID:               w.ID,
+		SID:              w.SID,
+		Name:             w.Name,
+		HostGroup:        w.HostGroup,
+		OS:               w.OS,
+		Arch:             w.Arch,
+		Isolation:        w.Isolation,
+		PermissionMode:   string(w.PermissionMode),
+		Agents:           w.Agents,
+		Tags:             w.Tags,
+		MaxConcurrent:    w.MaxConcurrent,
+		Status:           w.Status,
+		ActiveTasks:      active,
+		LastSeenAt:       w.LastSeenAt,
+		Metrics:          metrics,
+		Facts:            decodeWorkerFacts(w.FactsJSON),
+		Version:          w.Version,
+		Launch:           w.Launch,
+		Transport:        transportFor(w.Launch),
+		SSHTarget:        w.SSHTarget,
+		LaunchState:      w.LaunchState,
+		LaunchError:      w.LaunchError,
+		LaunchAt:         w.LaunchAt,
+		Drained:          w.Drained,
+		DrainedAt:        w.DrainedAt,
+		DefaultShell:     w.DefaultShell,
+		AgentsUseGitBash: w.AgentsUseGitBash,
 	}
 }
 
@@ -656,6 +660,10 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	if shell == "" && ok && (req.Agent == "shell" || sessionKind == "terminal") {
 		shell = selected.DefaultShell
 	}
+	useGitBash := false
+	if ok && req.Agent != "shell" && sessionKind != "terminal" {
+		useGitBash = selected.AgentsUseGitBash
+	}
 
 	startPayload := protocol.TaskStartPayload{
 		TaskID:         taskID,
@@ -674,6 +682,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		ApprovalMode:   strings.TrimSpace(req.ApprovalMode),
 		Effort:         strings.TrimSpace(req.Effort),
 		Shell:          shell,
+		UseGitBash:     useGitBash,
 	}
 
 	// Persist the selector and full start payload so a queued (or later requeued)

@@ -798,6 +798,9 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 		AgentSessionID: cs.AgentSessionID,
 		SystemPrompt:   commander.AgentSystemPrompt(cs.FleetTools),
 	}
+	if w, err := h.store.GetWorker(ctx, cs.WorkerID); err == nil {
+		open.UseGitBash = w.AgentsUseGitBash
+	}
 	if cs.QuestionID != "" {
 		// A side-conversation answerer: no Syre tools (it must not ask the user or act
 		// on the fleet), its own read-only instructions, and — for a fork — the asking

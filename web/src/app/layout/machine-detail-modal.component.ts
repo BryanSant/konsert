@@ -346,6 +346,25 @@ import { MachineCredentialComponent } from './machine-credential.component';
               }
             </select>
           </div>
+          @if (hasGitBash()) {
+            <div class="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.06]">
+              <div>
+                <label for="machine-agents-use-git-bash" class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94] block">
+                  Agents use Git Bash
+                </label>
+                <span class="text-[11px] text-[#86888f]">Point supported Windows agent CLIs (Claude, Grok) at Git Bash instead of PowerShell.</span>
+              </div>
+              <input
+                id="machine-agents-use-git-bash"
+                type="checkbox"
+                data-testid="machine-agents-use-git-bash"
+                class="h-4 w-4 rounded accent-[var(--sy-accent)] cursor-pointer disabled:opacity-50"
+                [disabled]="savingGitBash()"
+                [checked]="agentsUseGitBash()"
+                (change)="onAgentsUseGitBashChange($any($event.target).checked)"
+              />
+            </div>
+          }
           @if (shellError()) {
             <div role="alert" class="text-[11px] text-[#fca5a5]">{{ shellError() }}</div>
           }
@@ -459,9 +478,14 @@ export class MachineDetailModalComponent {
   readonly removeError = signal('');
   readonly copiedId = signal(false);
   readonly savingShell = signal(false);
+  readonly savingGitBash = signal(false);
   readonly shellError = signal('');
 
   readonly availableShells = computed(() => this.worker().facts?.shells ?? []);
+  readonly hasGitBash = computed(
+    () => this.worker().os === 'windows' && this.availableShells().some((s) => s.id === 'git-bash'),
+  );
+  readonly agentsUseGitBash = computed(() => this.worker().agents_use_git_bash ?? true);
 
   /** Listening ports, asked of the machine when Details opens and every 5 minutes after (null until known). */
   readonly ports = signal<ListeningPort[] | null>(null);
@@ -591,6 +615,22 @@ export class MachineDetailModalComponent {
       this.shellError.set(err instanceof Error ? err.message : 'Failed to update default shell');
     } finally {
       this.savingShell.set(false);
+    }
+  }
+
+  async onAgentsUseGitBashChange(enabled: boolean): Promise<void> {
+    const w = this.worker();
+    this.savingGitBash.set(true);
+    this.shellError.set('');
+    try {
+      const res = await this.api.setWorkerAgentsUseGitBash(w.id, enabled);
+      if (res.worker) {
+        this.fleet.upsertWorker(res.worker);
+      }
+    } catch (err) {
+      this.shellError.set(err instanceof Error ? err.message : 'Failed to update Git Bash setting');
+    } finally {
+      this.savingGitBash.set(false);
     }
   }
 

@@ -401,6 +401,9 @@ type TaskStartPayload struct {
 	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
 	// "zsh", "bash", "fish") for shell tasks; "" = worker default.
 	Shell string `json:"shell,omitempty"`
+	// UseGitBash asks Windows agent drivers to configure their shell tool to use
+	// Git Bash when Git Bash is installed on the worker.
+	UseGitBash bool `json:"use_git_bash,omitzero"`
 }
 
 type TaskCancelPayload struct {

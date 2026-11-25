@@ -64,6 +64,10 @@ func (d *ClaudeDriver) Detect() (string, bool) {
 }
 
 func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	return d.buildCommand(defaultShellLookup(), opts)
+}
+
+func (d *ClaudeDriver) buildCommand(l shellLookup, opts LaunchOptions) LaunchSpec {
 	bin, ok := d.Detect()
 	if !ok {
 		bin = "claude"
@@ -90,10 +94,11 @@ func (d *ClaudeDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	} else {
 		args = append(args, "-p", "--", opts.Prompt)
 	}
+	env := applyEnvMap(opts.Env, gitBashAgentEnv(l, "claude", opts.UseGitBash))
 	return LaunchSpec{
 		Binary: bin,
 		Args:   args,
-		Env:    opts.Env,
+		Env:    env,
 	}
 }
 

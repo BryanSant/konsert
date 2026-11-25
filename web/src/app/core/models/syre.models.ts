@@ -124,6 +124,8 @@ export interface Worker {
   drained_at?: string;
   /** Operator's preferred default terminal shell ID for this machine ('' = automatic). */
   default_shell?: string;
+  /** Windows: configure supported agent CLIs to use Git Bash for their shell tool (default true). */
+  agents_use_git_bash?: boolean;
   /** Smoothed load score; absent while offline or before the first heartbeat. */
   heat?: WorkerHeat;
   /** The machine's outbound spool as it last reported it; absent before the first report. */

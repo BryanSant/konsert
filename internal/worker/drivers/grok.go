@@ -51,6 +51,10 @@ func (d *GrokDriver) Detect() (string, bool) {
 }
 
 func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
+	return d.buildCommand(defaultShellLookup(), opts)
+}
+
+func (d *GrokDriver) buildCommand(l shellLookup, opts LaunchOptions) LaunchSpec {
 	bin, ok := d.Detect()
 	if !ok {
 		bin = "grok"
@@ -90,10 +94,11 @@ func (d *GrokDriver) BuildCommand(opts LaunchOptions) LaunchSpec {
 	} else {
 		args = append(args, "--single="+opts.Prompt)
 	}
+	env := applyEnvMap(opts.Env, gitBashAgentEnv(l, "grok", opts.UseGitBash))
 	return LaunchSpec{
 		Binary: bin,
 		Args:   args,
-		Env:    opts.Env,
+		Env:    env,
 	}
 }
 

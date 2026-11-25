@@ -43,7 +43,9 @@ CREATE TABLE workers (
     drained          INTEGER NOT NULL DEFAULT 0,
     drained_at       TEXT,
     -- Per-machine default terminal shell ID ('' = worker default).
-    default_shell    TEXT NOT NULL DEFAULT ''
+    default_shell       TEXT NOT NULL DEFAULT '',
+    -- Windows: configure agent CLI shell tools to use Git Bash when available (1 = on).
+    agents_use_git_bash INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE workspaces (

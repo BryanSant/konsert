@@ -541,7 +541,7 @@ func (m *Manager) Chats() []ChatInfo {
 func (m *Manager) doOpen(c *chatState, o protocol.AgentChatOpen) {
 	c.mu.Lock()
 	alive := c.sess != nil
-	sameTarget := c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID && c.opts.Cwd == o.Cwd
+	sameTarget := c.opts.Agent == o.Agent && c.opts.AccountID == o.AccountID && c.opts.Cwd == o.Cwd && c.opts.UseGitBash == o.UseGitBash
 	c.mu.Unlock()
 	if alive && sameTarget {
 		// Re-attach: apply changed settings live and report the session as ready.

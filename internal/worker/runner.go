@@ -418,6 +418,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		ApprovalMode:     req.ApprovalMode,
 		Effort:           req.Effort,
 		Shell:            req.Shell,
+		UseGitBash:       req.UseGitBash,
 		ShellIntegration: integ,
 	})
 
