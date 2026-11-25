@@ -180,6 +180,32 @@ func DecodePayload[T any](env Envelope) (T, error) {
 	return out, nil
 }
 
+// TerminalShell describes one terminal shell available on a worker machine.
+type TerminalShell struct {
+	ID    string `json:"id"`             // "git-bash" | "pwsh" | "powershell" | "zsh" | "bash" | "fish"
+	Label string `json:"label"`          // "Git Bash" | "PowerShell 7" | "PowerShell 5.1" | "zsh" | "bash" | "fish"
+	Path  string `json:"path,omitempty"` // resolved executable path on the worker
+}
+
+// Known terminal shell IDs.
+const (
+	ShellGitBash    = "git-bash"
+	ShellPwsh       = "pwsh"
+	ShellPowerShell = "powershell"
+	ShellZsh        = "zsh"
+	ShellBash       = "bash"
+	ShellFish       = "fish"
+)
+
+// ValidTerminalShellID reports whether id is a known terminal shell identifier.
+func ValidTerminalShellID(id string) bool {
+	switch id {
+	case ShellGitBash, ShellPwsh, ShellPowerShell, ShellZsh, ShellBash, ShellFish:
+		return true
+	}
+	return false
+}
+
 // MachineFacts captures cached OS, hardware, virtualization, filesystem, and safe tool/auth readiness facts.
 type MachineFacts struct {
 	OSName         string            `json:"os_name,omitempty"`
@@ -201,6 +227,8 @@ type MachineFacts struct {
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm" | "unknown"
 	Tools          map[string]string `json:"tools,omitempty"`
 	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
+	// Shells lists the supported terminal shells detected on this machine.
+	Shells []TerminalShell `json:"shells,omitempty"`
 	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
 	// only runs while the user is signed in); "" elsewhere or when unknown.
@@ -370,6 +398,9 @@ type TaskStartPayload struct {
 	ApprovalMode string `json:"approval_mode,omitempty"`
 	// Effort is an AgentEffort.ID of the model.
 	Effort string `json:"effort,omitempty"`
+	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
+	// "zsh", "bash", "fish") for shell tasks; "" = worker default.
+	Shell string `json:"shell,omitempty"`
 }
 
 type TaskCancelPayload struct {

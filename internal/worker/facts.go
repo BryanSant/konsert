@@ -37,6 +37,7 @@ func CollectMachineFacts(parentCtx context.Context) protocol.MachineFacts {
 	collectPlatformFacts(ctx, &f)
 	collectStartMode(&f)
 	f.Virtualization = classifyVirtualization(&f)
+	f.Shells = drivers.DetectShells()
 	collectToolAndAuthCapabilities(ctx, &f)
 	return f
 }

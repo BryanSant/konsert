@@ -58,6 +58,10 @@ type Worker struct {
 	// Drained machines finish their current work and receive nothing new (persisted).
 	Drained   bool       `json:"drained"`
 	DrainedAt *time.Time `json:"drained_at,omitzero"`
+
+	// DefaultShell is the operator's preferred terminal shell ID for this machine
+	// (e.g. "git-bash", "pwsh", "powershell", "zsh", "bash", "fish"); "" = worker default.
+	DefaultShell string `json:"default_shell,omitempty"`
 }
 
 // MachineCredential is one syred credential (SYR-RK9YD). The secret itself is never
@@ -641,6 +645,7 @@ type Store interface {
 
 	// Human control: drain, fleet timeline, holds and open requests.
 	SetWorkerDrained(ctx context.Context, id string, drained bool, at time.Time) error
+	SetWorkerDefaultShell(ctx context.Context, id, shell string) error
 	AppendFleetEvent(ctx context.Context, e FleetEvent) (int64, error)
 	ListFleetEvents(ctx context.Context, f FleetEventFilter) ([]FleetEvent, error)
 	MaxFleetEventID(ctx context.Context) (int64, error)

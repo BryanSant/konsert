@@ -55,7 +55,13 @@ if [[ $- == *i* && -n ${SYRE_SHELL_NONCE-} && -z ${__syre_installed-} ]]; then
 			builtin printf '\e]133;D;%s\a' "$ec"
 			__syre_running=
 		fi
-		__syre_esc "$PWD"
+		local cwd=$PWD
+		# Git Bash / MSYS2: /c/... is translated by the worker; other mounts (/, /tmp,
+		# /usr) only cygpath can map, so fork it just for those.
+		if [[ -n $MSYSTEM && ! $cwd =~ ^/[a-zA-Z](/|$) ]] && builtin type -P cygpath >/dev/null; then
+			cwd=$(cygpath -w "$cwd" 2>/dev/null) || cwd=$PWD
+		fi
+		__syre_esc "$cwd"
 		builtin printf '\e]633;P;Cwd=%s;%s\a\e]133;A\a' "$__syre_reply" "$__syre_nonce"
 		return $ec
 	}

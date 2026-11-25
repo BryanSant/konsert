@@ -159,6 +159,13 @@ func (in Integration) Command(bin, prompt string) (args, env []string, ok bool) 
 	case "bash":
 		rc := filepath.Join(in.Dir, "syre.bash")
 		env = append(env, loginEnv+"=1")
+		// On Windows (Git Bash / MSYS2), /etc/profile cd's to $HOME unless
+		// CHERE_INVOKING is set, and forward slashes avoid backslash quoting issues.
+		if isWindowsBinary(bin) {
+			env = append(env, "CHERE_INVOKING=1")
+			rc = strings.ReplaceAll(rc, `\`, "/")
+			bin = strings.ReplaceAll(bin, `\`, "/")
+		}
 		if hasPrompt {
 			return []string{"-l", "-c", prompt + "\nexec " + shQuote(bin) + " --init-file " + shQuote(rc) + " -i"}, env, true
 		}
@@ -173,6 +180,12 @@ func (in Integration) Command(bin, prompt string) (args, env []string, ok bool) 
 		return []string{"-NoLogo", "-NoExit", "-Command", cmd}, env, true
 	}
 	return nil, nil, false
+}
+
+func isWindowsBinary(bin string) bool {
+	return strings.HasSuffix(strings.ToLower(bin), ".exe") ||
+		strings.Contains(bin, `\`) ||
+		(len(bin) >= 2 && bin[1] == ':')
 }
 
 func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

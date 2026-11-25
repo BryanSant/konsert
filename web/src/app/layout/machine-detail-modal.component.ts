@@ -322,6 +322,36 @@ import { MachineCredentialComponent } from './machine-credential.component';
         </div>
       }
 
+      <!-- Terminal Shell Default -->
+      @if (availableShells().length > 0) {
+        <div class="rounded-lg bg-[#141518] px-3 py-2.5 text-[11.5px] space-y-1.5" data-testid="machine-shell-section">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label for="machine-default-shell" class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94] block">
+                Default Terminal Shell
+              </label>
+              <span class="text-[11px] text-[#86888f]">Used when opening a new terminal on this machine.</span>
+            </div>
+            <select
+              id="machine-default-shell"
+              data-testid="machine-default-shell"
+              class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-2.5 py-1.5 text-[12px] text-[var(--sy-text)] focus:outline-none focus-visible:shadow-[var(--sy-focus-ring)] disabled:opacity-50"
+              [disabled]="savingShell()"
+              [value]="worker().default_shell || ''"
+              (change)="onDefaultShellChange($any($event.target).value)"
+            >
+              <option value="" [selected]="!(worker().default_shell || '')">Automatic</option>
+              @for (sh of availableShells(); track sh.id) {
+                <option [value]="sh.id" [selected]="sh.id === (worker().default_shell || '')">{{ sh.label }}</option>
+              }
+            </select>
+          </div>
+          @if (shellError()) {
+            <div role="alert" class="text-[11px] text-[#fca5a5]">{{ shellError() }}</div>
+          }
+        </div>
+      }
+
       <!-- Installed Agents -->
       <div class="space-y-1.5">
         <div class="text-[10.5px] font-semibold uppercase tracking-wider text-[#8a8c94]">Installed Agents</div>
@@ -428,6 +458,10 @@ export class MachineDetailModalComponent {
   readonly removing = signal(false);
   readonly removeError = signal('');
   readonly copiedId = signal(false);
+  readonly savingShell = signal(false);
+  readonly shellError = signal('');
+
+  readonly availableShells = computed(() => this.worker().facts?.shells ?? []);
 
   /** Listening ports, asked of the machine when Details opens and every 5 minutes after (null until known). */
   readonly ports = signal<ListeningPort[] | null>(null);
@@ -541,6 +575,22 @@ export class MachineDetailModalComponent {
       setTimeout(() => this.copiedId.set(false), 1600);
     } catch {
       // ignore
+    }
+  }
+
+  async onDefaultShellChange(shellId: string): Promise<void> {
+    const w = this.worker();
+    this.savingShell.set(true);
+    this.shellError.set('');
+    try {
+      const res = await this.api.setWorkerDefaultShell(w.id, shellId);
+      if (res.worker) {
+        this.fleet.upsertWorker(res.worker);
+      }
+    } catch (err) {
+      this.shellError.set(err instanceof Error ? err.message : 'Failed to update default shell');
+    } finally {
+      this.savingShell.set(false);
     }
   }
 

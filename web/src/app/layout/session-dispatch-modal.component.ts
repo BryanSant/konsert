@@ -113,9 +113,28 @@ export interface SessionDispatchRequest {
           </div>
         }
       } @else {
-        <div class="space-y-1.5">
-          <div class="text-[11.5px] text-[var(--sy-text-muted)] px-1">Where to open the shell</div>
-          <sy-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
+        <div class="space-y-3">
+          <div class="space-y-1.5">
+            <div class="text-[11.5px] text-[var(--sy-text-muted)] px-1">Where to open the shell</div>
+            <sy-context-bar [workerId]="selection().workerId" [cwd]="selection().cwd" [branch]="selection().branch" (changed)="onContext($event)" />
+          </div>
+          @if (availableShells().length > 0) {
+            <div>
+              <label for="session-dispatch-shell" class="block text-[11.5px] text-[var(--sy-text-muted)] mb-1.5">Shell</label>
+              <select
+                id="session-dispatch-shell"
+                data-testid="dispatch-shell"
+                class="w-full rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-0)] px-3 py-2 text-[12.5px] text-[var(--sy-text)] focus:outline-none focus-visible:shadow-[var(--sy-focus-ring)]"
+                [value]="selectedShell()"
+                (change)="selectedShell.set($any($event.target).value)"
+              >
+                <option value="" [selected]="selectedShell() === ''">{{ defaultShellOptionLabel() }}</option>
+                @for (sh of availableShells(); track sh.id) {
+                  <option [value]="sh.id" [selected]="sh.id === selectedShell()">{{ sh.label }}</option>
+                }
+              </select>
+            </div>
+          }
         </div>
       }
 
@@ -172,6 +191,7 @@ export class SessionDispatchModalComponent implements OnInit {
   readonly newBranch = signal('');
   readonly sandboxed = signal(false);
   readonly fallbackAgent = signal('claude');
+  readonly selectedShell = signal('');
   readonly submitting = signal(false);
   readonly error = signal('');
 
@@ -185,6 +205,14 @@ export class SessionDispatchModalComponent implements OnInit {
   readonly accounts = computed(() => this.agentAccounts.accountsFor(this.selection().workerId));
   readonly account = computed<AgentAccount | null>(() => this.accounts().find((a) => a.id === this.selection().accountId) ?? null);
   readonly machineName = computed(() => this.fleet.workersById()[this.selection().workerId]?.name || 'This machine');
+  readonly availableShells = computed(() => this.fleet.workersById()[this.selection().workerId]?.facts?.shells ?? []);
+  readonly defaultShellOptionLabel = computed(() => {
+    const w = this.fleet.workersById()[this.selection().workerId];
+    const defId = w?.default_shell;
+    if (!defId) return 'Machine default';
+    const match = (w?.facts?.shells ?? []).find((s) => s.id === defId);
+    return `Machine default (${match?.label || defId})`;
+  });
 
   readonly fallbackAgents = computed(() => {
     const w = this.fleet.workersById()[this.selection().workerId];
@@ -237,7 +265,8 @@ export class SessionDispatchModalComponent implements OnInit {
   onSelection(next: ComposerSelection): void {
     const prev = this.selection();
     if (next.workerId !== prev.workerId) {
-      // Another machine: its own accounts (keep the agent if it has it there).
+      // Another machine: its own accounts (keep the agent if it has it there) and shells.
+      this.selectedShell.set('');
       const account = this.account();
       if (account) this.preferredAgent = account.agent;
       this.selection.set(this.seed({ ...next, accountId: '' }, this.agentAccounts.accountsFor(next.workerId)));
@@ -302,6 +331,7 @@ export class SessionDispatchModalComponent implements OnInit {
         model: (account && sel.model) || undefined,
         effort: (account && sel.effort) || undefined,
         approval_mode: (account && sel.approvalMode) || undefined,
+        shell: !isChat && this.selectedShell() ? this.selectedShell() : undefined,
         repo_path: sel.cwd.trim() || '~',
         branch: branch || undefined,
         use_worktree: !!branch,

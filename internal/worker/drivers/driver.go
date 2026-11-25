@@ -64,6 +64,9 @@ type LaunchOptions struct {
 	ApprovalMode string
 	// Effort is the model's reasoning effort ID, mapped to the CLI's effort flag.
 	Effort string
+	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
+	// "zsh", "bash", "fish") for the shell driver; "" = worker default.
+	Shell string
 	// ShellIntegration, when set, asks the shell driver to start an interactive shell
 	// with Syre's shell integration (command and exit-status marks).
 	ShellIntegration *shellint.Integration

@@ -44,6 +44,12 @@ export interface WorkerPorts {
   fresh: boolean;
 }
 
+export interface TerminalShell {
+  id: string;
+  label: string;
+  path?: string;
+}
+
 export interface MachineFacts {
   os_name?: string;
   os_version?: string;
@@ -64,6 +70,8 @@ export interface MachineFacts {
   virtualization?: string;
   tools?: Record<string, string>;
   auth_ready?: Record<string, boolean>;
+  /** Supported terminal shells detected on this machine. */
+  shells?: TerminalShell[];
   /**
    * Windows: how syred was started. 'background_task' (an S4U task: starts at boot,
    * runs whether or not anyone is signed in), 'service', or 'user_session' (a logon task:
@@ -114,6 +122,8 @@ export interface Worker {
   /** Drained: the machine accepts no new work and finishes what it runs. */
   drained?: boolean;
   drained_at?: string;
+  /** Operator's preferred default terminal shell ID for this machine ('' = automatic). */
+  default_shell?: string;
   /** Smoothed load score; absent while offline or before the first heartbeat. */
   heat?: WorkerHeat;
   /** The machine's outbound spool as it last reported it; absent before the first report. */
@@ -691,6 +701,8 @@ export interface DispatchTaskRequest {
   effort?: string;
   /** The agent's approval mode id (AgentApprovalMode.id); empty = the account default. */
   approval_mode?: string;
+  /** Terminal shell ID (e.g. 'git-bash', 'pwsh', 'powershell', 'zsh', 'bash', 'fish'); empty = machine default. */
+  shell?: string;
   repo_path?: string;
   branch?: string;
   use_worktree?: boolean;

@@ -47,6 +47,14 @@ func TestIntegrationCommand(t *testing.T) {
 		t.Fatalf("bash with prompt: %q", args)
 	}
 
+	// Windows Git Bash: CHERE_INVOKING=1 preserves workdir and forward slashes avoid quoting bugs.
+	winIn := Integration{Dir: `C:\Users\alice\shell-integration\abc`, Nonce: "n"}
+	args, env, ok = winIn.Command(`C:\Program Files\Git\bin\bash.exe`, "")
+	if !ok || len(args) != 3 || args[0] != "--init-file" || !strings.HasSuffix(args[1], "/syre.bash") || strings.Contains(args[1], `\`) || args[2] != "-i" ||
+		!hasEnv(env, "CHERE_INVOKING=1") || !hasEnv(env, loginEnv+"=1") {
+		t.Fatalf("git-bash: %v %v %v", args, env, ok)
+	}
+
 	args, _, ok = in.Command(`C:\Program Files\PowerShell\7\pwsh.exe`, "codex login")
 	if !ok || args[0] != "-NoLogo" || args[1] != "-NoExit" || args[2] != "-Command" ||
 		!strings.Contains(args[3], "ReadAllText(") || !strings.HasSuffix(args[3], "\ncodex login") {

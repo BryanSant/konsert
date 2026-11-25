@@ -164,6 +164,53 @@ describe('SessionDispatchModalComponent (shared composer)', () => {
     expect(req).toMatchObject({ session_kind: 'terminal', agent: 'shell', prompt: '', repo_path: '~' });
     expect(req.account_id).toBeUndefined();
     expect(req.approval_mode).toBeUndefined();
+    expect(req.shell).toBeUndefined();
+  });
+
+  it('offers a terminal shell picker when the machine reports available shells', async () => {
+    const fleet = TestBed.inject(FleetStore);
+    const winWorker: Worker = {
+      ...worker('w-win', 'winbox'),
+      os: 'windows',
+      default_shell: 'git-bash',
+      facts: {
+        cpu_cores: 8,
+        ram_total_mb: 16384,
+        swap_total_mb: 0,
+        swap_used_mb: 0,
+        disk_total_gb: 500,
+        disk_free_gb: 200,
+        tmp_is_tmpfs: false,
+        is_wsl: false,
+        is_container: false,
+        is_mac_container: false,
+        is_vm: false,
+        shells: [
+          { id: 'git-bash', label: 'Git Bash', path: 'C:\\Program Files\\Git\\bin\\bash.exe' },
+          { id: 'pwsh', label: 'PowerShell 7', path: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' },
+          { id: 'powershell', label: 'PowerShell 5.1', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+        ],
+      },
+    };
+    fleet.upsertWorker(winWorker);
+
+    const { $, render } = await setup({ kind: 'terminal', worker: winWorker });
+    const select = $<HTMLSelectElement>('[data-testid="dispatch-shell"]');
+    expect(select).toBeTruthy();
+    expect(select.options[0].textContent?.trim()).toBe('Machine default (Git Bash)');
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'git-bash', 'pwsh', 'powershell']);
+
+    select.value = 'pwsh';
+    select.dispatchEvent(new Event('change'));
+    await render();
+    $<HTMLButtonElement>('[data-testid="dispatch-submit"]').click();
+    await render();
+    expect(createSession.mock.calls[0][0]).toMatchObject({
+      session_kind: 'terminal',
+      agent: 'shell',
+      shell: 'pwsh',
+      worker_selector: { worker_id: 'w-win' },
+    });
   });
 
   it('falls back to an agent select on machines without reported accounts', async () => {

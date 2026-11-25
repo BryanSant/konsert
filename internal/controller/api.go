@@ -183,6 +183,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDeleteWorker)))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
 	s.mux.Handle("GET /api/workers/{id}/ports", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerPorts)))
+	s.mux.Handle("PUT /api/workers/{id}/default-shell", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerDefaultShell)))
 	s.mux.Handle("POST /api/workers/local", s.requireBrowserAuth(s.handleAddLocalWorker))
 	s.mux.Handle("POST /api/workers/{id}/start", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStartWorker)))
 
@@ -513,6 +514,40 @@ func (s *Server) handleDeleteSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.broadcastFleetUpdate("space_deleted", id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+func (s *Server) handleSetWorkerDefaultShell(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		DefaultShell string `json:"default_shell"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	shell := strings.TrimSpace(body.DefaultShell)
+	if shell != "" && !protocol.ValidTerminalShellID(shell) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown terminal shell: " + shell})
+		return
+	}
+	if err := s.store.SetWorkerDefaultShell(r.Context(), id, shell); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	wk, err := s.store.GetWorker(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	view := toWorkerView(wk, s.hub.ActiveTaskCounts()[wk.ID], s.hub.WorkerMetrics(wk.ID))
+	if view.Status == "online" && !s.hub.IsWorkerConnected(wk.ID) {
+		view.Status = "offline"
+	}
+	s.hub.broadcastFleetUpdate("worker", view)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "default_shell": shell, "worker": view})
 }
 
 func (s *Server) handleDeleteWorker(w http.ResponseWriter, r *http.Request) {

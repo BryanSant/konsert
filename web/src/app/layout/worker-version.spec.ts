@@ -51,7 +51,16 @@ describe('worker version UI', () => {
       providers: [
         {
           provide: ApiClientService,
-          useValue: { setUnauthorizedHandler: vi.fn(), deleteWorker: vi.fn(), getHeatHistory: vi.fn(async () => { throw new Error('none'); }) },
+          useValue: {
+            setUnauthorizedHandler: vi.fn(),
+            deleteWorker: vi.fn(),
+            getHeatHistory: vi.fn(async () => { throw new Error('none'); }),
+            setWorkerDefaultShell: vi.fn(async (_id: string, default_shell: string) => ({
+              ok: true,
+              default_shell,
+              worker: { ...worker('win', '1.5.0'), default_shell },
+            })),
+          },
         },
         provideRouter([]),
       ],
@@ -132,6 +141,40 @@ describe('worker version UI', () => {
       root = render('1.5.0', worker('y', 'dev'));
       expect(root.querySelector('[data-testid="worker-version"]')?.textContent).toContain('dev');
       expect(root.querySelector('[data-testid="worker-version-mismatch"]')).toBeNull();
+    });
+
+    it('lets the operator set the per-machine default terminal shell', async () => {
+      const w: Worker = {
+        ...worker('win', '1.5.0'),
+        os: 'windows',
+        default_shell: '',
+        facts: {
+          cpu_cores: 8,
+          ram_total_mb: 16384,
+          swap_total_mb: 0,
+          swap_used_mb: 0,
+          disk_total_gb: 500,
+          disk_free_gb: 200,
+          tmp_is_tmpfs: false,
+          is_wsl: false,
+          is_container: false,
+          is_mac_container: false,
+          is_vm: false,
+          shells: [
+            { id: 'git-bash', label: 'Git Bash' },
+            { id: 'pwsh', label: 'PowerShell 7' },
+          ],
+        },
+      };
+      const api = TestBed.inject(ApiClientService) as unknown as { setWorkerDefaultShell: ReturnType<typeof vi.fn> };
+      const root = render('1.5.0', w);
+      const select = root.querySelector('[data-testid="machine-default-shell"]') as HTMLSelectElement;
+      expect(select).toBeTruthy();
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'git-bash', 'pwsh']);
+      select.value = 'git-bash';
+      select.dispatchEvent(new Event('change'));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(api.setWorkerDefaultShell).toHaveBeenCalledWith('win', 'git-bash');
     });
   });
 });

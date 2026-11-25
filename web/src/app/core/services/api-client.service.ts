@@ -31,6 +31,7 @@ import {
   TaskEvent,
   TaxonomySnapshot,
   WakeLockStatus,
+  Worker,
   Workspace,
   Worktree,
 } from '../models/syre.models';
@@ -836,6 +837,14 @@ export class ApiClientService {
     return this.request('/api/sessions', {
       method: 'POST',
       body: JSON.stringify(req),
+    });
+  }
+
+  /** Sets (or clears with '') a machine's default terminal shell. */
+  setWorkerDefaultShell(workerId: string, defaultShell: string): Promise<{ ok: boolean; default_shell: string; worker: Worker }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/default-shell`, {
+      method: 'PUT',
+      body: JSON.stringify({ default_shell: defaultShell }),
     });
   }
 
