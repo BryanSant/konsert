@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FleetStore } from '../core/state/fleet.store';
-import { QuestionsStore } from '../core/state/questions.store';
+import { NeedsYouStore } from '../core/state/needs-you.store';
 import { WorkStore } from '../core/state/work.store';
 import { IconComponent } from '../shared/icon.component';
 import { ModalDialogComponent } from '../shared/modal-dialog.component';
@@ -86,7 +86,7 @@ export class ModePaletteComponent {
   private readonly ui = inject(ModeUiStore);
   private readonly work = inject(WorkStore);
   private readonly fleet = inject(FleetStore);
-  private readonly questions = inject(QuestionsStore);
+  private readonly needsYou = inject(NeedsYouStore);
 
   readonly query = signal('');
   readonly active = signal(0);
@@ -118,7 +118,7 @@ export class ModePaletteComponent {
     out.push(
       act('new-chat', 'New agent chat…', 'plus', () => this.ui.newSession('chat')),
       act('new-term', 'New terminal…', 'shell', () => this.ui.newSession('terminal')),
-      act('questions', 'Open all questions', 'question', () => this.questions.open()),
+      act('questions', 'Open all questions', 'question', () => this.needsYou.open()),
       act('add-machine', 'Add a machine…', 'server', () => this.ui.addMachineOpen.set(true)),
       act('settings', 'Settings', 'settings', () => this.ui.openSettings()),
       {

@@ -92,6 +92,18 @@ export interface UserRequest {
   resolved_by?: string;
   resolution?: string;
   command_id?: string;
+  /** Enriched by the hub for the queue (same impact scale as QuestionView). */
+  chat_sid?: string;
+  chat_title?: string;
+  machine_name?: string;
+  commander?: boolean;
+  impact?: number;
+}
+
+/** Blocking impact of a request (same scale as QuestionView: 1, +2 for the commander). */
+export function requestImpact(r: Pick<UserRequest, 'impact' | 'commander'>): number {
+  if (typeof r.impact === 'number' && r.impact > 0) return r.impact;
+  return r.commander ? 3 : 1;
 }
 
 export type OverrideScope = 'machine_slots' | 'hold' | 'session' | 'machine';
