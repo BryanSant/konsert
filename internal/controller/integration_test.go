@@ -454,103 +454,6 @@ func TestCommanderChatToolLoop(t *testing.T) {
 	}
 }
 
-func TestSpacesRESTAndTaskAssociation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "spaces.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	cfg := config.DefaultControllerConfig()
-	cfg.NoAuth = true
-	srv := NewServer(cfg, st, nil, "test")
-	ts := httptest.NewServer(srv)
-	defer ts.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
-	wCfg := config.DefaultWorkerConfig()
-	wCfg.ControllerURL = wsURL
-	wCfg.WorkerID = "w-space-1"
-	wCfg.Name = "space-node"
-	wCfg.EnableMockDriver = true
-
-	daemon := newTestDaemon(t, wCfg, drivers.DefaultRegistry, nil)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = daemon.Run(ctx)
-	}()
-	waitForWorkerOnline(t, srv.Service(), "w-space-1")
-
-	workdir := t.TempDir()
-	// POST /api/spaces
-	createBody, _ := json.Marshal(map[string]string{
-		"worker_id": "w-space-1",
-		"name":      "demo-space",
-		"path":      workdir,
-	})
-	resp, err := http.Post(ts.URL+"/api/spaces", "application/json", bytes.NewReader(createBody))
-	if err != nil || resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/spaces failed: resp=%v err=%v", resp, err)
-	}
-	var created struct {
-		ID       string `json:"id"`
-		WorkerID string `json:"worker_id"`
-		Name     string `json:"name"`
-		Path     string `json:"path"`
-	}
-	if err := json.UnmarshalRead(resp.Body, &created); err != nil || created.ID == "" {
-		t.Fatalf("decode space failed: %+v err=%v", created, err)
-	}
-	_ = resp.Body.Close()
-
-	// Dispatch task using only space_id (resolves worker_id and repo_path automatically!)
-	disp, err := srv.Service().DispatchTask(ctx, DispatchRequest{
-		SpaceID: created.ID,
-		Agent:   "mock",
-		Prompt:  "STREAM_LINES=1",
-		Mode:    protocol.TaskModeOneshot,
-	})
-	if err != nil {
-		t.Fatalf("DispatchTask via SpaceID failed: %v", err)
-	}
-	if disp.SpaceID != created.ID || disp.WorkerID != "w-space-1" {
-		t.Fatalf("unexpected dispatch result: %+v", disp)
-	}
-	res, err := srv.Service().GetTaskResult(ctx, disp.TaskID, true, 10)
-	if err != nil || res.Status != protocol.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %+v err=%v", res, err)
-	}
-
-	// GET /api/spaces
-	listResp, err := http.Get(ts.URL + "/api/spaces?worker_id=w-space-1")
-	if err != nil || listResp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/spaces failed: %v", err)
-	}
-	var listOut struct {
-		Spaces []map[string]any `json:"spaces"`
-	}
-	_ = json.UnmarshalRead(listResp.Body, &listOut)
-	_ = listResp.Body.Close()
-	if len(listOut.Spaces) != 1 {
-		t.Fatalf("expected 1 space, got %d", len(listOut.Spaces))
-	}
-
-	// DELETE /api/spaces/{id}
-	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/spaces/"+created.ID, nil)
-	delResp, err := http.DefaultClient.Do(delReq)
-	if err != nil || delResp.StatusCode != http.StatusOK {
-		t.Fatalf("DELETE /api/spaces failed: %v", err)
-	}
-	_ = delResp.Body.Close()
-
-	cancel()
-	<-done
-}
-
 func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -791,33 +694,22 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	}()
 	waitForWorkerOnline(t, srv.Service(), "w-local-1")
 
-	// 1. Verify GET /api/taxonomy starts with built-in Default Space & Default Project
-	taxResp, err := http.Get(ts.URL + "/api/taxonomy")
-	if err != nil || taxResp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/taxonomy failed: resp=%v err=%v", taxResp, err)
+	// 1. Verify GET /api/projects starts with built-in Default Project
+	projsResp, err := http.Get(ts.URL + "/api/projects")
+	if err != nil || projsResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/projects failed: resp=%v err=%v", projsResp, err)
 	}
-	var tax struct {
-		Workspaces []map[string]any `json:"workspaces"`
-		Projects   []map[string]any `json:"projects"`
+	var projsOut struct {
+		Projects []map[string]any `json:"projects"`
 	}
-	_ = json.UnmarshalRead(taxResp.Body, &tax)
-	_ = taxResp.Body.Close()
-	if len(tax.Workspaces) != 1 || len(tax.Projects) != 1 {
-		t.Fatalf("expected Default workspace and project, got %+v", tax)
+	_ = json.UnmarshalRead(projsResp.Body, &projsOut)
+	_ = projsResp.Body.Close()
+	if len(projsOut.Projects) != 1 {
+		t.Fatalf("expected Default project, got %+v", projsOut)
 	}
 
-	// 2. Create Workspace -> Project -> 2 Repos -> Worktree
-	wsResp, err := http.Post(ts.URL+"/api/workspaces", "application/json", strings.NewReader(`{"name":"Engineering"}`))
-	if err != nil || wsResp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/workspaces failed: %v", err)
-	}
-	var wsObj struct {
-		ID string `json:"id"`
-	}
-	_ = json.UnmarshalRead(wsResp.Body, &wsObj)
-	_ = wsResp.Body.Close()
-
-	projResp, err := http.Post(ts.URL+"/api/projects", "application/json", strings.NewReader(`{"workspace_id":"`+wsObj.ID+`","name":"Platform"}`))
+	// 2. Create Project -> Repo registry entry
+	projResp, err := http.Post(ts.URL+"/api/projects", "application/json", strings.NewReader(`{"name":"Platform"}`))
 	if err != nil || projResp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/projects failed: %v", err)
 	}
@@ -829,15 +721,13 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 
 	repoDir := t.TempDir()
 	repoBody, _ := json.Marshal(map[string]string{
-		"project_id": projObj.ID,
-		"worker_id":  "w-local-1",
-		"name":       "platform-core",
-		"path":       repoDir,
-		"branch":     "main",
+		"name":           "platform-core",
+		"remote_url":     "https://github.com/acme/platform-core.git",
+		"default_branch": "main",
 	})
-	repoResp, err := http.Post(ts.URL+"/api/repos", "application/json", bytes.NewReader(repoBody))
+	repoResp, err := http.Post(ts.URL+"/api/projects/"+projObj.ID+"/repos", "application/json", bytes.NewReader(repoBody))
 	if err != nil || repoResp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /api/repos failed: %v", err)
+		t.Fatalf("POST /api/projects/{id}/repos failed: %v", err)
 	}
 	var repoObj struct {
 		ID string `json:"id"`
@@ -865,6 +755,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		"session_kind": "chat",
 		"origin":       "direct",
 		"repo_id":      repoObj.ID,
+		"repo_path":    repoDir,
 		"agent":        "mock",
 		"model":        "claude-sonnet-4-5",
 		"mode":         "oneshot",
@@ -877,7 +768,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	var disp DispatchResult
 	_ = json.UnmarshalRead(sessResp.Body, &disp)
 	_ = sessResp.Body.Close()
-	if disp.WorkspaceID != wsObj.ID || disp.ProjectID != projObj.ID || disp.RepoID != repoObj.ID || disp.Model != "claude-sonnet-4-5" {
+	if disp.ProjectID != projObj.ID || disp.RepoID != repoObj.ID || disp.Model != "claude-sonnet-4-5" {
 		t.Fatalf("unexpected unified session result: %+v", disp)
 	}
 
@@ -910,11 +801,11 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 		t.Fatalf("expected configured default to override last_used, got %+v", defs3)
 	}
 
-	// Deleting built-in default workspace via REST returns 400
-	delDefReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/workspaces/"+store.DefaultWorkspaceID, nil)
+	// Deleting built-in default project via REST returns 400
+	delDefReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/projects/"+store.DefaultProjectID, nil)
 	delDefResp, err := http.DefaultClient.Do(delDefReq)
 	if err != nil || delDefResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 deleting default workspace, got %v err=%v", delDefResp, err)
+		t.Fatalf("expected 400 deleting default project, got %v err=%v", delDefResp, err)
 	}
 	_ = delDefResp.Body.Close()
 
@@ -1109,12 +1000,8 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		t.Fatalf("expected 2 subscription quotas in usage summary, got %+v", usageOut.Quotas)
 	}
 
-	// 3. External SSH-launched session maps automatically to Space > Project > Repo (or Default fallback)
-	_ = st.CreateWorkspace(ctx, store.Workspace{ID: "ws-eng", Name: "Eng"})
-	_ = st.CreateProject(ctx, store.Project{ID: "proj-app1", WorkspaceID: "ws-eng", Name: "App1"})
+	// 3. External SSH-launched sessions record under Default Project with their cwd/branch.
 	app1Dir := filepath.Join(root1, "app1")
-	_ = st.CreateRepo(ctx, store.Repo{ID: "repo-app1", ProjectID: "proj-app1", WorkerID: "w-match", Name: "app1", Path: app1Dir})
-
 	srv.Hub().handleExternalSession(ctx, "w-match", protocol.ExternalSessionPayload{
 		ExternalID:   "ssh-agy-42",
 		Agent:        "agy",
@@ -1125,11 +1012,10 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		Source:       "hook",
 	})
 	mapped, err := externalTask(ctx, st, "w-match", "ssh-agy-42")
-	if err != nil || mapped.WorkspaceID != "ws-eng" || mapped.ProjectID != "proj-app1" || mapped.RepoID != "repo-app1" || mapped.Status != protocol.TaskStatusRunning {
-		t.Fatalf("expected external session mapped to Eng/App1/repo-app1, got %+v err=%v", mapped, err)
+	if err != nil || mapped.ProjectID != store.DefaultProjectID || mapped.Branch != "feat/deploy" || mapped.Status != protocol.TaskStatusRunning {
+		t.Fatalf("expected external session recorded under Default project, got %+v err=%v", mapped, err)
 	}
 
-	// Unmanaged path falls back cleanly to Default Space & Default Project
 	srv.Hub().handleExternalSession(ctx, "w-match", protocol.ExternalSessionPayload{
 		ExternalID: "ssh-claude-99",
 		Agent:      "claude",
@@ -1138,8 +1024,8 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 		Source:     "passive",
 	})
 	fallback, err := externalTask(ctx, st, "w-match", "ssh-claude-99")
-	if err != nil || fallback.WorkspaceID != store.DefaultWorkspaceID || fallback.ProjectID != store.DefaultProjectID || fallback.Status != protocol.TaskStatusWaitingInput {
-		t.Fatalf("expected unmanaged external session to fall back to Default Space/Project, got %+v err=%v", fallback, err)
+	if err != nil || fallback.ProjectID != store.DefaultProjectID || fallback.Status != protocol.TaskStatusWaitingInput {
+		t.Fatalf("expected unmanaged external session under Default Project, got %+v err=%v", fallback, err)
 	}
 
 	cancel()
@@ -1188,19 +1074,7 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	}
 	defer clientSess.Close()
 
-	// 1. manage_taxonomy + get_taxonomy
-	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "manage_taxonomy",
-		Arguments: map[string]any{"action": "create", "kind": "workspace", "name": "MCP-Space"},
-	}); err != nil || res.IsError {
-		t.Fatalf("manage_taxonomy failed: %v res=%+v", err, res)
-	}
-	taxRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "get_taxonomy"})
-	if err != nil || taxRes.IsError || !strings.Contains(taxRes.Content[0].(*mcp.TextContent).Text, "MCP-Space") {
-		t.Fatalf("get_taxonomy missing MCP-Space: %v res=%+v", err, taxRes)
-	}
-
-	// 2. update_settings + get_settings (never exposes api keys)
+	// 1. update_settings + get_settings (never exposes api keys)
 	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "update_settings",
 		Arguments: map[string]any{"updates": map[string]string{"default_agent": "codex", "default_model": "o4-mini"}},

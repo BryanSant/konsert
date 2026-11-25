@@ -260,28 +260,9 @@ func (h *Hub) shellSessionInfoFor(ctx context.Context, a protocol.SessionActivit
 	return in, true
 }
 
-// projectForPath is the project of the repo on workerID whose path is the longest prefix
-// of path ("" = none).
-func (h *Hub) projectForPath(ctx context.Context, workerID, path string) string {
-	p := strings.TrimRight(strings.TrimSpace(path), `/\`)
-	if p == "" || workerID == "" {
-		return ""
-	}
-	repos, err := h.store.ListRepos(ctx, "", workerID)
-	if err != nil {
-		return ""
-	}
-	best, bestLen := "", 0
-	for _, r := range repos {
-		rp := strings.TrimRight(r.Path, `/\`)
-		if rp == "" || len(rp) <= bestLen {
-			continue
-		}
-		if p == rp || strings.HasPrefix(p, rp+"/") || strings.HasPrefix(p, rp+`\`) {
-			best, bestLen = r.ProjectID, len(rp)
-		}
-	}
-	return best
+// projectForPath resolves a working directory to a project ("" until checkout facts land in A1c).
+func (h *Hub) projectForPath(_ context.Context, _, _ string) string {
+	return ""
 }
 
 // shellPolicyTick looks at every session with shells once, as of now.

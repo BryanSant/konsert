@@ -244,27 +244,16 @@ func ticketExcerpt(body string) string {
 }
 
 // repoSlugFor returns owner/repo of the GitHub repository the asking session works in
-// (the registered repo whose path contains its working directory), or "".
+// when linked to a registered repo via a task, or "".
 func (h *Hub) repoSlugFor(ctx context.Context, q store.Question) string {
-	cs, err := h.store.GetChatSession(ctx, q.ChatID)
-	if err != nil {
-		return ""
-	}
-	repos, err := h.store.ListRepos(ctx, "", cs.WorkerID)
-	if err != nil {
-		return ""
-	}
-	best := ""
-	bestLen := 0
-	for _, r := range repos {
-		if r.Path == "" || r.RemoteURL == "" || !(cs.Cwd == r.Path || strings.HasPrefix(cs.Cwd, strings.TrimRight(r.Path, "/")+"/")) {
-			continue
-		}
-		if slug := githubSlug(r.RemoteURL); slug != "" && len(r.Path) > bestLen {
-			best, bestLen = slug, len(r.Path)
+	if q.TaskID != "" {
+		if t, err := h.store.GetTask(ctx, q.TaskID); err == nil && t.RepoID != "" {
+			if r, err := h.store.GetRepo(ctx, t.RepoID); err == nil {
+				return githubSlug(r.RemoteURL)
+			}
 		}
 	}
-	return best
+	return ""
 }
 
 var githubRe = regexp.MustCompile(`github\.com[:/]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$`)

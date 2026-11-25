@@ -10,9 +10,7 @@ export const SID_PREFIXES = [
   'm', // machine
   'p', // project
   'r', // repo
-  's', // space
-  'ws', // workspace
-  'wt', // worktree
+  'tk', // ticket
   'h', // hold
   'rq', // user request
   'q', // question
@@ -57,14 +55,12 @@ export function resolveSidRoute(sid: string, options: { phone?: boolean } = {}):
       return phone ? `/inbox/${sid}` : `/command/${sid}`;
     case 'm':
       return `/fleet/${sid}`;
-    case 's':
     case 'mc':
       return '/fleet';
     case 'rv':
     case 'p':
     case 'r':
-    case 'ws':
-    case 'wt':
+    case 'tk':
       return phone ? '/inbox' : '/work';
     case 'q':
     case 'rq':

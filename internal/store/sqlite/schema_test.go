@@ -59,13 +59,12 @@ func TestReopenCurrentSchema(t *testing.T) {
 func TestNewSIDAndDefaults(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
-	tax, err := st.GetTaxonomy(ctx)
+	projects, err := st.ListProjects(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tax.Workspaces) != 1 || tax.Workspaces[0].ID != store.DefaultWorkspaceID || tax.Workspaces[0].SID != ids.DefaultWorkspaceSID ||
-		len(tax.Projects) != 1 || tax.Projects[0].ID != store.DefaultProjectID || tax.Projects[0].SID != ids.DefaultProjectSID {
-		t.Fatalf("defaults = %+v", tax)
+	if len(projects) != 1 || projects[0].ID != store.DefaultProjectID || projects[0].SID != ids.DefaultProjectSID {
+		t.Fatalf("defaults = %+v", projects)
 	}
 	for kind := range idTables {
 		sid, err := st.NewSID(ctx, kind)
@@ -89,31 +88,20 @@ func TestCreateMintsIDAndSIDAndResolvesBoth(t *testing.T) {
 	}
 	workers, _ := st.ListWorkers(ctx)
 	w := workers[0]
-	if err := st.CreateWorkspace(ctx, store.Workspace{Name: "ws"}); err != nil {
+	if err := st.CreateProject(ctx, store.Project{Name: "p"}); err != nil {
 		t.Fatal(err)
 	}
-	wss, _ := st.ListWorkspaces(ctx)
-	ws := wss[len(wss)-1]
-	if err := st.CreateProject(ctx, store.Project{WorkspaceID: ws.ID, Name: "p"}); err != nil {
+	ps, _ := st.ListProjects(ctx)
+	p := ps[len(ps)-1]
+	if err := st.CreateRepo(ctx, store.Repo{ProjectID: p.ID, Name: "r", RemoteURL: "https://github.com/org/r.git"}); err != nil {
 		t.Fatal(err)
 	}
-	ps, _ := st.ListProjects(ctx, ws.ID)
-	p := ps[0]
-	if err := st.CreateRepo(ctx, store.Repo{ProjectID: p.ID, WorkerID: w.ID, Name: "r", Path: "/r"}); err != nil {
-		t.Fatal(err)
-	}
-	rs, _ := st.ListRepos(ctx, p.ID, "")
+	rs, _ := st.ListRepos(ctx, p.ID)
 	r := rs[0]
-	if err := st.CreateWorktree(ctx, store.Worktree{RepoID: r.ID, Path: "/r"}); err != nil {
+	tk, err := st.CreateTicket(ctx, store.Ticket{ProjectID: p.ID, Kind: store.TicketKindFeature, Title: "ship it"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	wts, _ := st.ListWorktrees(ctx, r.ID)
-	wt := wts[0]
-	if err := st.CreateSpace(ctx, store.Space{WorkerID: w.ID, Name: "s", Path: "/s"}); err != nil {
-		t.Fatal(err)
-	}
-	sps, _ := st.ListSpaces(ctx, w.ID)
-	sp := sps[0]
 	if err := st.CreateTask(ctx, store.Task{WorkerID: w.ID, Agent: "claude", Workdir: "/r", Prompt: "p"}); err != nil {
 		t.Fatal(err)
 	}
@@ -130,11 +118,9 @@ func TestCreateMintsIDAndSIDAndResolvesBoth(t *testing.T) {
 		id, sid string
 	}{
 		{ids.Machine, w.ID, w.SID},
-		{ids.Workspace, ws.ID, ws.SID},
 		{ids.Project, p.ID, p.SID},
 		{ids.Repo, r.ID, r.SID},
-		{ids.Worktree, wt.ID, wt.SID},
-		{ids.Space, sp.ID, sp.SID},
+		{ids.Ticket, tk.ID, tk.SID},
 		{ids.Task, task.ID, task.SID},
 		{ids.Chat, chat.ID, chat.SID},
 	} {

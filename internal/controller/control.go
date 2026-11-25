@@ -454,7 +454,7 @@ func (h *Hub) VetoChat(ctx context.Context, chatID, reason, note string) (store.
 		}
 	}
 	cause := causeFrom(ctx)
-	_, projID, _, _ := h.matchTaxonomyByPath(ctx, cs.WorkerID, cs.Cwd)
+	projID := store.DefaultProjectID
 	what := fmt.Sprintf("chat %s (%s, %s on %s)", cs.SID, cs.Title, cs.Agent, h.workerLabel(ctx, cs.WorkerID))
 	h.recordVeto(ctx, reason, label, note, what, cs.WorkerID, "", cs.ID, "project:"+projID)
 	h.holdAfterIntervention(ctx, cause, holdSpec{scope: store.HoldScopeSession, workerID: cs.WorkerID, chatID: cs.ID,

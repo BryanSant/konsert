@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { AgentAccount } from '../core/models/agent-chat.models';
-import { PermissionMode, Repo, SessionKind, Space, Worker, Worktree } from '../core/models/syre.models';
+import { PermissionMode, Repo, SessionKind, Worker } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
@@ -16,9 +16,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 export interface SessionDispatchRequest {
   kind: SessionKind;
   worker: Worker | null;
-  space?: Space | null;
   repo?: Repo | null;
-  worktree?: Worktree | null;
 }
 
 /**
@@ -199,7 +197,7 @@ export class SessionDispatchModalComponent implements OnInit {
   private preferredAgent = '';
   private preferredModel = '';
   /** The request's context; dropped once the user picks another machine or folder. */
-  private origin = { workerId: '', cwd: '', spaceId: '', repoId: '', worktreeId: '' };
+  private origin = { workerId: '', cwd: '', projectId: '', repoId: '' };
 
   /** Every agent account on the chosen machine (PTY sessions don't need chat support). */
   readonly accounts = computed(() => this.agentAccounts.accountsFor(this.selection().workerId));
@@ -234,23 +232,22 @@ export class SessionDispatchModalComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const { kind, worker, space, repo, worktree } = this.request();
+    const { kind, worker, repo } = this.request();
     this.sessionKind.set(kind);
     this.sandboxed.set((this.fleet.settings().default_permission_mode || 'full_access') === 'sandboxed');
 
-    const resolved = this.fleet.resolveSessionDefaults(space?.worker_id || worker?.id || '');
+    const resolved = this.fleet.resolveSessionDefaults(worker?.id || '');
     this.preferredAgent = resolved.agent;
     this.preferredModel = resolved.model;
     if (resolved.agent) this.fallbackAgent.set(resolved.agent);
 
-    const cwd = (repo ? worktree?.path || repo.path : space?.path) || '~';
-    const branch = (repo ? worktree?.branch : space?.branch) || '';
+    const cwd = '~';
+    const branch = repo?.default_branch || '';
     this.origin = {
       workerId: resolved.machine_id,
       cwd,
-      spaceId: space?.id || '',
+      projectId: repo?.project_id || '',
       repoId: repo?.id || '',
-      worktreeId: repo ? worktree?.id || '' : '',
     };
     this.selection.set(this.seed({ ...emptySelection(), workerId: resolved.machine_id, cwd, branch }, this.accounts()));
   }
@@ -322,9 +319,8 @@ export class SessionDispatchModalComponent implements OnInit {
     try {
       const res = await this.api.createSession({
         worker_selector: sel.workerId ? { worker_id: sel.workerId } : undefined,
-        space_id: (sameContext && this.origin.spaceId) || undefined,
+        project_id: (sameContext && this.origin.projectId) || undefined,
         repo_id: (sameContext && this.origin.repoId) || undefined,
-        worktree_id: (sameContext && this.origin.worktreeId) || undefined,
         session_kind: this.sessionKind(),
         agent: isChat ? account?.agent || this.fallbackAgent() : 'shell',
         account_id: account?.id || undefined,

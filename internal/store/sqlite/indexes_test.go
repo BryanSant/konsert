@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const taskCols = `id, external_id, worker_id, space_id, workspace_id, project_id, repo_id, worktree_id,
+const taskCols = `id, external_id, worker_id, project_id, repo_id,
 	agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 	orphan_policy, prompt, status, summary, git_summary_json, exit_code,
 	created_at, started_at, completed_at`

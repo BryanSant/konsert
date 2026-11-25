@@ -11,7 +11,6 @@ import (
 )
 
 func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p protocol.ExternalSessionPayload) {
-	wsID, projID, repoID, wtID := h.matchTaxonomyByPath(ctx, workerID, p.Cwd)
 	status := protocol.TaskStatusIdle
 	switch strings.ToLower(strings.TrimSpace(p.Status)) {
 	case "working", "running":
@@ -35,10 +34,7 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 	t := store.Task{
 		ExternalID:     p.ExternalID,
 		WorkerID:       workerID,
-		WorkspaceID:    wsID,
-		ProjectID:      projID,
-		RepoID:         repoID,
-		WorktreeID:     wtID,
+		ProjectID:      store.DefaultProjectID,
 		Agent:          p.Agent,
 		Model:          p.Model,
 		SessionKind:    "chat",
@@ -80,63 +76,6 @@ func (h *Hub) handleExternalSession(ctx context.Context, workerID string, p prot
 	if a, ok := externalActivity(taskID, workerID, p); ok {
 		h.setActivity(a)
 	}
-}
-
-func (h *Hub) matchTaxonomyByPath(ctx context.Context, workerID, cwd string) (wsID, projID, repoID, wtID string) {
-	wsID = store.DefaultWorkspaceID
-	projID = store.DefaultProjectID
-	cleanCwd := strings.TrimRight(strings.TrimSpace(cwd), "/\\")
-	if cleanCwd == "" {
-		return
-	}
-	tax, err := h.store.GetTaxonomy(ctx)
-	if err != nil {
-		return
-	}
-	projByID := make(map[string]store.Project, len(tax.Projects))
-	for _, pr := range tax.Projects {
-		projByID[pr.ID] = pr
-	}
-	repoByID := make(map[string]store.Repo, len(tax.Repos))
-	for _, rp := range tax.Repos {
-		repoByID[rp.ID] = rp
-	}
-
-	bestLen := -1
-	// Prefer longest matching Worktree on this worker.
-	for _, wt := range tax.Worktrees {
-		rp, ok := repoByID[wt.RepoID]
-		if !ok || rp.WorkerID != workerID {
-			continue
-		}
-		p := strings.TrimRight(wt.Path, "/\\")
-		if p != "" && (cleanCwd == p || strings.HasPrefix(cleanCwd, p+"/")) && len(p) > bestLen {
-			bestLen = len(p)
-			wtID = wt.ID
-			repoID = rp.ID
-			projID = rp.ProjectID
-			if pr, ok := projByID[rp.ProjectID]; ok {
-				wsID = pr.WorkspaceID
-			}
-		}
-	}
-	// Fallback to longest matching Repo on this worker.
-	for _, rp := range tax.Repos {
-		if rp.WorkerID != workerID {
-			continue
-		}
-		p := strings.TrimRight(rp.Path, "/\\")
-		if p != "" && (cleanCwd == p || strings.HasPrefix(cleanCwd, p+"/")) && len(p) > bestLen {
-			bestLen = len(p)
-			wtID = ""
-			repoID = rp.ID
-			projID = rp.ProjectID
-			if pr, ok := projByID[rp.ProjectID]; ok {
-				wsID = pr.WorkspaceID
-			}
-		}
-	}
-	return
 }
 
 func metaInt64(v any) int64 {

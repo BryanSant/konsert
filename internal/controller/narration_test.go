@@ -15,11 +15,11 @@ func TestSetNarrationHeadlineAndNow(t *testing.T) {
 	th.h.kaShowFn = func(_ context.Context, id string) ([]byte, error) {
 		return []byte(`{"id":"` + id + `","title":"Questions and steering","status":"in_progress"}`), nil
 	}
-	proj := store.Project{WorkspaceID: store.DefaultWorkspaceID, Name: "Syre"}
+	proj := store.Project{Name: "Syre"}
 	if err := th.st.CreateProject(ctx, proj); err != nil {
 		t.Fatal(err)
 	}
-	projects, _ := th.st.ListProjects(ctx, "")
+	projects, _ := th.st.ListProjects(ctx)
 	var p store.Project
 	for _, x := range projects {
 		if x.Name == "Syre" {

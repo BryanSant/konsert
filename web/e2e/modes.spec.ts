@@ -361,11 +361,10 @@ test.describe('Mode UI (desktop)', () => {
       gitIn(repoDirect, 'remote', 'add', 'origin', bare);
       gitIn(repoDirect, 'push', '-u', 'origin', 'main');
 
-      const createdDirect = await api<{ id: string }>(page, 'POST', '/api/repos', {
-        worker_id: env.workerId,
+      const createdDirect = await api<{ id: string }>(page, 'POST', '/api/projects/p-00000/repos', {
         name: 'e2e-direct',
-        path: repoDirect,
         remote_url: bare,
+        default_branch: 'main',
         delivery_mode: 'direct',
         merge_style: 'squash',
       });
@@ -416,11 +415,10 @@ test.describe('Mode UI (desktop)', () => {
       gitIn(repoPR, 'commit', '-qm', 'init');
       gitIn(repoPR, 'remote', 'add', 'origin', bare);
 
-      const createdPR = await api<{ id: string }>(page, 'POST', '/api/repos', {
-        worker_id: env.workerId,
+      const createdPR = await api<{ id: string }>(page, 'POST', '/api/projects/p-00000/repos', {
         name: 'e2e-pr-merge',
-        path: repoPR,
-        remote_url: bare,
+        remote_url: `${bare}#pr`,
+        default_branch: 'main',
         delivery_mode: 'pr_merge',
         merge_style: 'squash',
       });
@@ -453,8 +451,8 @@ test.describe('Mode UI (desktop)', () => {
       await expect(prPanel.getByTestId('review-delivery-action')).toContainText('Approve → push branch and show compare URL (no forge credential)');
       if (await dialog.isVisible()) await page.keyboard.press('Escape');
     } finally {
-      if (repoDirectId) await api(page, 'DELETE', `/api/repos/${repoDirectId}`).catch(() => undefined);
-      if (repoPRId) await api(page, 'DELETE', `/api/repos/${repoPRId}`).catch(() => undefined);
+      if (repoDirectId) await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoDirectId}`).catch(() => undefined);
+      if (repoPRId) await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoPRId}`).catch(() => undefined);
       fs.rmSync(base, { recursive: true, force: true });
     }
   });

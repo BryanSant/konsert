@@ -100,23 +100,32 @@ func TestAPIAcceptsIDOrSID(t *testing.T) {
 		}
 	}
 
-	// Bodies: a project created under a workspace named by its sid.
-	code, ws := call(http.MethodPost, "/api/workspaces", `{"name":"eng"}`)
-	wsID, _ := ws["id"].(string)
-	wsSID, _ := ws["sid"].(string)
-	if code != http.StatusCreated || !ids.IsUUIDv7(wsID) || !ids.Valid(ids.Workspace, wsSID) {
-		t.Fatalf("POST /api/workspaces = %d %v", code, ws)
+	// Bodies & nested paths: project and repo created and deleted by sid.
+	code, proj := call(http.MethodPost, "/api/projects", `{"name":"app"}`)
+	projID, _ := proj["id"].(string)
+	projSID, _ := proj["sid"].(string)
+	if code != http.StatusCreated || !ids.IsUUIDv7(projID) || !ids.Valid(ids.Project, projSID) {
+		t.Fatalf("POST /api/projects = %d %v", code, proj)
 	}
-	code, proj := call(http.MethodPost, "/api/projects", `{"name":"app","workspace_id":"`+wsSID+`"}`)
-	if code != http.StatusCreated || proj["workspace_id"] != wsID {
-		t.Fatalf("POST /api/projects with workspace sid = %d %v", code, proj)
+	code, repo := call(http.MethodPost, "/api/projects/"+projSID+"/repos", `{"name":"api","remote_url":"https://github.com/org/api.git"}`)
+	repoSID, _ := repo["sid"].(string)
+	if code != http.StatusCreated || repo["project_id"] != projID || !ids.Valid(ids.Repo, repoSID) {
+		t.Fatalf("POST /api/projects/%s/repos = %d %v", projSID, code, repo)
+	}
+	code, tk := call(http.MethodPost, "/api/tickets", `{"project_id":"`+projSID+`","kind":"feature","title":"Ship"}`)
+	tkSID, _ := tk["sid"].(string)
+	if code != http.StatusCreated || tk["project_id"] != projID || !ids.Valid(ids.Ticket, tkSID) {
+		t.Fatalf("POST /api/tickets with project sid = %d %v", code, tk)
 	}
 
 	// DELETE by sid.
-	if code, _ := call(http.MethodDelete, "/api/projects/"+proj["sid"].(string), ""); code != http.StatusOK {
-		t.Fatalf("DELETE project by sid = %d", code)
+	if code, _ := call(http.MethodDelete, "/api/tickets/"+tkSID, ""); code != http.StatusOK {
+		t.Fatalf("DELETE ticket by sid = %d", code)
 	}
-	if code, _ := call(http.MethodDelete, "/api/workspaces/"+wsSID, ""); code != http.StatusOK {
-		t.Fatalf("DELETE workspace by sid = %d", code)
+	if code, _ := call(http.MethodDelete, "/api/projects/"+projSID+"/repos/"+repoSID, ""); code != http.StatusOK {
+		t.Fatalf("DELETE repo by sid = %d", code)
+	}
+	if code, _ := call(http.MethodDelete, "/api/projects/"+projSID, ""); code != http.StatusOK {
+		t.Fatalf("DELETE project by sid = %d", code)
 	}
 }

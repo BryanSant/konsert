@@ -404,16 +404,12 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Accounts = item
 	case "chat_session":
 		p.ChatSession = item
-	case "space":
-		p.Space = item
-	case "workspace":
-		p.Workspace = item
 	case "project":
 		p.Project = item
 	case "repo":
 		p.Repo = item
-	case "worktree":
-		p.Worktree = item
+	case "ticket":
+		p.Ticket = item
 	case "fleet_event":
 		p.FleetEvent = item
 	case "hold":

@@ -13,9 +13,7 @@ func mustNoDanglingTaskRefs(t *testing.T, st *SQLiteStore) {
 	var n int
 	err := st.db.QueryRow(`
 		SELECT COUNT(1) FROM tasks
-		WHERE (space_id != '' AND space_id NOT IN (SELECT id FROM spaces))
-		   OR (repo_id != '' AND repo_id NOT IN (SELECT id FROM repos))
-		   OR (worktree_id != '' AND worktree_id NOT IN (SELECT id FROM worktrees))
+		WHERE (repo_id != '' AND repo_id NOT IN (SELECT id FROM repos))
 		   OR (worker_id IS NOT NULL AND worker_id NOT IN (SELECT id FROM workers))
 	`).Scan(&n)
 	if err != nil {
@@ -32,20 +30,10 @@ func TestDeleteWorkerClearsTaskReferences(t *testing.T) {
 	if err := st.UpsertWorker(ctx, store.Worker{ID: "w1", Name: "w1", HostGroup: "g", OS: "linux", Arch: "amd64", Status: "online"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp1", WorkerID: "w1", Name: "s", Path: "/s"}); err != nil {
+	if err := st.CreateRepo(ctx, store.Repo{ID: "r1", ProjectID: store.DefaultProjectID, Name: "r", RemoteURL: "https://github.com/org/r.git"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateRepo(ctx, store.Repo{ID: "r1", ProjectID: store.DefaultProjectID, WorkerID: "w1", Name: "r", Path: "/r"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateWorktree(ctx, store.Worktree{ID: "wt1", RepoID: "r1", Path: "/r/wt"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", SpaceID: "sp1", RepoID: "r1", WorktreeID: "wt1", Agent: "claude", Workdir: "/r", Prompt: "p"}); err != nil {
-		t.Fatal(err)
-	}
-	// A task that references the worktree without a repo_id.
-	if err := st.CreateTask(ctx, store.Task{ID: "t2", WorktreeID: "wt1", Agent: "claude", Workdir: "/r", Prompt: "p"}); err != nil {
+	if err := st.CreateTask(ctx, store.Task{ID: "t1", WorkerID: "w1", RepoID: "r1", Agent: "claude", Workdir: "/r", Prompt: "p"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,29 +45,21 @@ func TestDeleteWorkerClearsTaskReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.WorkerID != "" || got.SpaceID != "" || got.RepoID != "" || got.WorktreeID != "" {
-		t.Fatalf("task refs not cleared: %+v", got)
+	// Repo is project-owned (not worker-owned), so deleting a worker unlinks worker_id only.
+	if got.WorkerID != "" || got.RepoID != "r1" {
+		t.Fatalf("unexpected task refs after worker delete: %+v", got)
 	}
-}
 
-func TestDeleteSpaceClearsTaskReference(t *testing.T) {
-	ctx := context.Background()
-	st := openTestStore(t)
-	if err := st.UpsertWorker(ctx, store.Worker{ID: "w1", Name: "w1", HostGroup: "g", OS: "linux", Arch: "amd64", Status: "online"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateSpace(ctx, store.Space{ID: "sp1", WorkerID: "w1", Name: "s", Path: "/s"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateTask(ctx, store.Task{ID: "t1", SpaceID: "sp1", Agent: "claude", Workdir: "/s", Prompt: "p"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.DeleteSpace(ctx, "sp1"); err != nil {
+	if err := st.DeleteRepo(ctx, "r1"); err != nil {
 		t.Fatal(err)
 	}
 	mustNoDanglingTaskRefs(t, st)
-	if err := st.DeleteSpace(ctx, "sp1"); err != store.ErrNotFound {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	got, err = st.GetTask(ctx, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoID != "" {
+		t.Fatalf("task repo_id not cleared on repo delete: %+v", got)
 	}
 }
 

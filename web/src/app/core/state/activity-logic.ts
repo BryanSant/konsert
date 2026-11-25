@@ -198,24 +198,9 @@ function liveLine(a: SessionActivity): string {
   }
 }
 
-/** Repos matched by longest path prefix on the same worker (for chats and observed sessions). */
-export function projectForPath(repos: Repo[], workerId: string | undefined, path: string | undefined): string | null {
-  const p = trimSlash(path);
-  if (!p || !workerId) return null;
-  let best: Repo | null = null;
-  for (const r of repos) {
-    if (r.worker_id !== workerId) continue;
-    const rp = trimSlash(r.path);
-    if (!rp) continue;
-    if ((p === rp || p.startsWith(rp + '/') || p.startsWith(rp + '\\')) && (!best || rp.length > trimSlash(best.path).length)) {
-      best = r;
-    }
-  }
-  return best ? best.project_id : null;
-}
-
-function trimSlash(p: string | undefined): string {
-  return (p ?? '').trim().replace(/[\\/]+$/, '');
+/** Resolves a working directory to a project (returns null until daemon checkout facts land in A1c). */
+export function projectForPath(_repos: Repo[], _workerId: string | undefined, _path: string | undefined): string | null {
+  return null;
 }
 
 export interface GroupInputs {

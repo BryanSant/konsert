@@ -92,7 +92,7 @@ func (s *FleetService) SetNarration(ctx context.Context, in SetNarrationInput) (
 		if ref := strings.TrimSpace(in.Project); ref != "" {
 			projID = s.resolveProjectRef(ctx, ref)
 			if projID == "" {
-				return SetNarrationResult{}, fmt.Errorf("project %q not found (use get_taxonomy for ids and names)", ref)
+				return SetNarrationResult{}, fmt.Errorf("project %q not found", ref)
 			}
 		} else if task != nil {
 			projID = task.ProjectID
@@ -131,7 +131,7 @@ func (s *FleetService) resolveProjectRef(ctx context.Context, ref string) string
 			return id
 		}
 	}
-	projects, err := s.store.ListProjects(ctx, "")
+	projects, err := s.store.ListProjects(ctx)
 	if err != nil {
 		return ""
 	}

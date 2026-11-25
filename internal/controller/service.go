@@ -334,11 +334,9 @@ func (s *FleetService) ResolveSessionDefaults(ctx context.Context, reqMachine, r
 
 type DispatchRequest struct {
 	WorkerSelector WorkerSelector `json:"worker_selector,omitzero"`
-	SpaceID        string         `json:"space_id,omitempty"`
-	WorkspaceID    string         `json:"workspace_id,omitempty"`
 	ProjectID      string         `json:"project_id,omitempty"`
 	RepoID         string         `json:"repo_id,omitempty"`
-	WorktreeID     string         `json:"worktree_id,omitempty"`
+	TicketID       string         `json:"ticket_id,omitempty"`
 	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
 	// Title is a short name for the task shown in the live work views (default: the
 	// prompt's first line).
@@ -368,11 +366,9 @@ type DispatchResult struct {
 	TaskID           string `json:"task_id"`
 	TaskSID          string `json:"task_sid"`
 	WorkerID         string `json:"worker_id,omitempty"`
-	SpaceID          string `json:"space_id,omitempty"`
-	WorkspaceID      string `json:"workspace_id,omitempty"`
 	ProjectID        string `json:"project_id,omitempty"`
 	RepoID           string `json:"repo_id,omitempty"`
-	WorktreeID       string `json:"worktree_id,omitempty"`
+	TicketID         string `json:"ticket_id,omitempty"`
 	SessionKind      string `json:"session_kind,omitempty"`
 	Agent            string `json:"agent,omitempty"`
 	Model            string `json:"model,omitempty"`
@@ -384,27 +380,16 @@ type DispatchResult struct {
 
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
 	resolveRefs(ctx, s.store, map[ids.Kind][]*string{
-		ids.Machine:   {&req.WorkerSelector.WorkerID},
-		ids.Space:     {&req.SpaceID},
-		ids.Workspace: {&req.WorkspaceID},
-		ids.Project:   {&req.ProjectID},
-		ids.Repo:      {&req.RepoID},
-		ids.Worktree:  {&req.WorktreeID},
+		ids.Machine: {&req.WorkerSelector.WorkerID},
+		ids.Project: {&req.ProjectID},
+		ids.Repo:    {&req.RepoID},
+		ids.Ticket:  {&req.TicketID},
 	})
-	// Resolve taxonomy bindings from Worktree -> Repo -> Project -> Workspace (falling back to Default).
-	if wtID := strings.TrimSpace(req.WorktreeID); wtID != "" {
-		wt, err := s.store.GetWorktree(ctx, wtID)
-		if err != nil {
-			return DispatchResult{}, fmt.Errorf("worktree %s not found: %w", wtID, err)
-		}
-		if req.RepoID == "" {
-			req.RepoID = wt.RepoID
-		}
-		if strings.TrimSpace(req.RepoPath) == "" {
-			req.RepoPath = wt.Path
-		}
-		if strings.TrimSpace(req.Branch) == "" && wt.Branch != "" {
-			req.Branch = wt.Branch
+	if ticketID := strings.TrimSpace(req.TicketID); ticketID != "" {
+		if tk, err := s.store.GetTicket(ctx, ticketID); err == nil {
+			if req.ProjectID == "" {
+				req.ProjectID = tk.ProjectID
+			}
 		}
 	}
 	if repoID := strings.TrimSpace(req.RepoID); repoID != "" {
@@ -415,47 +400,14 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		if req.ProjectID == "" {
 			req.ProjectID = repo.ProjectID
 		}
-		if req.WorkerSelector.WorkerID == "" && repo.WorkerID != "" {
-			req.WorkerSelector.WorkerID = repo.WorkerID
-		}
-		if strings.TrimSpace(req.RepoPath) == "" {
-			req.RepoPath = repo.Path
-		}
 	}
 	if projID := strings.TrimSpace(req.ProjectID); projID != "" {
-		proj, err := s.store.GetProject(ctx, projID)
-		if err != nil {
+		if _, err := s.store.GetProject(ctx, projID); err != nil {
 			return DispatchResult{}, fmt.Errorf("project %s not found: %w", projID, err)
 		}
-		if req.WorkspaceID == "" {
-			req.WorkspaceID = proj.WorkspaceID
-		}
-	}
-	if strings.TrimSpace(req.WorkspaceID) == "" {
-		req.WorkspaceID = store.DefaultWorkspaceID
 	}
 	if strings.TrimSpace(req.ProjectID) == "" {
 		req.ProjectID = store.DefaultProjectID
-	}
-
-	// Resolve legacy per-machine Space bindings when space_id is supplied.
-	if strings.TrimSpace(req.SpaceID) != "" {
-		sp, err := s.store.GetSpace(ctx, req.SpaceID)
-		if err != nil {
-			return DispatchResult{}, fmt.Errorf("space %s not found: %w", req.SpaceID, err)
-		}
-		if req.WorkerSelector.WorkerID == "" {
-			req.WorkerSelector.WorkerID = sp.WorkerID
-		}
-		if strings.TrimSpace(req.RepoPath) == "" {
-			req.RepoPath = sp.Path
-		}
-		if strings.TrimSpace(req.Branch) == "" && sp.Branch != "" {
-			req.Branch = sp.Branch
-		}
-		if req.Origin == "" {
-			req.Origin = protocol.TaskOriginDirect
-		}
 	}
 
 	// Normalize unified session kind ("chat" | "terminal") and apply Machine/Agent/Model cascade when requested.
@@ -598,14 +550,15 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		}
 	}
 
+	ticketID := strings.TrimSpace(req.TicketID)
+	if ticketID == "" {
+		ticketID = detectTicket(req.Title, req.Prompt)
+	}
 	task := store.Task{
 		ID:             taskID,
 		SID:            taskSID,
-		SpaceID:        req.SpaceID,
-		WorkspaceID:    req.WorkspaceID,
 		ProjectID:      req.ProjectID,
 		RepoID:         req.RepoID,
-		WorktreeID:     req.WorktreeID,
 		Agent:          req.Agent,
 		Model:          strings.TrimSpace(req.Model),
 		SessionKind:    sessionKind,
@@ -621,7 +574,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		Cause:          &cause,
 		CreatedAt:      time.Now().UTC(),
 		Title:          oneLine(req.Title, 80),
-		TicketID:       detectTicket(req.Title, req.Prompt),
+		TicketID:       ticketID,
 	}
 	if o, fromChat := chatOriginFrom(ctx); fromChat {
 		task.ParentChatID = o.id
@@ -723,11 +676,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		TaskID:           task.ID,
 		TaskSID:          task.SID,
 		WorkerID:         task.WorkerID,
-		SpaceID:          task.SpaceID,
-		WorkspaceID:      task.WorkspaceID,
 		ProjectID:        task.ProjectID,
 		RepoID:           task.RepoID,
-		WorktreeID:       task.WorktreeID,
+		TicketID:         task.TicketID,
 		SessionKind:      task.SessionKind,
 		Agent:            task.Agent,
 		Model:            task.Model,
@@ -1083,13 +1034,14 @@ func (s *FleetService) BuildCompactContext(ctx context.Context, sessionID string
 		}
 	}
 
-	if tax, err := s.store.GetTaxonomy(ctx); err == nil && len(tax.Projects) > 0 {
+	if projects, err := s.store.ListProjects(ctx); err == nil && len(projects) > 0 {
 		var pNames []string
-		for _, p := range tax.Projects {
+		for _, p := range projects {
 			pNames = append(pNames, p.Name)
 		}
-		b.WriteString(fmt.Sprintf("Taxonomy: %d spaces, %d projects (%s), %d repos, %d worktrees\n",
-			len(tax.Workspaces), len(tax.Projects), strings.Join(pNames, ", "), len(tax.Repos), len(tax.Worktrees)))
+		repos, _ := s.store.ListRepos(ctx, "")
+		b.WriteString(fmt.Sprintf("Projects: %d (%s), %d repos\n",
+			len(projects), strings.Join(pNames, ", "), len(repos)))
 	}
 
 	if fleetMem, err := s.store.ListMemory(ctx, "fleet", 6); err == nil && len(fleetMem) > 0 {

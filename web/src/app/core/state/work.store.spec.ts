@@ -10,10 +10,10 @@ import { CommanderStore } from './commander.store';
 import { WorkStore } from './work.store';
 
 const proj = (id: string, name: string, extra: Partial<Project> = {}): Project =>
-  ({ id, sid: 'p-' + id, workspace_id: 'ws', name, is_default: false, created_at: '', ...extra }) as Project;
-const defProj = { id: 'def', sid: 'p-def', workspace_id: 'ws', name: 'Default Project', is_default: true, created_at: '' } as Project;
-const repo = (projectId: string, path: string, worker = 'w1'): Repo =>
-  ({ id: 'r-' + path, sid: 'r', project_id: projectId, worker_id: worker, name: path, path, created_at: '' }) as Repo;
+  ({ id, sid: 'p-' + id, name, is_default: false, created_at: '', ...extra }) as Project;
+const defProj = { id: 'def', sid: 'p-def', name: 'Default Project', is_default: true, created_at: '' } as Project;
+const repo = (projectId: string, name: string): Repo =>
+  ({ id: 'r-' + name, sid: 'r', project_id: projectId, name, remote_url: `https://github.com/org/${name}.git`, created_at: '' }) as Repo;
 
 function task(id: string, status: Task['status'], extra: Partial<Task> = {}): Task {
   return {
@@ -94,27 +94,27 @@ describe('activity logic', () => {
     expect(heatLevelOf(0.76)).toBe('hot');
   });
 
-  it('groups by project, maps chats and observed sessions by cwd, puts the rest under Other work', () => {
+  it('groups by project and puts unassigned work under Other work', () => {
     const groups = groupWork({
       projects: [defProj, proj('p1', 'Syre', { headline: 'Ship mobile questions' }), proj('p2', 'Website')],
-      repos: [repo('p1', '/src/syre'), repo('p2', '/src/site')],
+      repos: [repo('p1', 'syre'), repo('p2', 'site')],
       tasks: [
         task('t1', 'running', { project_id: 'p1', title: 'Card' }),
         task('t2', 'waiting_input', { project_id: 'p1' }),
         task('t3', 'queued', { project_id: 'p2' }),
-        task('obs', 'running', { origin: 'external', effective_dir: '/src/site/web' }),
+        task('obs', 'running', { origin: 'external', project_id: 'p2', effective_dir: '/src/site/web' }),
         task('loose', 'completed'),
         task('scratch', 'running', { origin: 'scratch' }),
         task('sh', 'running', { agent: 'shell' }),
       ],
-      chats: [chat('c1', 'working', { cwd: '/src/syre/web' }), chat('c2', 'done', { cwd: '/tmp' }), chat('orch', 'working', { fleet_tools: true })],
+      chats: [chat('c2', 'done', { cwd: '/tmp' }), chat('orch', 'working', { fleet_tools: true })],
       activityOf: (k) => (k === 'task:t1' ? act({ task_id: 't1' }, 'working', { label: 'Run: go test' }) : undefined),
     });
     expect(groups.map((g) => g.name)).toEqual(['Syre', 'Website', 'Other work']);
     const [syre, website, other] = groups;
     expect(syre.headline).toBe('Ship mobile questions');
     expect(syre.headlineSource).toBe('commander');
-    expect(syre.counts).toMatchObject({ running: 2, needs_you: 1, queued: 0, done: 0 });
+    expect(syre.counts).toMatchObject({ running: 1, needs_you: 1, queued: 0, done: 0 });
     // Needs-you first.
     expect(syre.items[0].id).toBe('t2');
     expect(syre.items.find((i) => i.id === 't1')?.now).toBe('Run: go test');
@@ -185,7 +185,8 @@ describe('WorkStore + ActivityStore', () => {
     activity.applySnapshot([act({ chat_id: 'c1' }, 'speaking', { tokens_per_sec: 42 }), act({ task_id: 't1' }, 'working', { tool: 'Edit' })]);
     expect(activity.byChat()['c1'].tokens_per_sec).toBe(42);
     expect(activity.byTask()['t1'].tool).toBe('Edit');
-    expect(work.projectGroups().find((g) => g.projectId === 'p1')!.counts.running).toBe(2);
+    expect(work.projectGroups().find((g) => g.projectId === 'p1')!.counts.running).toBe(1);
+    expect(work.totals().running).toBe(2);
     activity.forget('chat:c1');
     expect(activity.forChat('c1')).toBeUndefined();
   });

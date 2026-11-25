@@ -57,12 +57,12 @@ describe('sid-links', () => {
     });
 
     it('routes every other known sid prefix to an appropriate mode', () => {
-      expect(resolveSidRoute('s-7qk3m', { phone: false })).toBe('/fleet');
       expect(resolveSidRoute('mc-7qk3m', { phone: false })).toBe('/fleet');
-      expect(resolveSidRoute('s-7qk3m', { phone: true })).toBe('/fleet');
+      expect(resolveSidRoute('mc-7qk3m', { phone: false })).toBe('/fleet');
+      expect(resolveSidRoute('mc-7qk3m', { phone: true })).toBe('/fleet');
       expect(resolveSidRoute('mc-7qk3m', { phone: true })).toBe('/fleet');
 
-      for (const prefix of ['rv', 'p', 'r', 'ws', 'wt'] as const) {
+      for (const prefix of ['rv', 'p', 'r', 'tk'] as const) {
         expect(resolveSidRoute(`${prefix}-7qk3m`, { phone: false })).toBe('/work');
         expect(resolveSidRoute(`${prefix}-7qk3m`, { phone: true })).toBe('/inbox');
       }

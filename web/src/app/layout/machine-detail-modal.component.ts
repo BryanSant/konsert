@@ -85,10 +85,6 @@ import { MachineCredentialComponent } from './machine-credential.component';
           <div class="text-[#86888f] text-[10px]">Last Seen</div>
           <div class="font-mono-ide mt-0.5 text-[#d4d4d8] truncate">{{ lastSeenLabel() }}</div>
         </div>
-        <div class="rounded-lg bg-[#141518] px-3 py-2.5">
-          <div class="text-[#86888f] text-[10px]">Saved Spaces</div>
-          <div class="font-mono-ide mt-0.5 text-[#e4e4e7]">{{ savedSpacesCount() }}</div>
-        </div>
       </div>
 
       <!-- Worker ID row -->
@@ -538,11 +534,6 @@ export class MachineDetailModalComponent {
       .tasks()
       .filter((t) => t.worker_id === wid && (t.status === 'running' || t.status === 'waiting_input' || t.status === 'assigned' || t.status === 'suspended'))
       .length;
-  });
-
-  readonly savedSpacesCount = computed(() => {
-    const wid = this.worker().id;
-    return this.fleet.spaces().filter((s) => s.worker_id === wid).length;
   });
 
   /** The reported version, or "unknown" when the worker sent none. */
