@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,18 @@ import (
 var version = "dev"
 
 func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		var ec exitCodeError
+		if errors.As(err, &ec) {
+			// The elevated child already printed its error, relayed to this terminal.
+			os.Exit(ec.code)
+		}
+		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsertd", err)
+		os.Exit(1)
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		// Runtime errors are printed once, by main, without the usage text.
 		SilenceUsage:  true,
@@ -44,11 +57,8 @@ func main() {
 	rootCmd.AddCommand(newMCPBridgeCmd())
 	rootCmd.AddCommand(newJoinCmd(), newInstallCmd(), newUninstallCmd(), newStatusCmd())
 	rootCmd.AddCommand(newAttachCmd(), newHubKeyCmd())
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", "konsertd", err)
-		os.Exit(1)
-	}
+	rootCmd.AddCommand(newElevatedChildCmd())
+	return rootCmd
 }
 
 // runOptions are the `run` flags. `install` and `id` accept the same set, so the config

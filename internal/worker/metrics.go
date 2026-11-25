@@ -56,14 +56,6 @@ func (s *metricsSampler) collect(ctx context.Context, active bool, now time.Time
 	return m
 }
 
-// loadPercent estimates CPU % as the load average over the core count (capped at 100).
-func loadPercent(load, cores float64) float64 {
-	if cores <= 0 || load <= 0 {
-		return 0
-	}
-	return min(100, load/cores*100)
-}
-
 // readGPU and collectPorts fork tools; tests replace them.
 var readGPU = collectGPUPercent
 

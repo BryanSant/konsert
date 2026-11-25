@@ -12,6 +12,9 @@ const ServiceSupported = false
 
 var errServiceWindowsOnly = errors.New("--service is only available on Windows; on Linux and macOS `konsertd install` already runs the daemon as you, at boot (systemd with lingering) or login (launchd)")
 
+// ErrServiceAccessDenied means this account may not remove the service (Windows only).
+var ErrServiceAccessDenied = errors.New("this account may not remove the service")
+
 // ServiceOptions configures a native Windows service install.
 type ServiceOptions struct {
 	Account  string
@@ -30,6 +33,14 @@ func (in *Installer) InstallService(context.Context, Spec, ServiceOptions) error
 func (in *Installer) UninstallService(context.Context, string) error {
 	return errServiceWindowsOnly
 }
+
+// UninstallServiceSelf is Windows-only.
+func (in *Installer) UninstallServiceSelf(context.Context, string) error {
+	return errServiceWindowsOnly
+}
+
+// ServiceConfigs lists native-service instances: there are none outside Windows.
+func (in *Installer) ServiceConfigs() ([]InstalledConfig, error) { return nil, nil }
 
 // ServiceStatus is Windows-only.
 func (in *Installer) ServiceStatus(context.Context, string) (Status, error) {

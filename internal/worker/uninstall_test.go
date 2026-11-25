@@ -35,6 +35,10 @@ type sharedAccount struct {
 	grants   []string
 	killed   []int
 	procArgs map[int]string
+	// winServices are native Windows services (install --service) of this account;
+	// removedServices records their removal ("instance self=true").
+	winServices     []install.InstalledConfig
+	removedServices []string
 }
 
 func newSharedAccount(t *testing.T) *sharedAccount {
@@ -66,7 +70,41 @@ func (a *sharedAccount) uninstaller(self bool) *Uninstaller {
 		},
 		ProcArgs: func(pid int) (string, error) { return a.procArgs[pid], nil },
 		Kill:     func(pid int) error { a.killed = append(a.killed, pid); return nil },
+		ServiceConfigs: func() ([]install.InstalledConfig, error) {
+			return a.winServices, nil
+		},
+		RemoveService: func(_ context.Context, instance string, self bool) error {
+			a.removedServices = append(a.removedServices, instance+" self="+strconv.FormatBool(self))
+			for i, c := range a.winServices {
+				if c.Instance == instance {
+					_ = os.Remove(c.Path)
+					a.winServices = append(a.winServices[:i], a.winServices[i+1:]...)
+					break
+				}
+			}
+			return nil
+		},
 	}
+}
+
+// winService installs name as a native Windows service instance (install --service),
+// its config outside the per-user config dir.
+func (a *sharedAccount) winService(instance, name string) string {
+	a.t.Helper()
+	dir := filepath.Join(filepath.Dir(a.state), "programdata")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		a.t.Fatal(err)
+	}
+	file := "konsertd.yaml"
+	if instance != "" {
+		file = "konsertd-" + instance + ".yaml"
+	}
+	p := filepath.Join(dir, file)
+	if err := os.WriteFile(p, []byte("name: "+name+"\n"), 0o600); err != nil {
+		a.t.Fatal(err)
+	}
+	a.winServices = append(a.winServices, install.InstalledConfig{Instance: instance, Path: p})
+	return p
 }
 
 // identity writes name's identity file and returns its worker id.
@@ -324,5 +362,37 @@ func TestRemoveIdentityFindsContainerIdentity(t *testing.T) {
 	rep, err := a.uninstaller(false).RemoveIdentity(context.Background(), id, "")
 	if err != nil || !rep.Found || fileExists(cfg) {
 		t.Fatalf("rep=%+v err=%v", rep, err)
+	}
+}
+
+// A native Windows service (install --service) is found by identity like the other
+// mechanisms, and removed by the hub (over SSH, not elevated) or by the daemon itself
+// on 4001 with the self-safe sequence (KON-28HHD). The hooks go with the last one.
+func TestRemoveIdentityWindowsService(t *testing.T) {
+	a := newSharedAccount(t)
+	svcID := a.identity("builder")
+	other := a.identity("other")
+	svcCfg := a.winService("", "builder")
+	otherCfg := a.winService("other", "other")
+
+	rep, err := a.uninstaller(false).RemoveIdentity(context.Background(), svcID, "hub1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(a.removedServices, ";") != " self=false" || fileExists(svcCfg) || !fileExists(otherCfg) {
+		t.Errorf("removed %v; builder cfg left=%v other cfg left=%v", a.removedServices, fileExists(svcCfg), fileExists(otherCfg))
+	}
+	if rep.Services != 1 || !strings.Contains(strings.Join(rep.Removed, "\n"), "the Windows service for builder") {
+		t.Errorf("rep = %+v", rep)
+	}
+	if a.hooksRm != 0 {
+		t.Error("hooks removed while another konsertd remains")
+	}
+
+	if _, err := a.uninstaller(true).RemoveIdentity(context.Background(), other, ""); err != nil {
+		t.Fatal(err)
+	}
+	if a.removedServices[1] != "other self=true" || a.hooksRm != 1 {
+		t.Errorf("self removal: %v hooks=%d", a.removedServices, a.hooksRm)
 	}
 }
