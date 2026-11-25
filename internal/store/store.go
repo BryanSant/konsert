@@ -132,6 +132,7 @@ type Project struct {
 	HeadlineAt   *time.Time     `json:"headline_at,omitzero"`
 	VerifyCmd    string         `json:"verify_cmd,omitempty"`
 	Autonomy     AutonomyPolicy `json:"autonomy,omitzero"`
+	Autopilot    bool           `json:"autopilot"`
 	DeliveryMode string         `json:"delivery_mode,omitempty"`
 	MergeStyle   string         `json:"merge_style,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
@@ -531,6 +532,20 @@ type Store interface {
 
 	// Computed rollups (done/total, blocked, running) for initiative/epic containers; never stored.
 	GetTicketRollup(ctx context.Context, id string) (TicketRollup, error)
+
+	// Ticket leases & ready queue (SYR-DXMYY, docs/design/work.md).
+	// ClaimTicket atomically transitions a dispatchable ready ticket to running with a lease.
+	ClaimTicket(ctx context.Context, ticketID, workerID, taskID string, now time.Time, ttl time.Duration) (Ticket, bool, error)
+	// ReleaseTicket clears a ticket's lease and optionally transitions it to nextStatus.
+	ReleaseTicket(ctx context.Context, ticketID, nextStatus string) (Ticket, bool, error)
+	// RenewLeases extends lease_expires_at and lease_heartbeat_at for active leases held by workerID.
+	RenewLeases(ctx context.Context, workerID string, ticketIDs []string, now time.Time, ttl time.Duration) (int, error)
+	// ExpireLeases transitions tickets whose leases expired at or before now per their orphan_policy.
+	ExpireLeases(ctx context.Context, now time.Time) ([]ExpiredTicketLease, error)
+	// ListDispatchableTickets returns ready, unblocked, repo-bound, unheld tickets ordered by priority then created_at.
+	ListDispatchableTickets(ctx context.Context, projectID string, limit int) ([]Ticket, error)
+	// ListLeasedTicketsByWorker returns tickets currently leased to workerID.
+	ListLeasedTicketsByWorker(ctx context.Context, workerID string) ([]Ticket, error)
 
 	// Create* insert a record; an empty ID gets a new UUIDv7 and an empty SID a fresh sid.
 	CreateTask(ctx context.Context, t Task) error

@@ -16,6 +16,7 @@ type WorkerSelector struct {
 	Name           string            `json:"name,omitempty"` // named host match (e.g. "foo1")
 	HostGroup      string            `json:"host_group,omitempty"`
 	OS             string            `json:"os,omitempty"`             // "darwin"/"macos", "linux", "windows"
+	Arch           string            `json:"arch,omitempty"`           // "amd64", "arm64", ...
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm"
 	RequiredTools  map[string]string `json:"required_tools,omitempty"` // e.g. {"postgres": "18", "gcloud": ""}
 	RequiredAuth   []string          `json:"required_auth,omitempty"`  // e.g. ["gcloud", "gh"]
@@ -126,6 +127,9 @@ func workerMatchesSelector(
 		return false
 	}
 	if selector.OS != "" && normalizeOSName(w.OS) != normalizeOSName(selector.OS) {
+		return false
+	}
+	if selector.Arch != "" && !strings.EqualFold(w.Arch, strings.TrimSpace(selector.Arch)) {
 		return false
 	}
 	if agent != "" && !slices.Contains(w.Agents, agent) {

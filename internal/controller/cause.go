@@ -160,6 +160,7 @@ func (h *Hub) setTaskStatus(ctx context.Context, id, status, summary, gitJSON st
 	}
 	if prev != status {
 		h.recordTaskTransition(ctx, t, prev, cause, summary)
+		h.syncTicketFromTaskStatus(ctx, t, prev)
 	}
 	h.broadcastFleetUpdate("task", t)
 	if protocol.IsTerminalTaskStatus(t.Status) {

@@ -46,6 +46,7 @@ func (h *Hub) RunReaper(ctx context.Context) {
 				h.reapStaleWorkers(ctx)
 			}
 			h.sweepControl(ctx, now.UTC())
+			h.expireTicketLeases(ctx, now.UTC())
 		}
 	}
 }
@@ -89,6 +90,11 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 	}()
 	for _, t := range tasks {
 		if protocol.IsTerminalTaskStatus(t.Status) || t.Status == protocol.TaskStatusQueued {
+			continue
+		}
+		// Ticket-backed tasks are governed by the ticket's lease TTL and orphan policy
+		// (expireTicketLeases); leave them alone until the lease expires.
+		if h.isTaskLeasedTicket(ctx, t) {
 			continue
 		}
 		h.forgetTask(t.ID)

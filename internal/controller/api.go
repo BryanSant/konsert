@@ -230,6 +230,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListExternalRefs)))
 	s.mux.Handle("POST /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handlePutExternalRef)))
 	s.mux.Handle("DELETE /api/tickets/{id}/refs", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleRemoveExternalRef)))
+	s.mux.Handle("POST /api/tickets/{id}/requeue", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleRequeueTicket)))
+	s.mux.Handle("POST /api/tickets/{id}/cancel", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleCancelTicket)))
 	s.mux.Handle("GET /api/sessions/defaults", s.requireBrowserAuth(s.handleSessionDefaults))
 	s.mux.Handle("POST /api/sessions", s.requireBrowserAuth(s.handleCreateTask))
 	s.mux.Handle("GET /api/settings", s.requireBrowserAuth(s.handleGetSettings))
@@ -731,6 +733,8 @@ type settingsResponse struct {
 	// Global delivery defaults (SYR-H50YW).
 	DefaultDeliveryMode string `json:"default_delivery_mode"`
 	DefaultMergeStyle   string `json:"default_merge_style"`
+	// TicketLeaseTTLSeconds is how long a ticket lease lasts without a heartbeat (default 600 = 10m).
+	TicketLeaseTTLSeconds int `json:"ticket_lease_ttl_seconds"`
 	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -774,6 +778,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		DeviceIdleDays:        deviceIdleDays(saved),
 		DefaultDeliveryMode:   saved[deliveryModeSetting],
 		DefaultMergeStyle:     firstNonEmpty(saved[mergeStyleSetting], store.MergeStyleSquash),
+		TicketLeaseTTLSeconds: int(s.hub.ticketLeaseTTL(ctx).Seconds()),
 		CommanderBackend:      store.ChatBackendAgent,
 		CommanderChatID:       saved[commanderChatSetting],
 	}

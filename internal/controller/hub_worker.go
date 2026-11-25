@@ -496,7 +496,8 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 
 	// Update-only: if the machine was just removed from the fleet, the heartbeat
 	// must not recreate its row (a read-then-upsert here left ghost workers).
-	if err := h.store.TouchWorker(ctx, wc.id, time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	if err := h.store.TouchWorker(ctx, wc.id, now); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			// Removed while this connection was still registering: tell syred to stop.
 			h.logger.Info("heartbeat from a removed worker; closing its connection", "worker_id", wc.id)
@@ -505,6 +506,7 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		}
 		return
 	}
+	h.renewWorkerTicketLeases(ctx, wc.id, p.ActiveTaskIDs, now)
 	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
 		metrics := p.Metrics
 		if metrics == nil {

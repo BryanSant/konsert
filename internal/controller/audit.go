@@ -38,6 +38,9 @@ const (
 	// Review & delivery (SYR-H50YW).
 	AuditTaskReview  = "task.review"
 	AuditTaskDeliver = "task.deliver"
+	// Ticket lease interventions (SYR-DXMYY).
+	AuditTicketRequeue = "ticket.requeue"
+	AuditTicketCancel  = "ticket.cancel"
 )
 
 // Audit sources: the path an action arrived through.

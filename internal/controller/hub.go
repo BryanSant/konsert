@@ -125,6 +125,8 @@ type Hub struct {
 	// Configurable for tests (defaults to 30s timeout, 10s check interval).
 	StaleWorkerTimeout time.Duration
 	ReapInterval       time.Duration
+	// TicketLeaseTTL overrides the ticket lease TTL (0 uses controller setting / 10m default).
+	TicketLeaseTTL time.Duration
 
 	// LinkQuiet and LinkDead override the worker link liveness intervals (linkwatch:
 	// ping after 15 s quiet, dead after 45 s silent). Tests shorten them.

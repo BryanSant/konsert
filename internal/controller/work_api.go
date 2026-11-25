@@ -61,6 +61,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		Name         string               `json:"name"`
 		VerifyCmd    string               `json:"verify_cmd"`
 		Autonomy     store.AutonomyPolicy `json:"autonomy"`
+		Autopilot    bool                 `json:"autopilot"`
 		DeliveryMode string               `json:"delivery_mode"`
 		MergeStyle   string               `json:"merge_style"`
 	}
@@ -94,6 +95,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		IsDefault:    false,
 		VerifyCmd:    strings.TrimSpace(body.VerifyCmd),
 		Autonomy:     body.Autonomy,
+		Autopilot:    body.Autopilot,
 		DeliveryMode: body.DeliveryMode,
 		MergeStyle:   body.MergeStyle,
 		CreatedAt:    time.Now().UTC(),
@@ -117,6 +119,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		Name         *string               `json:"name"`
 		VerifyCmd    *string               `json:"verify_cmd"`
 		Autonomy     *store.AutonomyPolicy `json:"autonomy"`
+		Autopilot    *bool                 `json:"autopilot"`
 		DeliveryMode *string               `json:"delivery_mode"`
 		MergeStyle   *string               `json:"merge_style"`
 	}
@@ -135,6 +138,13 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Autonomy != nil {
 		proj.Autonomy = *body.Autonomy
+	}
+	autopilotTurnedOn := false
+	if body.Autopilot != nil {
+		if *body.Autopilot && !proj.Autopilot {
+			autopilotTurnedOn = true
+		}
+		proj.Autopilot = *body.Autopilot
 	}
 	if body.DeliveryMode != nil {
 		mode := strings.TrimSpace(*body.DeliveryMode)
@@ -157,6 +167,9 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("project", proj)
+	if autopilotTurnedOn {
+		s.hub.kickScheduler()
+	}
 	writeJSON(w, http.StatusOK, proj)
 }
 
@@ -360,18 +373,19 @@ func (s *Server) handleListTickets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ProjectID  string                 `json:"project_id"`
-		ParentID   string                 `json:"parent_id"`
-		Kind       string                 `json:"kind"`
-		Title      string                 `json:"title"`
-		Body       string                 `json:"body"`
-		Acceptance []store.AcceptanceItem `json:"acceptance"`
-		Labels     []string               `json:"labels"`
-		Priority   string                 `json:"priority"`
-		Status     string                 `json:"status"`
-		Hints      store.TicketHints      `json:"hints"`
-		VerifyCmd  string                 `json:"verify_cmd"`
-		Autonomy   store.AutonomyPolicy   `json:"autonomy"`
+		ProjectID    string                 `json:"project_id"`
+		ParentID     string                 `json:"parent_id"`
+		Kind         string                 `json:"kind"`
+		Title        string                 `json:"title"`
+		Body         string                 `json:"body"`
+		Acceptance   []store.AcceptanceItem `json:"acceptance"`
+		Labels       []string               `json:"labels"`
+		Priority     string                 `json:"priority"`
+		Status       string                 `json:"status"`
+		OrphanPolicy string                 `json:"orphan_policy"`
+		Hints        store.TicketHints      `json:"hints"`
+		VerifyCmd    string                 `json:"verify_cmd"`
+		Autonomy     store.AutonomyPolicy   `json:"autonomy"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -382,18 +396,19 @@ func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	parentID := resolveRef(r.Context(), s.store, ids.Ticket, strings.TrimSpace(body.ParentID))
 	tk, err := s.store.CreateTicket(r.Context(), store.Ticket{
-		ProjectID:  projID,
-		ParentID:   parentID,
-		Kind:       body.Kind,
-		Title:      body.Title,
-		Body:       body.Body,
-		Acceptance: body.Acceptance,
-		Labels:     body.Labels,
-		Priority:   body.Priority,
-		Status:     body.Status,
-		Hints:      body.Hints,
-		VerifyCmd:  strings.TrimSpace(body.VerifyCmd),
-		Autonomy:   body.Autonomy,
+		ProjectID:    projID,
+		ParentID:     parentID,
+		Kind:         body.Kind,
+		Title:        body.Title,
+		Body:         body.Body,
+		Acceptance:   body.Acceptance,
+		Labels:       body.Labels,
+		Priority:     body.Priority,
+		Status:       body.Status,
+		OrphanPolicy: body.OrphanPolicy,
+		Hints:        body.Hints,
+		VerifyCmd:    strings.TrimSpace(body.VerifyCmd),
+		Autonomy:     body.Autonomy,
 	})
 	if err != nil {
 		writeWorkError(w, err)
@@ -435,17 +450,18 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ParentID   *string                 `json:"parent_id"`
-		Kind       *string                 `json:"kind"`
-		Title      *string                 `json:"title"`
-		Body       *string                 `json:"body"`
-		Acceptance *[]store.AcceptanceItem `json:"acceptance"`
-		Labels     *[]string               `json:"labels"`
-		Priority   *string                 `json:"priority"`
-		Status     *string                 `json:"status"`
-		Hints      *store.TicketHints      `json:"hints"`
-		VerifyCmd  *string                 `json:"verify_cmd"`
-		Autonomy   *store.AutonomyPolicy   `json:"autonomy"`
+		ParentID     *string                 `json:"parent_id"`
+		Kind         *string                 `json:"kind"`
+		Title        *string                 `json:"title"`
+		Body         *string                 `json:"body"`
+		Acceptance   *[]store.AcceptanceItem `json:"acceptance"`
+		Labels       *[]string               `json:"labels"`
+		Priority     *string                 `json:"priority"`
+		Status       *string                 `json:"status"`
+		OrphanPolicy *string                 `json:"orphan_policy"`
+		Hints        *store.TicketHints      `json:"hints"`
+		VerifyCmd    *string                 `json:"verify_cmd"`
+		Autonomy     *store.AutonomyPolicy   `json:"autonomy"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -474,6 +490,9 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 	if body.Status != nil {
 		tk.Status = *body.Status
 	}
+	if body.OrphanPolicy != nil {
+		tk.OrphanPolicy = *body.OrphanPolicy
+	}
 	if body.Hints != nil {
 		tk.Hints = *body.Hints
 	}
@@ -489,6 +508,9 @@ func (s *Server) handleUpdateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.broadcastFleetUpdate("ticket", updated)
+	if updated.Status == store.TicketStatusReady || updated.Status == store.TicketStatusDone || updated.Status == store.TicketStatusReview {
+		s.hub.kickScheduler()
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -510,6 +532,42 @@ func (s *Server) handleGetTicketRollup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, rollup)
+}
+
+func (s *Server) handleRequeueTicket(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Note string `json:"note"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+	}
+	updated, err := s.hub.RequeueTicket(r.Context(), id, body.Note)
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) handleCancelTicket(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Note string `json:"note"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+	}
+	updated, err := s.hub.CancelTicket(r.Context(), id, body.Note)
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // --- Ticket Edges ---
