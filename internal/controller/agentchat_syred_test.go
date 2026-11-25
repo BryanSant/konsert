@@ -88,6 +88,9 @@ func TestAgentChatWithRealSyredMockEngine(t *testing.T) {
 
 	send("hello")
 	if ev := last(waitTurn(nil)); ev.Kind != protocol.EventTurnEnd {
+		if ev.Error != nil {
+			t.Fatalf("hello turn ended with error %+v (event %+v)", *ev.Error, ev)
+		}
 		t.Fatalf("hello turn ended with %+v", ev)
 	}
 	if s := mustSession(t, cs.st, chat.ID); s.Status != protocol.ChatStatusDone {
