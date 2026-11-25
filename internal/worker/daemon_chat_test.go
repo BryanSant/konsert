@@ -156,25 +156,24 @@ func TestDaemonAgentChatRouting(t *testing.T) {
 	}))
 }
 
-func TestDaemonBuffersChatEventsWhileDisconnected(t *testing.T) {
+func TestDaemonSpoolsChatEventsWhileDisconnected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv(StateDirEnv, t.TempDir())
 	d := NewDaemon(config.WorkerConfig{WorkerID: "buf-worker", Name: "buf-worker", EnableMockDriver: true}, nil, nil)
-	defer d.shutdownChat()
+	defer d.shutdown()
 	d.sendChatEvent(protocol.AgentChatEvent{ChatID: "c", Seq: 1, Kind: protocol.EventMessageDelta})
 	d.sendChatEvent(protocol.AgentChatEvent{ChatID: "c", Seq: 2, Kind: protocol.EventTurnEnd})
-	q := newConnQueues()
-	d.attachQueues(q)
-	for want := int64(1); want <= 2; want++ {
-		msg, ok := q.popControl()
-		if !ok {
-			t.Fatalf("event %d not flushed", want)
-		}
-		env, err := protocol.DecodeEnvelope(msg.data)
+	recs, _ := d.spool.Read(1, 10, 1<<20)
+	if len(recs) != 2 {
+		t.Fatalf("spooled %d events, want 2", len(recs))
+	}
+	for i, r := range recs {
+		env, err := protocol.DecodeEnvelope(r.Data)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev := chatEvent(t, env); ev.Seq != want {
-			t.Fatalf("flushed seq %d, want %d", ev.Seq, want)
+		if ev := chatEvent(t, env); ev.Seq != int64(i+1) {
+			t.Fatalf("spooled chat seq %d, want %d", ev.Seq, i+1)
 		}
 	}
 }

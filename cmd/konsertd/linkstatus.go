@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/config"
+	"github.com/BryanSant/konsert/internal/protocol"
 	"github.com/BryanSant/konsert/internal/worker"
 )
 
@@ -101,6 +102,37 @@ func writeLinkStatus(w io.Writer, ls worker.LinkStatus, now time.Time, alive boo
 		}
 		fmt.Fprintf(w, "  Next try   : %s (%d failed so far)\n", next, ls.Attempts)
 	}
+	writeSpoolStatus(w, ls.Spool, now)
+}
+
+// writeSpoolStatus adds the outbound spool (what is kept for the hub) to `konsertd status`.
+func writeSpoolStatus(w io.Writer, sp *protocol.SpoolStatus, now time.Time) {
+	if sp == nil {
+		return
+	}
+	line := fmt.Sprintf("%s of %s", mb(sp.Bytes), mb(sp.BudgetBytes))
+	if sp.Records > 0 {
+		line += fmt.Sprintf(", %d records not yet acknowledged", sp.Records)
+	}
+	if !sp.OldestUnsentAt.IsZero() {
+		line += ", oldest unsent " + agoText(now.Sub(sp.OldestUnsentAt))
+	} else {
+		line += ", everything sent"
+	}
+	fmt.Fprintf(w, "  Spool      : %s\n", line)
+	if sp.Replaying {
+		fmt.Fprintf(w, "  Replay     : %d of %d records sent\n", sp.ReplaySent, sp.ReplayTotal)
+	}
+	if sp.Full {
+		fmt.Fprintf(w, "  SPOOL FULL : %s: vitals and activity are no longer kept (%d dropped); transcripts, task events, statuses and questions still are\n", sp.FullReason, sp.Dropped)
+	}
+	if sp.Error != "" {
+		fmt.Fprintf(w, "  Spool error: %s (messages are sent without being kept)\n", sp.Error)
+	}
+}
+
+func mb(n int64) string {
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }
 
 func agoText(d time.Duration) string {

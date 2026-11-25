@@ -5,11 +5,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/BryanSant/konsert/internal/protocol"
+	"github.com/BryanSant/konsert/internal/worker/spool"
 	"github.com/coder/websocket"
 )
 
@@ -37,22 +37,30 @@ func TestConnQueuesPriorityAndDropPolicy(t *testing.T) {
 		t.Fatalf("expected all %d control messages kept, got %d", controls, got)
 	}
 
-	// The writer emits every control message before any PTY frame, and outbox statuses
-	// before PTY frames too.
-	d := &Daemon{outbox: newStatusOutbox("", discardLogger()), logger: discardLogger()}
-	d.outbox.add(protocol.TaskStatusPayload{TaskID: "t1", Status: protocol.TaskStatusCompleted})
+	// The writer emits every control message before any PTY frame, and spooled records
+	// (here a final status) after control messages and before PTY frames.
+	sp, err := spool.Open(spool.Options{Dir: t.TempDir(), SyncEvery: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sp.Close()
+	d := &Daemon{spool: sp, logger: discardLogger()}
+	d.sendJSON(protocol.MsgTaskStatus, protocol.TaskStatusPayload{TaskID: "t1", Status: protocol.TaskStatusCompleted})
+	sc := newSpoolConn()
+	_, last := sp.Bounds()
+	sc.resume(0, last)
 	var order []string
 	ctx, cancel := context.WithCancel(context.Background())
 	stop := errors.New("stop")
-	err := d.writeLoop(ctx, q, func(m outboundMsg) error {
+	err = d.writeLoop(ctx, q, sc, func(m outboundMsg) error {
 		switch {
 		case m.droppable:
 			order = append(order, "pty")
-		case len(m.data) > 0 && string(m.data[:8]) == `{"type":`:
+		default:
 			env, _ := protocol.DecodeEnvelope(m.data)
 			order = append(order, env.Type)
 		}
-		if len(order) == controls+1+ptyQueueSize {
+		if len(order) == controls+2+ptyQueueSize {
 			cancel()
 			return stop
 		}
@@ -66,40 +74,13 @@ func TestConnQueuesPriorityAndDropPolicy(t *testing.T) {
 			t.Fatalf("position %d: expected control message, got %s", i, order[i])
 		}
 	}
-	if order[controls] != protocol.MsgTaskStatus {
-		t.Fatalf("expected outbox status after control messages, got %s", order[controls])
+	if order[controls] != protocol.MsgTaskStatus || order[controls+1] != protocol.MsgWorkerSpoolCaughtUp {
+		t.Fatalf("expected the spooled status and caught_up after control messages, got %s, %s", order[controls], order[controls+1])
 	}
-	for _, o := range order[controls+1:] {
+	for _, o := range order[controls+2:] {
 		if o != "pty" {
 			t.Fatalf("expected only PTY frames last, got %s", o)
 		}
-	}
-	if len(d.outbox.pending()) != 0 {
-		t.Fatal("written outbox entry not removed")
-	}
-}
-
-func TestStatusOutboxPersistsAcrossRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "outbox-w.json")
-	o := newStatusOutbox(path, discardLogger())
-	o.add(protocol.TaskStatusPayload{TaskID: "a", Status: protocol.TaskStatusFailed})
-	o.add(protocol.TaskStatusPayload{TaskID: "b", Status: protocol.TaskStatusCompleted})
-	o.add(protocol.TaskStatusPayload{TaskID: "a", Status: protocol.TaskStatusCanceled}) // replaces a
-
-	o2 := newStatusOutbox(path, discardLogger())
-	got := o2.pending()
-	if len(got) != 2 || got[0].Status.TaskID != "b" || got[1].Status.TaskID != "a" || got[1].Status.Status != protocol.TaskStatusCanceled {
-		t.Fatalf("unexpected reloaded outbox: %+v", got)
-	}
-	select {
-	case <-o2.signal:
-	default:
-		t.Fatal("reloaded non-empty outbox should be signalled for flushing")
-	}
-	o2.remove(got[0].Seq)
-	o2.remove(got[1].Seq)
-	if o3 := newStatusOutbox(path, discardLogger()); len(o3.pending()) != 0 {
-		t.Fatalf("outbox not cleared on disk: %+v", o3.pending())
 	}
 }
 

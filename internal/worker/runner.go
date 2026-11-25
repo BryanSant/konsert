@@ -41,6 +41,9 @@ type runningTask struct {
 	startedAt    time.Time
 	pty          PtyProcess
 	ring         *RingBuffer
+	// scroll keeps the terminal output on disk for a redraw after the task ended or
+	// konsertd restarted (nil without a scrollback directory).
+	scroll       *scrollback
 	streamActive atomic.Bool
 	cancelFunc   context.CancelFunc
 	// deadline is the task timeout; it does not run while the task is suspended.
@@ -77,6 +80,17 @@ type Runner struct {
 
 	// commands keeps full terminal command lines in memory for shellint.HistoryTTL.
 	commands *shellint.History
+
+	// scrollDir holds each PTY task's on-disk scrollback ("": none; scrollback.go).
+	scrollDir string
+}
+
+// SetScrollbackDir keeps PTY tasks' terminal output in dir (call before tasks start).
+func (r *Runner) SetScrollbackDir(dir string) {
+	r.mu.Lock()
+	r.scrollDir = dir
+	r.mu.Unlock()
+	go pruneScrollback(dir, scrollbackKeep)
 }
 
 // CommandHistory returns the in-memory history of commands run in Konsert terminals
@@ -441,6 +455,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		startedAt:    time.Now().UTC(),
 		pty:          proc,
 		ring:         NewRingBuffer(DefaultRingBufferSize),
+		scroll:       openScrollback(r.scrollbackDir(), req.TaskID),
 		cancelFunc:   cancel,
 		deadline:     deadline,
 		status:       protocol.TaskStatusRunning,
@@ -480,6 +495,7 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		rt.cancelFunc()
 		rt.deadline.stop()
 		_ = rt.pty.Close()
+		rt.scroll.Close()
 		r.mu.Lock()
 		// Only remove our own entry: never a newer task that reuses the ID.
 		if r.tasks[rt.id] == rt {
@@ -689,6 +705,7 @@ func (r *Runner) forwardPtyOutput(rt *runningTask, chunk []byte, ls *lineSplitte
 		return
 	}
 	_, _ = rt.ring.Write(chunk)
+	rt.scroll.Write(chunk)
 	ls.feed(chunk, emit)
 	if rt.streamActive.Load() && r.callbacks.OnPtyFrame != nil {
 		r.callbacks.OnPtyFrame(protocol.FramePtyData, rt.id, chunk)
@@ -758,9 +775,19 @@ func (r *Runner) SubscribePty(taskID string) bool {
 			return true
 		}
 	}
+	dir := r.scrollDir
 	r.mu.Unlock()
 	if !ok {
-		return false
+		// An ended task (or one from before a konsertd restart): redraw its terminal
+		// from the on-disk scrollback.
+		snap := readScrollback(dir, taskID, DefaultRingBufferSize)
+		if len(snap) == 0 {
+			return false
+		}
+		if r.callbacks.OnPtyFrame != nil {
+			r.callbacks.OnPtyFrame(protocol.FramePtySnapshot, taskID, snap)
+		}
+		return true
 	}
 
 	snap := rt.ring.Snapshot()
@@ -769,6 +796,12 @@ func (r *Runner) SubscribePty(taskID string) bool {
 	}
 	rt.streamActive.Store(true)
 	return true
+}
+
+func (r *Runner) scrollbackDir() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.scrollDir
 }
 
 // UnsubscribePty stops live PTY byte streaming while keeping the local ring buffer updated.

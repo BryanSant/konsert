@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/konsert/internal/install"
+	"github.com/BryanSant/konsert/internal/protocol"
 )
 
 // Link state (KON-G8WA3). The running daemon keeps <stateDir>/run/<worker id>.link.json
@@ -43,8 +44,10 @@ type LinkStatus struct {
 	LastError   string    `json:"last_error,omitempty"`
 	NextAttempt time.Time `json:"next_attempt,omitzero"`
 	// Attempts counts failed attempts since the link was last up.
-	Attempts  int       `json:"attempts,omitzero"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Attempts int `json:"attempts,omitzero"`
+	// Spool is the outbound spool's state (nil without a spool).
+	Spool     *protocol.SpoolStatus `json:"spool,omitzero"`
+	UpdatedAt time.Time             `json:"updated_at"`
 }
 
 // LinkStatusPath is where the daemon with workerID keeps its link state ("" without a
@@ -177,6 +180,20 @@ func (t *linkTracker) stopped() {
 	}
 	t.writeLocked(n)
 	t.mu.Unlock()
+}
+
+// setSpool records the spool's state (written at most every 2 s unless it changed
+// shape: replaying, full).
+func (t *linkTracker) setSpool(st *protocol.SpoolStatus) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := t.now()
+	prev := t.st.Spool
+	t.st.Spool = st
+	if prev != nil && st != nil && prev.Replaying == st.Replaying && prev.Full == st.Full && n.Sub(t.st.UpdatedAt) < 2*time.Second {
+		return
+	}
+	t.writeLocked(n)
 }
 
 // forget stops writing the state file (the daemon is being uninstalled; its state goes
