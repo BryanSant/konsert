@@ -120,36 +120,26 @@ func (p *unixPtyProcess) Interrupt() error {
 }
 
 func (p *unixPtyProcess) Terminate() error {
+	return p.TerminateWithGrace(5 * time.Second)
+}
+
+func (p *unixPtyProcess) TerminateWithGrace(grace time.Duration) error {
 	if p.pgid <= 0 {
 		return nil
 	}
-	// Escalation: SIGINT -> SIGTERM -> SIGKILL on the process group.
-	_ = syscall.Kill(-p.pgid, syscall.SIGINT)
-
-	done := make(chan struct{})
-	go func() {
-		_, _ = p.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
+	return terminateWithGrace(grace, p.Interrupt, p.Wait, func() error {
+		err := syscall.Kill(-p.pgid, syscall.SIGKILL)
+		if err != nil && !errors.Is(err, syscall.ESRCH) {
+			if perr := syscall.Kill(p.pgid, syscall.SIGKILL); perr != nil && !errors.Is(perr, syscall.ESRCH) {
+				return perr
+			}
+			return nil
+		}
+		if errors.Is(err, syscall.ESRCH) {
+			_ = syscall.Kill(p.pgid, syscall.SIGKILL)
+		}
 		return nil
-	case <-time.After(2 * time.Second):
-	}
-
-	_ = syscall.Kill(-p.pgid, syscall.SIGTERM)
-	select {
-	case <-done:
-		return nil
-	case <-time.After(3 * time.Second):
-	}
-
-	if err := syscall.Kill(-p.pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-	<-done
-	return nil
+	})
 }
 
 func (p *unixPtyProcess) Wait() (int, error) {

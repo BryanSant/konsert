@@ -58,10 +58,11 @@ type runningTask struct {
 	shellParser  *shellint.Parser
 	shellTracker *shellint.Tracker
 
-	mu       sync.Mutex
-	status   string
-	canceled bool
-	events   []drivers.TelemetryEvent
+	mu        sync.Mutex
+	status    string
+	canceled  bool
+	stopGrace time.Duration
+	events    []drivers.TelemetryEvent
 	// suspended is set while the process tree is frozen; prevStatus is restored on resume.
 	suspended  bool
 	prevStatus string
@@ -589,7 +590,14 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = rt.pty.Terminate()
+			rt.mu.Lock()
+			grace := rt.stopGrace
+			rt.mu.Unlock()
+			if grace > 0 {
+				_ = rt.pty.TerminateWithGrace(grace)
+			} else {
+				_ = rt.pty.Terminate()
+			}
 		case <-stopWatch:
 		}
 	}()
@@ -1040,9 +1048,23 @@ func (r *Runner) ResizePty(taskID string, cols, rows uint16) error {
 	return rt.pty.Resize(cols, rows)
 }
 
-// CancelTask cancels a running task with process-group signal escalation. A task that is
+// CancelTask cancels a running task with the default grace period (10s). A task that is
 // still in setup (git worktree, PTY spawn) is aborted before it launches.
 func (r *Runner) CancelTask(taskID string) error {
+	return r.CancelTaskWithGrace(taskID, time.Duration(protocol.DefaultStopGraceS)*time.Second)
+}
+
+// CancelTaskWithGrace sends a graceful interrupt to taskID, waits up to grace (clamped to
+// MaxStopGraceS; default DefaultStopGraceS when <= 0), and then kills its process group /
+// job object.
+func (r *Runner) CancelTaskWithGrace(taskID string, grace time.Duration) error {
+	if grace <= 0 {
+		grace = time.Duration(protocol.DefaultStopGraceS) * time.Second
+	}
+	maxGrace := time.Duration(protocol.MaxStopGraceS) * time.Second
+	if grace > maxGrace {
+		grace = maxGrace
+	}
 	r.mu.Lock()
 	rt, ok := r.tasks[taskID]
 	if !ok {
@@ -1059,6 +1081,7 @@ func (r *Runner) CancelTask(taskID string) error {
 	}
 	rt.mu.Lock()
 	rt.canceled = true
+	rt.stopGrace = grace
 	rt.mu.Unlock()
 	// A frozen process tree can't handle SIGINT/SIGTERM: thaw it first.
 	_ = r.ResumeTask(taskID)

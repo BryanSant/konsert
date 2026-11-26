@@ -283,6 +283,9 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 				d.chat.DiscardChat(p.ChatID)
 				d.activity.Forget("chat:" + p.ChatID)
 				d.shells.Forget("chat:" + p.ChatID)
+			} else if p.CancelTurn {
+				grace := time.Duration(protocol.NormalizeStopGraceS(p.GraceS)) * time.Second
+				d.chat.StopChat(p.ChatID, grace)
 			} else {
 				d.chat.CloseChat(p.ChatID)
 			}

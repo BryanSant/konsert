@@ -413,6 +413,71 @@ func (m *Manager) CloseChat(chatID string) {
 	m.enqueue(c, func() { m.closeSession(c, "closed by hub") })
 }
 
+// StopChat performs a graceful stop of an agent chat: thaws if suspended, cancels any
+// in-flight turn, waits up to grace (default 10s, max 300s) for the turn to end, and
+// then closes the session (killing the engine process group / job object if still alive).
+func (m *Manager) StopChat(chatID string, grace time.Duration) {
+	if grace <= 0 {
+		grace = time.Duration(protocol.DefaultStopGraceS) * time.Second
+	}
+	maxGrace := time.Duration(protocol.MaxStopGraceS) * time.Second
+	if grace > maxGrace {
+		grace = maxGrace
+	}
+	c := m.chat(chatID, false)
+	if c == nil {
+		return
+	}
+	m.enqueue(c, func() {
+		c.mu.Lock()
+		sess := c.sess
+		turnActive := c.turnActive
+		gen := c.gen
+		c.mu.Unlock()
+		if sess == nil {
+			return
+		}
+		m.thawForClose(c, sess)
+		if !turnActive {
+			m.closeSession(c, "stopped by hub")
+			return
+		}
+		m.doControl(c, protocol.AgentChatControl{ChatID: chatID, Cancel: true})
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			deadline := time.NewTimer(grace)
+			defer deadline.Stop()
+			tick := time.NewTicker(25 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				c.mu.Lock()
+				done := c.gen != gen || !c.turnActive || c.sess == nil
+				c.mu.Unlock()
+				if done {
+					break
+				}
+				select {
+				case <-deadline.C:
+					goto closeNow
+				case <-m.stop:
+					goto closeNow
+				case <-tick.C:
+				}
+			}
+		closeNow:
+			m.enqueue(c, func() {
+				c.mu.Lock()
+				same := c.gen == gen && c.sess != nil
+				c.mu.Unlock()
+				if same {
+					m.closeSession(c, "stopped by hub")
+				}
+			})
+		}()
+	})
+}
+
 // Discarder is implemented by engines that can delete what they stored for a session
 // (a side-conversation fork that is no longer needed).
 type Discarder interface {

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/BryanSant/syre/internal/tokenbudget"
 )
 
 // PacketMaxTokens is the hard token budget for DispatchPacket.Text() (docs/design/autopilot.md).
-const PacketMaxTokens = 300
+const PacketMaxTokens = tokenbudget.Packet
 
 // DispatchPacketRepo describes one repo worktree bound to a ticket.
 type DispatchPacketRepo struct {

@@ -131,6 +131,10 @@ type AgentChatClose struct {
 	// Discard also deletes what the engine stored for this chat's agent session (a
 	// side-conversation fork that is no longer needed), when the agent supports it.
 	Discard bool `json:"discard,omitzero"`
+	// CancelTurn requests a graceful stop: cancel any in-flight turn, wait up to
+	// GraceS (default 10, max 300) for it to finish, then close/kill the session.
+	CancelTurn bool `json:"cancel_turn,omitzero"`
+	GraceS     int  `json:"grace_s,omitzero"`
 }
 
 // Event kinds.

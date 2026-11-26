@@ -972,13 +972,23 @@ func (s *FleetService) SteerTask(ctx context.Context, taskID, inputText string, 
 }
 
 func (s *FleetService) CancelTask(ctx context.Context, taskID string) (ActionResult, error) {
-	return s.hub.cancelTask(ctx, resolveRef(ctx, s.store, ids.Task, taskID), "")
+	return s.hub.cancelTaskWithGrace(ctx, resolveRef(ctx, s.store, ids.Task, taskID), "", protocol.DefaultStopGraceS)
 }
 
-// cancelTask cancels a task with the cause in ctx. note (a veto reason) is added to the
-// audit message. A cancel by the user that no agent asked for places a hold on the
-// session so the commander doesn't simply restart it.
+func (s *FleetService) CancelTaskWithGrace(ctx context.Context, taskID string, graceS int) (ActionResult, error) {
+	return s.hub.cancelTaskWithGrace(ctx, resolveRef(ctx, s.store, ids.Task, taskID), "", graceS)
+}
+
+// cancelTask cancels a task with the cause in ctx using the default grace period.
 func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult, error) {
+	return h.cancelTaskWithGrace(ctx, taskID, note, protocol.DefaultStopGraceS)
+}
+
+// cancelTaskWithGrace cancels a task with the cause in ctx and a normalized grace period.
+// note (a veto reason) is added to the audit message. A cancel by the user that no agent
+// asked for places a hold on the session so the commander doesn't simply restart it.
+func (h *Hub) cancelTaskWithGrace(ctx context.Context, taskID, note string, graceS int) (ActionResult, error) {
+	graceS = protocol.NormalizeStopGraceS(graceS)
 	t, err := h.store.GetTask(ctx, taskID)
 	if err != nil {
 		return ActionResult{}, err
@@ -1001,12 +1011,12 @@ func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult
 			WorkerID: t.WorkerID,
 			TaskID:   taskID,
 			Message:  msg,
-			MetaJSON: auditMeta(map[string]any{"prior_status": t.Status}),
+			MetaJSON: auditMeta(map[string]any{"prior_status": t.Status, "grace_s": graceS}),
 		})
 	}
 	defer h.beginDeliveryBatch()()
 	h.recordIntervention(ctx, cause, "cancel", t.WorkerID, t.ID, t.ParentChatID,
-		fmt.Sprintf("%s canceled task %s (%s) on %s", capitalize(describeActor(cause)), t.SID, t.Agent, h.workerLabel(ctx, t.WorkerID)))
+		fmt.Sprintf("%s canceled task %s (%s) on %s (grace %ds)", capitalize(describeActor(cause)), t.SID, t.Agent, h.workerLabel(ctx, t.WorkerID), graceS))
 	hold := func() {
 		h.holdAfterIntervention(ctx, cause, holdSpec{scope: store.HoldScopeSession, workerID: t.WorkerID, taskID: t.ID,
 			summary: fmt.Sprintf("The user canceled task %s on %s", t.SID, h.workerLabel(ctx, t.WorkerID))})
@@ -1019,7 +1029,7 @@ func (h *Hub) cancelTask(ctx context.Context, taskID, note string) (ActionResult
 	}
 
 	h.setPendingCause(taskID, protocol.TaskStatusCanceled, cause)
-	if !h.SendCancel(taskID) {
+	if !h.SendCancelWithGrace(taskID, graceS) {
 		audit("Canceled (worker unreachable)")
 		_, _ = h.setTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "canceled (worker unreachable)", "", nil, cause)
 		hold()

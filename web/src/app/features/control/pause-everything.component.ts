@@ -27,7 +27,7 @@ export function shortWhen(iso: string | undefined): string {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, TooltipDirective, ModalDialogComponent],
-  host: { class: 'inline-flex' },
+  host: { class: 'inline-flex items-center gap-1' },
   template: `
     @if (control.paused()) {
       <button
@@ -49,13 +49,25 @@ export function shortWhen(iso: string | undefined): string {
         data-testid="pause-everything"
         [disabled]="control.isBusy('fleet')"
         (click)="confirming.set(true)"
-        syTooltip="Emergency stop: suspend all agent work and stop dispatching (asks first)"
+        syTooltip="Emergency pause: suspend all agent work and stop dispatching (asks first)"
         aria-label="Pause everything"
       >
         <app-icon name="pause" [size]="11" />
         <span class="hidden lg:inline">Pause all</span>
       </button>
     }
+    <button
+      type="button"
+      class="sy-btn sy-btn-sm text-[var(--sy-text-muted)]"
+      data-testid="stop-everything"
+      [disabled]="control.isBusy('fleet')"
+      (click)="openStopConfirm()"
+      syTooltip="Gracefully stop all running sessions with a grace period and stop dispatching (asks first)"
+      aria-label="Stop everything"
+    >
+      <app-icon name="stop" [size]="10" />
+      <span class="hidden lg:inline">Stop…</span>
+    </button>
     @if (confirming()) {
       <app-modal-dialog labelledBy="pause-confirm-title" describedBy="pause-confirm-body" panelClass="w-full max-w-[420px] p-5" (close)="confirming.set(false)">
         <h2 id="pause-confirm-title" class="text-[15px] font-semibold text-[var(--sy-text)] m-0">Pause everything?</h2>
@@ -69,20 +81,61 @@ export function shortWhen(iso: string | undefined): string {
         </div>
       </app-modal-dialog>
     }
+    @if (confirmingStop()) {
+      <app-modal-dialog labelledBy="stop-fleet-title" describedBy="stop-fleet-body" panelClass="w-full max-w-[440px] p-5" (close)="confirmingStop.set(false)">
+        <h2 id="stop-fleet-title" class="text-[15px] font-semibold text-[var(--sy-text)] m-0">Stop everything?</h2>
+        <p id="stop-fleet-body" class="mt-2 mb-0 text-[13px] leading-relaxed text-[var(--sy-text-secondary)]">
+          This stops dispatching and sends a graceful interrupt to every running session on {{ machines() }},
+          waiting for the grace period before forcefully killing any remaining processes.
+        </p>
+        <label class="mt-4 flex items-center justify-between gap-3 text-[12.5px] text-[var(--sy-text-secondary)]">
+          <span>Grace period</span>
+          <select
+            class="sy-field sy-field-sm"
+            data-testid="stop-fleet-grace"
+            [value]="stopGraceS()"
+            (change)="stopGraceS.set(+$any($event.target).value)"
+          >
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds (default)</option>
+            <option value="30">30 seconds</option>
+            <option value="60">60 seconds</option>
+            <option value="300">300 seconds (max)</option>
+          </select>
+        </label>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="sy-btn" data-testid="stop-fleet-cancel" autofocus (click)="confirmingStop.set(false)">Cancel</button>
+          <button type="button" class="sy-btn sy-btn-danger" data-testid="stop-fleet-confirm" (click)="confirmStop()">Stop everything</button>
+        </div>
+      </app-modal-dialog>
+    }
   `,
 })
 export class PauseEverythingComponent {
   readonly control = inject(ControlStore);
   private readonly fleet = inject(FleetStore);
   readonly confirming = signal(false);
+  readonly confirmingStop = signal(false);
+  readonly stopGraceS = signal(10);
   readonly machines = computed(() => {
     const n = this.fleet.onlineWorkersCount();
     return n === 1 ? '1 machine' : `${n} machines`;
   });
 
+  openStopConfirm(): void {
+    this.stopGraceS.set(10);
+    this.confirmingStop.set(true);
+  }
+
   async confirm(): Promise<void> {
     this.confirming.set(false);
     await this.control.pauseEverything();
+  }
+
+  async confirmStop(): Promise<void> {
+    const grace = this.stopGraceS();
+    this.confirmingStop.set(false);
+    await this.control.stopEverything(grace);
   }
 }
 

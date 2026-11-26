@@ -261,15 +261,23 @@ func (h *Hub) SendSteer(taskID, inputText string, appendNewline bool) error {
 	return nil
 }
 
-// SendCancel forwards task.cancel to the worker running taskID.
+// SendCancel forwards task.cancel to the worker running taskID with the default grace period.
 func (h *Hub) SendCancel(taskID string) bool {
+	return h.SendCancelWithGrace(taskID, protocol.DefaultStopGraceS)
+}
+
+// SendCancelWithGrace forwards task.cancel with a normalized grace_s to the worker running taskID.
+func (h *Hub) SendCancelWithGrace(taskID string, graceS int) bool {
 	h.mu.RLock()
 	wc := h.workerForTaskLocked(taskID)
 	h.mu.RUnlock()
 	if wc == nil {
 		return false
 	}
-	return h.sendWorkerJSON(wc, protocol.MsgTaskCancel, protocol.TaskCancelPayload{TaskID: taskID})
+	return h.sendWorkerJSON(wc, protocol.MsgTaskCancel, protocol.TaskCancelPayload{
+		TaskID: taskID,
+		GraceS: protocol.NormalizeStopGraceS(graceS),
+	})
 }
 
 // WaitForTask returns a channel that receives the task when it reaches a terminal status.

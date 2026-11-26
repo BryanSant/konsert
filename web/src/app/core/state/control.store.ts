@@ -264,6 +264,12 @@ export class ControlStore {
     return !!res;
   }
 
+  async stopEverything(graceS = 10): Promise<boolean> {
+    const res = await this.run('fleet', 'Could not stop the fleet', () => this.api.stopFleet(graceS));
+    if (res) this.pause.set(normalizePause(res));
+    return !!res;
+  }
+
   async resumeEverything(): Promise<boolean> {
     const res = await this.run('fleet', 'Could not resume the fleet', () => this.api.resumeFleet());
     if (res) this.pause.set(normalizePause(res));
@@ -391,9 +397,10 @@ export class ControlStore {
   workerBulk(
     workerId: string,
     action: 'suspend-all' | 'resume-all' | 'stop-all',
+    graceS?: number,
   ): Promise<boolean> {
     return this.ok(workerId, 'Could not apply the action to the machine', () =>
-      this.api.workerBulk(workerId, action),
+      this.api.workerBulk(workerId, action, graceS),
     );
   }
 

@@ -20,15 +20,18 @@ import (
 
 // Audit actions for interventions.
 const (
-	AuditSuspend    = "task.suspend"
-	AuditResume     = "task.resume"
-	AuditVeto       = "veto"
-	AuditDrain      = "worker.drain"
-	AuditSuspendAll = "worker.suspend_all"
-	AuditResumeAll  = "worker.resume_all"
-	AuditStopAll    = "worker.stop_all"
-	AuditPause      = "fleet.pause"
-	AuditUnpause    = "fleet.resume"
+	AuditSuspend     = "task.suspend"
+	AuditResume      = "task.resume"
+	AuditVeto        = "veto"
+	AuditDrain       = "worker.drain"
+	AuditSuspendAll  = "worker.suspend_all"
+	AuditResumeAll   = "worker.resume_all"
+	AuditStopAll     = "worker.stop_all"
+	AuditStopChat    = "chat.stop"
+	AuditStopProject = "project.stop"
+	AuditStopFleet   = "fleet.stop"
+	AuditPause       = "fleet.pause"
+	AuditUnpause     = "fleet.resume"
 )
 
 // fleetPauseSetting persists the Pause everything state (store.FleetPause JSON).
@@ -64,11 +67,12 @@ func (h *Hub) recordIntervention(ctx context.Context, cause store.Cause, action,
 
 // --- fleet pause ---------------------------------------------------------------------------
 
-// FleetPauseState is the GET/POST /api/fleet/pause response.
+// FleetPauseState is the GET/POST /api/fleet/pause and POST /api/fleet/stop response.
 type FleetPauseState struct {
 	store.FleetPause
-	// Affected counts the sessions the call suspended or resumed.
+	// Affected counts the sessions the call suspended, stopped, or resumed.
 	Affected int `json:"affected,omitzero"`
+	GraceS   int `json:"grace_s,omitzero"`
 }
 
 func (h *Hub) fleetPause(ctx context.Context) store.FleetPause {
@@ -172,6 +176,53 @@ func (h *Hub) ResumeEverything(ctx context.Context) (FleetPauseState, error) {
 	h.broadcastAutopilotUpdate(ctx)
 	h.kickScheduler()
 	return FleetPauseState{Affected: affected}, nil
+}
+
+// StopEverything stops all dispatching (like Pause everything) and gracefully stops
+// every active managed session (tasks and agent chats) across the fleet with graceS,
+// instead of suspending them.
+func (h *Hub) StopEverything(ctx context.Context, graceS int) (FleetPauseState, error) {
+	graceS = protocol.NormalizeStopGraceS(graceS)
+	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
+	now := time.Now().UTC()
+	p := store.FleetPause{Paused: true, PausedAt: &now, PausedBy: cause.ActorID}
+	if p.PausedBy == "" {
+		p.PausedBy = describeActor(cause)
+	}
+	if err := h.saveFleetPause(ctx, p); err != nil {
+		return FleetPauseState{}, err
+	}
+	affected := 0
+	if tasks, err := h.store.ListTasks(ctx, "", "", 500); err == nil {
+		for _, t := range tasks {
+			if t.Origin != protocol.TaskOriginExternal && !protocol.IsTerminalTaskStatus(t.Status) {
+				if _, err := h.cancelTaskWithGrace(ctx, t.ID, "stop everything", graceS); err == nil {
+					affected++
+				}
+			}
+		}
+	}
+	if chats, err := h.store.ListChatSessions(ctx, 500); err == nil {
+		for _, cs := range chats {
+			if cs.Backend == store.ChatBackendAgent && (chatBusy(cs.Status) || cs.Status == protocol.ChatStatusSuspended) {
+				if _, err := h.stopChatWithGrace(ctx, cs, graceS, false); err == nil {
+					affected++
+				}
+			}
+		}
+	}
+	msg := fmt.Sprintf("%s stopped everything: dispatching stopped and %d active session(s) stopped (grace %ds)",
+		capitalize(describeActor(cause)), affected, graceS)
+	h.recordIntervention(ctx, cause, "stop_fleet", "", "", "", msg)
+	h.recordAudit(ctx, store.AuditEvent{
+		Action:   AuditStopFleet,
+		Message:  msg,
+		MetaJSON: auditMeta(map[string]any{"affected": affected, "grace_s": graceS}),
+	})
+	h.broadcastFleetUpdate("pause", p)
+	h.broadcastAutopilotUpdate(ctx)
+	return FleetPauseState{FleetPause: p, Affected: affected, GraceS: graceS}, nil
 }
 
 // --- tasks ---------------------------------------------------------------------------------
@@ -438,6 +489,70 @@ func (h *Hub) StopChatTurn(ctx context.Context, chatID string) (store.ChatSessio
 	return h.store.GetChatSession(ctx, cs.ID)
 }
 
+// StopChatWithGrace gracefully stops a chat session: cancels any in-flight turn, waits
+// graceS on the daemon, then closes/kills the engine session.
+func (h *Hub) StopChatWithGrace(ctx context.Context, chatID string, graceS int) (store.ChatSession, error) {
+	cs, err := h.store.GetChatSession(ctx, chatID)
+	if err != nil {
+		return cs, err
+	}
+	return h.stopChatWithGrace(ctx, cs, graceS, true)
+}
+
+func (h *Hub) stopChatWithGrace(ctx context.Context, cs store.ChatSession, graceS int, recordEvent bool) (store.ChatSession, error) {
+	graceS = protocol.NormalizeStopGraceS(graceS)
+	cause := causeFrom(ctx)
+	if cs.Backend != store.ChatBackendAgent {
+		if err := h.controlChat(ctx, chatControlRequest{SessionID: cs.ID, Cancel: true}); err != nil {
+			return cs, err
+		}
+	} else {
+		if wc := h.workerConnFor(cs.WorkerID); wc != nil {
+			h.sendWorkerJSON(wc, protocol.MsgAgentChatClose, protocol.AgentChatClose{
+				ChatID:     cs.ID,
+				CancelTurn: true,
+				GraceS:     graceS,
+			})
+		} else if chatBusy(cs.Status) || cs.Status == protocol.ChatStatusSuspended {
+			h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{
+				Kind:   protocol.EventStatus,
+				Status: protocol.ChatStatusIdle,
+				Text:   "Stopped by " + describeActor(cause),
+			}, emitOpts{
+				cause: &cause,
+				update: func(s *store.ChatSession) {
+					s.SuspendedBy, s.SuspendedPrev = "", ""
+				},
+			})
+		}
+		if cs.Status == protocol.ChatStatusSuspended {
+			h.emitChatEvent(ctx, cs.ID, protocol.AgentChatEvent{
+				Kind:   protocol.EventStatus,
+				Status: protocol.ChatStatusIdle,
+				Text:   "Stopped by " + describeActor(cause),
+			}, emitOpts{
+				cause: &cause,
+				update: func(s *store.ChatSession) {
+					s.SuspendedBy, s.SuspendedPrev = "", ""
+				},
+			})
+		}
+	}
+	if recordEvent {
+		defer h.beginDeliveryBatch()()
+		msg := fmt.Sprintf("%s stopped chat %s (%s) on %s (grace %ds)",
+			capitalize(describeActor(cause)), cs.SID, cs.Title, h.workerLabel(ctx, cs.WorkerID), graceS)
+		h.recordIntervention(ctx, cause, "stop_chat", cs.WorkerID, "", cs.ID, msg)
+		h.recordAudit(ctx, store.AuditEvent{
+			Action:   AuditStopChat,
+			WorkerID: cs.WorkerID,
+			Message:  msg,
+			MetaJSON: auditMeta(map[string]any{"chat_id": cs.ID, "grace_s": graceS}),
+		})
+	}
+	return h.store.GetChatSession(ctx, cs.ID)
+}
+
 // VetoChat stops a chat's turn with a reason: remembered for the commander, told to
 // the chat itself on its next turn, and the chat is held.
 func (h *Hub) VetoChat(ctx context.Context, chatID, reason, note string) (store.ChatSession, error) {
@@ -477,6 +592,16 @@ type WorkerControlResult struct {
 	WorkerID string `json:"worker_id"`
 	Drained  bool   `json:"drained"`
 	Affected int    `json:"affected"`
+	GraceS   int    `json:"grace_s,omitzero"`
+}
+
+// ProjectStopResult is the response of project-scope stop interventions.
+type ProjectStopResult struct {
+	OK         bool   `json:"ok"`
+	ProjectID  string `json:"project_id"`
+	ProjectSID string `json:"project_sid"`
+	Affected   int    `json:"affected"`
+	GraceS     int    `json:"grace_s,omitzero"`
 }
 
 // DrainWorker sets or clears a machine's drain flag: drained machines finish their
@@ -605,9 +730,17 @@ func (h *Hub) ResumeAll(ctx context.Context, workerID string) (WorkerControlResu
 	return WorkerControlResult{OK: true, WorkerID: w.ID, Drained: w.Drained, Affected: n}, nil
 }
 
-// StopAll cancels every managed task and stops every running chat turn on a machine,
-// and holds the machine so nothing restarts there automatically.
+// StopAll cancels every managed task and stops every active agent chat on a machine
+// with the default grace period, and holds the machine so nothing restarts automatically.
 func (h *Hub) StopAll(ctx context.Context, workerID string) (WorkerControlResult, error) {
+	return h.StopAllWithGrace(ctx, workerID, protocol.DefaultStopGraceS)
+}
+
+// StopAllWithGrace gracefully stops every managed task and active agent chat on a
+// machine with graceS, holds the machine, records audit attribution, and delivers
+// batched fleet events to commanders.
+func (h *Hub) StopAllWithGrace(ctx context.Context, workerID string, graceS int) (WorkerControlResult, error) {
+	graceS = protocol.NormalizeStopGraceS(graceS)
 	w, err := h.store.GetWorker(ctx, workerID)
 	if err != nil {
 		return WorkerControlResult{}, err
@@ -617,26 +750,81 @@ func (h *Hub) StopAll(ctx context.Context, workerID string) (WorkerControlResult
 	tasks, chats := h.machineSessions(ctx, w.ID)
 	n := 0
 	for _, t := range tasks {
-		if _, err := h.cancelTask(ctx, t.ID, "stop all"); err == nil {
+		if _, err := h.cancelTaskWithGrace(ctx, t.ID, "stop all", graceS); err == nil {
 			n++
 		}
 	}
 	for _, cs := range chats {
-		if cs.Status == protocol.ChatStatusSuspended {
-			cs, _ = h.resumeChat(ctx, cs)
-		}
-		if chatBusy(cs.Status) {
-			if err := h.controlChat(ctx, chatControlRequest{SessionID: cs.ID, Cancel: true}); err == nil {
+		if cs.Backend == store.ChatBackendAgent && (chatBusy(cs.Status) || cs.Status == protocol.ChatStatusSuspended) {
+			if _, err := h.stopChatWithGrace(ctx, cs, graceS, false); err == nil {
 				n++
 			}
 		}
 	}
-	msg := fmt.Sprintf("%s stopped all %d session(s) on %s", capitalize(describeActor(cause)), n, w.Name)
+	msg := fmt.Sprintf("%s stopped all %d session(s) on %s (grace %ds)", capitalize(describeActor(cause)), n, w.Name, graceS)
 	h.recordIntervention(ctx, cause, "stop_all", w.ID, "", "", msg)
-	h.recordAudit(ctx, store.AuditEvent{Action: AuditStopAll, WorkerID: w.ID, Message: msg})
+	h.recordAudit(ctx, store.AuditEvent{
+		Action:   AuditStopAll,
+		WorkerID: w.ID,
+		Message:  msg,
+		MetaJSON: auditMeta(map[string]any{"affected": n, "grace_s": graceS}),
+	})
 	h.holdAfterIntervention(ctx, cause, holdSpec{scope: store.HoldScopeMachine, workerID: w.ID,
 		summary: fmt.Sprintf("The user stopped everything on %s", w.Name)})
-	return WorkerControlResult{OK: true, WorkerID: w.ID, Drained: w.Drained, Affected: n}, nil
+	return WorkerControlResult{OK: true, WorkerID: w.ID, Drained: w.Drained, Affected: n, GraceS: graceS}, nil
+}
+
+// StopProject gracefully stops all active tasks and ticket agent chats belonging to a
+// project with graceS, attributed in audit and delivered to commanders as batched events.
+func (h *Hub) StopProject(ctx context.Context, projectRef, reason string, graceS int) (ProjectStopResult, error) {
+	graceS = protocol.NormalizeStopGraceS(graceS)
+	proj, err := h.resolveProject(ctx, projectRef)
+	if err != nil {
+		return ProjectStopResult{}, err
+	}
+	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
+	n := 0
+	if tasks, err := h.store.ListTasks(ctx, "", "", 500); err == nil {
+		for _, t := range tasks {
+			if t.ProjectID == proj.ID && t.Origin != protocol.TaskOriginExternal && !protocol.IsTerminalTaskStatus(t.Status) {
+				if _, err := h.cancelTaskWithGrace(ctx, t.ID, "stop project", graceS); err == nil {
+					n++
+				}
+			}
+		}
+	}
+	if tickets, err := h.store.ListTickets(ctx, store.TicketFilter{ProjectID: proj.ID, Limit: 500}); err == nil {
+		for _, tk := range tickets {
+			if sessions, sErr := h.store.ListChatSessionsByTicket(ctx, tk.ID); sErr == nil {
+				for _, cs := range sessions {
+					if cs.Backend == store.ChatBackendAgent && cs.QuestionID == "" && (chatBusy(cs.Status) || cs.Status == protocol.ChatStatusSuspended) {
+						if _, err := h.stopChatWithGrace(ctx, cs, graceS, false); err == nil {
+							n++
+						}
+					}
+				}
+			}
+		}
+	}
+	msg := fmt.Sprintf("%s stopped project %s (%s): %d active session(s) stopped (grace %ds)",
+		capitalize(describeActor(cause)), proj.SID, proj.Name, n, graceS)
+	if r := strings.TrimSpace(reason); r != "" {
+		msg += " — " + r
+	}
+	h.recordIntervention(ctx, cause, "stop_project", "", "", "", msg)
+	h.recordAudit(ctx, store.AuditEvent{
+		Action:  AuditStopProject,
+		Message: msg,
+		MetaJSON: auditMeta(map[string]any{
+			"project_id":  proj.ID,
+			"project_sid": proj.SID,
+			"affected":    n,
+			"grace_s":     graceS,
+			"reason":      strings.TrimSpace(reason),
+		}),
+	})
+	return ProjectStopResult{OK: true, ProjectID: proj.ID, ProjectSID: proj.SID, Affected: n, GraceS: graceS}, nil
 }
 
 // --- REST ------------------------------------------------------------------------------------
@@ -707,8 +895,25 @@ func (s *Server) handleResumeChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chatActionResult(cs))
 }
 
+type stopRequest struct {
+	GraceS int    `json:"grace_s"`
+	Reason string `json:"reason"`
+}
+
 func (s *Server) handleStopChat(w http.ResponseWriter, r *http.Request) {
-	cs, err := s.hub.StopChatTurn(r.Context(), r.PathValue("id"))
+	var body stopRequest
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
+	var (
+		cs  store.ChatSession
+		err error
+	)
+	if body.GraceS > 0 {
+		cs, err = s.hub.StopChatWithGrace(r.Context(), r.PathValue("id"), body.GraceS)
+	} else {
+		cs, err = s.hub.StopChatTurn(r.Context(), r.PathValue("id"))
+	}
 	if err != nil {
 		writeControlError(w, err)
 		return
@@ -759,12 +964,51 @@ func (s *Server) workerControl(fn func(*Hub, context.Context, string) (WorkerCon
 	}
 }
 
+func (s *Server) handleStopAllWorker(w http.ResponseWriter, r *http.Request) {
+	var body stopRequest
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
+	res, err := s.hub.StopAllWithGrace(r.Context(), r.PathValue("id"), body.GraceS)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleStopProject(w http.ResponseWriter, r *http.Request) {
+	var body stopRequest
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
+	res, err := s.hub.StopProject(r.Context(), r.PathValue("id"), body.Reason, body.GraceS)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (s *Server) handleGetFleetPause(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, FleetPauseState{FleetPause: s.hub.fleetPause(r.Context())})
 }
 
 func (s *Server) handlePauseFleet(w http.ResponseWriter, r *http.Request) {
 	res, err := s.hub.PauseEverything(r.Context())
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleStopFleet(w http.ResponseWriter, r *http.Request) {
+	var body stopRequest
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
+	res, err := s.hub.StopEverything(r.Context(), body.GraceS)
 	if err != nil {
 		writeControlError(w, err)
 		return

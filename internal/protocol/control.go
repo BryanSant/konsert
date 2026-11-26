@@ -23,6 +23,23 @@ const TaskStatusSuspended = "suspended"
 // ChatStatusSuspended is an agent chat whose engine process tree is frozen.
 const ChatStatusSuspended = "suspended"
 
+// Graceful stop grace period bounds (docs/design/autopilot.md, SYR-0XMP9).
+const (
+	DefaultStopGraceS = 10
+	MaxStopGraceS     = 300
+)
+
+// NormalizeStopGraceS returns a valid stop grace period in seconds (default 10, max 300).
+func NormalizeStopGraceS(graceS int) int {
+	if graceS <= 0 {
+		return DefaultStopGraceS
+	}
+	if graceS > MaxStopGraceS {
+		return MaxStopGraceS
+	}
+	return graceS
+}
+
 // TaskSuspendPayload names the task for task.suspend and task.resume.
 type TaskSuspendPayload struct {
 	TaskID string `json:"task_id"`

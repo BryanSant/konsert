@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/BryanSant/syre/internal/tokenbudget"
 )
 
 // Digest statuses for RunDigest.Status.
@@ -16,7 +18,7 @@ const (
 )
 
 // DigestMaxTokens is the hard token budget for RunDigest.Text() (docs/design/autopilot.md).
-const DigestMaxTokens = 250
+const DigestMaxTokens = tokenbudget.Digest
 
 // DigestVerify holds verification command results (populated in a later ticket).
 type DigestVerify struct {
@@ -59,10 +61,7 @@ type RunDigest struct {
 
 // EstimateTokens returns a simple ceiling chars/4 token approximation.
 func EstimateTokens(s string) int {
-	if len(s) == 0 {
-		return 0
-	}
-	return (len(s) + 3) / 4
+	return tokenbudget.Estimate(s)
 }
 
 // Text serializes the digest as compact YAML-ish text, enforcing the hard 250-token cap

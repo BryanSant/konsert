@@ -78,6 +78,12 @@ describe('control components', () => {
         paused_by: 'alice',
         paused_at: new Date().toISOString(),
       })),
+      stopFleet: vi.fn(async (graceS?: number) => ({
+        paused: true,
+        paused_by: 'alice',
+        paused_at: new Date().toISOString(),
+        grace_s: graceS ?? 10,
+      })),
       resumeFleet: vi.fn(async () => ({ paused: false })),
       releaseHold: vi.fn(async (id: string) => ({ id, released_at: new Date().toISOString() })),
       resolveRequest: vi.fn(async (id: string, status: string) => ({ id, status })),
@@ -165,6 +171,32 @@ describe('control components', () => {
     await settle(banner);
     expect(api['resumeFleet']).toHaveBeenCalled();
     expect(byTestId(bRoot, 'paused-banner')).toBeNull();
+  });
+
+  it('stops everything with selected grace period after confirmation', async () => {
+    const button = TestBed.createComponent(PauseEverythingComponent);
+    await settle(button);
+
+    byTestId(button.nativeElement, 'stop-everything')!.click();
+    await settle(button);
+    expect(api['stopFleet']).not.toHaveBeenCalled();
+
+    // Cancel leaves fleet running.
+    byTestId(button.nativeElement, 'stop-fleet-cancel')!.click();
+    await settle(button);
+    expect(byTestId(button.nativeElement, 'stop-fleet-confirm')).toBeNull();
+    expect(api['stopFleet']).not.toHaveBeenCalled();
+
+    // Open again, pick 30s grace, confirm.
+    byTestId(button.nativeElement, 'stop-everything')!.click();
+    await settle(button);
+    const select = byTestId(button.nativeElement, 'stop-fleet-grace') as HTMLSelectElement;
+    select.value = '30';
+    select.dispatchEvent(new Event('change'));
+    await settle(button);
+    byTestId(button.nativeElement, 'stop-fleet-confirm')!.click();
+    await settle(button);
+    expect(api['stopFleet']).toHaveBeenCalledWith(30);
   });
 
   it('lists holds and requests for a machine with release / mark done', async () => {
