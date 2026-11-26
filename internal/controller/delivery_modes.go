@@ -356,6 +356,7 @@ func (h *Hub) prepareReviewPR(ctx context.Context, t store.Task) {
 		r.DeliveryStatus = store.DeliveryStatusPROpen
 		r.DeliveryMessage = msg
 		r.PRNumber = pr.Number
+		r.PRBase = pr.Base
 		r.PRURL = pr.URL
 		r.PRState = string(pr.State)
 		r.PRChecks = string(pr.Checks)
@@ -367,6 +368,9 @@ func (h *Hub) prepareReviewPR(ctx context.Context, t store.Task) {
 
 // deliverApproved runs the repo's delivery mode when the user clicks Approve.
 func (h *Hub) deliverApproved(ctx context.Context, svc *FleetService, t store.Task, cur store.Review) (ReviewResult, error) {
+	if len(t.Worktrees) > 1 {
+		return h.deliverMultiRepo(ctx, svc, t, cur)
+	}
 	var res ReviewResult
 	cfg := h.resolveDelivery(ctx, t, true)
 	title := firstNonEmpty(t.Title, firstLine(t.Prompt), "Task "+t.SID)
@@ -641,6 +645,7 @@ func (h *Hub) deliverPRMerge(ctx context.Context, t store.Task, cur store.Review
 			r.DeliveryStatus = store.DeliveryStatusFailed
 			r.DeliveryMessage = msg
 			r.PRNumber = pr.Number
+			r.PRBase = pr.Base
 			r.PRURL = pr.URL
 			r.PRState = string(firstPRState(pr.State, forge.PROpen))
 			r.PRChecks = string(pr.Checks)
@@ -676,6 +681,7 @@ func (h *Hub) deliverPRMerge(ctx context.Context, t store.Task, cur store.Review
 		r.MergeMethod = firstNonEmpty(string(mergeRes.Method), cfg.mergeStyle)
 		r.MergeSHA = mergeRes.SHA
 		r.PRNumber = pr.Number
+		r.PRBase = pr.Base
 		r.PRURL = pr.URL
 		r.PRState = string(prState)
 		r.PRChecks = string(pr.Checks)
@@ -779,6 +785,7 @@ func (h *Hub) deliverPROpen(ctx context.Context, t store.Task, cur store.Review,
 		r.DeliveryStatus = store.DeliveryStatusPROpen
 		r.DeliveryMessage = msg
 		r.PRNumber = pr.Number
+		r.PRBase = pr.Base
 		r.PRURL = pr.URL
 		r.PRState = string(firstPRState(pr.State, forge.PROpen))
 		r.PRChecks = string(pr.Checks)
@@ -801,6 +808,12 @@ func (h *Hub) pushAndOpenPR(ctx context.Context, t store.Task, cfg resolvedDeliv
 	if infoErr == nil && info.DefaultBranch != "" {
 		base = info.DefaultBranch
 	}
+	defaultBase := base
+	// Stacked on exactly one unmerged blocker with an open PR: open against its branch
+	// so the PR shows only this ticket's change (retargeted when the blocker merges).
+	if stack := h.stackedPRBase(ctx, t, base); stack != "" {
+		base = stack
+	}
 
 	pushReq := protocol.GitPushRequest{
 		Workdir:       cfg.workdir,
@@ -808,8 +821,8 @@ func (h *Hub) pushAndOpenPR(ctx context.Context, t store.Task, cfg resolvedDeliv
 		Remote:        cfg.remoteName,
 		CommitMessage: title,
 	}
-	if stackBase := h.ticketStackRetargetBaseSHA(ctx, t, base); stackBase != "" {
-		pushReq.RebaseOnto = base
+	if stackBase := h.ticketStackRetargetBaseSHA(ctx, t, defaultBase); stackBase != "" {
+		pushReq.RebaseOnto = defaultBase
 		pushReq.StackBaseSHA = stackBase
 	}
 	var headOwner string
@@ -1015,7 +1028,7 @@ func (h *Hub) PollOpenPRs(ctx context.Context) {
 		if r.TaskID == "" || r.PRNumber <= 0 || r.PRRemoteURL == "" {
 			continue
 		}
-		if r.PRState != "" && r.PRState != string(forge.PROpen) {
+		if r.PRState != "" && r.PRState != string(forge.PROpen) && !hasOpenRepoPR(r) {
 			continue
 		}
 		h.pollOnePR(ctx, resolver, r)
@@ -1039,15 +1052,29 @@ func (h *Hub) pollOnePR(ctx context.Context, resolver forge.Resolver, r store.Re
 	task, taskErr := h.store.GetTask(ctx, r.TaskID)
 
 	stateChanged := string(pr.State) != r.PRState || string(pr.Checks) != r.PRChecks || pr.AutoMerge != r.PRAutoMerge
-	if stateChanged {
+	// A multi-repo ticket is delivered only when every repo's PR has merged.
+	allRepos, anyRepoClosed, repoPRs, reposChanged := true, false, r.RepoPRs, false
+	if len(r.RepoPRs) > 0 {
+		allRepos, anyRepoClosed, repoPRs, reposChanged = h.pollRepoPRs(ctx, resolver, r)
+	}
+	if stateChanged || reposChanged {
 		var status, msg string
-		switch pr.State {
-		case forge.PRMerged:
-			status = store.DeliveryStatusDelivered
-			msg = fmt.Sprintf("PR #%d merged.", pr.Number)
-		case forge.PRClosed:
+		switch {
+		case pr.State == forge.PRClosed:
 			status = store.DeliveryStatusClosed
 			msg = fmt.Sprintf("PR #%d closed without merging.", pr.Number)
+		case anyRepoClosed:
+			status = store.DeliveryStatusClosed
+			msg = "A repo's PR was closed without merging."
+		case pr.State == forge.PRMerged && allRepos:
+			status = store.DeliveryStatusDelivered
+			msg = fmt.Sprintf("PR #%d merged.", pr.Number)
+			if len(r.RepoPRs) > 0 {
+				msg = "All repos' PRs merged."
+			}
+		case pr.State == forge.PRMerged:
+			status = store.DeliveryStatusPROpen
+			msg = fmt.Sprintf("PR #%d merged; waiting for %s.", pr.Number, repoPRSummary(repoPRs))
 		}
 		_, _ = h.saveReview(ctx, r.TaskID, "", func(rv *store.Review) {
 			rv.PRState = string(pr.State)
@@ -1055,6 +1082,9 @@ func (h *Hub) pollOnePR(ctx context.Context, resolver forge.Resolver, r store.Re
 			rv.PRAutoMerge = pr.AutoMerge
 			if pr.URL != "" {
 				rv.PRURL = pr.URL
+			}
+			if len(repoPRs) > 0 {
+				rv.RepoPRs = repoPRs
 			}
 			if status != "" {
 				rv.DeliveryStatus = status
@@ -1069,6 +1099,7 @@ func (h *Hub) pollOnePR(ctx context.Context, resolver forge.Resolver, r store.Re
 	if pr.State != forge.PROpen || taskErr != nil {
 		return
 	}
+	h.retargetStackedPR(ctx, client, fRepo, r, task)
 
 	var since time.Time
 	if r.PRLastCommentAt != nil {

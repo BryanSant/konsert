@@ -540,3 +540,16 @@ func (c *Client) CompareURL(r forge.Repo, head, base string) string {
 	return fmt.Sprintf("https://%s/%s/-/merge_requests/new?merge_request[source_branch]=%s&merge_request[target_branch]=%s",
 		r.Host, r.FullName(), url.QueryEscape(head), url.QueryEscape(base))
 }
+
+// UpdatePRBase changes the MR's base branch.
+func (c *Client) UpdatePRBase(ctx context.Context, r forge.Repo, number int, base string) error {
+	endpoint := fmt.Sprintf("%s%s/merge_requests/%d", c.apiBase, projectPath(r.FullName()), number)
+	data, _, status, err := c.do(ctx, http.MethodPut, endpoint, map[string]string{"target_branch": base})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return mapHTTPError(status, data, "update MR base")
+	}
+	return nil
+}

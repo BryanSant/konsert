@@ -672,7 +672,10 @@ CREATE TABLE reviews (
     pr_auto_merge     INTEGER NOT NULL DEFAULT 0,
     compare_url       TEXT NOT NULL DEFAULT '',
     pr_remote_url     TEXT NOT NULL DEFAULT '',
+    pr_base           TEXT NOT NULL DEFAULT '',
     pr_last_comment_at TEXT,
+    -- repo_prs_json: the other repos' PRs of a multi-repo ticket ([]RepoPR).
+    repo_prs_json     TEXT NOT NULL DEFAULT '[]',
     -- follow_up_task_id: the session that received requested changes ('' otherwise).
     follow_up_task_id TEXT NOT NULL DEFAULT '',
     expedite          INTEGER NOT NULL DEFAULT 0,

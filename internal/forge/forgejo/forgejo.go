@@ -579,3 +579,16 @@ func (c *Client) CompareURL(r forge.Repo, head, base string) string {
 	return fmt.Sprintf("https://%s/%s/%s/compare/%s...%s",
 		r.Host, r.Owner, r.Name, url.PathEscape(base), url.PathEscape(head))
 }
+
+// UpdatePRBase changes the PR's base branch.
+func (c *Client) UpdatePRBase(ctx context.Context, r forge.Repo, number int, base string) error {
+	endpoint := fmt.Sprintf("%s%s/pulls/%d", c.apiBase, repoPath(r), number)
+	data, _, status, err := c.do(ctx, http.MethodPatch, endpoint, map[string]string{"base": base})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return mapHTTPError(status, data, "update PR base")
+	}
+	return nil
+}

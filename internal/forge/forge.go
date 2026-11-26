@@ -135,6 +135,9 @@ type Client interface {
 	FindPR(ctx context.Context, r Repo, head, base string) (PR, error)
 	GetPR(ctx context.Context, r Repo, number int) (PR, error)
 	MergePR(ctx context.Context, r Repo, number int, req MergeRequest) (MergeResult, error)
+	// UpdatePRBase changes the PR/MR's base (target) branch, e.g. retargeting a stacked
+	// PR onto the default branch once the PR it was stacked on merged.
+	UpdatePRBase(ctx context.Context, r Repo, number int, base string) error
 	// ReviewComments returns review feedback newer than since.
 	ReviewComments(ctx context.Context, r Repo, number int, since time.Time) ([]ReviewComment, error)
 	// CompareURL is the web page to open a PR/MR by hand (used when no credential exists).
