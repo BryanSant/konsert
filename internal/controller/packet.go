@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
+	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
 )
@@ -28,7 +28,8 @@ var DefaultTicketTools = []string{
 // PacketOptions tunes dispatch packet compilation (placement context and worktrees).
 type PacketOptions struct {
 	// WorkerID, when set, is used to resolve the worker's WorkdirRoot from its
-	// reported machine facts so repo paths are filled as <root>/<ticket sid>/<repo>.
+	// reported machine facts so repo paths are filled as
+	// <root>/.syre/tickets/<ticket sid>/<repo>.
 	WorkerID string
 	// WorkdirRoot overrides the worker's reported WorkdirRoot when non-empty.
 	WorkdirRoot string
@@ -108,7 +109,7 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 	})
 
 	repos := make([]protocol.DispatchPacketRepo, 0, len(bound))
-	var repoVerifyCmds []string
+	verifyRepos := make([]verifyRepo, 0, len(bound))
 	for _, br := range bound {
 		branch := strings.TrimSpace(br.binding.TargetBranch)
 		if branch == "" {
@@ -123,9 +124,7 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 			Path:   repoPath,
 			Branch: branch,
 		})
-		if cmd := singleLine(br.repo.VerifyCmd); cmd != "" && !slices.Contains(repoVerifyCmds, cmd) {
-			repoVerifyCmds = append(repoVerifyCmds, cmd)
-		}
+		verifyRepos = append(verifyRepos, verifyRepo{Name: br.repo.Name, Cmd: br.repo.VerifyCmd})
 	}
 
 	// Acceptance: unchecked items only.
@@ -153,8 +152,9 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 		}
 	}
 
-	// Verify precedence: ticket verify_cmd > repo verify_cmd > project verify_cmd.
-	verifyCmd := resolveVerifyCmd(tk.VerifyCmd, repoVerifyCmds, proj.VerifyCmd)
+	// Each binding verifies in its own worktree. A ticket-level command is one step:
+	// that worktree when the ticket has exactly one binding, otherwise the ticket root.
+	verifyCmd := formatVerifyLine(resolveVerifySteps(tk.VerifyCmd, proj.VerifyCmd, verifyRepos))
 
 	return protocol.DispatchPacket{
 		TicketSID:  tk.SID,
@@ -237,47 +237,86 @@ func firstParagraph(body string) string {
 	return singleLine(strings.Join(parts, " "))
 }
 
-func resolveVerifyCmd(ticketCmd string, repoCmds []string, projectCmd string) string {
-	if cmd := singleLine(ticketCmd); cmd != "" {
-		return cmd
-	}
-	if len(repoCmds) > 0 {
-		return strings.Join(repoCmds, " && ")
-	}
-	return singleLine(projectCmd)
+// verifyRepo is one bound repo's name and its own verify_cmd (maybe empty).
+type verifyRepo struct {
+	Name string
+	Cmd  string
 }
 
-// ticketVerifyCmd resolves the effective verification command for ticketID using the
-// precedence: ticket verify_cmd > bound repo verify_cmd(s) > project verify_cmd.
-func (h *Hub) ticketVerifyCmd(ctx context.Context, ticketID string) string {
-	if ticketID == "" {
+// resolveVerifySteps chooses the commands syred runs for a ticket.
+// A non-empty ticket command is a single step: the one binding's worktree when the
+// ticket has exactly one repo, otherwise the ticket workdir (empty RepoName).
+// With no ticket command, each repo runs its verify_cmd, or the project command when
+// the repo has none. Empty commands are skipped. repos is already sorted by name.
+func resolveVerifySteps(ticketCmd, projectCmd string, repos []verifyRepo) []protocol.AgentChatVerify {
+	ticketCmd = singleLine(ticketCmd)
+	projectCmd = singleLine(projectCmd)
+	if ticketCmd != "" {
+		if len(repos) == 1 {
+			return []protocol.AgentChatVerify{{RepoName: repos[0].Name, Cmd: ticketCmd}}
+		}
+		return []protocol.AgentChatVerify{{Cmd: ticketCmd}}
+	}
+	var steps []protocol.AgentChatVerify
+	for _, r := range repos {
+		cmd := singleLine(r.Cmd)
+		if cmd == "" {
+			cmd = projectCmd
+		}
+		if cmd == "" {
+			continue
+		}
+		steps = append(steps, protocol.AgentChatVerify{RepoName: r.Name, Cmd: cmd})
+	}
+	return steps
+}
+
+// formatVerifyLine is the packet's verify line. A ticket-root command stays bare.
+// Every other step is "repo: cmd", joined with "; ".
+func formatVerifyLine(steps []protocol.AgentChatVerify) string {
+	if len(steps) == 0 {
 		return ""
+	}
+	if len(steps) == 1 && strings.TrimSpace(steps[0].RepoName) == "" {
+		return steps[0].Cmd
+	}
+	parts := make([]string, 0, len(steps))
+	for _, s := range steps {
+		if name := strings.TrimSpace(s.RepoName); name != "" {
+			parts = append(parts, name+": "+s.Cmd)
+		} else if s.Cmd != "" {
+			parts = append(parts, s.Cmd)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// ticketVerifies resolves the verification steps for ticketID. The packet line and
+// the commands syred runs come from the same steps.
+func (h *Hub) ticketVerifies(ctx context.Context, ticketID string) []protocol.AgentChatVerify {
+	if ticketID == "" {
+		return nil
 	}
 	tk, err := h.store.GetTicket(ctx, ticketID)
 	if err != nil {
-		return ""
+		return nil
 	}
-	if cmd := singleLine(tk.VerifyCmd); cmd != "" {
-		return cmd
-	}
-	var repoVerifyCmds []string
+	var repos []verifyRepo
 	if bindings, err := h.store.ListTicketRepoBindings(ctx, tk.ID); err == nil && len(bindings) > 0 {
-		repos := make([]store.Repo, 0, len(bindings))
+		loaded := make([]store.Repo, 0, len(bindings))
 		for _, b := range bindings {
 			if r, rErr := h.store.GetRepo(ctx, b.RepoID); rErr == nil {
-				repos = append(repos, r)
+				loaded = append(loaded, r)
 			}
 		}
-		sort.Slice(repos, func(i, j int) bool {
-			if repos[i].Name != repos[j].Name {
-				return repos[i].Name < repos[j].Name
+		sort.Slice(loaded, func(i, j int) bool {
+			if loaded[i].Name != loaded[j].Name {
+				return loaded[i].Name < loaded[j].Name
 			}
-			return repos[i].ID < repos[j].ID
+			return loaded[i].ID < loaded[j].ID
 		})
-		for _, r := range repos {
-			if cmd := singleLine(r.VerifyCmd); cmd != "" && !slices.Contains(repoVerifyCmds, cmd) {
-				repoVerifyCmds = append(repoVerifyCmds, cmd)
-			}
+		for _, r := range loaded {
+			repos = append(repos, verifyRepo{Name: r.Name, Cmd: r.VerifyCmd})
 		}
 	}
 	var projCmd string
@@ -286,7 +325,7 @@ func (h *Hub) ticketVerifyCmd(ctx context.Context, ticketID string) string {
 			projCmd = p.VerifyCmd
 		}
 	}
-	return resolveVerifyCmd(tk.VerifyCmd, repoVerifyCmds, projCmd)
+	return resolveVerifySteps(tk.VerifyCmd, projCmd, repos)
 }
 
 func singleLine(s string) string {
@@ -299,5 +338,5 @@ func joinWorktreePath(root, ticketSID, repoName string) string {
 		sep = `\`
 	}
 	root = strings.TrimRight(root, `/\`)
-	return root + sep + ticketSID + sep + repoName
+	return root + sep + gitutil.MetaDir + sep + gitutil.TicketsDir + sep + ticketSID + sep + repoName
 }

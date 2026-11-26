@@ -244,7 +244,7 @@ type MachineFacts struct {
 	// Checkouts lists local git checkouts discovered under the daemon's configured roots.
 	Checkouts []ReportedCheckout `json:"checkouts,omitempty"`
 	// WorkdirRoot is the resolved base directory under which per-ticket worktrees
-	// (<workdir_root>/<ticket sid>/<repo name>) are provisioned on this worker.
+	// (<workdir_root>/.syre/tickets/<ticket sid>/<repo name>) are provisioned on this worker.
 	WorkdirRoot string `json:"workdir_root,omitempty"`
 	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
@@ -414,7 +414,7 @@ type TaskStartPayload struct {
 	// worktree directory after it (.syre-worktrees/<sid>). The protocol keys on TaskID.
 	SID string `json:"sid,omitempty"`
 	// TicketSID is the owning ticket's short ID (SYR-… / k-…) when this task works a
-	// ticket with repo bindings; worktrees are provisioned at <workdir root>/<ticket_sid>/<repo_name>.
+	// ticket with repo bindings; worktrees are provisioned at <workdir root>/.syre/tickets/<ticket_sid>/<repo_name>.
 	TicketSID      string            `json:"ticket_sid,omitempty"`
 	Bindings       []TaskRepoBinding `json:"bindings,omitempty"`
 	Agent          string            `json:"agent"`
@@ -693,7 +693,7 @@ type GitMergeResult struct {
 type GitWorktreeCleanupRequest struct {
 	Workdir string `json:"workdir"`
 	// RepoRoot, when set, identifies the primary git repository that owns Workdir
-	// (used for per-ticket worktrees at <workdir root>/<ticket sid>/<repo name>).
+	// (used for per-ticket worktrees at <workdir root>/.syre/tickets/<ticket sid>/<repo name>).
 	RepoRoot string `json:"repo_root,omitempty"`
 	// PruneEmptyParent removes Workdir's parent directory if empty after removal.
 	PruneEmptyParent bool `json:"prune_empty_parent,omitzero"`

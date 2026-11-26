@@ -427,8 +427,14 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	switch {
 	case s.opts.TicketSID != "" && strings.Contains(text, "verification failed") && strings.Contains(text, "mock_fix_file"):
 		reply := "Fixed verification failure."
-		if s.opts.Cwd != "" {
-			if err := os.WriteFile(filepath.Join(s.opts.Cwd, "verify_fixed.ok"), []byte("ok\n"), 0o644); err != nil {
+		// A single binding runs ticket verify_cmd in that worktree. Several bindings
+		// run a ticket-level command in the ticket workdir (Cwd).
+		dest := s.opts.Cwd
+		if len(s.opts.EngineWorktrees) == 1 && s.opts.EngineWorktrees[0].WorktreePath != "" {
+			dest = s.opts.EngineWorktrees[0].WorktreePath
+		}
+		if dest != "" {
+			if err := os.WriteFile(filepath.Join(dest, "verify_fixed.ok"), []byte("ok\n"), 0o644); err != nil {
 				reply = "failed to write fix marker: " + err.Error()
 			}
 		}

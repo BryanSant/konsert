@@ -208,6 +208,9 @@ func startTestDaemonWith(t *testing.T, hub *fakeHub, mutate func(*config.WorkerC
 	if mutate != nil {
 		mutate(&cfg)
 	}
+	if len(cfg.CheckoutRoots) == 0 {
+		cfg.CheckoutRoots = []string{t.TempDir()}
+	}
 	d := NewDaemon(cfg, drivers.DefaultRegistry, nil)
 	d.HeartbeatInterval = time.Hour
 	d.FactsInterval = time.Hour

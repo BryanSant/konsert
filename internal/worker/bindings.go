@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/BryanSant/syre/internal/gitutil"
@@ -14,7 +15,7 @@ import (
 )
 
 // provisionedBindings is the result of provisioning per-repo worktrees under
-// <workdirRoot>/<ticketDirName>/<repoName>.
+// <workdirRoot>/.syre/tickets/<ticketDirName>/<repoName>.
 type provisionedBindings struct {
 	workdir          string
 	worktrees        []protocol.TaskWorktree
@@ -41,8 +42,14 @@ func (p *provisionedBindings) undo(logger *slog.Logger, ownerID string) {
 }
 
 // resolveWorkdirRoot picks the base directory under which per-ticket workdirs
-// (<root>/<ticket sid>/<repo name>) and clones (<root>/.syre-clones/<repo name>) live.
+// (<root>/.syre/tickets/<ticket sid>/<repo name>) and clones
+// (<root>/.syre/clones/<repo name>) live.
+// Under go test the ~/src default is refused so a test cannot create it.
 func resolveWorkdirRoot(requested string, allowedRoots []string) (string, error) {
+	return resolveWorkdirRootAllowHome(requested, allowedRoots, !testing.Testing())
+}
+
+func resolveWorkdirRootAllowHome(requested string, allowedRoots []string, allowHome bool) (string, error) {
 	if strings.TrimSpace(requested) != "" {
 		return gitutil.ValidateWorkdir(requested, allowedRoots)
 	}
@@ -52,6 +59,9 @@ func resolveWorkdirRoot(requested string, allowedRoots []string) (string, error)
 			return "", err
 		}
 		return gitutil.ValidateWorkdir(root, allowedRoots)
+	}
+	if !allowHome {
+		return "", fmt.Errorf("workdir root is unset; the ~/src default is disabled under test")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -65,8 +75,8 @@ func resolveWorkdirRoot(requested string, allowedRoots []string) (string, error)
 }
 
 // provisionBindings creates (or, when reuseExisting is true, reuses) per-repo worktrees
-// under <root>/<ticketDirName>/<repoName> for every binding. On error it cleans up any
-// worktrees created earlier in the same call.
+// under <root>/.syre/tickets/<ticketDirName>/<repoName> for every binding. On error it
+// cleans up any worktrees created earlier in the same call.
 func provisionBindings(
 	ctx context.Context,
 	allowedRoots []string,
@@ -84,7 +94,7 @@ func provisionBindings(
 	if err := gitutil.ValidatePathSegment(ticketDirName); err != nil {
 		return nil, fmt.Errorf("invalid ticket directory name %q: %w", ticketDirName, err)
 	}
-	ticketWorkdir := filepath.Join(workdirRoot, ticketDirName)
+	ticketWorkdir := gitutil.TicketWorkdir(workdirRoot, ticketDirName)
 	if err := os.MkdirAll(ticketWorkdir, 0o755); err != nil {
 		return nil, fmt.Errorf("create ticket workdir failed: %w", err)
 	}
@@ -120,7 +130,7 @@ func provisionBindings(
 				res.undo(logger, ticketDirName)
 				return nil, fmt.Errorf("binding %s has neither checkout_path nor remote_url", repoName)
 			}
-			cloneDir := filepath.Join(workdirRoot, ".syre-clones", repoName)
+			cloneDir := gitutil.CloneDir(workdirRoot, repoName)
 			if cloneErr := gitutil.CloneRepo(ctx, b.RemoteURL, cloneDir); cloneErr != nil {
 				res.undo(logger, ticketDirName)
 				return nil, fmt.Errorf("git clone failed for %s: %w", repoName, cloneErr)

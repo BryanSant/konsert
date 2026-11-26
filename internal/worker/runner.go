@@ -1101,7 +1101,8 @@ func (r *Runner) ShutdownAll() {
 }
 
 // resolveWorkdirRoot picks the base directory under which per-ticket workdirs
-// (<root>/<ticket sid>/<repo name>) and clones (<root>/.syre-clones/<repo name>) live.
+// (<root>/.syre/tickets/<ticket sid>/<repo name>) and clones
+// (<root>/.syre/clones/<repo name>) live.
 func (r *Runner) resolveWorkdirRoot(requested string) (string, error) {
 	return resolveWorkdirRoot(requested, r.allowedRoots)
 }

@@ -23,6 +23,15 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("SYRE_STATE_DIR", dir)
 	os.Setenv("SYRE_ATTACHMENTS_DIR", dir+"/attachments")
+	// Checkout scans from a daemon with no config stay inside this directory.
+	// Allowed roots stay unset: empty means unrestricted, and resolveWorkdirRoot
+	// refuses the ~/src default while tests are running.
+	work := dir + "/work"
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create test work dir:", err)
+		os.Exit(1)
+	}
+	os.Setenv("SYRE_CHECKOUT_ROOTS", work)
 	// Daemons under test report stub facts instead of probing the host.
 	collectFacts = func(context.Context) protocol.MachineFacts {
 		return protocol.MachineFacts{OSName: runtime.GOOS, CPUCores: runtime.NumCPU(), CollectedAt: time.Now().UTC()}

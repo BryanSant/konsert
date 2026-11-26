@@ -49,7 +49,9 @@ locality) instead of taxonomy rows.
 - **Checkout** (reported by daemons): `repo_id`, `worker_id`, `path`, `branch`, `last_fetch`.
 - **Repo binding** (per ticket, 1..n): `repo_id`, `base_branch`, `target_branch`. The daemon
   provisions one worktree per binding under one ticket workdir:
-  `<workdir root>/<ticket sid>/<repo name>`. Worktrees are removed when the ticket reaches
+  `<workdir root>/.syre/tickets/<ticket sid>/<repo name>`. A binding with no local checkout
+  is cloned to `<workdir root>/.syre/clones/<repo name>` (a dot directory, so checkout
+  discovery skips it). Worktrees are removed when the ticket reaches
   `done` and its branches are delivered (or after a retention period for `failed`).
 
 ## Ticket fields
@@ -62,7 +64,7 @@ ka fields, plus Syre's runtime fields:
 | `blocked_by[]` | human / tracker / Commander | DAG; cycles rejected |
 | `repo_bindings[]` | human / Commander | |
 | `hints` | human / Commander | `machine`, `agent`, `model`, `effort`, `os`, `arch`, `gpu`, `min_ram_gb`, `tools[]` |
-| `verify_cmd` | human / Commander | overrides the repo default |
+| `verify_cmd` | human / Commander | ticket-level command; how it runs is in [autopilot.md](autopilot.md). When it is empty, each repo's `verify_cmd` runs in that repo's worktree |
 | `autonomy` | project default, per-ticket override | `retry_limit`, `cross_review`, `escalate_on_blocker`, `expand_scope` |
 | `status` | Syre | see below |
 | `lease` | Syre | `worker_id`, `task_id`, `expires_at`, `heartbeat_at` |

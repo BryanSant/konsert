@@ -44,15 +44,15 @@ file tools; nobody pastes files into prompts.
 ticket: SYR-7QK3M
 project: billing
 repos:
-  - {name: api, path: /work/SYR-7QK3M/api, branch: feat/jwt-rotation}
-  - {name: web, path: /work/SYR-7QK3M/web, branch: feat/jwt-rotation}
+  - {name: api, path: /work/.syre/tickets/SYR-7QK3M/api, branch: feat/jwt-rotation}
+  - {name: web, path: /work/.syre/tickets/SYR-7QK3M/web, branch: feat/jwt-rotation}
 objective: Rotate refresh tokens every 15m and retry once on 401 in the web client.
 acceptance:
   - Rotate on /auth/refresh; invalidate the token family on reuse.
   - Web fetch wrapper retries once on 401.
 contracts:
   - "SYR-7QK1A (done): POST /v2/auth/refresh returns {access_token, refresh_token, expires_in}"
-verify: go test ./pkg/auth/... && npm --prefix web test
+verify: api: go test ./pkg/auth/...; web: npm --prefix web test
 tools: ticket_get, ticket_check, ticket_comment, ticket_followup, ask_user
 ```
 
@@ -70,7 +70,7 @@ status: review            # review | needs_you | failed
 machine: bocabox (claude, opus)
 duration_s: 412
 git: {api: "2 files, +74 -9", web: "1 file, +28 -4"}
-verify: {cmd: "go test ./pkg/auth/... && npm --prefix web test", exit: 0, passed: 41, failed: 0}
+verify: {cmd: "api: go test ./pkg/auth/...; web: npm --prefix web test", exit: 0, passed: 41, failed: 0}
 interface: "RefreshHandler rotates tokens; api/pkg/auth/handler.go"
 followups: ["/v1/token still issues static refresh tokens"]
 summary: Rotation with reuse detection and a single 401 retry; tests pass.
@@ -91,8 +91,15 @@ payload is capped; `inspect_git_status`'s uncapped per-file diffs are replaced b
 
 1. The worker finishes (one-shot exit 0, or a chat turn ends with the ticket's acceptance
    items checked or the agent saying it's done).
-2. `syred` runs `verify_cmd` (ticket, else repo default) in the ticket workdir, under the
-   machine's resource envelope and a timeout.
+2. `syred` runs verification under the machine's resource envelope and one shared timeout.
+   When the ticket's `verify_cmd` is empty, each bound repo runs its own `verify_cmd`, or
+   the project's `verify_cmd` when the repo has none. The working directory is that repo's
+   worktree (`<workdir root>/.syre/tickets/<ticket sid>/<repo>`). Every command must pass.
+   A ticket-level `verify_cmd` is a single command: with exactly one binding it runs in
+   that worktree; with several bindings, or with none, it runs once in the ticket workdir
+   (`<workdir root>/.syre/tickets/<ticket sid>`).
+   The digest records the failing repo's command and exit. Passed and failed counts are
+   summed across the commands that ran. The failure tail is labelled with the repo name.
 3. **Fail** and `attempt < retry_limit` (default 2): `syred` sends the compact failure tail
    back into the same agent session as the next prompt. No Commander tokens.
 4. **Fail**, retries exhausted: ticket → `failed` (or `needs_you` when `escalate_on_blocker`),
