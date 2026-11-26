@@ -1066,6 +1066,24 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.sendJSONWithID(protocol.MsgGitWorktreeCleanupResult, reqID, protocol.GitWorktreeCleanupResult{OK: true})
 		}(env.ID, p)
 
+	case protocol.MsgArtifactFetch:
+		p, err := protocol.DecodePayload[protocol.ArtifactFetchRequest](env)
+		if err != nil {
+			return
+		}
+		go func(reqID string, req protocol.ArtifactFetchRequest) {
+			ctx, cancel := context.WithTimeout(daemonCtx, 20*time.Second)
+			defer cancel()
+			host := ArtifactHost{AllowedRoots: d.cfg.AllowedRoots}
+			if d.chat != nil {
+				host.Stderr = d.chat.StderrTail
+			}
+			if d.runner != nil {
+				host.Log = d.runner.TerminalLog
+			}
+			d.sendJSONWithID(protocol.MsgArtifactFetchResult, reqID, FetchArtifact(ctx, host, req))
+		}(env.ID, p)
+
 	case protocol.MsgFSList:
 		p, err := protocol.DecodePayload[protocol.FSListRequest](env)
 		if err != nil {

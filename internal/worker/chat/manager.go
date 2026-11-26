@@ -149,6 +149,9 @@ type chatState struct {
 	turnToolOutput   strings.Builder
 	verifying        bool
 	verifyCancel     context.CancelFunc
+	// stderrTail is the engine stderr captured after the session is closed, so
+	// inspect can still read it once the process is gone.
+	stderrTail string
 }
 
 // Suspender is implemented by sessions that can freeze and thaw their engine (every
@@ -929,7 +932,49 @@ func (m *Manager) closeSession(c *chatState, why string) {
 		m.thawForClose(c, s)
 		m.rememberSessionID(c, s)
 		closeWithTimeout(s, m.log, c.id)
+		if tail := sessionStderr(s); tail != "" {
+			c.mu.Lock()
+			c.stderrTail = tail
+			c.mu.Unlock()
+		}
 	}
+}
+
+// StderrTail returns the chat engine's retained stderr. A live session is
+// preferred; otherwise the tail snapshotted when the engine was closed. ok is
+// false when this manager has no tail for chatID.
+func (m *Manager) StderrTail(chatID string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	c := m.chat(strings.TrimSpace(chatID), false)
+	if c == nil {
+		return "", false
+	}
+	c.mu.Lock()
+	sess := c.sess
+	saved := c.stderrTail
+	c.mu.Unlock()
+	if sess != nil {
+		if tail := sessionStderr(sess); tail != "" {
+			return tail, true
+		}
+		return "", false
+	}
+	if saved != "" {
+		return saved, true
+	}
+	return "", false
+}
+
+// sessionStderr reads an engine's stderr tail when the session exposes one.
+func sessionStderr(s Session) string {
+	type tailer interface{ StderrTail(int) string }
+	t, ok := s.(tailer)
+	if !ok || s == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.StderrTail(0))
 }
 
 // rememberSessionID records the agent session id of a session being dropped, for resume.

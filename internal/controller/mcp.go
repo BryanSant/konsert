@@ -455,6 +455,20 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 		})
 	}
 
+	if ib, ok := backend.(InspectBackend); ok {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "inspect",
+			Description: inspectToolDescription,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in InspectRequest) (*mcp.CallToolResult, any, error) {
+			res, err := ib.Inspect(ctx, in)
+			if err != nil {
+				return nil, nil, err
+			}
+			return jsonToolResult(res)
+		})
+	}
+
 	return srv
 }
 

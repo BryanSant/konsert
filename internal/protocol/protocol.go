@@ -48,6 +48,11 @@ const (
 	MsgGitWorktreeCleanup       = "git.worktree.cleanup"
 	MsgGitWorktreeCleanupResult = "git.worktree.cleanup.result"
 
+	// MsgArtifactFetch asks the daemon that ran a task for one capped artifact
+	// (diff, log, stderr, file). The hub serves digest and transcript itself.
+	MsgArtifactFetch       = "artifact.fetch"
+	MsgArtifactFetchResult = "artifact.fetch.result"
+
 	MsgFSList             = "fs.list"
 	MsgFSListResult       = "fs.list.result"
 	MsgWorktreeScan       = "git.worktree.scan"

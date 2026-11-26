@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BryanSant/syre/internal/config"
 	"github.com/BryanSant/syre/internal/ids"
@@ -376,6 +377,10 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 				resultPayload = map[string]string{"error": "tool result could not be encoded: " + mErr.Error()}
 				resBytes, _ = json.Marshal(resultPayload, storeJSONOpts) // map[string]string always encodes
 			}
+			content := capToolResultReplay(string(resBytes))
+			if content != string(resBytes) {
+				resultPayload = content
+			}
 			if cb.OnTool != nil {
 				cb.OnTool(protocol.ChatToolPayload{
 					SessionID: sessionID,
@@ -398,7 +403,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 			if _, err := s.store.AppendChatMessage(ctx, store.ChatMessage{
 				SessionID: sessionID,
 				Role:      "tool",
-				Content:   string(resBytes),
+				Content:   content,
 				ToolJSON:  string(metaBytes),
 			}); err != nil {
 				return fail(fmt.Errorf("save tool result: %w", err))
@@ -406,7 +411,7 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 
 			history = append(history, Message{
 				Role:       "tool",
-				Content:    string(resBytes),
+				Content:    content,
 				ToolCallID: tc.ID,
 				ToolName:   tc.Name,
 			})
@@ -435,6 +440,30 @@ func (s *Service) HandleUserMessage(ctx context.Context, sessionID, content stri
 		cb.OnDone(sessionID, lastMsgID)
 	}
 	return nil
+}
+
+// toolResultReplayCap is how much of a stored tool result is replayed into a later
+// turn. The note tells the model to page the artifact with inspect instead of
+// expecting the full payload again.
+const toolResultReplayCap = 2048
+
+const toolResultReplayNote = "\n...[truncated; call inspect again]"
+
+func capToolResultReplay(s string) string {
+	if len(s) <= toolResultReplayCap {
+		return s
+	}
+	budget := toolResultReplayCap - len(toolResultReplayNote)
+	if budget < 0 {
+		budget = 0
+	}
+	if budget > len(s) {
+		budget = len(s)
+	}
+	for budget > 0 && !utf8.RuneStart(s[budget]) {
+		budget--
+	}
+	return s[:budget] + toolResultReplayNote
 }
 
 // sanitizeToolCalls makes every tool call safe to persist and replay: missing
@@ -516,14 +545,17 @@ func (s *Service) loadBoundedHistory(ctx context.Context, sessionID string, maxR
 		if r.Role == "assistant" && r.ToolJSON != "" {
 			_ = json.Unmarshal([]byte(r.ToolJSON), &m.ToolCalls)
 		}
-		if r.Role == "tool" && r.ToolJSON != "" {
-			var meta struct {
-				CallID string `json:"call_id"`
-				Name   string `json:"name"`
+		if r.Role == "tool" {
+			m.Content = capToolResultReplay(m.Content)
+			if r.ToolJSON != "" {
+				var meta struct {
+					CallID string `json:"call_id"`
+					Name   string `json:"name"`
+				}
+				_ = json.Unmarshal([]byte(r.ToolJSON), &meta)
+				m.ToolCallID = meta.CallID
+				m.ToolName = meta.Name
 			}
-			_ = json.Unmarshal([]byte(r.ToolJSON), &meta)
-			m.ToolCallID = meta.CallID
-			m.ToolName = meta.Name
 		}
 		msgs = append(msgs, m)
 	}

@@ -276,21 +276,42 @@ type claudeSession struct {
 	pending        map[string]*claudePending
 	// agentTasks maps claude's task ids of running sub-agents to their Task tool_use id
 	// (task events; background sub-agents outlive the turn).
-	agentTasks    map[string]string
-	lastActivity  time.Time
-	watchdogFired bool
-	lastRejected  *protocol.AgentRateLimit
-	mcpFile       string
-	suspended     bool // process tree frozen by the user; the watchdog does not run
-	closed        bool
-	stop          chan struct{}
-	stopOnce      sync.Once
+	agentTasks     map[string]string
+	lastActivity   time.Time
+	watchdogFired  bool
+	lastRejected   *protocol.AgentRateLimit
+	mcpFile        string
+	suspended      bool // process tree frozen by the user; the watchdog does not run
+	closed         bool
+	retainedStderr string // stderr tail captured when the process is closed
+	stop           chan struct{}
+	stopOnce       sync.Once
 }
 
 func (s *claudeSession) AgentSessionID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sessionID
+}
+
+// StderrTail is the redacted engine stderr. A closed session returns the tail
+// captured when the process exited.
+func (s *claudeSession) StderrTail(max int) string {
+	s.mu.Lock()
+	proc := s.proc
+	saved := s.retainedStderr
+	env := s.acct.Env
+	s.mu.Unlock()
+	tail := saved
+	if proc != nil {
+		if live := ccProcessStderr(proc, env); live != "" {
+			tail = live
+		}
+	}
+	if max > 0 && len(tail) > max {
+		tail = tail[len(tail)-max:]
+	}
+	return tail
 }
 
 // args builds the CLI argv (after the account's ArgsPrefix). Caller holds s.mu.
@@ -869,6 +890,7 @@ func (s *claudeSession) Close() error {
 	s.proc = nil
 	s.procGen++
 	mcp := s.mcpFile
+	env := s.acct.Env
 	s.mu.Unlock()
 	s.stopOnce.Do(func() { close(s.stop) })
 	if proc != nil {
@@ -880,6 +902,11 @@ func (s *claudeSession) Close() error {
 		case <-time.After(2 * time.Second):
 			proc.Kill()
 			<-done
+		}
+		if tail := ccProcessStderr(proc, env); tail != "" {
+			s.mu.Lock()
+			s.retainedStderr = tail
+			s.mu.Unlock()
 		}
 	}
 	s.failWaiters()

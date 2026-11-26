@@ -225,6 +225,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("DELETE /api/tickets/{id}", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleDeleteTicket)))
 	s.mux.Handle("GET /api/tickets/{id}/rollup", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicketRollup)))
 	s.mux.Handle("GET /api/tickets/{id}/packet", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicketPacket)))
+	s.mux.Handle("GET /api/tickets/{id}/inspect", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicketInspect)))
 	s.mux.Handle("GET /api/tickets/{id}/comments", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListTicketComments)))
 	s.mux.Handle("POST /api/tickets/{id}/comments", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleCreateTicketComment)))
 	s.mux.Handle("GET /api/tickets/{id}/edges", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleListTicketEdges)))

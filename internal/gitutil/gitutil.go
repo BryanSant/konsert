@@ -575,6 +575,51 @@ func readUntrackedPreview(rootResolved, dir, rel string, limit int64) ([]byte, b
 	return raw, true
 }
 
+// OpenInside opens a regular file at rel under root. Absolute paths, ".." and
+// symlinks (including a symlink directory that would leave root) are refused.
+// The caller closes the file.
+func OpenInside(root, rel string) (*os.File, error) {
+	rel = strings.TrimSpace(rel)
+	if rel == "" || filepath.IsAbs(rel) {
+		return nil, fmt.Errorf("path must be a relative file path")
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("path escapes the worktree")
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	full := filepath.Join(rootAbs, rel)
+	rootResolved, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrWorkdirInvalid, rootAbs)
+	}
+	parentResolved, err := filepath.EvalSymlinks(filepath.Dir(full))
+	if err != nil {
+		return nil, fmt.Errorf("file not found")
+	}
+	relParent, err := filepath.Rel(rootResolved, parentResolved)
+	if err != nil || relParent == ".." || strings.HasPrefix(relParent, ".."+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("path escapes the worktree")
+	}
+	info, err := os.Lstat(full)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("file not found")
+	}
+	f, err := os.OpenFile(full, os.O_RDONLY|oNoFollow, 0)
+	if err != nil {
+		return nil, fmt.Errorf("file not found")
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || !os.SameFile(st, info) {
+		f.Close()
+		return nil, fmt.Errorf("file not found")
+	}
+	return f, nil
+}
+
 // CommitChanges stages (if stageAll) and commits changes in dir with message.
 func CommitChanges(ctx context.Context, dir, message string, stageAll bool) (*protocol.GitCommitResult, error) {
 	if strings.TrimSpace(message) == "" {

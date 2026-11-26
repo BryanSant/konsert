@@ -913,6 +913,32 @@ func (r *Runner) SubscribePty(taskID string) bool {
 	return true
 }
 
+// TerminalLog returns the retained terminal output for taskID: the live ring
+// when the task is still in memory, otherwise the on-disk scrollback. ok is
+// false when this daemon has nothing for the task. The caller pages the text.
+func (r *Runner) TerminalLog(taskID string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return "", false
+	}
+	r.mu.RLock()
+	rt := r.tasks[taskID]
+	dir := r.scrollDir
+	r.mu.RUnlock()
+	if rt != nil && rt.ring != nil {
+		if snap := rt.ring.Snapshot(); len(snap) > 0 {
+			return string(snap), true
+		}
+	}
+	if b := readScrollback(dir, taskID, DefaultRingBufferSize); len(b) > 0 {
+		return string(b), true
+	}
+	return "", false
+}
+
 func (r *Runner) scrollbackDir() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

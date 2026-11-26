@@ -107,6 +107,33 @@ func (p *ccExecProcess) pid() int {
 }
 func (p *ccExecProcess) Stdout() io.Reader { return p.stdout }
 
+// StderrTail returns the retained stderr without waiting for the process.
+// max <= 0 returns the whole tail (already bounded by the tail buffer).
+func (p *ccExecProcess) StderrTail(max int) string {
+	if p == nil || p.tail == nil {
+		return ""
+	}
+	s := p.tail.String()
+	if max > 0 && len(s) > max {
+		s = s[len(s)-max:]
+	}
+	return s
+}
+
+// ccProcessStderr reads a redacted stderr tail when the process keeps one.
+// Fakes that only implement ccProcess return an empty string.
+func ccProcessStderr(proc ccProcess, env map[string]string) string {
+	if proc == nil {
+		return ""
+	}
+	type tailer interface{ StderrTail(int) string }
+	t, ok := proc.(tailer)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(ccRedact(t.StderrTail(0), env))
+}
+
 func (p *ccExecProcess) Wait() (int, string) {
 	<-p.done
 	return p.exitCode, p.tail.String()

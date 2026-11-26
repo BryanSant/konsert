@@ -156,6 +156,25 @@ function errText(err: unknown): string {
       <section>
         <h3 class="m-0 mb-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Latest digest</h3>
         <div class="rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2 text-[12px] whitespace-pre-wrap break-words text-[var(--sy-text-secondary)]" data-testid="ticket-digest">{{ digestText() || 'No digest yet.' }}</div>
+        <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+          @if (repos().length > 1) {
+            <select class="sy-field sy-field-sm" data-testid="diff-repo" aria-label="Diff repo" [value]="diffRepo()" (change)="pickDiffRepo($any($event.target).value)">
+              @for (b of repos(); track b.repo_id) {
+                <option [value]="repoName(b.repo_id)">{{ repoName(b.repo_id) }}</option>
+              }
+            </select>
+          }
+          <button type="button" class="sy-btn sy-btn-sm" data-testid="view-diff" [disabled]="diffBusy()" (click)="viewDiff(0)">View diff</button>
+          @if (diffTruncated()) {
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="diff-more" [disabled]="diffBusy()" (click)="viewDiff(diffNext())">More</button>
+          }
+        </div>
+        @if (diffOpen()) {
+          <pre class="m-0 mt-1.5 max-h-60 overflow-auto rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words" data-testid="ticket-diff">{{ diffText() }}</pre>
+          @if (diffNote()) {
+            <p class="m-0 mt-1 text-[11px] text-[var(--sy-text-muted)]" data-testid="diff-note">{{ diffNote() }}</p>
+          }
+        }
       </section>
 
       <section>
@@ -194,6 +213,13 @@ export class TicketPanelComponent {
   readonly comments = signal<TicketComment[]>([]);
   readonly repos = signal<TicketRepoBinding[]>([]);
   readonly digest = signal<RunDigest | null>(null);
+  readonly diffText = signal('');
+  readonly diffNote = signal('');
+  readonly diffRepo = signal('');
+  readonly diffOpen = signal(false);
+  readonly diffTruncated = signal(false);
+  readonly diffNext = signal(0);
+  readonly diffBusy = signal(false);
   readonly packetText = signal('');
   readonly packetNote = signal('No packet yet.');
   readonly statusPick = signal<TicketStatus>('ready');
@@ -235,6 +261,12 @@ export class TicketPanelComponent {
         this.hintMachine.set(t.hints?.machine ?? '');
         this.error.set('');
         this.blockerError.set('');
+        this.diffText.set('');
+        this.diffNote.set('');
+        this.diffRepo.set('');
+        this.diffOpen.set(false);
+        this.diffTruncated.set(false);
+        this.diffNext.set(0);
         void this.reload(id);
       });
     });
@@ -357,6 +389,35 @@ export class TicketPanelComponent {
     }
   }
 
+  pickDiffRepo(name: string): void {
+    this.diffRepo.set(name);
+    this.diffText.set('');
+    this.diffNote.set('');
+    this.diffOpen.set(false);
+    this.diffTruncated.set(false);
+    this.diffNext.set(0);
+  }
+
+  async viewDiff(offset: number): Promise<void> {
+    this.diffBusy.set(true);
+    this.error.set('');
+    try {
+      const bindings = this.repos();
+      const repo = bindings.length > 1 ? this.diffRepo() || this.repoName(bindings[0].repo_id) : undefined;
+      const res = await this.api.inspectTicket(this.ticket().id, { kind: 'diff', repo, max_lines: 200, offset });
+      const text = res.text ?? '';
+      this.diffText.set(offset > 0 ? this.diffText() + text : text);
+      this.diffTruncated.set(!!res.truncated);
+      this.diffNext.set(res.next_offset ?? 0);
+      this.diffNote.set(res.note ?? '');
+      this.diffOpen.set(true);
+    } catch (err) {
+      this.error.set(errText(err));
+    } finally {
+      this.diffBusy.set(false);
+    }
+  }
+
   async postComment(): Promise<void> {
     const body = this.comment().trim();
     if (!body) return;
@@ -399,6 +460,7 @@ export class TicketPanelComponent {
       if (!local || local.updated_at <= detail.ticket.updated_at) this.tickets.upsert(detail.ticket);
       for (const edge of detail.blocked_by ?? []) this.tickets.upsertEdge(edge);
       this.repos.set(detail.repo_bindings ?? []);
+      if (!this.diffRepo() && this.repos().length > 0) this.diffRepo.set(this.repoName(this.repos()[0].repo_id));
       this.digest.set(detail.digest ?? null);
       this.comments.set(comments.comments ?? []);
       this.packetText.set(packet.text ?? '');
