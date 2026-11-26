@@ -278,8 +278,9 @@ func TestShellIntegrationUnixShells(t *testing.T) {
 
 			// Empty lines produce no events.
 			_, before := h.snapshot()
-			_ = h.runner.WriteStdin(h.taskID, []byte("\r"))
+			// Count prompts before pressing Enter, or a fast new prompt is counted as old.
 			prompts := strings.Count(func() string { s, _ := h.snapshot(); return s }(), "\x1b]133;A")
+			_ = h.runner.WriteStdin(h.taskID, []byte("\r"))
 			h.waitPrompt(prompts + 1)
 			if _, evs := h.snapshot(); len(evs) != len(before) {
 				t.Fatalf("empty line produced events: %+v", evs[len(before):])
