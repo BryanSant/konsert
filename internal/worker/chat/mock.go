@@ -498,19 +498,52 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			Kind: protocol.ErrKindUsageLimit, Message: "5-hour usage limit reached (mock)", Window: "five_hour", ResetsAt: &resets,
 		}})
 
-	case strings.Contains(text, "permission"):
-		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: rm -rf build/", Status: "pending", Input: `{"command":"rm -rf build/"}`}
+	case strings.Contains(text, "permission_outside"):
+		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: rm -rf /etc/important", Status: "pending", Input: `{"command":"rm -rf /etc/important"}`}
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
-		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf build/?", ToolCall: tool,
+		el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf /etc/important?", Detail: tool.Input, ToolCall: tool,
 			Options: []protocol.AgentElicitationOption{
 				{ID: "allow_once", Label: "Allow once", Kind: "allow_once"},
-				{ID: "allow_always", Label: "Always allow", Kind: "allow_always"},
 				{ID: "reject_once", Label: "Reject", Kind: "reject_once"},
 			}}
 		ans, ok := s.ask(ctx, turn, el)
 		if !ok {
 			s.cancelled(turn)
 			return
+		}
+		done := *tool
+		reply := "Permission denied, so I left /etc/important alone."
+		if strings.HasPrefix(ans.OptionID, "allow") {
+			done.Status, done.Output, reply = "completed", "ok", "Done."
+		} else {
+			done.Status = "failed"
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: &done})
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case strings.Contains(text, "permission"):
+		tool := &protocol.AgentToolCall{ID: "t-" + turn, Name: "Bash", Kind: "execute", Title: "Run: rm -rf build/", Status: "pending", Input: `{"command":"rm -rf build/"}`}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventToolCall, TurnID: turn, ToolCall: tool})
+		var ans protocol.AgentChatRespond
+		if s.opts.AutoApproveWorkdir && allowInWorkdir(s.opts.Cwd, s.opts.EngineWorktrees, tool, []byte(tool.Input)) {
+			ans = protocol.AgentChatRespond{OptionID: "allow_once"}
+		} else {
+			el := &protocol.AgentElicitation{ID: "e-" + turn, Kind: protocol.ElicitPermission, Title: "Allow Bash: rm -rf build/?", ToolCall: tool,
+				Options: []protocol.AgentElicitationOption{
+					{ID: "allow_once", Label: "Allow once", Kind: "allow_once"},
+					{ID: "allow_always", Label: "Always allow", Kind: "allow_always"},
+					{ID: "reject_once", Label: "Reject", Kind: "reject_once"},
+				}}
+			var ok bool
+			ans, ok = s.ask(ctx, turn, el)
+			if !ok {
+				s.cancelled(turn)
+				return
+			}
 		}
 		done := *tool
 		reply := "Permission denied, so I left build/ alone."

@@ -112,6 +112,17 @@ func (p BoardPulse) Text() string {
 		return out
 	}
 
+	// 4b. Trim needs_you trigger summaries if still over budget.
+	for i := len(c.Triggers) - 1; i >= 0 && EstimateTokens(out) > PulseMaxTokens; i-- {
+		if c.Triggers[i].Kind == PulseTriggerNeedsYou && c.Triggers[i].Summary != "" {
+			c.Triggers[i].Summary = ""
+			out = c.renderText(omittedNotable, omittedTriggers)
+		}
+	}
+	if EstimateTokens(out) <= PulseMaxTokens {
+		return out
+	}
+
 	// 5. Drop omitted counters if still over budget.
 	if omittedNotable > 0 {
 		omittedNotable = 0
@@ -241,7 +252,9 @@ func formatPulseTrigger(tr PulseTrigger) string {
 		return s
 	case PulseTriggerNeedsYou:
 		s := tr.TicketSID + " → needs you"
-		if cat := strings.TrimSpace(tr.Category); cat != "" {
+		if excerpt := FormatPulseNeedsYouExcerpt(tr.Summary); excerpt != "" {
+			s += ": " + excerpt
+		} else if cat := strings.TrimSpace(tr.Category); cat != "" {
 			s += " (" + cat + ")"
 		}
 		if tr.Followups > 0 {

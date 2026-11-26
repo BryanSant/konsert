@@ -85,6 +85,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid merge_style"})
 		return
 	}
+	body.Autonomy.ApprovalMode = strings.ToLower(strings.TrimSpace(body.Autonomy.ApprovalMode))
+	if !store.ValidAutonomyApprovalMode(body.Autonomy.ApprovalMode) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid autonomy.approval_mode"})
+		return
+	}
 	projectSID, err := s.store.NewSID(r.Context(), ids.Project)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -140,6 +145,11 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		proj.VerifyCmd = strings.TrimSpace(*body.VerifyCmd)
 	}
 	if body.Autonomy != nil {
+		body.Autonomy.ApprovalMode = strings.ToLower(strings.TrimSpace(body.Autonomy.ApprovalMode))
+		if !store.ValidAutonomyApprovalMode(body.Autonomy.ApprovalMode) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid autonomy.approval_mode"})
+			return
+		}
 		proj.Autonomy = *body.Autonomy
 	}
 	autopilotTurnedOn := false

@@ -69,6 +69,83 @@ func (h *Hub) ticketAutonomy(ctx context.Context, tk store.Ticket) (retryLimit i
 	return retryLimit, escalateOnBlocker
 }
 
+// ticketApprovalPolicy resolves effective approval_mode for ticketID
+// (ticket override > project default > built-in default "autonomous").
+func (h *Hub) ticketApprovalPolicy(ctx context.Context, ticketID string) string {
+	if ticketID == "" {
+		return store.AutonomyApprovalAutonomous
+	}
+	tk, err := h.store.GetTicket(ctx, ticketID)
+	if err != nil {
+		return store.AutonomyApprovalAutonomous
+	}
+	if m := strings.ToLower(strings.TrimSpace(tk.Autonomy.ApprovalMode)); m != "" {
+		return m
+	}
+	if tk.ProjectID != "" {
+		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
+			if m := strings.ToLower(strings.TrimSpace(p.Autonomy.ApprovalMode)); m != "" {
+				return m
+			}
+		}
+	}
+	return store.AutonomyApprovalAutonomous
+}
+
+// guardedMaxRisk is the highest approval risk a ticket chat may use while the
+// worker's workdir guard still sees every command: risk 2 ("accept edits") applies
+// file edits but still asks before commands, so the guard can auto-approve
+// in-workdir commands and escalate the rest. Risk 3+ modes ("auto", full access)
+// skip the prompts the guard depends on.
+const guardedMaxRisk = 2
+
+// ticketApprovalMode selects the most autonomous approval mode for a ticket chat that
+// keeps every command visible to the workdir guard, never exceeding the machine's
+// sandbox posture. Codex is the exception: full-auto runs inside its OS sandbox
+// (workspace-write, no network), which confines it to the workdir by itself.
+func ticketApprovalMode(agent string, sandboxed bool, acct *protocol.AgentAccount) string {
+	maxRisk := guardedMaxRisk
+	if sandboxed && protocol.SandboxMaxRisk < maxRisk {
+		maxRisk = protocol.SandboxMaxRisk
+	}
+	var mode string
+	switch strings.ToLower(strings.TrimSpace(agent)) {
+	case "claude":
+		mode = "acceptEdits"
+	case "codex":
+		mode = "full-auto"
+	}
+	if acct == nil || len(acct.Approvals) == 0 {
+		return mode
+	}
+	if mode != "" {
+		for _, m := range acct.Approvals {
+			if m.ID == mode {
+				if m.Disabled != "" || (sandboxed && m.Risk > protocol.SandboxMaxRisk) {
+					return highestSafeApprovalMode(acct.Approvals, maxRisk)
+				}
+				return mode
+			}
+		}
+	}
+	return highestSafeApprovalMode(acct.Approvals, maxRisk)
+}
+
+func highestSafeApprovalMode(modes []protocol.AgentApprovalMode, maxRisk int) string {
+	bestRisk := -1
+	best := ""
+	for _, m := range modes {
+		if m.Disabled != "" || m.Risk > maxRisk {
+			continue
+		}
+		if m.Risk > bestRisk {
+			bestRisk = m.Risk
+			best = m.ID
+		}
+	}
+	return best
+}
+
 func isVerifyFailureDigest(dig *protocol.RunDigest) bool {
 	if dig == nil {
 		return false
@@ -378,6 +455,15 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 			UpdatedAt:  now,
 		}
 		h.resolveChatTarget(ctx, &cs)
+		if h.ticketApprovalPolicy(ctx, tk.ID) != store.AutonomyApprovalAsk {
+			var acctPtr *protocol.AgentAccount
+			if a, ok := h.lookupAccount(ctx, w.ID, cs.Agent, cs.AccountID); ok {
+				acctPtr = &a
+			}
+			if mode := ticketApprovalMode(cs.Agent, w.PermissionMode == store.PermissionSandboxed, acctPtr); mode != "" {
+				cs.ApprovalMode = mode
+			}
+		}
 		h.initNotesCursor(ctx, &cs)
 
 		startedAt := now
@@ -724,7 +810,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 					Status:    protocol.DigestStatusNeedsYou,
 					Agent:     cs.Agent,
 					Model:     cs.Model,
-					Question:  &protocol.DigestQuestion{Text: strings.TrimSpace(ev.Elicitation.Title)},
+					Question:  &protocol.DigestQuestion{Text: protocol.FormatElicitationText(ev.Elicitation)},
 				}
 			}
 		case protocol.EventError:

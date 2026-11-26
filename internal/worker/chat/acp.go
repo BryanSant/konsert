@@ -976,6 +976,20 @@ func (s *acpSession) onPermission(id jsontext.Value, params jsontext.Value) {
 		}
 		return
 	}
+	// Autonomous ticket chats auto-approve safe in-workdir reads, edits, and commands
+	// while escalating paths outside the workdir or destructive commands to needs_you.
+	if allow := s.workdirAllowOption(tc, p.ToolCall, perm.options); allow != "" {
+		delete(s.perms, eid)
+		c := s.conn
+		s.mu.Unlock()
+		for _, ev := range flush {
+			s.emitEv(ev)
+		}
+		if c != nil {
+			_ = c.rpc.Reply(id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": allow}})
+		}
+		return
+	}
 	s.mu.Unlock()
 
 	title := tc.Title

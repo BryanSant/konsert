@@ -72,6 +72,10 @@ type AgentChatOpen struct {
 	Verifies []AgentChatVerify `json:"verifies,omitempty"`
 	// VerifyTimeoutSeconds bounds a single verification run (0 uses syred's default 20m).
 	VerifyTimeoutSeconds int `json:"verify_timeout_seconds,omitzero"`
+	// AutoApproveWorkdir instructs syred (for ACP and tool-prompting engines) to
+	// automatically approve permission requests whose targets stay inside the ticket
+	// workdir and are not obviously destructive, escalating everything else to needs_you.
+	AutoApproveWorkdir bool `json:"auto_approve_workdir,omitzero"`
 	// EngineWorktrees is filled by syred after provisioning, for in-process engines.
 	// The hub does not send it.
 	EngineWorktrees []TaskWorktree `json:"-"`

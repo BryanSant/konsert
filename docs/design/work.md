@@ -65,7 +65,7 @@ ka fields, plus Syre's runtime fields:
 | `repo_bindings[]` | human / Commander | |
 | `hints` | human / Commander | `machine`, `agent`, `model`, `effort`, `os`, `arch`, `gpu`, `min_ram_gb`, `tools[]` |
 | `verify_cmd` | human / Commander | ticket-level command; how it runs is in [autopilot.md](autopilot.md). When it is empty, each repo's `verify_cmd` runs in that repo's worktree |
-| `autonomy` | project default, per-ticket override | `retry_limit`, `cross_review`, `escalate_on_blocker`, `expand_scope` |
+| `autonomy` | project default, per-ticket override | `retry_limit`, `cross_review`, `escalate_on_blocker`, `expand_scope`, `optimistic_chaining`, `approval_mode` (`autonomous` default \| `ask`) |
 | `status` | Syre | see below |
 | `lease` | Syre | `worker_id`, `task_id`, `expires_at`, `heartbeat_at` |
 | `attempts[]`, `digest`, `artifacts` | Syre | see autopilot.md |

@@ -79,7 +79,9 @@ summary: Rotation with reuse detection and a single 401 retry; tests pass.
 - **failed**: failure category (shared with chat engines: auth, usage_limit, rate_limit,
   timeout, oom, disk_full, missing_tool, verify, agent_error, canceled, lost), failing test names,
   and the last 30 ANSI-stripped stderr lines.
-- **needs_you**: the worker's question and the 20 lines before it.
+- **needs_you**: the worker's question and the 20 lines before it. Permission elicitations are
+  normalized to a short readable line (`permission: run <cmd>` / `permission: edit <file>`,
+  raw tool JSON stripped, capped at ~120 chars); free-form questions keep their text.
 - Test output is parsed for common runners (go test, jest/vitest, pytest, cargo, gradle,
   maven, dotnet); otherwise exit code plus tail.
 
@@ -141,7 +143,16 @@ from **Pause everything**, which is the emergency control that also suspends run
    age. Tickets marked `needs_decomposition` or with no repo binding are batched into one
    pulse asking the Commander to decompose them via `manage_work`.
 2. **Dispatch** (Go): placement (eligibility, policy, directives, headroom, locality,
-   subscriptions; PRD §5.5), lease, packet, worktrees, agent launch.
+   subscriptions; PRD §5.5), lease, packet, worktrees, agent launch. By default
+   (`autonomy.approval_mode: autonomous`), ticket chats open in the most autonomous mode that
+   still asks before commands (approval risk <= 2, e.g. `claude` `acceptEdits`, ACP engines'
+   accept-edits mode), never "auto" or full access, and never above the machine's sandbox
+   posture. Every command therefore reaches the worker's workdir guard, which auto-approves
+   in-workdir reads, edits and non-destructive shell commands and escalates outside-workdir
+   paths or destructive commands (`rm -rf` outside the workdir, `sudo`, `git push --force` to
+   protected branches) to `needs_you`. `codex` uses `full-auto` (`workspace-write` / `never`)
+   because its OS sandbox already confines it to the workdir. Setting `autonomy.approval_mode: ask` on a project (or
+   ticket) keeps interactive approval prompting.
 3. **Verify and self-repair** (`syred`), as above.
 4. **Blockers**: worker questions go to the Commander first when the project allows it
    (existing "let the Commander decide" with receipts and the override window); destructive

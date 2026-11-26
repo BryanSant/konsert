@@ -94,6 +94,63 @@ func TestBoardPulseGolden(t *testing.T) {
 			}, "\n"),
 		},
 		{
+			name: "needs_you_with_permission_excerpt",
+			pulse: BoardPulse{
+				AutopilotState: "on",
+				Time:           "14:32",
+				FleetUp:        2,
+				FleetTotal:     2,
+				Ready:          3,
+				Dispatchable:   1,
+				Running:        1,
+				NeedsYou:       1,
+				NeedsYouSIDs:   []string{"tk-ka8r5"},
+				Review:         0,
+				Triggers: []PulseTrigger{
+					{
+						Kind:      PulseTriggerNeedsYou,
+						TicketSID: "tk-ka8r5",
+						Category:  "question",
+						Summary:   "permission: run ls -la",
+					},
+				},
+			},
+			want: strings.Join([]string{
+				"[SYRE PULSE | autopilot on | 14:32]",
+				"Fleet: 2/2 up",
+				"Board: 3 ready (1 dispatchable) · 1 running · 1 needs you (tk-ka8r5) · 0 review",
+				"Trigger: tk-ka8r5 → needs you: permission to run ls -la",
+			}, "\n"),
+		},
+		{
+			name: "needs_you_long_excerpt_capped_60",
+			pulse: BoardPulse{
+				AutopilotState: "on",
+				Time:           "14:32",
+				FleetUp:        1,
+				FleetTotal:     1,
+				Ready:          0,
+				Dispatchable:   0,
+				Running:        0,
+				NeedsYou:       1,
+				NeedsYouSIDs:   []string{"tk-ka8r5"},
+				Review:         0,
+				Triggers: []PulseTrigger{
+					{
+						Kind:      PulseTriggerNeedsYou,
+						TicketSID: "tk-ka8r5",
+						Summary:   "permission: run cd /very/long/path/to/ticket/workdir/demo && ls -la && git status -sb",
+					},
+				},
+			},
+			want: strings.Join([]string{
+				"[SYRE PULSE | autopilot on | 14:32]",
+				"Fleet: 1/1 up",
+				"Board: 0 ready · 0 running · 1 needs you (tk-ka8r5) · 0 review",
+				"Trigger: tk-ka8r5 → needs you: permission to run cd /very/long/path/to/ticket/workdir/de...",
+			}, "\n"),
+		},
+		{
 			name: "snapshot_no_triggers",
 			pulse: BoardPulse{
 				AutopilotState: "off",
