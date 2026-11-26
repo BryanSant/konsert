@@ -238,11 +238,12 @@ type Hub struct {
 	DeliveryPollEvery time.Duration
 	deliveryNow       func() time.Time
 
-	// directiveNow is the policy-directive clock (tests replace it). directiveKick
-	// wakes the timer goroutine so it re-arms after a create or an end.
+	// directiveNow is the policy-directive clock. The expiry loop reads it from
+	// another goroutine, so tests publish a replacement with setDirectiveClock.
+	// directiveKick wakes that loop so it re-arms after a create or an end.
 	// directiveWarned remembers which directives already got the 5-minute warning
 	// (in memory; a restart inside the window may warn again).
-	directiveNow    func() time.Time
+	directiveNow    atomic.Pointer[func() time.Time]
 	directiveKick   chan struct{}
 	directiveWarned map[string]struct{}
 	directiveMu     sync.Mutex
@@ -283,10 +284,10 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 		DeliveryPollEvery:   deliveryPollEvery,
 		deliveryNow:         time.Now,
 		pulseNow:            time.Now,
-		directiveNow:        time.Now,
 		directiveKick:       make(chan struct{}, 1),
 		directiveWarned:     map[string]struct{}{},
 	}
+	h.setDirectiveClock(time.Now)
 	h.questions.init()
 	// Machine history: periodic flush, hourly roll-up and retention (heat_history.go).
 	h.goBackground(h.vitalsLoop)

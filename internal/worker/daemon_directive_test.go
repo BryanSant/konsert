@@ -21,7 +21,7 @@ func TestDaemonRefusesWorkThatBreaksADirective(t *testing.T) {
 	c.send(t, protocol.MsgTaskStart, "", protocol.TaskStartPayload{
 		TaskID: "t-past1", Agent: "mock", Workdir: t.TempDir(), Prompt: "EXIT=0", Mode: protocol.TaskModeOneshot,
 	})
-	if st := waitTaskStatus(t, c, "t-past1"); strings.Contains(st.Summary, "paused") {
+	if st := waitTaskTerminal(t, c, "t-past1"); strings.Contains(st.Summary, "paused") {
 		t.Fatalf("a until in the past still paused the machine: %s", st.Summary)
 	}
 
@@ -55,7 +55,9 @@ func TestDaemonRefusesWorkThatBreaksADirective(t *testing.T) {
 	c.send(t, protocol.MsgTaskStart, "", protocol.TaskStartPayload{
 		TaskID: "t-room1", Agent: "mock", Workdir: t.TempDir(), Prompt: "EXIT=0", Mode: protocol.TaskModeOneshot,
 	})
-	if st := waitTaskStatus(t, c, "t-room1"); strings.Contains(st.Summary, "throttled") {
+	// The cap-1 case below needs this machine idle. The first status is "running",
+	// which on Windows arrives while the ConPTY task is still hosted.
+	if st := waitTaskTerminal(t, c, "t-room1"); strings.Contains(st.Summary, "throttled") {
 		t.Fatalf("roomy cap refused an idle machine: %s", st.Summary)
 	}
 
@@ -107,18 +109,42 @@ func sendDirectives(t *testing.T, c *hubConn, dirs ...protocol.WorkerDirective) 
 
 func waitTaskStatus(t *testing.T, c *hubConn, id string) protocol.TaskStatusPayload {
 	t.Helper()
-	env := c.waitFor(t, 10*time.Second, "task.status "+id, func(e protocol.Envelope) bool {
-		if e.Type != protocol.MsgTaskStatus {
-			return false
-		}
-		p, err := protocol.DecodePayload[protocol.TaskStatusPayload](e)
-		return err == nil && p.TaskID == id
+	return waitTaskStatusUntil(t, c, id, 10*time.Second, func(protocol.TaskStatusPayload) bool { return true })
+}
+
+// waitTaskTerminal waits until id reports a terminal status. A task emits "running"
+// as soon as its PTY starts, and on Windows that process can still be hosted when
+// the next assertion runs.
+func waitTaskTerminal(t *testing.T, c *hubConn, id string) protocol.TaskStatusPayload {
+	t.Helper()
+	return waitTaskStatusUntil(t, c, id, 15*time.Second, func(p protocol.TaskStatusPayload) bool {
+		return protocol.IsTerminalTaskStatus(p.Status)
 	})
-	p, err := protocol.DecodePayload[protocol.TaskStatusPayload](env)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func waitTaskStatusUntil(t *testing.T, c *hubConn, id string, timeout time.Duration, done func(protocol.TaskStatusPayload) bool) protocol.TaskStatusPayload {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last protocol.TaskStatusPayload
+	for time.Now().Before(deadline) {
+		env := c.waitFor(t, time.Until(deadline), "task.status "+id, func(e protocol.Envelope) bool {
+			if e.Type != protocol.MsgTaskStatus {
+				return false
+			}
+			p, err := protocol.DecodePayload[protocol.TaskStatusPayload](e)
+			return err == nil && p.TaskID == id
+		})
+		p, err := protocol.DecodePayload[protocol.TaskStatusPayload](env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = p
+		if done(p) {
+			return p
+		}
 	}
-	return p
+	t.Fatalf("task %s did not reach the expected status, last %+v", id, last)
+	return last
 }
 
 func assertRefused(t *testing.T, c *hubConn, id, word string) {

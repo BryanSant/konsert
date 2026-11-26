@@ -80,7 +80,7 @@ func TestDirectiveExpiryTiming(t *testing.T) {
 	upsertBox(t, th.st, "w1", "box")
 	start := time.Date(2026, 11, 25, 14, 0, 0, 0, time.UTC)
 	clk := &clockBox{t: start}
-	th.h.directiveNow = clk.now
+	th.h.setDirectiveClock(clk.now)
 
 	if got := th.h.nextDirectiveWake(ctx, start); got != directiveIdleDelay {
 		t.Fatalf("idle wake %s, want %s", got, directiveIdleDelay)
@@ -292,7 +292,7 @@ func TestSchedulerIgnoresDirectivePastUntil(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, 11, 25, 14, 0, 0, 0, time.UTC)
 	clk := &clockBox{t: start}
-	th.h.directiveNow = clk.now
+	th.h.setDirectiveClock(clk.now)
 	fw := th.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
 	until := start.Add(time.Hour)
 	mustDirective(t, th.h, DirectiveInput{Kind: store.DirectiveMachinePause, Target: "w1", Until: &until})
@@ -413,7 +413,7 @@ func TestDirectiveSuspendResumeOnPause(t *testing.T) {
 	// Expiry of a suspend_running pause resumes what it froze.
 	start := time.Date(2026, 11, 25, 16, 0, 0, 0, time.UTC)
 	clk := &clockBox{t: start}
-	th.h.directiveNow = clk.now
+	th.h.setDirectiveClock(clk.now)
 	until := start.Add(10 * time.Minute)
 	mustDirective(t, th.h, DirectiveInput{
 		Kind: store.DirectiveMachinePause, Target: "w1", Until: &until,
@@ -554,7 +554,7 @@ func TestBoardPulseFleetLineUsesDirectives(t *testing.T) {
 	now := time.Date(2026, 11, 25, 14, 32, 0, 0, loc)
 	until := time.Date(2026, 11, 25, 18, 0, 0, 0, loc)
 	clk := &clockBox{t: now}
-	th.h.directiveNow = clk.now
+	th.h.setDirectiveClock(clk.now)
 	th.h.pulseNow = clk.now
 
 	upsertBox(t, th.st, "mini", "mini-mac")

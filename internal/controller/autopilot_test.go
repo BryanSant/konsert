@@ -201,14 +201,16 @@ func TestAutopilotPrecedenceFleetPauseAndProjectPause(t *testing.T) {
 
 	fw := th.connectWorker(t, testWorkerInfo("w-1", "box-1"), nil, "w-1")
 
-	// 1. Explicitly pause project B, turn global autopilot ON, and also Pause everything (fleet pause).
+	// 1. Pause project B, then Pause everything, then turn global autopilot ON.
+	// Global play kicks the scheduler. The pause has to be stored first so that
+	// kick, and any pass still running from the worker hello, observes it.
 	if _, err := th.h.SetProjectAutopilot(ctx, projB.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := th.h.SetGlobalAutopilot(ctx, true); err != nil {
+	if _, err := th.h.PauseEverything(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := th.h.PauseEverything(ctx); err != nil {
+	if _, err := th.h.SetGlobalAutopilot(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 
