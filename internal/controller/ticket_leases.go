@@ -1008,32 +1008,11 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				h.closeChat(ctx, cs.ID)
 				return
 			}
-			okStatus := store.AttemptReview
-			if mergedDig != nil && mergedDig.Status == protocol.DigestStatusCompleted {
-				okStatus = store.AttemptCompleted
+			// Optional cross-agent review before the ticket reaches review (crossreview.go).
+			if h.maybeStartCrossReview(ctx, tk, cs, task, mergedDig, summary) {
+				return
 			}
-			if mergedDig != nil && mergedDig.Failure != nil && mergedDig.Failure.Category == protocol.ErrKindCanceled {
-				okStatus = store.AttemptCanceled
-			}
-			okCode := 0
-			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, okStatus, "", &okCode, 0)
-			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
-				h.broadcastFleetUpdate("ticket", updated)
-				h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
-				h.kickScheduler()
-			} else if tk.Lease == nil {
-				// Follow-up turn from review (no active lease): transition back to review.
-				tk.Status = store.TicketStatusReview
-				if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
-					h.broadcastFleetUpdate("ticket", updated)
-					h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
-					h.kickScheduler()
-				}
-			}
-			if task != nil {
-				code := 0
-				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusCompleted, summary, "", &code, causeScheduler)
-			}
+			h.completeTicketRun(ctx, tk, cs, task, mergedDig, summary)
 		}
 
 	case protocol.EventError:
@@ -1228,4 +1207,35 @@ func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditA
 		h.checkProjectBoardIdle(ctx, updated.ProjectID)
 	}
 	return updated, nil
+}
+
+// completeTicketRun records a verified, successful run and moves the ticket to review
+// (releasing its lease), or back to review after a follow-up turn.
+func (h *Hub) completeTicketRun(ctx context.Context, tk store.Ticket, cs store.ChatSession, task *store.Task, mergedDig *protocol.RunDigest, summary string) {
+	okStatus := store.AttemptReview
+	if mergedDig != nil && mergedDig.Status == protocol.DigestStatusCompleted {
+		okStatus = store.AttemptCompleted
+	}
+	if mergedDig != nil && mergedDig.Failure != nil && mergedDig.Failure.Category == protocol.ErrKindCanceled {
+		okStatus = store.AttemptCanceled
+	}
+	okCode := 0
+	h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, okStatus, "", &okCode, 0)
+	if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
+		h.broadcastFleetUpdate("ticket", updated)
+		h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
+		h.kickScheduler()
+	} else if tk.Lease == nil {
+		// Follow-up turn from review (no active lease): transition back to review.
+		tk.Status = store.TicketStatusReview
+		if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+			h.broadcastFleetUpdate("ticket", updated)
+			h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
+			h.kickScheduler()
+		}
+	}
+	if task != nil {
+		code := 0
+		_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusCompleted, summary, "", &code, causeScheduler)
+	}
 }

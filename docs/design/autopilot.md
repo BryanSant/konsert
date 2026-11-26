@@ -106,10 +106,17 @@ payload is capped; `inspect_git_status`'s uncapped per-file diffs are replaced b
    back into the same agent session as the next prompt. No Commander tokens.
 4. **Fail**, retries exhausted: ticket → `failed` (or `needs_you` when `escalate_on_blocker`),
    digest pushed.
-5. **Pass**: ticket → `review`. With `cross_review`, the hub dispatches a review run on a
-   different agent or model that checks the diff against the acceptance items and returns
-   approve or changes-requested; changes-requested goes back to the author session like a
-   verify failure. Then delivery proceeds per [delivery.md](delivery.md).
+5. **Pass**: ticket → `review`. With `autonomy.cross_review` (ticket, else project), the
+   ticket stays `running` (lease held) and the hub opens a reviewer chat on the same machine:
+   a different agent when one is available, else the same agent on another model, in its
+   lowest-risk (read-only) mode with no ticket tools. Its prompt carries the acceptance items
+   and each repo's diff against the worktree's base (fetched from the worker, about 48 KB
+   at most), so it needs no tools. It answers `APPROVE` or `CHANGES: …`. Approval completes
+   the run; changes go back to the author session as a follow-up turn, and after
+   `retry_limit` rounds the ticket goes to `needs_you`. Each verdict is a ticket comment by
+   `review:<agent>`. If the reviewer can't start or fails, the run completes without review.
+   Review rounds are tracked in memory, so a hub restart mid-review loses the round. Then
+   delivery proceeds per [delivery.md](delivery.md).
 
 Each loop iteration is an *attempt* row: machine, account, agent, model, timings, exit,
 failure category, verify result, tokens and cost where known. Attempts feed work profiles and

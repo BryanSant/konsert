@@ -174,6 +174,11 @@ func (h *Hub) emitChatEvent(ctx context.Context, chatID string, ev protocol.Agen
 	if ok && cs.TicketID != "" && cs.QuestionID == "" {
 		h.syncTicketFromChatEvent(ctx, cs, out)
 	}
+	if ok && (out.Kind == protocol.EventTurnEnd || out.Kind == protocol.EventError) {
+		if _, isReviewer := h.cross.forReviewer(chatID); isReviewer {
+			h.goBackground(func(bctx context.Context) { h.onCrossReviewEvent(bctx, cs, out) })
+		}
+	}
 	return out, ok
 }
 

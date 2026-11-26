@@ -75,13 +75,13 @@ func fetchWorktree(ctx context.Context, host ArtifactHost, req protocol.Artifact
 		defer f.Close()
 		return protocol.PageReader(f, req.MaxLines, req.Offset).ToArtifact(kind)
 	case protocol.InspectKindDiffStat:
-		page, gErr := gitDiffPage(ctx, dir, req.MaxLines, req.Offset, true, rel)
+		page, gErr := gitDiffPage(ctx, dir, req.MaxLines, req.Offset, true, rel, req.Base)
 		if gErr != nil {
 			return protocol.ArtifactFetchResult{Kind: kind, Error: gErr.Error()}
 		}
 		return page.ToArtifact(kind)
 	default:
-		page, gErr := gitDiffPage(ctx, dir, req.MaxLines, req.Offset, false, rel)
+		page, gErr := gitDiffPage(ctx, dir, req.MaxLines, req.Offset, false, rel, req.Base)
 		if gErr != nil {
 			return protocol.ArtifactFetchResult{Kind: kind, Error: gErr.Error()}
 		}
@@ -89,12 +89,19 @@ func fetchWorktree(ctx context.Context, host ArtifactHost, req protocol.Artifact
 	}
 }
 
-func gitDiffPage(ctx context.Context, dir string, maxLines, offset int, stat bool, rel string) (protocol.TextPage, error) {
+func gitDiffPage(ctx context.Context, dir string, maxLines, offset int, stat bool, rel, base string) (protocol.TextPage, error) {
 	args := []string{"--literal-pathspecs", "diff"}
 	if stat {
 		args = append(args, "--stat")
 	}
-	args = append(args, "HEAD")
+	rev := "HEAD"
+	if b := strings.TrimSpace(base); b != "" {
+		if strings.HasPrefix(b, "-") {
+			return protocol.TextPage{}, fmt.Errorf("invalid base revision %q", b)
+		}
+		rev = b
+	}
+	args = append(args, rev)
 	if rel != "" {
 		args = append(args, "--", rel)
 	}
