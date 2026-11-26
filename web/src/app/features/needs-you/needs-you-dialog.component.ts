@@ -148,6 +148,28 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                         }
                       </article>
                     }
+                    @case ('policy') {
+                      @let p = e.policy!;
+                      <article class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-2)] p-4 space-y-3" data-testid="needs-you-policy" [attr.data-policy]="e.sid">
+                        <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#e9bd76]">The commander wants to change policy · {{ e.sid }}</div>
+                        <h3 class="m-0 text-[17px] font-semibold leading-snug text-[var(--sy-text)]">{{ p.summary || e.title }}</h3>
+                        @if (p.reason) {
+                          <p class="m-0 text-[12.5px] text-[var(--sy-text-secondary)]" data-testid="policy-reason">{{ p.reason }}</p>
+                        }
+                        <p class="m-0 text-[12px] text-[var(--sy-text-muted)]">Approving applies it, attributed to you via Commander. You can undo it from Your actions.</p>
+                        @if (e.pending) {
+                          <div class="flex flex-wrap gap-2">
+                            <button type="button" class="sy-btn sy-btn-primary h-10" data-testid="policy-approve" [disabled]="control.isBusy(p.id)" (click)="decidePolicy(e, 'approve')">
+                              <app-icon name="check" [size]="12" />
+                              Approve
+                            </button>
+                            <button type="button" class="sy-btn sy-btn-soft h-10" data-testid="policy-deny" [disabled]="control.isBusy(p.id)" (click)="decidePolicy(e, 'deny')">Deny</button>
+                          </div>
+                        } @else {
+                          <p class="m-0 text-[12.5px] text-[#8fcb9b]" role="status" data-testid="policy-decided">{{ decided()[e.key] === 'deny' ? 'Denied' : 'Approved' }}: the change {{ decided()[e.key] === 'deny' ? 'was not applied' : 'is in effect' }}.</p>
+                        }
+                      </article>
+                    }
                     @case ('override') {
                       @let o = e.override!;
                       <article class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-2)] p-4 space-y-3" data-testid="needs-you-override" [attr.data-override]="e.sid">
@@ -507,6 +529,15 @@ export class NeedsYouDialogComponent {
 
   setNote(key: string, value: string): void {
     this.notes.update((n) => ({ ...n, [key]: value }));
+  }
+
+  async decidePolicy(e: NeedsYouEntry, decision: 'approve' | 'deny'): Promise<void> {
+    if (!e.policy) return;
+    const res = await this.control.decideProposal(e.policy, decision);
+    if (!res) return;
+    if (res !== true) this.fleet.applyDirective(res);
+    this.decided.update((d) => ({ ...d, [e.key]: decision }));
+    this.forward(() => this.store.advance(e.key));
   }
 
   async decide(e: NeedsYouEntry, decision: 'approve' | 'deny'): Promise<void> {

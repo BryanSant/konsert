@@ -188,6 +188,13 @@ export class FleetStore {
     }
   }
 
+  /** Ends a directive (the receipt Undo). The hub drops it from the active set. */
+  async endDirective(id: string): Promise<PolicyDirective> {
+    const d = await this.api.endDirective(id);
+    this.applyDirective(d);
+    return d;
+  }
+
   /**
    * One directive pushed by the hub (fleet.update kind "directive") or returned by
    * create/end. An ended directive, or one whose until has passed, drops out.

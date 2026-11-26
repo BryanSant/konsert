@@ -136,6 +136,12 @@ describe('ControlStore', () => {
         ],
       })),
       decideOverride: vi.fn(async (id: string) => ({ id, status: 'denied' })),
+      listPolicyProposals: vi.fn(async () => ({
+        proposals: [
+          { id: 'p1', sid: 'pp-1', kind: 'provider.disable', target: 'codex', summary: 'Disable Codex', status: 'pending', created_at: '2026-11-23T10:00:00Z' },
+          { id: 'p2', sid: 'pp-2', kind: 'provider.disable', target: 'grok', summary: 'x', status: 'denied', created_at: '2026-11-23T09:00:00Z' },
+        ],
+      })),
     };
     TestBed.configureTestingModule({ providers: [{ provide: ApiClientService, useValue: api }] });
     store = TestBed.inject(ControlStore);
@@ -152,6 +158,8 @@ describe('ControlStore', () => {
     expect(store.events().map((e) => e.id)).toEqual([5]);
     expect(store.eventsCursor()).toBe(4);
     expect(store.overrides().map((o) => o.id)).toEqual(['o1']);
+    expect(store.proposals().map((p) => p.id)).toEqual(['p1']);
+    expect(api['listPolicyProposals']).toHaveBeenCalledWith({ status: 'pending' });
     expect(store.vetoes().map((v) => v.id)).toEqual(['v1']);
     expect(api['listOverrides']).toHaveBeenCalledWith({ status: 'pending' });
     expect(api['listVetoes']).toHaveBeenCalledWith({ open: true });

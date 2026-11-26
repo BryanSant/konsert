@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ShellReminder } from '../models/activity.models';
+import { PolicyProposal } from '../models/syre.models';
 import { Hold, OverrideRequest, UserRequest, VETO_REASONS, Veto, formatDuration, requestImpact, resourceLabel } from '../models/control.models';
 import { QuestionView, isPending } from '../models/question.models';
 import { ControlStore } from './control.store';
@@ -14,7 +15,7 @@ export const ADVANCE_DELAY_MS = 1200;
 /** How long "All caught up" shows before the dialog closes. */
 export const CAUGHT_UP_MS = 1600;
 
-export type NeedsYouKind = 'question' | 'request' | 'veto' | 'review' | 'override' | 'shells';
+export type NeedsYouKind = 'question' | 'request' | 'veto' | 'review' | 'override' | 'policy' | 'shells';
 
 /** One thing that wants the user, as every list and the dialog show it. */
 export interface NeedsYouEntry {
@@ -38,6 +39,7 @@ export interface NeedsYouEntry {
   request?: UserRequest;
   veto?: Veto;
   override?: OverrideRequest;
+  policy?: PolicyProposal;
   review?: WorkItem;
   shells?: ShellReminder;
 }
@@ -153,6 +155,8 @@ export class NeedsYouStore {
   readonly reviews = computed(() => this.work.reviews());
   /** Override requests (break-glass) from the commander, waiting for a decision. */
   readonly overrides = computed(() => this.control.overrides());
+  /** Confirm-mode policy changes waiting for the user. */
+  readonly proposals = computed(() => this.control.proposals());
 
   /**
    * Pending entries in priority order: vetoes nobody acknowledged, questions, requests,
@@ -203,6 +207,19 @@ export class NeedsYouStore {
         pending: true,
         sessionId: o.task_id || o.target_chat_id || undefined,
         override: o,
+      });
+    }
+    for (const p of this.proposals()) {
+      out.push({
+        key: `pp:${p.id}`,
+        kind: 'policy',
+        tag: 'P2',
+        title: p.summary || `${p.kind} on ${p.target}`,
+        meta: ['policy', 'commander', ago(p.created_at)].filter(Boolean).join(' · '),
+        at: p.created_at,
+        sid: p.sid,
+        pending: p.status === 'pending',
+        policy: p,
       });
     }
     out.push(...waiting);

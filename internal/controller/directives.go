@@ -329,6 +329,8 @@ func (h *Hub) afterDirectiveChanged(ctx context.Context, d store.Directive, ende
 	case store.DirectiveAutopilotPause:
 		h.broadcastAutopilotUpdate(ctx)
 		h.kickScheduler()
+	case store.DirectiveProviderDisable:
+		h.kickScheduler()
 	default:
 		if strings.HasPrefix(d.Kind, "machine.") {
 			h.pushMachineDirectives(ctx, d.Target)
@@ -352,6 +354,12 @@ func (h *Hub) directiveSummary(ctx context.Context, d store.Directive, verb stri
 	case d.Kind == store.DirectiveAutopilotPause:
 		if p, err := h.store.GetProject(ctx, d.Target); err == nil && p.Name != "" {
 			where = p.Name
+		}
+	case d.Kind == store.DirectiveProviderDisable:
+		if d.Params.Scope == store.DirectiveScopeAccount {
+			where = "account " + d.Target
+		} else {
+			where = providerAgentLabel(d.Target)
 		}
 	}
 	msg := fmt.Sprintf("Directive %s (%s) %s on %s", d.SID, d.Kind, verb, where)
@@ -408,9 +416,7 @@ func capDirectiveReason(s string) string {
 func (h *Hub) prepareDirective(ctx context.Context, in DirectiveInput) (store.Directive, error) {
 	kind := strings.TrimSpace(in.Kind)
 	switch kind {
-	case store.DirectiveProviderDisable:
-		return store.Directive{}, errors.New("provider.disable is not available yet")
-	case store.DirectiveMachinePause, store.DirectiveMachineThrottle, store.DirectiveMachineDrain, store.DirectiveAutopilotPause:
+	case store.DirectiveProviderDisable, store.DirectiveMachinePause, store.DirectiveMachineThrottle, store.DirectiveMachineDrain, store.DirectiveAutopilotPause:
 	default:
 		return store.Directive{}, fmt.Errorf("unknown directive kind %q", kind)
 	}
@@ -418,17 +424,25 @@ func (h *Hub) prepareDirective(ctx context.Context, in DirectiveInput) (store.Di
 	if target == "" {
 		return store.Directive{}, errors.New("target is required")
 	}
-	if strings.HasPrefix(kind, "machine.") {
+	switch {
+	case strings.HasPrefix(kind, "machine."):
 		target = h.resolveMachine(ctx, target)
 		if _, err := h.store.GetWorker(ctx, target); err != nil {
 			return store.Directive{}, fmt.Errorf("machine %q not found", strings.TrimSpace(in.Target))
 		}
-	} else {
+	case kind == store.DirectiveAutopilotPause:
 		id := h.resolveProjectID(ctx, target)
 		if id == "" {
 			return store.Directive{}, fmt.Errorf("project %q not found", target)
 		}
 		target = id
+	default:
+		resolved, scope, err := h.resolveProviderTarget(ctx, target, in.Params.Scope)
+		if err != nil {
+			return store.Directive{}, err
+		}
+		target = resolved
+		in.Params.Scope = scope
 	}
 	if in.Until != nil {
 		until := in.Until.UTC()
@@ -440,6 +454,9 @@ func (h *Hub) prepareDirective(ctx context.Context, in DirectiveInput) (store.Di
 	params, err := normalizeDirectiveParams(kind, in.Params)
 	if err != nil {
 		return store.Directive{}, err
+	}
+	if kind == store.DirectiveProviderDisable && params.Fallback != "" && params.Scope == store.DirectiveScopeAgent && strings.EqualFold(params.Fallback, target) {
+		return store.Directive{}, errors.New("fallback must be a different agent")
 	}
 	return store.Directive{
 		Kind:   kind,
@@ -465,6 +482,21 @@ func normalizeDirectiveParams(kind string, p store.DirectiveParams) (store.Direc
 		return p, nil
 	case store.DirectiveMachinePause:
 		return store.DirectiveParams{SuspendRunning: p.SuspendRunning}, nil
+	case store.DirectiveProviderDisable:
+		fb := strings.TrimSpace(p.Fallback)
+		if canon, ok := canonicalAgent(fb); ok {
+			fb = canon
+		} else {
+			fb = strings.ToLower(fb)
+		}
+		scope := p.Scope
+		if scope == "" {
+			scope = store.DirectiveScopeAgent
+		}
+		if scope != store.DirectiveScopeAgent && scope != store.DirectiveScopeAccount {
+			return store.DirectiveParams{}, errors.New("scope must be agent or account")
+		}
+		return store.DirectiveParams{Fallback: fb, Scope: scope}, nil
 	default:
 		return store.DirectiveParams{}, nil
 	}

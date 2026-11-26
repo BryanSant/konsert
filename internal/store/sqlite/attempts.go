@@ -15,7 +15,7 @@ import (
 
 const attemptSelect = `id, ticket_id, task_id, chat_id, attempt, worker_id, account_id, agent, model,
 	queued_at, started_at, ended_at, queue_wait_s, duration_s, exit_code, status, failure_category,
-	verify_cmd, verify_exit, verify_passed, verify_failed, tokens_in, tokens_out, cost_usd, git_json`
+	verify_cmd, verify_exit, verify_passed, verify_failed, tokens_in, tokens_out, cost_usd, git_json, substitution`
 
 // UpsertAttempt inserts or updates the row for (ticket, attempt) or, when the
 // attempt has no ticket, (task, attempt). A zero Attempt assigns the next number.
@@ -139,15 +139,15 @@ func insertAttemptTx(ctx context.Context, tx *sql.Tx, a store.Attempt) error {
 			queue_wait_s, duration_s, exit_code,
 			status, failure_category,
 			verify_cmd, verify_exit, verify_passed, verify_failed,
-			tokens_in, tokens_out, cost_usd, git_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			tokens_in, tokens_out, cost_usd, git_json, substitution
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, a.ID, nullString(a.TicketID), a.TaskID, nullString(a.ChatID), a.Attempt,
 		a.WorkerID, a.AccountID, a.Agent, a.Model,
 		optTime(a.QueuedAt), optTime(a.StartedAt), optTime(a.EndedAt),
 		nullInt64(a.QueueWaitS), nullInt64(a.DurationS), nullInt(a.ExitCode),
 		a.Status, a.FailureCategory,
 		a.VerifyCmd, nullInt(a.VerifyExit), nullInt(a.VerifyPassed), nullInt(a.VerifyFailed),
-		a.TokensIn, a.TokensOut, nullFloat(a.CostUSD), a.GitJSON)
+		a.TokensIn, a.TokensOut, nullFloat(a.CostUSD), a.GitJSON, a.Substitution)
 	return err
 }
 
@@ -159,14 +159,14 @@ func updateAttemptTx(ctx context.Context, tx *sql.Tx, a store.Attempt) error {
 			queue_wait_s = ?, duration_s = ?, exit_code = ?,
 			status = ?, failure_category = ?,
 			verify_cmd = ?, verify_exit = ?, verify_passed = ?, verify_failed = ?,
-			tokens_in = ?, tokens_out = ?, cost_usd = ?, git_json = ?
+			tokens_in = ?, tokens_out = ?, cost_usd = ?, git_json = ?, substitution = ?
 		WHERE id = ?
 	`, a.TaskID, nullString(a.ChatID), a.WorkerID, a.AccountID, a.Agent, a.Model,
 		optTime(a.QueuedAt), optTime(a.StartedAt), optTime(a.EndedAt),
 		nullInt64(a.QueueWaitS), nullInt64(a.DurationS), nullInt(a.ExitCode),
 		a.Status, a.FailureCategory,
 		a.VerifyCmd, nullInt(a.VerifyExit), nullInt(a.VerifyPassed), nullInt(a.VerifyFailed),
-		a.TokensIn, a.TokensOut, nullFloat(a.CostUSD), a.GitJSON, a.ID)
+		a.TokensIn, a.TokensOut, nullFloat(a.CostUSD), a.GitJSON, a.Substitution, a.ID)
 	return err
 }
 
@@ -234,6 +234,9 @@ func mergeAttempt(prev, next store.Attempt) store.Attempt {
 	}
 	if next.GitJSON != "" && next.GitJSON != "{}" {
 		out.GitJSON = next.GitJSON
+	}
+	if next.Substitution != "" {
+		out.Substitution = next.Substitution
 	}
 	if next.DurationS != nil {
 		out.DurationS = next.DurationS
@@ -310,6 +313,7 @@ func scanAttempt(sc attemptScanner) (store.Attempt, error) {
 		&a.ID, &ticketID, &a.TaskID, &chatID, &a.Attempt, &a.WorkerID, &a.AccountID, &a.Agent, &a.Model,
 		&queued, &started, &ended, &queueWait, &duration, &exitCode, &a.Status, &a.FailureCategory,
 		&a.VerifyCmd, &verifyExit, &verifyPassed, &verifyFailed, &a.TokensIn, &a.TokensOut, &cost, &a.GitJSON,
+		&a.Substitution,
 	)
 	if err != nil {
 		return store.Attempt{}, err

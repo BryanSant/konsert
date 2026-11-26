@@ -17,6 +17,7 @@ import {
   FleetSnapshotResponse,
   CreateDirectiveRequest,
   PolicyDirective,
+  PolicyProposal,
   GitCommitResult,
   GitInspectResult,
   Project,
@@ -484,6 +485,21 @@ export class ApiClientService {
 
   endDirective(id: string): Promise<PolicyDirective> {
     return this.request<PolicyDirective>(`/api/directives/${encodeURIComponent(id)}/end`, { method: 'POST' });
+  }
+
+  listPolicyProposals(query?: { status?: string }): Promise<{ proposals: PolicyProposal[] }> {
+    const q = new URLSearchParams();
+    if (query?.status) q.set('status', query.status);
+    const qs = q.toString();
+    return this.request(`/api/policy-proposals${qs ? `?${qs}` : ''}`);
+  }
+
+  approvePolicyProposal(id: string): Promise<PolicyDirective> {
+    return this.request<PolicyDirective>(`/api/policy-proposals/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+  }
+
+  denyPolicyProposal(id: string): Promise<PolicyProposal> {
+    return this.request<PolicyProposal>(`/api/policy-proposals/${encodeURIComponent(id)}/deny`, { method: 'POST' });
   }
 
   /** Bulk machine control: suspend-all, resume-all or stop-all. */

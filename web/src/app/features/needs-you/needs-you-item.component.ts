@@ -25,6 +25,7 @@ import { IconComponent } from '../../shared/icon.component';
       [attr.data-question]="e.kind === 'question' ? e.sid : null"
       [attr.data-request]="e.kind === 'request' ? e.sid : null"
       [attr.data-override]="e.kind === 'override' ? e.sid : null"
+      [attr.data-policy]="e.kind === 'policy' ? e.sid : null"
       [attr.data-veto]="e.kind === 'veto' ? e.sid : null"
       [attr.data-shells]="e.kind === 'shells' ? e.sid : null"
       [attr.aria-label]="label()"
@@ -100,7 +101,7 @@ export class NeedsYouItemComponent {
   label(): string {
     const e = this.entry();
     const veto = e.tag === 'P1' ? 'Veto not acknowledged' : 'Veto awaiting acknowledgement';
-    const kind = { question: 'Question', request: 'Request', veto, review: 'Ready for review', override: 'Override request', shells: 'Shells left running' }[e.kind];
+    const kind = { question: 'Question', request: 'Request', veto, review: 'Ready for review', override: 'Override request', policy: 'Policy change', shells: 'Shells left running' }[e.kind];
     return `${kind}: ${e.title}. ${e.meta}`;
   }
 }

@@ -10,7 +10,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { activeMachineDirectives, directiveBadgeText, offlineText, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
+import { activeMachineDirectives, directiveBadgeText, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -541,9 +541,10 @@ export class MachineDetailModalComponent {
   readonly directiveReason = signal('');
   readonly directiveBusy = signal(false);
   readonly directiveError = signal('');
-  readonly directiveRows = computed(() =>
-    activeMachineDirectives(this.fleet.directives(), this.worker().id).map((d) => ({ id: d.id, text: directiveBadgeText(d) })),
-  );
+  readonly directiveRows = computed(() => [
+    ...activeMachineDirectives(this.fleet.directives(), this.worker().id).map((d) => ({ id: d.id, text: directiveBadgeText(d) })),
+    ...providerBadgesForWorker(this.fleet.directives(), this.worker()),
+  ]);
 
   readonly availableShells = computed(() => this.worker().facts?.shells ?? []);
   readonly hasGitBash = computed(

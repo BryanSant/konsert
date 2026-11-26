@@ -165,9 +165,24 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				lifted[w.ID] = ov
 			}
 		}
-		w, ok := SelectWorker(eligible, counts, sel, t.Agent, t.PermissionMode)
+		subNote := ""
+		if payload.Agent != "shell" && payload.SessionKind != "terminal" {
+			dec, idx := h.applyProviderPlacement(ctx, payload.Agent, payload.AccountID, false, eligible)
+			payload.Agent = dec.Agent
+			payload.AccountID = dec.AccountID
+			subNote = dec.Substitution
+			eligible = filterProviderWorkers(eligible, payload.Agent, idx)
+		}
+		w, ok := SelectWorker(eligible, counts, sel, payload.Agent, t.PermissionMode)
 		if !ok {
 			continue
+		}
+		if payload.Agent == "" && t.Agent != "shell" && payload.SessionKind != "terminal" {
+			idx, _ := h.loadProviderIndex(ctx)
+			payload.Agent = pickAllowedAgent(w, idx)
+			if payload.Agent == "" {
+				continue
+			}
 		}
 		if h.checkAccountLoggedIn(ctx, w.ID, payload.Agent, payload.AccountID) != nil {
 			// Leave it queued: the account must sign in again first.
@@ -195,6 +210,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				"task_id", t.ID, "worker_id", w.ID, "err", err)
 			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
 			continue
+		}
+		if subNote != "" {
+			h.recordAttemptSubstitution(ctx, t.ID, t.TicketID, w.ID, payload.Agent, payload.AccountID, subNote, 0)
 		}
 		if ov := lifted[w.ID]; ov != nil {
 			h.useOverride(ctx, *ov)

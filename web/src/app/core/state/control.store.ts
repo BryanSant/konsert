@@ -12,6 +12,7 @@ import {
   vetoOpen,
 } from '../models/control.models';
 import { ShellReminder } from '../models/activity.models';
+import { PolicyDirective, PolicyProposal } from '../models/syre.models';
 import { ApiClientService } from '../services/api-client.service';
 
 /** Page size for the "Your actions" timeline. */
@@ -35,6 +36,8 @@ export class ControlStore {
   readonly requests = signal<UserRequest[]>([]);
   /** Override requests waiting for the user's decision, newest first. */
   readonly overrides = signal<OverrideRequest[]>([]);
+  /** Commander policy changes waiting for approval (commander_policy_writes confirm). */
+  readonly proposals = signal<PolicyProposal[]>([]);
   /** Vetoes the agent has not acknowledged yet (and the user has not dismissed), newest first. */
   readonly vetoes = signal<Veto[]>([]);
   /** Sessions that left shells running past the idle period (SYR-DCEZV), oldest first. */
@@ -75,6 +78,7 @@ export class ControlStore {
       this.loadHolds(),
       this.loadRequests(),
       this.loadOverrides(),
+      this.loadProposals(),
       this.loadVetoes(),
       this.loadEvents(),
       this.loadShellReminders(),
@@ -102,6 +106,15 @@ export class ControlStore {
     try {
       const res = await this.api.listRequests({ status: 'open' });
       this.requests.set(sortNewest((res.requests ?? []).filter((r) => r.status === 'open')));
+    } catch {
+      // keep
+    }
+  }
+
+  async loadProposals(): Promise<void> {
+    try {
+      const res = await this.api.listPolicyProposals({ status: 'pending' });
+      this.proposals.set(sortNewest((res.proposals ?? []).filter((p) => p.status === 'pending')));
     } catch {
       // keep
     }
@@ -181,6 +194,14 @@ export class ControlStore {
     this.requests.update((list) => {
       const rest = list.filter((x) => x.id !== r.id);
       return r.status === 'open' ? sortNewest([r, ...rest]) : rest;
+    });
+  }
+
+  applyProposal(p: PolicyProposal | undefined | null): void {
+    if (!p?.id) return;
+    this.proposals.update((list) => {
+      const rest = list.filter((x) => x.id !== p.id);
+      return p.status === 'pending' ? sortNewest([p, ...rest]) : rest;
     });
   }
 
@@ -290,6 +311,25 @@ export class ControlStore {
     const res = await this.run(r.id, fallback, () => (action === 'keep' ? this.api.keepShells(kind, id) : this.api.shellAction(kind, id, action)));
     if (res) this.applyShellReminder({ ...r, resolved: true });
     return !!res;
+  }
+
+  /**
+   * Approves or denies a confirm-mode policy change. On approval the created
+   * directive is returned so the caller can show it immediately; the hub also
+   * pushes it over the socket.
+   */
+  async decideProposal(p: PolicyProposal, decision: 'approve' | 'deny'): Promise<PolicyDirective | true | undefined> {
+    let created: PolicyDirective | undefined;
+    const res = await this.run(p.id, 'Could not decide the policy change', async () => {
+      if (decision === 'approve') {
+        created = await this.api.approvePolicyProposal(p.id);
+        return { ...p, status: 'approved', applied_id: created.id } satisfies PolicyProposal;
+      }
+      return this.api.denyPolicyProposal(p.id);
+    });
+    if (res) this.applyProposal(res);
+    if (!res) return undefined;
+    return decision === 'approve' ? created : true;
   }
 
   /** Approves or denies an override request (with an optional note for the commander). */

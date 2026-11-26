@@ -2,14 +2,19 @@ package store
 
 import "time"
 
-// Policy directive kinds (docs/design/autopilot.md). provider.disable is reserved
-// for the next ticket: the column accepts it, the API does not create it.
+// Policy directive kinds (docs/design/autopilot.md).
 const (
 	DirectiveMachinePause    = "machine.pause"
 	DirectiveMachineThrottle = "machine.throttle"
 	DirectiveMachineDrain    = "machine.drain"
 	DirectiveAutopilotPause  = "autopilot.pause"
 	DirectiveProviderDisable = "provider.disable"
+)
+
+// Scope of a provider.disable target.
+const (
+	DirectiveScopeAgent   = "agent"
+	DirectiveScopeAccount = "account"
 )
 
 // Who set a directive.
@@ -20,14 +25,17 @@ const (
 )
 
 // DirectiveParams is the kind-specific payload. Throttle uses MaxConcurrency (0 drops
-// the machine), CPUCeilingPct and HeavyOK. Pause uses SuspendRunning. Pointers keep an
-// omitted cap distinct from zero. CPU ceiling and heavy_ok are stored and forwarded;
+// the machine), CPUCeilingPct and HeavyOK. Pause uses SuspendRunning. provider.disable
+// uses Fallback (an agent name) and Scope (agent or account). Pointers keep an omitted
+// cap distinct from zero. CPU ceiling and heavy_ok are stored and forwarded;
 // enforcement of those two waits on an OS envelope that does not exist yet.
 type DirectiveParams struct {
-	MaxConcurrency *int  `json:"max_concurrency,omitempty"`
-	CPUCeilingPct  *int  `json:"cpu_ceiling_pct,omitempty"`
-	HeavyOK        *bool `json:"heavy_ok,omitempty"`
-	SuspendRunning bool  `json:"suspend_running,omitzero"`
+	MaxConcurrency *int   `json:"max_concurrency,omitempty"`
+	CPUCeilingPct  *int   `json:"cpu_ceiling_pct,omitempty"`
+	HeavyOK        *bool  `json:"heavy_ok,omitempty"`
+	SuspendRunning bool   `json:"suspend_running,omitzero"`
+	Fallback       string `json:"fallback,omitempty"`
+	Scope          string `json:"scope,omitempty"`
 }
 
 // Directive is one typed, timed, attributed policy entry.

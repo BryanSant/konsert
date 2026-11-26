@@ -203,8 +203,8 @@ func TestSchedulerSkipsPausedAndDrainedMachines(t *testing.T) {
 
 	// A drain directive blocks new work and does not stick to workers.drained.
 	// A manual drain still blocks after that directive ends.
-	createQueuedTask(t, th.st, "t-drain", WorkerSelector{}, false)
 	drain := mustDirective(t, th.h, DirectiveInput{Kind: store.DirectiveMachineDrain, Target: "w1"})
+	createQueuedTask(t, th.st, "t-drain", WorkerSelector{}, false)
 	th.h.SchedulePending(ctx)
 	if got := fw.drain(protocol.MsgTaskStart, 300*time.Millisecond); len(got) != 0 {
 		t.Fatalf("drain directive dispatched %d tasks", len(got))
@@ -527,9 +527,17 @@ func TestDirectiveRESTAuditAndFleet(t *testing.T) {
 		t.Fatalf("all list: %d %s", code, raw)
 	}
 
-	code, raw = cs.api(t, http.MethodPost, "/api/directives", map[string]any{"kind": store.DirectiveProviderDisable, "target": "w1"})
-	if code != http.StatusBadRequest || !strings.Contains(string(raw), "not available yet") {
+	code, raw = cs.api(t, http.MethodPost, "/api/directives", map[string]any{
+		"kind": store.DirectiveProviderDisable, "target": "codex", "until": until,
+		"params": map[string]any{"fallback": "claude"},
+	})
+	if code != http.StatusCreated {
 		t.Fatalf("provider.disable: %d %s", code, raw)
+	}
+	var provider store.Directive
+	if err := json.Unmarshal(raw, &provider); err != nil || provider.Kind != store.DirectiveProviderDisable ||
+		provider.Target != "codex" || provider.Params.Scope != store.DirectiveScopeAgent || provider.Params.Fallback != "claude" {
+		t.Fatalf("provider.disable body: %+v %v %s", provider, err, raw)
 	}
 	code, raw = cs.api(t, http.MethodPost, "/api/directives", map[string]any{
 		"kind": store.DirectiveMachinePause, "target": "w1", "until": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),

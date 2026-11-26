@@ -54,6 +54,8 @@ type SettingsUpdate struct {
 	PulseDebounceSeconds *int `json:"pulse_debounce_seconds"`
 	// AutopilotGlobal enables Autopilot Play across all projects unless explicitly paused.
 	AutopilotGlobal *bool `json:"autopilot_global"`
+	// CommanderPolicyWrites is tighten (default), confirm, or none.
+	CommanderPolicyWrites *string `json:"commander_policy_writes"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -174,6 +176,13 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 	}
 	if u.AutopilotGlobal != nil {
 		updates[autopilotGlobalSetting] = strconv.FormatBool(*u.AutopilotGlobal)
+	}
+	if u.CommanderPolicyWrites != nil {
+		v, err := normalizePolicyWrites(*u.CommanderPolicyWrites)
+		if err != nil {
+			return errInvalidSettings{err}
+		}
+		updates[commanderPolicyWritesSetting] = v
 	}
 
 	if len(updates) > 0 {
@@ -312,6 +321,12 @@ func settingsUpdateFromMap(m map[string]string) (SettingsUpdate, error) {
 				return u, errInvalidSettings{fmt.Errorf("%s: %w", k, err)}
 			}
 			u.AutopilotGlobal = &b
+		case commanderPolicyWritesSetting:
+			mode, err := normalizePolicyWrites(v)
+			if err != nil {
+				return u, errInvalidSettings{err}
+			}
+			u.CommanderPolicyWrites = str(mode)
 		case "notify_sound", "notify_desktop":
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -354,6 +369,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"verify_timeout_seconds":   r.VerifyTimeoutSeconds,
 		"pulse_debounce_seconds":   r.PulseDebounceSeconds,
 		"autopilot_global":         r.AutopilotGlobal,
+		"commander_policy_writes":  r.CommanderPolicyWrites,
 		"commander_backend":        r.CommanderBackend,
 		"api_key_required":         r.APIKeyRequired,
 	}

@@ -578,9 +578,11 @@ type FleetUpdatePayload struct {
 	Autopilot any `json:"autopilot,omitzero"`
 	// Directive carries a policy directive when Kind is "directive".
 	Directive any `json:"directive,omitzero"`
+	// PolicyProposal carries a Commander set_policy approval card when Kind is "policy_proposal".
+	PolicyProposal any `json:"policy_proposal,omitzero"`
 }
 
-// Policy directive kinds. provider.disable is reserved for a later ticket.
+// Policy directive kinds.
 const (
 	DirectiveKindMachinePause    = "machine.pause"
 	DirectiveKindMachineThrottle = "machine.throttle"

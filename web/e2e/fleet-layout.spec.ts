@@ -138,4 +138,85 @@ test.describe('Fleet machine row layout', () => {
       }
     }
   });
+
+  test('a provider disable shows on the fleet until it ends', async ({ page }) => {
+    const env = loadEnv();
+    let markConnected: () => void = () => {};
+    const socketUp = new Promise<void>((resolve) => {
+      markConnected = resolve;
+    });
+    await page.routeWebSocket(/\/ws\/client/, (ws) => {
+      markConnected();
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+    });
+    await page.goto(`${env.baseURL}/fleet`);
+    await page.getByRole('button', { name: 'Use recovery key' }).click();
+    await page.locator('#token').fill(env.adminToken);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await expect(page.locator('#token')).toBeHidden();
+    await socketUp;
+
+    const snap = await page.evaluate(async () => (await fetch('/api/fleet', { credentials: 'same-origin' })).json());
+    const worker = (snap.workers as Array<Record<string, unknown>>).find((w) => w['id'] === env.workerId)!;
+    const agents = ((worker['agents'] as string[] | undefined) ?? []).map((a) => a.toLowerCase());
+    const target = agents[0] || 'codex';
+    const fallback = target === 'claude' ? 'codex' : 'claude';
+    const until = new Date(Date.now() + 3 * 3600_000);
+    until.setSeconds(0, 0);
+    const hh = String(until.getHours()).padStart(2, '0');
+    const mm = String(until.getMinutes()).padStart(2, '0');
+    const names: Record<string, string> = { claude: 'Claude', codex: 'Codex', grok: 'Grok', agy: 'Antigravity', cursor: 'Cursor', copilot: 'Copilot', mock: 'Mock' };
+    const label = `${names[target] ?? target} disabled until ${hh}:${mm} → fallback ${names[fallback] ?? fallback}`;
+    let id = '';
+    try {
+      const created = await page.evaluate(async (body) => {
+        const res = await fetch('/api/directives', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+          body: JSON.stringify(body),
+        });
+        return { status: res.status, json: await res.json() };
+      }, { kind: 'provider.disable', target, until: until.toISOString(), params: { fallback }, reason: 'e2e' });
+      expect(created.status, JSON.stringify(created.json)).toBe(201);
+      id = created.json.id as string;
+      const line = page.getByTestId('fleet-provider-directives').getByTestId('fleet-provider-line');
+      await expect(line).toHaveText(label);
+      if (agents.includes(target)) {
+        const sid = worker['sid'] as string;
+        await expect(page.locator(`[data-machine="${sid}"]`).getByTestId('directive-badge')).toContainText(label);
+      }
+
+      await page.getByRole('button', { name: 'Settings' }).click();
+      const policy = page.getByTestId('settings-commander-policy-writes');
+      await policy.scrollIntoViewIfNeeded();
+      await expect(policy).toBeVisible();
+      await expect(policy).toHaveValue('tighten');
+      await page.keyboard.press('Escape');
+
+      await page.evaluate(async (directiveId) => {
+        await fetch(`/api/directives/${directiveId}/end`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+        });
+      }, id);
+      id = '';
+      await expect(page.getByTestId('fleet-provider-line')).toHaveCount(0);
+    } finally {
+      if (id) {
+        await page
+          .evaluate(async (directiveId) => {
+            await fetch(`/api/directives/${directiveId}/end`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+            });
+          }, id)
+          .catch(() => undefined);
+      }
+    }
+  });
 });

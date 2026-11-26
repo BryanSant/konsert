@@ -539,6 +539,7 @@ func (h *Hub) buildBoardPulse(ctx context.Context, pulseEvents []store.FleetEven
 				p.FleetNotable = append(p.FleetNotable, w.Name+" "+strings.Join(states, ", "))
 			}
 		}
+		p.FleetNotable = append(p.FleetNotable, h.providerWaitPhrases(ctx, loc)...)
 	}
 
 	// Board counts
