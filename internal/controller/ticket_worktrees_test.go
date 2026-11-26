@@ -141,14 +141,30 @@ func TestTicketPlacementLocalityPreference(t *testing.T) {
 	}
 	fwLocal := th.connectWorker(t, wLocalInfo, nil, "w-local")
 
-	// Enable autopilot only after both workers have registered so the scheduler compares both.
-	proj.Autopilot = true
-	if err := th.st.UpdateProject(ctx, proj); err != nil {
+	// Enable autopilot via the hub API only after both workers have registered so the
+	// scheduler compares both and kicks a scheduling pass.
+	if _, err := th.h.SetProjectAutopilot(ctx, proj.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	th.h.SchedulePending(ctx)
 
-	env := fwLocal.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	var env protocol.Envelope
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case f := <-fwLocal.frames:
+			if f.Type == protocol.MsgAgentChatOpen {
+				env = f
+				goto gotOpen
+			}
+		case f := <-fwRemote.frames:
+			if f.Type == protocol.MsgAgentChatOpen {
+				t.Fatalf("expected w-local to win by locality, but w-remote received agent.chat.open")
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s on w-local", protocol.MsgAgentChatOpen)
+		}
+	}
+gotOpen:
 	if got := fwRemote.drain(protocol.MsgAgentChatOpen, 150*time.Millisecond); len(got) != 0 {
 		t.Fatalf("expected w-local to win by locality, but w-remote received agent.chat.open")
 	}

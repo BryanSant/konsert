@@ -106,6 +106,33 @@ func (h *Hub) taskStartSpec(ctx context.Context, t store.Task) (protocol.TaskSta
 	return payload, sel, pinned
 }
 
+// schedulableWorkers snapshots currently connected, non-drained workers along with
+// their active task counts, approved slot overrides, and active machine directives.
+func (h *Hub) schedulableWorkers(ctx context.Context) ([]store.Worker, map[string]int, slotPlan, bool) {
+	all, err := h.store.ListWorkers(ctx)
+	if err != nil {
+		return nil, nil, slotPlan{}, false
+	}
+	// Only connected workers can receive task.start; a disconnected-but-online
+	// worker would otherwise win placement and leave the task waiting. Drained machines
+	// accept nothing new.
+	workers := make([]store.Worker, 0, len(all))
+	for _, w := range all {
+		if h.IsWorkerConnected(w.ID) && !w.Drained {
+			workers = append(workers, w)
+		}
+	}
+	if len(workers) == 0 {
+		return nil, nil, slotPlan{}, false
+	}
+	counts := h.ActiveTaskCounts()
+	// Approved machine_slots overrides raise a machine's slot limit while they last.
+	// Directives then tighten: pause and drain drop the machine, throttle caps it.
+	workers, slots := h.applySlotOverrides(ctx, workers)
+	workers = h.applyMachineDirectives(ctx, workers)
+	return workers, counts, slots, len(workers) > 0
+}
+
 // SchedulePending dispatches queued tasks to connected workers with capacity.
 // Runs are serialized, and each task is claimed atomically in the store
 // (queued -> assigned) before task.start is sent, so a task is never dispatched
@@ -122,111 +149,93 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	all, err := h.store.ListWorkers(ctx)
-	if err != nil {
-		return
-	}
-	// Only connected workers can receive task.start; a disconnected-but-online
-	// worker would otherwise win placement and leave the task waiting. Drained machines
-	// accept nothing new.
-	workers := make([]store.Worker, 0, len(all))
-	for _, w := range all {
-		if h.IsWorkerConnected(w.ID) && !w.Drained {
-			workers = append(workers, w)
-		}
-	}
-	if len(workers) == 0 {
-		return
-	}
-	counts := h.ActiveTaskCounts()
-	// Approved machine_slots overrides raise a machine's slot limit while they last.
-	// Directives then tighten: pause and drain drop the machine, throttle caps it.
-	workers, slots := h.applySlotOverrides(ctx, workers)
-	workers = h.applyMachineDirectives(ctx, workers)
-
-	for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
-		// A pause stored while this pass was already inside the function wins
-		// before the claim. The check at the top is not enough: listing directives
-		// and choosing a machine takes long enough for Pause everything to land.
-		if ctx.Err() != nil || h.fleetPaused(ctx) {
-			return
-		}
-		if t.Origin == protocol.TaskOriginExternal {
-			continue
-		}
-		payload, sel, pinned := h.taskStartSpec(ctx, t)
-		// Held machines (and machines holding a resource the task's prompt names) get no
-		// automatic placement; the task waits until the user releases the hold.
-		eligible := make([]store.Worker, 0, len(workers))
-		lifted := map[string]*store.Override{}
-		for _, w := range workers {
-			if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
-				eligible = append(eligible, w)
-				lifted[w.ID] = ov
+	if len(tasks) > 0 {
+		if workers, counts, slots, ok := h.schedulableWorkers(ctx); ok {
+			for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
+				// A pause stored while this pass was already inside the function wins
+				// before the claim. The check at the top is not enough: listing directives
+				// and choosing a machine takes long enough for Pause everything to land.
+				if ctx.Err() != nil || h.fleetPaused(ctx) {
+					return
+				}
+				if t.Origin == protocol.TaskOriginExternal {
+					continue
+				}
+				payload, sel, pinned := h.taskStartSpec(ctx, t)
+				// Held machines (and machines holding a resource the task's prompt names) get no
+				// automatic placement; the task waits until the user releases the hold.
+				eligible := make([]store.Worker, 0, len(workers))
+				lifted := map[string]*store.Override{}
+				for _, w := range workers {
+					if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
+						eligible = append(eligible, w)
+						lifted[w.ID] = ov
+					}
+				}
+				subNote := ""
+				if payload.Agent != "shell" && payload.SessionKind != "terminal" {
+					dec, idx := h.applyProviderPlacement(ctx, payload.Agent, payload.AccountID, false, eligible)
+					payload.Agent = dec.Agent
+					payload.AccountID = dec.AccountID
+					subNote = dec.Substitution
+					eligible = filterProviderWorkers(eligible, payload.Agent, idx)
+				}
+				w, ok := SelectWorker(eligible, counts, sel, payload.Agent, t.PermissionMode)
+				if !ok {
+					continue
+				}
+				if payload.Agent == "" && t.Agent != "shell" && payload.SessionKind != "terminal" {
+					idx, _ := h.loadProviderIndex(ctx)
+					payload.Agent = pickAllowedAgent(w, idx)
+					if payload.Agent == "" {
+						continue
+					}
+				}
+				if h.checkAccountLoggedIn(ctx, w.ID, payload.Agent, payload.AccountID) != nil {
+					// Leave it queued: the account must sign in again first.
+					continue
+				}
+				if h.fleetPaused(ctx) {
+					return
+				}
+				claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID, causeScheduler)
+				if err != nil || !claimed {
+					continue
+				}
+				if payload.Shell == "" && (payload.Agent == "shell" || payload.SessionKind == "terminal") && w.DefaultShell != "" {
+					payload.Shell = w.DefaultShell
+				}
+				if payload.Agent != "shell" && payload.SessionKind != "terminal" {
+					payload.UseGitBash = w.AgentsUseGitBash
+				}
+				if h.fleetPaused(ctx) {
+					_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
+					return
+				}
+				if err := h.DispatchToWorker(w.ID, payload); err != nil {
+					h.logger.Warn("dispatch of queued task failed; returning it to the queue",
+						"task_id", t.ID, "worker_id", w.ID, "err", err)
+					_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
+					continue
+				}
+				if subNote != "" {
+					h.recordAttemptSubstitution(ctx, t.ID, t.TicketID, w.ID, payload.Agent, payload.AccountID, subNote, 0)
+				}
+				if ov := lifted[w.ID]; ov != nil {
+					h.useOverride(ctx, *ov)
+				}
+				h.placed(ctx, slots, w.ID, counts[w.ID])
+				counts[w.ID]++
+				if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
+					h.recordTaskTransition(ctx, updated, protocol.TaskStatusQueued, causeScheduler, "placed on "+w.Name)
+					h.broadcastFleetUpdate("task", updated)
+				}
 			}
-		}
-		subNote := ""
-		if payload.Agent != "shell" && payload.SessionKind != "terminal" {
-			dec, idx := h.applyProviderPlacement(ctx, payload.Agent, payload.AccountID, false, eligible)
-			payload.Agent = dec.Agent
-			payload.AccountID = dec.AccountID
-			subNote = dec.Substitution
-			eligible = filterProviderWorkers(eligible, payload.Agent, idx)
-		}
-		w, ok := SelectWorker(eligible, counts, sel, payload.Agent, t.PermissionMode)
-		if !ok {
-			continue
-		}
-		if payload.Agent == "" && t.Agent != "shell" && payload.SessionKind != "terminal" {
-			idx, _ := h.loadProviderIndex(ctx)
-			payload.Agent = pickAllowedAgent(w, idx)
-			if payload.Agent == "" {
-				continue
-			}
-		}
-		if h.checkAccountLoggedIn(ctx, w.ID, payload.Agent, payload.AccountID) != nil {
-			// Leave it queued: the account must sign in again first.
-			continue
-		}
-		if h.fleetPaused(ctx) {
-			return
-		}
-		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID, causeScheduler)
-		if err != nil || !claimed {
-			continue
-		}
-		if payload.Shell == "" && (payload.Agent == "shell" || payload.SessionKind == "terminal") && w.DefaultShell != "" {
-			payload.Shell = w.DefaultShell
-		}
-		if payload.Agent != "shell" && payload.SessionKind != "terminal" {
-			payload.UseGitBash = w.AgentsUseGitBash
-		}
-		if h.fleetPaused(ctx) {
-			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
-			return
-		}
-		if err := h.DispatchToWorker(w.ID, payload); err != nil {
-			h.logger.Warn("dispatch of queued task failed; returning it to the queue",
-				"task_id", t.ID, "worker_id", w.ID, "err", err)
-			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
-			continue
-		}
-		if subNote != "" {
-			h.recordAttemptSubstitution(ctx, t.ID, t.TicketID, w.ID, payload.Agent, payload.AccountID, subNote, 0)
-		}
-		if ov := lifted[w.ID]; ov != nil {
-			h.useOverride(ctx, *ov)
-		}
-		h.placed(ctx, slots, w.ID, counts[w.ID])
-		counts[w.ID]++
-		if updated, err := h.store.GetTask(ctx, t.ID); err == nil {
-			h.recordTaskTransition(ctx, updated, protocol.TaskStatusQueued, causeScheduler, "placed on "+w.Name)
-			h.broadcastFleetUpdate("task", updated)
 		}
 	}
 
 	// Ready queue: after queued tasks, claim and dispatch ready tickets for projects with autopilot enabled.
-	h.scheduleDispatchableTickets(ctx, workers, counts, slots)
+	h.scheduleDispatchableTickets(ctx)
 }
 
 // dispatchOrder is the order queued tasks are placed in: expedited tasks first, then the

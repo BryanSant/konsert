@@ -187,7 +187,7 @@ func (h *Hub) ticketWorkerSelector(ctx context.Context, tk store.Ticket) WorkerS
 
 // scheduleDispatchableTickets runs at the end of each scheduler pass, after queued tasks.
 // Precedence: fleet paused > project paused/directive > global/project play.
-func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.Worker, counts map[string]int, slots slotPlan) {
+func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 	if h.fleetPaused(ctx) {
 		return
 	}
@@ -211,6 +211,14 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 
 	tickets, err := h.store.ListDispatchableTickets(ctx, "", 200)
 	if err != nil || len(tickets) == 0 {
+		return
+	}
+
+	// Snapshot connected workers after reading autopilot/ticket state so an in-flight
+	// scheduler pass kicked before a newer worker registered cannot pair a stale worker
+	// snapshot with freshly enabled autopilot or newly ready tickets.
+	workers, counts, slots, ok := h.schedulableWorkers(ctx)
+	if !ok {
 		return
 	}
 
