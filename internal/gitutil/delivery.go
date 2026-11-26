@@ -174,7 +174,7 @@ func commitIfDirty(ctx context.Context, dir, msg string) error {
 	if _, err := runGit(ctx, dir, "add", "-A"); err != nil {
 		return err
 	}
-	_, err = runGit(ctx, dir, "commit", "-m", msg)
+	_, err = runGitAs(ctx, dir, "commit", "-m", msg)
 	return err
 }
 
@@ -242,7 +242,7 @@ func PushBranch(ctx context.Context, dir string, req protocol.GitPushRequest) pr
 					res.Error = err.Error()
 					return res
 				}
-				if _, err := runGit(ctx, dir, "rebase", "--onto", ontoSHA, stackBase); err != nil {
+				if _, err := runGitAs(ctx, dir, "rebase", "--onto", ontoSHA, stackBase); err != nil {
 					_, files := conflictFiles(ctx, dir)
 					_, _ = runGit(ctx, dir, "rebase", "--abort")
 					if len(files) > 0 {
@@ -554,7 +554,7 @@ func runMergeInTempWorktree(
 			r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
 			return "", &r, nil
 		}
-		if _, err := runGit(ctx, tmpWT, "rebase", "--onto", baseSHA, stackBaseSHA); err != nil {
+		if _, err := runGitAs(ctx, tmpWT, "rebase", "--onto", baseSHA, stackBaseSHA); err != nil {
 			res := protocol.GitMergeResult{TargetBranch: target}
 			res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
 			_, _ = runGit(ctx, tmpWT, "rebase", "--abort")
@@ -605,7 +605,7 @@ func runMergeInTempWorktree(
 			r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
 			return "", &r, nil
 		}
-		if _, err := runGit(ctx, tmpWT, "merge", "--no-ff", "-m", msg, sourceSHA); err != nil {
+		if _, err := runGitAs(ctx, tmpWT, "merge", "--no-ff", "-m", msg, sourceSHA); err != nil {
 			res := protocol.GitMergeResult{TargetBranch: target}
 			res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
 			_, _ = runGit(ctx, tmpWT, "merge", "--abort")
@@ -623,7 +623,7 @@ func runMergeInTempWorktree(
 				r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
 				return "", &r, nil
 			}
-			if _, err := runGit(ctx, tmpWT, "rebase", baseSHA); err != nil {
+			if _, err := runGitAs(ctx, tmpWT, "rebase", baseSHA); err != nil {
 				res := protocol.GitMergeResult{TargetBranch: target}
 				res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
 				_, _ = runGit(ctx, tmpWT, "rebase", "--abort")
@@ -755,7 +755,7 @@ func commitStaged(ctx context.Context, dir, msg string) error {
 	if err := requireGitIdentity(ctx, dir); err != nil {
 		return err
 	}
-	_, err := runGit(ctx, dir, "commit", "-m", msg)
+	_, err := runGitAs(ctx, dir, "commit", "-m", msg)
 	return err
 }
 

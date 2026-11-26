@@ -101,6 +101,27 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// Fallback identity for commits Syre makes itself (stack merges, delivery rebases and
+// merges) on machines where git has no user.name/user.email configured.
+const (
+	fallbackGitName  = "Syre"
+	fallbackGitEmail = "syre@localhost"
+)
+
+// runGitAs runs a git command that may create commits. When dir's git has no identity
+// configured it supplies Syre's fallback, so a missing global identity can't make a
+// merge or rebase fail (or hide a real conflict behind an identity error).
+func runGitAs(ctx context.Context, dir string, args ...string) (string, error) {
+	var pre []string
+	if v, err := runGit(ctx, dir, "config", "--get", "user.name"); err != nil || v == "" {
+		pre = append(pre, "-c", "user.name="+fallbackGitName)
+	}
+	if v, err := runGit(ctx, dir, "config", "--get", "user.email"); err != nil || v == "" {
+		pre = append(pre, "-c", "user.email="+fallbackGitEmail)
+	}
+	return runGit(ctx, dir, append(pre, args...)...)
+}
+
 // IsGitRepo checks if dir is inside a git repository and returns the repository top-level root.
 func IsGitRepo(ctx context.Context, dir string) (string, bool) {
 	out, err := runGit(ctx, dir, "rev-parse", "--show-toplevel")
@@ -362,7 +383,7 @@ func CreateStackedWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBr
 
 	if len(unmerged) >= 2 {
 		for _, u := range unmerged {
-			if _, err := runGit(ctx, worktreePath, "merge", "--no-edit", u.sha); err != nil {
+			if _, err := runGitAs(ctx, worktreePath, "merge", "--no-edit", u.sha); err != nil {
 				isConflict, files := conflictFiles(ctx, worktreePath)
 				_, _ = runGit(ctx, worktreePath, "merge", "--abort")
 				_ = RemoveTaskWorktree(ctx, info)
@@ -755,7 +776,7 @@ func CommitChanges(ctx context.Context, dir, message string, stageAll bool) (*pr
 			return &protocol.GitCommitResult{OK: false, Error: err.Error()}, nil
 		}
 	}
-	out, err := runGit(ctx, dir, "commit", "-m", message)
+	out, err := runGitAs(ctx, dir, "commit", "-m", message)
 	if err != nil {
 		return &protocol.GitCommitResult{OK: false, Error: err.Error()}, nil
 	}
