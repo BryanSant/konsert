@@ -188,7 +188,8 @@ func TestRemoveOfflineManualMachineUninstallsOnReconnect(t *testing.T) {
 		t.Fatalf("delete: %d %v", code, body)
 	}
 	pending := srv.loadRemovals(context.Background())
-	if len(pending) != 1 || len(pending[0].Creds) != 1 || strings.Contains(pending[0].Creds[0].Hash, strings.Split(credA, "_")[len(strings.Split(credA, "_"))-1]) {
+	_, secretA, _ := auth.ParseMachineCredential(credA)
+	if len(pending) != 1 || len(pending[0].Creds) != 1 || secretA == "" || strings.Contains(pending[0].Creds[0].Hash, secretA) {
 		t.Fatalf("pending = %+v", pending)
 	}
 	if ev := uninstallAudits(t, srv.store); len(ev) != 1 || !strings.Contains(ev[0].Message, "it uninstalls itself when it next connects") {
