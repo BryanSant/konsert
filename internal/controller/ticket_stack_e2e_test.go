@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,10 +123,31 @@ func TestTicketStackingEndToEndWithMockEngine(t *testing.T) {
 	cs.h.SchedulePending(ctx)
 
 	// Wait for B to dispatch and reach review.
-	waitFor(t, 15*time.Second, "ticket B dispatches and reaches review", func() bool {
+	deadline := time.Now().Add(15 * time.Second)
+	for {
 		cur, err := cs.st.GetTicket(ctx, tkB.ID)
-		return err == nil && cur.Status == store.TicketStatusReview
-	})
+		if err == nil && cur.Status == store.TicketStatusReview {
+			break
+		}
+		if time.Now().After(deadline) {
+			tasks, _ := cs.st.ListTasksByTicket(ctx, tkB.ID)
+			var detail []string
+			for _, tk := range tasks {
+				detail = append(detail, fmt.Sprintf("task %s status=%s digest=%s", tk.SID, tk.Status, tk.DigestJSON))
+			}
+			chats, _ := cs.st.ListChatSessionsByTicket(ctx, tkB.ID)
+			for _, c := range chats {
+				evs, _ := cs.st.ListChatEvents(ctx, c.ID, 0, 200)
+				for _, e := range evs {
+					if e.Kind == protocol.EventError || e.Kind == protocol.EventTurnEnd || e.Kind == protocol.EventSessionReady || e.Kind == protocol.EventElicitation {
+						detail = append(detail, fmt.Sprintf("chat %s ev %s %.300s", c.ID, e.Kind, e.JSON))
+					}
+				}
+			}
+			t.Fatalf("ticket B did not reach review: status=%s lease=%+v\n%s", cur.Status, cur.Lease, strings.Join(detail, "\n"))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	// B's worktree must contain A's change!
 	wtB := filepath.Join(gitutil.TicketWorkdir(resolvedRoot, tkB.SID), "app")

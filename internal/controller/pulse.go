@@ -426,32 +426,40 @@ func (h *Hub) markProjectActive(projectID string) {
 // checkProjectBoardIdle triggers a project-level board_idle pulse and turns Play off
 // automatically when an autopilot project has no dispatchable, running, or needs_you
 // tickets left (review does not count as work left for autopilot).
-// projectHasWaitingTickets reports whether a ready ticket in projectID is blocked by a
-// ticket that can still finish (not done, failed or canceled), e.g. one in review.
+// projectHasWaitingTickets reports whether a ready, repo-bound ticket in projectID can
+// still run: either dispatchable now or waiting on a blocker that may finish (e.g. one in
+// review). Only a failed or canceled blocker makes it unrunnable. Counting dispatchable
+// tickets here too keeps the idle check consistent when a blocker finishes between this
+// check and the dispatchable check above.
 func (h *Hub) projectHasWaitingTickets(ctx context.Context, projectID string) (bool, error) {
 	ready, err := h.store.ListTickets(ctx, store.TicketFilter{ProjectID: projectID, Status: store.TicketStatusReady})
 	if err != nil || len(ready) == 0 {
 		return false, err
 	}
 	edges, err := h.store.ListTicketEdgesByProject(ctx, projectID)
-	if err != nil || len(edges) == 0 {
+	if err != nil {
 		return false, err
 	}
-	isReady := make(map[string]bool, len(ready))
-	for _, tk := range ready {
-		isReady[tk.ID] = true
-	}
+	blockers := map[string][]string{}
 	for _, e := range edges {
-		if !isReady[e.TicketID] {
+		blockers[e.TicketID] = append(blockers[e.TicketID], e.BlockedByID)
+	}
+	for _, tk := range ready {
+		if tk.Kind == store.TicketKindInitiative || tk.Kind == store.TicketKindEpic {
 			continue
 		}
-		blocker, err := h.store.GetTicket(ctx, e.BlockedByID)
-		if err != nil {
-			continue
+		if b, err := h.store.ListTicketRepoBindings(ctx, tk.ID); err != nil || len(b) == 0 {
+			continue // awaiting decomposition, not Autopilot work
 		}
-		switch blocker.Status {
-		case store.TicketStatusDone, store.TicketStatusFailed, store.TicketStatusCanceled:
-		default:
+		runnable := true
+		for _, id := range blockers[tk.ID] {
+			blk, err := h.store.GetTicket(ctx, id)
+			if err == nil && (blk.Status == store.TicketStatusFailed || blk.Status == store.TicketStatusCanceled) {
+				runnable = false
+				break
+			}
+		}
+		if runnable {
 			return true, nil
 		}
 	}
