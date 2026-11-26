@@ -416,6 +416,9 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Repo = item
 	case "ticket":
 		p.Ticket = item
+		if h.trackers != nil {
+			h.trackers.Kick()
+		}
 	case "ticket_edge", "ticket_edge_deleted":
 		p.TicketEdge = item
 	case "fleet_event":

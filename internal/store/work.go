@@ -344,6 +344,23 @@ type ExternalRef struct {
 	ExternalID string `json:"external_id"`
 	URL        string `json:"url,omitempty"`
 	Version    string `json:"version,omitempty"`
+	// SyncedAt is the ticket's updated_at as of the last pull or push for this ref.
+	SyncedAt time.Time `json:"synced_at,omitzero"`
+}
+
+// Tracker is an external tracker synced into a project (ka, GitHub Projects, Jira, ...).
+// ID doubles as the tracker name in ExternalRef.Tracker.
+type Tracker struct {
+	ID         string    `json:"id"`
+	ProjectID  string    `json:"project_id"`
+	Kind       string    `json:"kind"`
+	ConfigJSON string    `json:"config_json,omitempty"`
+	Cursor     string    `json:"cursor,omitempty"`
+	Enabled    bool      `json:"enabled"`
+	LastPullAt time.Time `json:"last_pull_at,omitzero"`
+	LastPushAt time.Time `json:"last_push_at,omitzero"`
+	LastError  string    `json:"last_error,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // TicketRollup is the computed progress summary for an initiative or epic (never stored).

@@ -144,14 +144,25 @@ type Tracker interface {
   mapping for what its tracker can't represent (e.g. Jira has no acceptance items: they map to
   a checklist field or the description).
 - **Links**: each Syre ticket keeps `external_refs[]` (`tracker`, `external_id`, `url`,
-  `version`). Tickets created in Syre push out; tickets created in the tracker pull in.
-- **Cursor and cadence**: pull on an interval (default 30s) and on webhook where the tracker
-  has one; push on change, debounced.
-- **ka adapter**: the hub embeds ka's engine as a library and acts as one more replica of the
-  ka store, so `ka` on any host (inside Syre or not) sees the same backlog and Syre's leases.
-  Requires extracting ka's `internal/engine` (index, query, operations, sync, merge driver)
-  into `pkg/`, and a ka Store Spec addition: a claim with `authority: <external system>` that ka
-  clients show read-only instead of competing for.
+  `version`, `synced_at`). Tickets created in Syre push out; tickets created in the tracker
+  pull in. A ticket whose `updated_at` is later than its ref's `synced_at` has Syre-side
+  changes to push. An item the tracker deleted cancels an idle ticket and leaves a
+  tombstone ref so it is never pushed back.
+- **Cursor and cadence**: each cycle pulls then pushes; cycles run every 30s and about 2s
+  after any ticket change. `POST /api/trackers/{id}/sync` runs one immediately. Trackers are
+  managed per project at `/api/projects/{id}/trackers` (`internal/tracker`,
+  `internal/controller/tracker_api.go`).
+- **Known limits**: a change to only `blocked_by` edges in Syre doesn't bump `updated_at`, so
+  it is pushed with the ticket's next change. Deletions in Syre are not propagated.
+- **ka adapter** (`internal/tracker/katracker`): the hub keeps its own clone of the ka store
+  (default under the user cache dir), writes its own workspace file (`push: immediate`), and
+  drives it through `github.com/KanArtist/ka/pkg/kaservice`, so `ka` on any host sees the
+  same backlog. Syre writes as `agent/syre`; its leases become ka claims with
+  `authority: syre`, which ka clients treat as read-only (no stealing, never stale). Pulls
+  force a fetch and re-read the cursor's second (ka stamps have one-second resolution).
+  Statuses map to ka's default workflow (backlog/ready/in_progress/blocked/review/done/
+  canceled); `research` maps to `spike`. Stores that use authority claims need clients on the
+  ka release that understands `claim.authority` (raise `requires_ka` once that is tagged).
 - **Built-in only**: projects with no tracker use Syre's tables directly; nothing else needed.
 
 ## Board

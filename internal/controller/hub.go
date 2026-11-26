@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"github.com/BryanSant/syre/internal/tracker"
 	"log/slog"
 	"net/http"
 	"os"
@@ -98,6 +99,9 @@ type browserClient struct {
 // Hub manages connected worker daemons, browser PWA subscribers,
 // ref-counted on-demand PTY streaming, task waiters, and stale worker reaping.
 type Hub struct {
+	// trackers syncs external trackers into the work model (tracker_api.go).
+	trackers *tracker.Syncer
+
 	store  store.Store
 	logger *slog.Logger
 
@@ -302,6 +306,14 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 	h.goBackground(h.deliveryPollLoop)
 	// Policy directives: expire at until (one timer, plus a reaper).
 	h.goBackground(h.directiveLoop)
+	// External trackers (ka, ...): pull then push on an interval and after ticket changes.
+	h.trackers = &tracker.Syncer{
+		Store:     st,
+		Factories: trackerFactories(),
+		Logger:    h.logger,
+		OnTicket:  func(tk store.Ticket) { h.broadcastFleetUpdate("ticket", tk) },
+	}
+	h.goBackground(h.trackers.Run)
 	return h
 }
 
