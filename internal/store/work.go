@@ -137,14 +137,31 @@ func ValidTicketOrphanPolicy(p string) bool {
 	return p == TicketOrphanPolicyRequeue || p == TicketOrphanPolicyFail
 }
 
+// Autonomy approval modes for ticket chats (project default, per-ticket override).
+const (
+	AutonomyApprovalAutonomous = "autonomous"
+	AutonomyApprovalAsk        = "ask"
+)
+
+// ValidAutonomyApprovalMode reports whether m is empty (unset) or a valid approval_mode.
+func ValidAutonomyApprovalMode(m string) bool {
+	switch strings.ToLower(strings.TrimSpace(m)) {
+	case "", AutonomyApprovalAutonomous, AutonomyApprovalAsk:
+		return true
+	default:
+		return false
+	}
+}
+
 // AutonomyPolicy holds project defaults and per-ticket overrides for Autopilot.
 // Pointer fields allow per-ticket overrides to distinguish unset from explicit false/0.
 type AutonomyPolicy struct {
-	RetryLimit         *int  `json:"retry_limit,omitzero"`
-	CrossReview        *bool `json:"cross_review,omitzero"`
-	EscalateOnBlocker  *bool `json:"escalate_on_blocker,omitzero"`
-	ExpandScope        *bool `json:"expand_scope,omitzero"`
-	OptimisticChaining *bool `json:"optimistic_chaining,omitzero"`
+	RetryLimit         *int   `json:"retry_limit,omitzero"`
+	CrossReview        *bool  `json:"cross_review,omitzero"`
+	EscalateOnBlocker  *bool  `json:"escalate_on_blocker,omitzero"`
+	ExpandScope        *bool  `json:"expand_scope,omitzero"`
+	OptimisticChaining *bool  `json:"optimistic_chaining,omitzero"`
+	ApprovalMode       string `json:"approval_mode,omitempty"`
 }
 
 // TicketLease records the active worker lease on a running or needs_you ticket.
@@ -271,6 +288,10 @@ func NormalizeAndValidateTicket(t *Ticket) error {
 	}
 	if !ValidTicketOrphanPolicy(t.OrphanPolicy) {
 		return fmt.Errorf("%w: unknown orphan_policy %q", ErrInvalidWork, t.OrphanPolicy)
+	}
+	t.Autonomy.ApprovalMode = strings.ToLower(strings.TrimSpace(t.Autonomy.ApprovalMode))
+	if !ValidAutonomyApprovalMode(t.Autonomy.ApprovalMode) {
+		return fmt.Errorf("%w: unknown autonomy.approval_mode %q", ErrInvalidWork, t.Autonomy.ApprovalMode)
 	}
 	if t.Acceptance == nil {
 		t.Acceptance = []AcceptanceItem{}

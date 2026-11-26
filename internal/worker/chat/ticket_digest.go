@@ -195,14 +195,7 @@ func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent
 		if ev.Elicitation == nil {
 			return nil
 		}
-		q := strings.TrimSpace(ev.Elicitation.Title)
-		if detail := strings.TrimSpace(ev.Elicitation.Detail); detail != "" && detail != q {
-			if q != "" {
-				q += ": " + detail
-			} else {
-				q = detail
-			}
-		}
+		q := protocol.FormatElicitationText(ev.Elicitation)
 		d := digest.Build(digest.Input{
 			TicketSID:  ticketSID,
 			Attempt:    c.turnAttempt,

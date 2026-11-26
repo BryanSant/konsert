@@ -225,6 +225,7 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 
 	var kind string
 	var category string
+	var summary string
 	var unblocked []string
 	switch tk.Status {
 	case store.TicketStatusReview:
@@ -239,6 +240,9 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 		}
 	case store.TicketStatusNeedsYou:
 		kind = protocol.PulseTriggerNeedsYou
+		if dig != nil && dig.Question != nil && strings.TrimSpace(dig.Question.Text) != "" {
+			summary = protocol.FormatPulseNeedsYouExcerpt(dig.Question.Text)
+		}
 		if dig != nil && dig.Failure != nil && strings.TrimSpace(dig.Failure.Category) != "" {
 			category = strings.TrimSpace(dig.Failure.Category)
 		} else {
@@ -264,6 +268,7 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 			UnblockedSIDs: unblocked,
 			Followups:     followups,
 			Category:      category,
+			Summary:       summary,
 			Autopilot:     projectPlaying,
 		}, workerID, taskID, "")
 	}

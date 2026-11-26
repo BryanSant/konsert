@@ -1664,6 +1664,21 @@ func (s *claudeSession) handleControlRequest(l *claudeLine) {
 		}
 	}
 	if el.Kind == protocol.ElicitPermission {
+		if s.opts.AutoApproveWorkdir && allowInWorkdir(s.opts.Cwd, s.opts.EngineWorktrees, tc, req.Input) {
+			input := req.Input
+			if len(input) == 0 {
+				input = jsontext.Value("{}")
+			}
+			_ = s.write(map[string]any{
+				"type": "control_response",
+				"response": map[string]any{
+					"subtype":    "success",
+					"request_id": l.RequestID,
+					"response":   map[string]any{"behavior": "allow", "updatedInput": input},
+				},
+			})
+			return
+		}
 		name := req.DisplayName
 		if name == "" {
 			name = req.ToolName

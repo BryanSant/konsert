@@ -822,13 +822,25 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 		AgentSessionID: cs.AgentSessionID,
 		SystemPrompt:   commander.AgentSystemPrompt(cs.FleetTools),
 	}
+	var workerPermMode store.PermissionMode
 	if w, err := h.store.GetWorker(ctx, cs.WorkerID); err == nil {
 		open.UseGitBash = w.AgentsUseGitBash
+		workerPermMode = w.PermissionMode
 	}
 	if cs.TicketID != "" && cs.QuestionID == "" {
 		open.TicketSID, open.Bindings = h.ticketChatBindings(ctx, cs.TicketID, cs.WorkerID)
 		open.Verifies = h.ticketVerifies(ctx, cs.TicketID)
 		open.VerifyTimeoutSeconds = int(h.verifyTimeout(ctx) / time.Second)
+		if h.ticketApprovalPolicy(ctx, cs.TicketID) != store.AutonomyApprovalAsk {
+			var acctPtr *protocol.AgentAccount
+			if a, ok := h.lookupAccount(ctx, cs.WorkerID, cs.Agent, cs.AccountID); ok {
+				acctPtr = &a
+			}
+			if mode := ticketApprovalMode(cs.Agent, workerPermMode == store.PermissionSandboxed, acctPtr); mode != "" {
+				open.ApprovalMode = mode
+			}
+			open.AutoApproveWorkdir = true
+		}
 	}
 	if cs.QuestionID != "" {
 		// A side-conversation answerer: no Syre tools (it must not ask the user or act
