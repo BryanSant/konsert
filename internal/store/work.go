@@ -334,6 +334,7 @@ type TaskWorktree struct {
 	CheckoutPath string `json:"checkout_path"`
 	WorktreePath string `json:"worktree_path"`
 	Branch       string `json:"branch,omitempty"`
+	BaseSHA      string `json:"base_sha,omitempty"`
 }
 
 // ExternalRef links a Syre ticket to an external tracker item (ka, GitHub, Jira, etc.).

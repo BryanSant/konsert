@@ -406,6 +406,9 @@ type TaskRepoBinding struct {
 	CheckoutPath string `json:"checkout_path,omitempty"`
 	BaseBranch   string `json:"base_branch,omitempty"`
 	TargetBranch string `json:"target_branch,omitempty"`
+	// StackOn lists unmerged blocker branches (in dependency order) that this binding's
+	// worktree must stack on top of instead of branching directly from BaseBranch.
+	StackOn []string `json:"stack_on,omitempty"`
 }
 
 // TaskWorktree records a provisioned git worktree for one repo binding of a task.
@@ -414,6 +417,8 @@ type TaskWorktree struct {
 	CheckoutPath string `json:"checkout_path"`
 	WorktreePath string `json:"worktree_path"`
 	Branch       string `json:"branch,omitempty"`
+	// BaseSHA is the commit the worktree started from (after stacking, if any).
+	BaseSHA string `json:"base_sha,omitempty"`
 }
 
 type TaskStartPayload struct {
@@ -691,6 +696,10 @@ type GitPushRequest struct {
 	// CommitMessage: when non-empty and the working tree has uncommitted changes, stage
 	// and commit them before pushing.
 	CommitMessage string `json:"commit_message,omitempty"`
+	// RebaseOnto and StackBaseSHA, when both set, rebase the branch onto RebaseOnto
+	// (replaying commits after StackBaseSHA) before pushing with --force-with-lease.
+	RebaseOnto   string `json:"rebase_onto,omitempty"`
+	StackBaseSHA string `json:"stack_base_sha,omitempty"`
 }
 
 type GitPushResult struct {
@@ -717,6 +726,9 @@ type GitMergeRequest struct {
 	// TaskSID is the short task ID used to name syre/merged/<sid> if the local target
 	// branch is checked out with uncommitted changes.
 	TaskSID string `json:"task_sid,omitempty"`
+	// StackBaseSHA, when set on a stacked ticket whose blockers have already merged into
+	// TargetBranch, rebases commits after StackBaseSHA onto TargetBranch before merging.
+	StackBaseSHA string `json:"stack_base_sha,omitempty"`
 }
 
 type GitMergeResult struct {

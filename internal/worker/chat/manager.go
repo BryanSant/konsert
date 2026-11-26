@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/activity"
 )
@@ -727,6 +728,29 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 			prov, pErr := m.opts.ProvisionBindings(pctx, cmp.Or(strings.TrimSpace(o.TicketSID), c.id), o.Cwd, o.Bindings)
 			pcancel()
 			if pErr != nil {
+				var conflictErr *gitutil.StackConflictError
+				if errors.As(pErr, &conflictErr) {
+					ev := errEvent(protocol.ErrKindConflict, conflictErr.Error(), false)
+					c.mu.Lock()
+					ticketSID := strings.TrimSpace(c.opts.TicketSID)
+					if ticketSID != "" {
+						ev.Digest = &protocol.RunDigest{
+							TicketSID: ticketSID,
+							Attempt:   c.turnAttempt,
+							Status:    protocol.DigestStatusNeedsYou,
+							Machine:   m.opts.MachineName,
+							Agent:     c.opts.Agent,
+							Model:     c.opts.Model,
+							Question: &protocol.DigestQuestion{
+								Text:    conflictErr.QuestionText(),
+								Context: append([]string(nil), conflictErr.Files...),
+							},
+						}
+					}
+					c.mu.Unlock()
+					m.emitError(c, turnID, ev)
+					return false
+				}
 				m.emitError(c, turnID, errEvent(protocol.ErrKindOther, pErr.Error(), false))
 				return false
 			}

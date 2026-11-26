@@ -109,8 +109,13 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 	})
 
 	repos := make([]protocol.DispatchPacketRepo, 0, len(bound))
+	var stacked []string
 	verifyRepos := make([]verifyRepo, 0, len(bound))
 	for _, br := range bound {
+		baseBranch := strings.TrimSpace(br.binding.BaseBranch)
+		if baseBranch == "" {
+			baseBranch = strings.TrimSpace(br.repo.DefaultBranch)
+		}
 		branch := strings.TrimSpace(br.binding.TargetBranch)
 		if branch == "" {
 			branch = "syre/" + tk.SID
@@ -124,6 +129,11 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 			Path:   repoPath,
 			Branch: branch,
 		})
+		if stack := h.resolveRepoStack(ctx, tk.ID, br.repo.ID, br.repo.Name, baseBranch); len(stack) > 0 {
+			if line := formatStackedPacketLine(br.repo.Name, stack); line != "" {
+				stacked = append(stacked, line)
+			}
+		}
 		verifyRepos = append(verifyRepos, verifyRepo{Name: br.repo.Name, Cmd: br.repo.VerifyCmd})
 	}
 
@@ -160,6 +170,7 @@ func (h *Hub) CompileDispatchPacket(ctx context.Context, ticketID string, opts P
 		TicketSID:  tk.SID,
 		Project:    strings.TrimSpace(proj.Name),
 		Repos:      repos,
+		Stacked:    stacked,
 		Objective:  buildPacketObjective(tk.Title, tk.Body),
 		Acceptance: acceptance,
 		Contracts:  contracts,

@@ -39,3 +39,15 @@ Direct delivery and plain-git helpers never disturb the user's own checkout:
 
 - `GET /api/tasks/{id}/delivery` computes the delivery preview so the Work review panel always states what Approve will do (for example, `Approve → squash-merge into main and push`, `Approve → merge PR #12 (squash) when checks pass`, or `Approve → push to fork and open a PR against upstream`).
 - All review decisions and delivery outcomes are recorded on the task timeline (`review` and `delivery` events, preserved by retention) and in the fleet audit log (`task.review`, `task.deliver`).
+
+## Stacked Tickets and Delivery
+
+Dependent tickets stack on unmerged blocker branches (see [work.md](work.md) *Repo registry and bindings*). When a blocker is delivered (merged into the base branch):
+
+- **In-progress dependents keep working**: merging a blocker into `base` never disturbs a running dependent's worktree or branch.
+- **Retargeting on dependent delivery**: when the dependent is delivered after its blockers have merged into `base`, the hub passes the dependent worktree's recorded `base_sha` (`stack_base_sha`) to the owning daemon:
+  - **Direct delivery (`direct`)**: inside the ephemeral merge worktree, `syred` runs `git rebase --onto <base> <stack_base_sha>` to replay only the dependent's own commits onto `base` before applying the configured merge style (`squash`, `merge`, or `rebase`). This avoids duplicate commits or spurious conflicts when the blocker was squash-merged. Any rebase conflict aborts cleanly and sends a Request-changes note listing the conflicting files back to the agent.
+  - **PR/MR delivery (`pr_merge`, `pr_open`)**: when pushing the dependent's branch after its blockers have merged, `syred` fetches `base`, runs `git rebase --onto <remote>/<base> <stack_base_sha>`, and pushes with `--force-with-lease` before opening or updating the PR against `base`.
+- **Follow-up scope**:
+  - **Forge-side PR base retargeting**: if a dependent PR is opened targeting a blocker's branch before the blocker merges, automatically retargeting that open PR's base branch on the forge requires adding `UpdatePRBase` to `forge.Client` (GitHub, GitLab, and Forgejo adapters).
+  - **Multi-repo ticket delivery**: `deliverApproved` currently delivers a single task repo (`Task.RepoID` / `EffectiveDir`); delivering stacked multi-repo tickets across all `Task.Worktrees` is tracked separately.

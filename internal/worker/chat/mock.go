@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -436,6 +437,33 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		if dest != "" {
 			if err := os.WriteFile(filepath.Join(dest, "verify_fixed.ok"), []byte("ok\n"), 0o644); err != nil {
 				reply = "failed to write fix marker: " + err.Error()
+			}
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case s.opts.TicketSID != "" && strings.Contains(text, "mock_commit_change"):
+		reply := "Committed change."
+		dest := s.opts.Cwd
+		if len(s.opts.EngineWorktrees) >= 1 && s.opts.EngineWorktrees[0].WorktreePath != "" {
+			dest = s.opts.EngineWorktrees[0].WorktreePath
+		}
+		if dest != "" {
+			fname := "change_" + strings.ToLower(s.opts.TicketSID) + ".txt"
+			if err := os.WriteFile(filepath.Join(dest, fname), []byte("from "+s.opts.TicketSID+"\n"), 0o644); err != nil {
+				reply = "failed to write change: " + err.Error()
+			} else {
+				_ = exec.CommandContext(ctx, "git", "-C", dest, "config", "user.email", "mock@example.com").Run()
+				_ = exec.CommandContext(ctx, "git", "-C", dest, "config", "user.name", "Mock").Run()
+				if out, err := exec.CommandContext(ctx, "git", "-C", dest, "add", fname).CombinedOutput(); err != nil {
+					reply = "git add failed: " + string(out)
+				} else if out, err := exec.CommandContext(ctx, "git", "-C", dest, "commit", "-m", "mock change "+s.opts.TicketSID).CombinedOutput(); err != nil {
+					reply = "git commit failed: " + string(out)
+				}
 			}
 		}
 		if !s.deltas(ctx, turn, "m-"+turn, reply) {

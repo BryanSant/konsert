@@ -489,3 +489,121 @@ func TestTicketPacketAndCommentsREST(t *testing.T) {
 		t.Fatalf("GET unknown ticket comments = %d, want 404", nfResp.StatusCode)
 	}
 }
+
+func TestCompileDispatchPacketGoldenStacked(t *testing.T) {
+	th := newTestHub(t)
+	ctx := context.Background()
+
+	if err := th.st.CreateProject(ctx, store.Project{
+		Name:      "calc",
+		VerifyCmd: "go test ./...",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projs, _ := th.st.ListProjects(ctx)
+	proj := projs[len(projs)-1]
+
+	if err := th.st.CreateRepo(ctx, store.Repo{
+		ProjectID:     proj.ID,
+		Name:          "demo",
+		RemoteURL:     "https://github.com/acme/demo.git",
+		DefaultBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	repos, _ := th.st.ListRepos(ctx, proj.ID)
+	repo := repos[0]
+
+	// Blocker A is done with an unmerged branch recorded on its latest task.
+	blocker, err := th.st.CreateTicket(ctx, store.Ticket{
+		SID:       "tk-fnwgh",
+		ProjectID: proj.ID,
+		Kind:      store.TicketKindBug,
+		Title:     "Fix Add",
+		Status:    store.TicketStatusDone,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := th.st.PutTicketRepoBinding(ctx, store.TicketRepoBinding{
+		TicketID:     blocker.ID,
+		RepoID:       repo.ID,
+		BaseBranch:   "main",
+		TargetBranch: "syre/tk-fnwgh",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := th.st.CreateTask(ctx, store.Task{
+		ID:       "t-blk-a",
+		Agent:    "mock",
+		Workdir:  "/work",
+		Prompt:   "Fix Add",
+		Status:   protocol.TaskStatusCompleted,
+		TicketID: blocker.ID,
+		RepoID:   repo.ID,
+		Branch:   "syre/tk-fnwgh",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := th.st.UpdateTaskWorktrees(ctx, "t-blk-a", []store.TaskWorktree{{
+		RepoName:     "demo",
+		CheckoutPath: "/work/demo",
+		WorktreePath: "/work/.syre/tickets/tk-fnwgh/demo",
+		Branch:       "syre/tk-fnwgh",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dependent ticket B blocked by A on the same repo.
+	dep, err := th.st.CreateTicket(ctx, store.Ticket{
+		SID:       "tk-30002",
+		ProjectID: proj.ID,
+		Kind:      store.TicketKindFeature,
+		Title:     "Add Sub function to calc package.",
+		Acceptance: []store.AcceptanceItem{
+			{Text: "Sub returns a - b"},
+		},
+		Status: store.TicketStatusReady,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := th.st.PutTicketRepoBinding(ctx, store.TicketRepoBinding{
+		TicketID:   dep.ID,
+		RepoID:     repo.ID,
+		BaseBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := th.st.AddTicketEdge(ctx, dep.ID, blocker.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	pkt, err := th.h.CompileDispatchPacket(ctx, dep.ID, PacketOptions{WorkdirRoot: "/work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pkt.Text()
+	want := readPacketGolden(t, "packet_stacked.yaml")
+	if got != want {
+		t.Fatalf("stacked packet mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+	if tok := protocol.EstimateTokens(got); tok > protocol.PacketMaxTokens {
+		t.Fatalf("stacked packet tokens = %d > %d", tok, protocol.PacketMaxTokens)
+	}
+
+	// Once blocker A is delivered (merged), B is no longer stacked on A.
+	if _, err := th.h.saveReview(ctx, "t-blk-a", "", func(r *store.Review) {
+		r.DeliveryMode = store.DeliveryModeDirect
+		r.DeliveryStatus = store.DeliveryStatusDelivered
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pktAfter, err := th.h.CompileDispatchPacket(ctx, dep.ID, PacketOptions{WorkdirRoot: "/work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pktAfter.Stacked) != 0 {
+		t.Fatalf("expected no stacked repos after blocker merged, got %+v", pktAfter.Stacked)
+	}
+}

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -166,9 +167,14 @@ func provisionBindings(
 		}
 		if info.Path == "" {
 			var wtErr error
-			info, wtErr = gitutil.CreateWorktreeAt(ctx, repoRoot, wtPath, b.BaseBranch, targetBranch)
+			info, wtErr = gitutil.CreateStackedWorktreeAt(ctx, repoRoot, wtPath, b.BaseBranch, targetBranch, b.StackOn)
 			if wtErr != nil {
 				res.undo(logger, ticketDirName)
+				var conflictErr *gitutil.StackConflictError
+				if errors.As(wtErr, &conflictErr) {
+					conflictErr.RepoName = repoName
+					return nil, conflictErr
+				}
 				return nil, fmt.Errorf("git worktree setup failed for %s: %w", repoName, wtErr)
 			}
 			res.created = append(res.created, info)
@@ -179,6 +185,7 @@ func provisionBindings(
 			CheckoutPath: repoRoot,
 			WorktreePath: info.Path,
 			Branch:       targetBranch,
+			BaseSHA:      info.BaseSHA,
 		})
 		res.worktreeBaseSHAs[repoName] = info.BaseSHA
 		if res.baseSHA == "" {

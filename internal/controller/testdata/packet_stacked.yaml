@@ -1,0 +1,11 @@
+ticket: tk-30002
+project: calc
+repos:
+  - {name: demo, path: /work/.syre/tickets/tk-30002/demo, branch: syre/tk-30002}
+stacked:
+  - demo: stacked on tk-fnwgh (syre/tk-fnwgh)
+objective: Add Sub function to calc package.
+acceptance:
+  - Sub returns a - b
+verify: demo: go test ./...
+tools: ticket_get, ticket_check, ticket_comment, ticket_followup, ask_user

@@ -614,6 +614,7 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 				CheckoutPath: wt.CheckoutPath,
 				WorktreePath: wt.WorktreePath,
 				Branch:       wt.Branch,
+				BaseSHA:      wt.BaseSHA,
 			}
 		}
 		_ = h.store.UpdateTaskWorktrees(ctx, p.TaskID, wts)

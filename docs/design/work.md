@@ -53,6 +53,21 @@ locality) instead of taxonomy rows.
   is cloned to `<workdir root>/.syre/clones/<repo name>` (a dot directory, so checkout
   discovery skips it). Worktrees are removed when the ticket reaches
   `done` and its branches are delivered (or after a retention period for `failed`).
+- **Branch stacking for dependent tickets**: When a ticket B is dispatched with `blocked_by`
+  dependencies whose branches touched the same repo and have not yet merged into B's
+  `base_branch`, the hub computes the transitively relevant direct unmerged blockers for each
+  bound repo and sends their branches in `TaskRepoBinding.stack_on` (in dependency order;
+  merged blockers contribute nothing, and ancestors already covered by a downstream unmerged
+  blocker on the same repo are omitted).
+  - **One unmerged blocker**: `syred` branches B's worktree directly from the blocker's branch
+    (local in the shared checkout/clone, or fetched from the remote).
+  - **Several unmerged blockers**: `syred` branches from `base_branch` and runs
+    `git merge --no-edit` for each blocker branch in order. On merge conflict, `syred` aborts
+    the merge, cleans up the worktree, and reports `conflict` so the ticket moves to
+    `needs_you` with a digest question listing the conflicting files.
+  - `syred` reports the resulting base commit (`base_sha`) on the provisioned worktree so
+    diffs, digests, and delivery retargeting measure only B's own changes, and the dispatch
+    packet notes each stacked repo (e.g. `demo: stacked on tk-fnwgh (syre/tk-fnwgh)`).
 
 ## Ticket fields
 
