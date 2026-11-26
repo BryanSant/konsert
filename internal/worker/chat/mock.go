@@ -426,6 +426,36 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 	turn := p.TurnID
 	step := s.eng.step()
 	switch {
+	case strings.Contains(text, "you are reviewing someone else"):
+		// Cross-review: request changes once for tickets titled with mock_review_changes,
+		// approve once the diff shows the fix.
+		reply := "APPROVE\nLooks good."
+		if strings.Contains(text, "mock_review_changes") && !strings.Contains(text, "review_fixed") {
+			reply = "CHANGES: add review_fixed.ok (mock_review_fix)"
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
+	case s.opts.TicketSID != "" && strings.Contains(text, "requested changes") && strings.Contains(text, "mock_review_fix"):
+		reply := "Addressed the review."
+		dest := s.opts.Cwd
+		if len(s.opts.EngineWorktrees) > 0 && s.opts.EngineWorktrees[0].WorktreePath != "" {
+			dest = s.opts.EngineWorktrees[0].WorktreePath
+		}
+		if err := os.WriteFile(filepath.Join(dest, "review_fixed.ok"), []byte("ok\n"), 0o644); err != nil {
+			reply = "failed to write review fix: " + err.Error()
+		} else if out, err := exec.CommandContext(ctx, "git", "-C", dest, "add", "review_fixed.ok").CombinedOutput(); err != nil {
+			reply = "git add failed: " + string(out)
+		}
+		if !s.deltas(ctx, turn, "m-"+turn, reply) {
+			s.cancelled(turn)
+			return
+		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
+
 	case s.opts.TicketSID != "" && strings.Contains(text, "verification failed") && strings.Contains(text, "mock_fix_file"):
 		reply := "Fixed verification failure."
 		// A single binding runs ticket verify_cmd in that worktree. Several bindings

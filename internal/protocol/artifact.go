@@ -39,6 +39,9 @@ type ArtifactFetchRequest struct {
 	Path     string `json:"path,omitempty"`
 	MaxLines int    `json:"max_lines,omitempty"`
 	Offset   int    `json:"offset,omitempty"`
+	// Base, for diff and diff_stat, diffs the working tree against this commit (e.g. the
+	// worktree's base SHA, covering the agent's commits too) instead of HEAD.
+	Base string `json:"base,omitempty"`
 }
 
 // ArtifactFetchResult is one capped page of an artifact.

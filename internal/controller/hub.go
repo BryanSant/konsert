@@ -99,6 +99,8 @@ type browserClient struct {
 // Hub manages connected worker daemons, browser PWA subscribers,
 // ref-counted on-demand PTY streaming, task waiters, and stale worker reaping.
 type Hub struct {
+	// cross tracks in-flight cross-agent reviews (crossreview.go).
+	cross crossReviews
 	// trackers syncs external trackers into the work model (tracker_api.go).
 	trackers *tracker.Syncer
 
