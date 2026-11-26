@@ -46,10 +46,25 @@ type DirectiveInput struct {
 }
 
 func (h *Hub) directiveClock() time.Time {
-	if h != nil && h.directiveNow != nil {
-		return h.directiveNow()
+	if h != nil {
+		if p := h.directiveNow.Load(); p != nil && *p != nil {
+			return (*p)()
+		}
 	}
 	return time.Now()
+}
+
+// setDirectiveClock publishes the clock the expiry loop reads. The swap is atomic
+// because that loop is already running when tests install a fake clock.
+func (h *Hub) setDirectiveClock(now func() time.Time) {
+	if h == nil {
+		return
+	}
+	if now == nil {
+		h.directiveNow.Store(nil)
+		return
+	}
+	h.directiveNow.Store(&now)
 }
 
 func (h *Hub) kickDirective() {

@@ -145,7 +145,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	workers = h.applyMachineDirectives(ctx, workers)
 
 	for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
-		if ctx.Err() != nil {
+		// A pause stored while this pass was already inside the function wins
+		// before the claim. The check at the top is not enough: listing directives
+		// and choosing a machine takes long enough for Pause everything to land.
+		if ctx.Err() != nil || h.fleetPaused(ctx) {
 			return
 		}
 		if t.Origin == protocol.TaskOriginExternal {
@@ -170,6 +173,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 			// Leave it queued: the account must sign in again first.
 			continue
 		}
+		if h.fleetPaused(ctx) {
+			return
+		}
 		claimed, err := h.store.ClaimQueuedTask(ctx, t.ID, w.ID, causeScheduler)
 		if err != nil || !claimed {
 			continue
@@ -179,6 +185,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 		}
 		if payload.Agent != "shell" && payload.SessionKind != "terminal" {
 			payload.UseGitBash = w.AgentsUseGitBash
+		}
+		if h.fleetPaused(ctx) {
+			_, _ = h.store.RequeueTask(ctx, t.ID, "", pinned, causeScheduler)
+			return
 		}
 		if err := h.DispatchToWorker(w.ID, payload); err != nil {
 			h.logger.Warn("dispatch of queued task failed; returning it to the queue",

@@ -245,7 +245,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 	}
 
 	for _, tk := range tickets {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || h.fleetPaused(ctx) {
 			return
 		}
 		if _, ok := autopilotProjects[tk.ProjectID]; !ok {
@@ -334,6 +334,9 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			continue
 		}
 
+		if h.fleetPaused(ctx) {
+			return
+		}
 		now := time.Now().UTC()
 		claimedTk, claimed, err := h.store.ClaimTicket(ctx, tk.ID, w.ID, taskID, now, leaseTTL)
 		if err != nil || !claimed {
@@ -425,6 +428,15 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			QueuedAt:  &task.CreatedAt,
 			StartedAt: task.StartedAt,
 		})
+		// Fleet pause beats an in-flight pass. The open is the point of no return:
+		// a pause stored while the packet was compiled must not still dispatch.
+		if h.fleetPaused(ctx) {
+			h.abandonAttempt(ctx, tk.ID, taskID, attemptN)
+			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
+			_, _ = h.store.UpdateTaskStatus(ctx, taskID, protocol.TaskStatusCanceled, "fleet paused", "", nil, causeScheduler)
+			h.closeChat(ctx, cs.ID)
+			return
+		}
 		if err := h.sendAgentChat(ctx, cs, chatSendRequest{SessionID: cs.ID, Content: prompt}); err != nil {
 			h.abandonAttempt(ctx, tk.ID, taskID, attemptN)
 			h.logger.Warn("dispatch of ticket chat failed; releasing ticket back to ready",

@@ -778,6 +778,12 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		})
 	}
 
+	// hostedTaskCount treats a non-terminal status as a taken slot. Publish the
+	// terminal status before the completion message so a directive cap sees the slot free.
+	rt.mu.Lock()
+	rt.status = finalStatus
+	rt.mu.Unlock()
+
 	ec := exitCode
 	r.emitStatus(protocol.TaskStatusPayload{
 		TaskID:       rt.id,
