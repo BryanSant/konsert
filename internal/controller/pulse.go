@@ -420,6 +420,38 @@ func (h *Hub) markProjectActive(projectID string) {
 // checkProjectBoardIdle triggers a project-level board_idle pulse and turns Play off
 // automatically when an autopilot project has no dispatchable, running, or needs_you
 // tickets left (review does not count as work left for autopilot).
+// projectHasWaitingTickets reports whether a ready ticket in projectID is blocked by a
+// ticket that can still finish (not done, failed or canceled), e.g. one in review.
+func (h *Hub) projectHasWaitingTickets(ctx context.Context, projectID string) (bool, error) {
+	ready, err := h.store.ListTickets(ctx, store.TicketFilter{ProjectID: projectID, Status: store.TicketStatusReady})
+	if err != nil || len(ready) == 0 {
+		return false, err
+	}
+	edges, err := h.store.ListTicketEdgesByProject(ctx, projectID)
+	if err != nil || len(edges) == 0 {
+		return false, err
+	}
+	isReady := make(map[string]bool, len(ready))
+	for _, tk := range ready {
+		isReady[tk.ID] = true
+	}
+	for _, e := range edges {
+		if !isReady[e.TicketID] {
+			continue
+		}
+		blocker, err := h.store.GetTicket(ctx, e.BlockedByID)
+		if err != nil {
+			continue
+		}
+		switch blocker.Status {
+		case store.TicketStatusDone, store.TicketStatusFailed, store.TicketStatusCanceled:
+		default:
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (h *Hub) checkProjectBoardIdle(ctx context.Context, projectID string) {
 	if h == nil || h.store == nil || projectID == "" {
 		return
@@ -438,6 +470,12 @@ func (h *Hub) checkProjectBoardIdle(ctx context.Context, projectID string) {
 		return
 	}
 	if needs, err := h.store.ListTickets(ctx, store.TicketFilter{ProjectID: projectID, Status: store.TicketStatusNeedsYou, Limit: 1}); err != nil || len(needs) > 0 {
+		h.markProjectActive(projectID)
+		return
+	}
+	// Work waiting on a blocker that is still in review (or otherwise unfinished) is not
+	// finished: keep Play on so the dependent dispatches once the blocker is done.
+	if waiting, err := h.projectHasWaitingTickets(ctx, projectID); err != nil || waiting {
 		h.markProjectActive(projectID)
 		return
 	}

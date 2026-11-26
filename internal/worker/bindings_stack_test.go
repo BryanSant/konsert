@@ -58,7 +58,7 @@ func TestProvisionBindingsStackSingleBlockerLocalAndRemote(t *testing.T) {
 		t.Fatalf("worktree BaseSHA = %q, want blocker SHA %q", wt.BaseSHA, blockerSHA)
 	}
 	got, err := os.ReadFile(filepath.Join(wt.WorktreePath, "fix_add.txt"))
-	if err != nil || string(got) != "fixed add\n" {
+	if err != nil || lf(got) != "fixed add\n" {
 		t.Fatalf("expected B worktree to contain A's change, got %q (%v)", string(got), err)
 	}
 
@@ -88,7 +88,7 @@ func TestProvisionBindingsStackSingleBlockerLocalAndRemote(t *testing.T) {
 		t.Fatalf("remote worktree BaseSHA = %q, want %q", provRem.worktrees[0].BaseSHA, remoteSHA)
 	}
 	gotRem, err := os.ReadFile(filepath.Join(provRem.worktrees[0].WorktreePath, "from_remote.txt"))
-	if err != nil || string(gotRem) != "remote fix\n" {
+	if err != nil || lf(gotRem) != "remote fix\n" {
 		t.Fatalf("expected remote-stacked worktree to contain remote fix, got %q (%v)", string(gotRem), err)
 	}
 }
@@ -139,7 +139,7 @@ func TestProvisionBindingsStackTwoBlockersMerged(t *testing.T) {
 		{"b.txt", "from a2\n"},
 	} {
 		got, err := os.ReadFile(filepath.Join(wt.WorktreePath, want.file))
-		if err != nil || string(got) != want.body {
+		if err != nil || lf(got) != want.body {
 			t.Fatalf("worktree missing %s: got %q (%v)", want.file, string(got), err)
 		}
 	}
@@ -202,3 +202,6 @@ func TestProvisionBindingsStackConflictReturnsFilesAndCleansUp(t *testing.T) {
 		t.Errorf("expected aborted target branch syre/tk-conf to be deleted")
 	}
 }
+
+// lf normalizes checkout line endings: Windows git may write CRLF (core.autocrlf).
+func lf(b []byte) string { return strings.ReplaceAll(string(b), "\r\n", "\n") }

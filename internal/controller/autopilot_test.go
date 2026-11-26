@@ -381,3 +381,64 @@ func TestAutopilotRESTMCPAndAuditAttribution(t *testing.T) {
 		}
 	}
 }
+
+// A dependent waiting on a blocker in review keeps Play on; marking the blocker done
+// dispatches the dependent without anyone pressing Play again (live-run regression).
+func TestAutopilotStaysOnWhileDependentWaitsOnReview(t *testing.T) {
+	cs := newChatServer(t)
+	cs.h.PulseDebounce = 80 * time.Millisecond
+	ctx := context.Background()
+
+	proj, repo := createProjectAndRepo(t, cs.st, "Stacked", true, false)
+	newTicket := func(title string) store.Ticket {
+		tk, err := cs.st.CreateTicket(ctx, store.Ticket{
+			ProjectID: proj.ID, Kind: store.TicketKindFeature, Title: title,
+			Status: store.TicketStatusReady, Hints: store.TicketHints{Agent: "mock"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.st.PutTicketRepoBinding(ctx, store.TicketRepoBinding{TicketID: tk.ID, RepoID: repo.ID}); err != nil {
+			t.Fatal(err)
+		}
+		return tk
+	}
+	a := newTicket("Blocker")
+	b := newTicket("Dependent")
+	if err := cs.st.AddTicketEdge(ctx, b.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	fw := cs.connectAgentWorker(t, "w-stack", "box-stack", claudeAccount("mock", true))
+	cs.h.SchedulePending(ctx)
+	open, _ := protocol.DecodePayload[protocol.AgentChatOpen](fw.expect(protocol.MsgAgentChatOpen, 3*time.Second))
+	_ = fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
+	if open.TicketSID != a.SID {
+		t.Fatalf("first dispatch = %q, want blocker %q", open.TicketSID, a.SID)
+	}
+
+	fw.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{
+		ChatID: open.ChatID, Seq: 1, Kind: protocol.EventTurnEnd, StopReason: "end_turn",
+		Digest: &protocol.RunDigest{TicketSID: a.SID, Status: protocol.DigestStatusReview, Summary: "Done"},
+	})
+	waitFor(t, 3*time.Second, "blocker in review", func() bool {
+		cur, err := cs.st.GetTicket(ctx, a.ID)
+		return err == nil && cur.Status == store.TicketStatusReview
+	})
+	// Give any idle check time to run, then Play must still be on.
+	time.Sleep(300 * time.Millisecond)
+	if p, _ := cs.st.GetProject(ctx, proj.ID); !p.Autopilot {
+		t.Fatal("Play turned off while a dependent was waiting on a ticket in review")
+	}
+
+	if code, raw := cs.api(t, http.MethodPatch, "/api/tickets/"+a.ID, map[string]any{"status": "done"}); code != http.StatusOK {
+		t.Fatalf("mark blocker done: %d %s", code, raw)
+	}
+	env := expectWhere(t, fw, protocol.MsgAgentChatOpen, 3*time.Second, func(env protocol.Envelope) bool {
+		p, _ := protocol.DecodePayload[protocol.AgentChatOpen](env)
+		return p.TicketSID == b.SID
+	})
+	if env.Type != protocol.MsgAgentChatOpen {
+		t.Fatalf("dependent was not dispatched after its blocker was done")
+	}
+}
