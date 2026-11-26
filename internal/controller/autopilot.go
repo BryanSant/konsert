@@ -41,14 +41,16 @@ type AutopilotCounts struct {
 
 // AutopilotProjectState is the effective autopilot state and counts for one project.
 type AutopilotProjectState struct {
-	ProjectID       string          `json:"project_id"`
-	ProjectSID      string          `json:"project_sid"`
-	ProjectName     string          `json:"project_name"`
-	Play            bool            `json:"play"`
-	Autopilot       bool            `json:"autopilot"`
-	AutopilotPaused bool            `json:"autopilot_paused"`
-	Global          bool            `json:"global"`
-	FleetPaused     bool            `json:"fleet_paused"`
+	ProjectID       string `json:"project_id"`
+	ProjectSID      string `json:"project_sid"`
+	ProjectName     string `json:"project_name"`
+	Play            bool   `json:"play"`
+	Autopilot       bool   `json:"autopilot"`
+	AutopilotPaused bool   `json:"autopilot_paused"`
+	Global          bool   `json:"global"`
+	FleetPaused     bool   `json:"fleet_paused"`
+	// DirectivePaused is an active autopilot.pause directive on this project.
+	DirectivePaused bool            `json:"directive_paused,omitempty"`
 	State           string          `json:"state"` // "playing" | "paused" | "finished"
 	Counts          AutopilotCounts `json:"counts"`
 }
@@ -93,14 +95,12 @@ func (h *Hub) autopilotGlobal(ctx context.Context) bool {
 //
 // Specifically:
 //  1. If Pause everything (fleet pause) is active, nothing dispatches even when playing.
-//  2. If the project is explicitly paused (project.AutopilotPaused), it does not dispatch
-//     even when autopilot_global is on.
+//  2. If the project is explicitly paused (project.AutopilotPaused) or an
+//     autopilot.pause directive is active, it does not dispatch even when
+//     autopilot_global is on.
 //  3. Otherwise, dispatch is enabled when either autopilot_global or project.Autopilot is on.
-func isProjectAutopilotPlaying(proj store.Project, globalOn, fleetPaused bool) bool {
-	if fleetPaused {
-		return false
-	}
-	if proj.AutopilotPaused {
+func isProjectAutopilotPlaying(proj store.Project, globalOn, fleetPaused, directivePaused bool) bool {
+	if fleetPaused || proj.AutopilotPaused || directivePaused {
 		return false
 	}
 	return globalOn || proj.Autopilot
@@ -158,7 +158,8 @@ func (h *Hub) projectAutopilotCounts(ctx context.Context, projectID string) Auto
 }
 
 func (h *Hub) buildProjectAutopilotState(ctx context.Context, proj store.Project, globalOn, fleetPaused bool) AutopilotProjectState {
-	playing := isProjectAutopilotPlaying(proj, globalOn, fleetPaused)
+	directivePaused := h.projectDirectivePaused(ctx, proj.ID)
+	playing := isProjectAutopilotPlaying(proj, globalOn, fleetPaused, directivePaused)
 	state := AutopilotStatePaused
 	switch {
 	case fleetPaused:
@@ -179,6 +180,7 @@ func (h *Hub) buildProjectAutopilotState(ctx context.Context, proj store.Project
 		AutopilotPaused: proj.AutopilotPaused,
 		Global:          globalOn,
 		FleetPaused:     fleetPaused,
+		DirectivePaused: directivePaused,
 		State:           state,
 		Counts:          h.projectAutopilotCounts(ctx, proj.ID),
 	}

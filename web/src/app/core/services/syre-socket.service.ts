@@ -10,6 +10,7 @@ import {
   FRAME_PTY_SNAPSHOT,
   FRAME_PTY_STDIN,
   FRAME_TASK_ID_SIZE,
+  PolicyDirective,
   Project,
   PtyFrameEvent,
   Repo,
@@ -271,6 +272,7 @@ export class SyreSocketService {
           device?: Device;
           shell_reminder?: ShellReminder;
           autopilot?: AutopilotState;
+          directive?: PolicyDirective;
           ticket?: Ticket;
           ticket_edge?: TicketEdge;
         } | undefined;
@@ -317,6 +319,8 @@ export class SyreSocketService {
           this.controlStore.applyPause(p.pause);
         } else if (p.kind === 'autopilot' && p.autopilot) {
           this.fleetStore.applyAutopilot(p.autopilot);
+        } else if (p.kind === 'directive' && p.directive) {
+          this.fleetStore.applyDirective(p.directive);
         } else if (p.kind === 'question' && p.question) {
           this.questionsStore.apply(p.question);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {

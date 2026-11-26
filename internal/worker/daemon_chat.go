@@ -246,12 +246,23 @@ type capabilitiesRefreshRequest struct {
 func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 	switch env.Type {
 	case protocol.MsgAgentChatOpen:
-		if p, err := protocol.DecodePayload[protocol.AgentChatOpen](env); err == nil {
-			p.MCPServers = d.relayMCPServers(p.ChatID, p.MCPServers)
-			d.chat.Open(p)
-		} else {
+		p, err := protocol.DecodePayload[protocol.AgentChatOpen](env)
+		if err != nil {
 			d.logger.Warn("decode agent.chat.open failed", "err", err)
+			break
 		}
+		if msg := d.directiveRefusal(); msg != "" {
+			d.sendChatEvent(protocol.AgentChatEvent{
+				ChatID: p.ChatID,
+				Kind:   protocol.EventError,
+				Status: protocol.ChatStatusFailed,
+				At:     time.Now().UTC(),
+				Error:  &protocol.AgentChatError{Kind: protocol.ErrKindOther, Message: msg},
+			})
+			break
+		}
+		p.MCPServers = d.relayMCPServers(p.ChatID, p.MCPServers)
+		d.chat.Open(p)
 	case protocol.MsgAgentChatPrompt:
 		if p, err := protocol.DecodePayload[protocol.AgentChatPrompt](env); err == nil {
 			d.chat.Prompt(p)

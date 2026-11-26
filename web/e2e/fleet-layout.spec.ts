@@ -73,4 +73,69 @@ test.describe('Fleet machine row layout', () => {
     await expect(badge.getByTestId('transport-label')).toBeHidden();
     await page.setViewportSize({ width: 1440, height: 900 });
   });
+
+  test('a machine pause shows a paused-until badge and ends from the machine detail', async ({ page }) => {
+    const env = loadEnv();
+    let markConnected: () => void = () => {};
+    const socketUp = new Promise<void>((resolve) => {
+      markConnected = resolve;
+    });
+    await page.routeWebSocket(/\/ws\/client/, (ws) => {
+      markConnected();
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+    });
+    await page.goto(`${env.baseURL}/fleet`);
+    await page.getByRole('button', { name: 'Use recovery key' }).click();
+    await page.locator('#token').fill(env.adminToken);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await expect(page.locator('#token')).toBeHidden();
+    await socketUp;
+
+    const snap = await page.evaluate(async () => (await fetch('/api/fleet', { credentials: 'same-origin' })).json());
+    const worker = (snap.workers as Array<Record<string, unknown>>).find((w) => w['id'] === env.workerId)!;
+    const sid = worker['sid'] as string;
+    const row = page.locator(`[data-machine="${sid}"]`);
+    await expect(row).toBeVisible();
+
+    const until = new Date(Date.now() + 3 * 3600_000);
+    until.setSeconds(0, 0);
+    const hh = String(until.getHours()).padStart(2, '0');
+    const mm = String(until.getMinutes()).padStart(2, '0');
+    const label = `paused until ${hh}:${mm}`;
+    let id = '';
+    try {
+      const created = await page.evaluate(async (body) => {
+        const res = await fetch('/api/directives', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+          body: JSON.stringify(body),
+        });
+        return { status: res.status, json: await res.json() };
+      }, { kind: 'machine.pause', target: env.workerId, until: until.toISOString(), reason: 'e2e' });
+      expect(created.status, JSON.stringify(created.json)).toBe(201);
+      id = created.json.id as string;
+      await expect(row.getByTestId('directive-badge')).toContainText(label);
+
+      await row.getByTestId(`machine-details-${sid}`).click();
+      const modal = page.getByTestId('machine-control');
+      await expect(modal.getByTestId('directive-badge')).toContainText(label);
+      await modal.getByTestId('directive-end').click();
+      await expect(row.getByTestId('directive-badge')).toHaveCount(0);
+    } finally {
+      if (id) {
+        await page
+          .evaluate(async (directiveId) => {
+            await fetch(`/api/directives/${directiveId}/end`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+            });
+          }, id)
+          .catch(() => undefined);
+      }
+    }
+  });
 });

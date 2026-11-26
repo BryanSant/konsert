@@ -52,14 +52,15 @@ func (c Cause) IsZero() bool { return c.Actor == "" }
 
 // Fleet event kinds (FleetEvent.Kind).
 const (
-	EventKindStatus   = "status"   // a task or chat status transition (Action: "task" | "chat")
-	EventKindAction   = "action"   // an intervention: cancel, suspend, resume, drain, pause, command, ...
-	EventKindHold     = "hold"     // Action: created | released
-	EventKindRequest  = "request"  // Action: created | done | declined | canceled | linked
-	EventKindVeto     = "veto"     // Action: the veto reason
-	EventKindNotice   = "notice"   // Syre told an agent about something (Action: delivered)
-	EventKindQuestion = "question" // Action: answered | delegated | decided | overridden
-	EventKindPulse    = "pulse"    // Actionable autopilot/board pulse trigger (docs/design/autopilot.md)
+	EventKindStatus    = "status"    // a task or chat status transition (Action: "task" | "chat")
+	EventKindAction    = "action"    // an intervention: cancel, suspend, resume, drain, pause, command, ...
+	EventKindHold      = "hold"      // Action: created | released
+	EventKindRequest   = "request"   // Action: created | done | declined | canceled | linked
+	EventKindVeto      = "veto"      // Action: the veto reason
+	EventKindNotice    = "notice"    // Syre told an agent about something (Action: delivered)
+	EventKindQuestion  = "question"  // Action: answered | delegated | decided | overridden
+	EventKindPulse     = "pulse"     // Actionable autopilot/board pulse trigger (docs/design/autopilot.md)
+	EventKindDirective = "directive" // Action: created | ended | expired
 )
 
 // FleetEvent is one attributed event in the fleet timeline: every status transition and
@@ -180,8 +181,9 @@ type UserRequestFilter struct {
 // Suspension owners (Task.SuspendedBy, ChatSession.SuspendedBy): Resume after Pause
 // everything restores only what the pause suspended.
 const (
-	SuspendedByUser  = "user"
-	SuspendedByPause = "pause"
+	SuspendedByUser      = "user"
+	SuspendedByPause     = "pause"
+	SuspendedByDirective = "directive"
 )
 
 // FleetPause is the persisted fleet-wide Pause everything state.

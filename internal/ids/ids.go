@@ -12,7 +12,8 @@
 //     kind is clear wherever it shows up alone (logs, URLs): t-7qk3m task, c-yvp2f chat,
 //     m-… machine, p-… project, r-… repo, tk-… ticket, h-… hold,
 //     rq-… user request, q-… question, o-… override request, v-… veto, rv-… review,
-//     dv-… device credential, pc-… pairing code, mc-… machine credential. The hub
+//     dv-… device credential, pc-… pairing code, mc-… machine credential,
+//     dr-… policy directive. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -49,10 +50,12 @@ const (
 	PairingCode Kind = "pc"
 	// MachineCredential is a syred's own credential (SYR-RK9YD).
 	MachineCredential Kind = "mc"
+	// Directive is a policy directive (machine pause/throttle/drain, autopilot pause).
+	Directive Kind = "dr"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Ticket, Hold, Request, Question, Override, Veto, Review, Device, PairingCode, MachineCredential}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Ticket, Hold, Request, Question, Override, Veto, Review, Device, PairingCode, MachineCredential, Directive}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

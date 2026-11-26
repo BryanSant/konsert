@@ -158,6 +158,29 @@ func (r *Runner) AgentAllowed(agent string) bool {
 	return true
 }
 
+// hostedTaskCount is tasks reserved to start plus non-terminal running tasks.
+// A task that is in both maps counts once.
+func (r *Runner) hostedTaskCount() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make(map[string]struct{}, len(r.starting)+len(r.tasks))
+	for id := range r.starting {
+		ids[id] = struct{}{}
+	}
+	for id, rt := range r.tasks {
+		rt.mu.Lock()
+		st := rt.status
+		rt.mu.Unlock()
+		if !protocol.IsTerminalTaskStatus(st) {
+			ids[id] = struct{}{}
+		}
+	}
+	return len(ids)
+}
+
 // ActiveTasks returns snapshots of currently running tasks for worker.hello re-adoption.
 func (r *Runner) ActiveTasks() []protocol.ActiveTaskInfo {
 	r.mu.RLock()

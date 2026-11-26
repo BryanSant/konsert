@@ -211,7 +211,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 	globalOn := h.autopilotGlobal(ctx)
 	autopilotProjects := make(map[string]store.Project, len(projects))
 	for _, p := range projects {
-		if isProjectAutopilotPlaying(p, globalOn, false) {
+		if isProjectAutopilotPlaying(p, globalOn, false, h.projectDirectivePaused(ctx, p.ID)) {
 			autopilotProjects[p.ID] = p
 		}
 	}

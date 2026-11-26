@@ -254,6 +254,10 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		h.failInterruptedChats(ctx, wc)
 	}
 
+	// Active directives for this machine, then re-suspend if a suspend_running
+	// pause is still in force (readopt reports the sessions as running).
+	h.deliverWorkerDirectives(ctx, wc)
+
 	// Drain any queued tasks that can now run on this worker.
 	h.kickScheduler()
 

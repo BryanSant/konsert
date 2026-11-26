@@ -523,7 +523,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	counts := s.hub.ActiveTaskCounts()
 	// Approved machine_slots overrides raise a machine's slot limit while they last.
+	// Directives then tighten: pause and drain drop the machine, throttle caps it.
 	onlineWorkers, slots := s.hub.applySlotOverrides(ctx, onlineWorkers)
+	onlineWorkers = s.hub.applyMachineDirectives(ctx, onlineWorkers)
 	req.AccountID = strings.TrimSpace(req.AccountID)
 	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
 	if ok {
