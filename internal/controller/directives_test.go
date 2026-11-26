@@ -376,12 +376,17 @@ func TestDirectiveSuspendResumeOnPause(t *testing.T) {
 	if hs := activeHolds(t, th.st); len(hs) != 0 {
 		t.Fatalf("directive suspend placed holds: %+v", hs)
 	}
+	// The status is stored before the transition event is recorded; wait for the event.
 	var susCause store.Cause
-	for _, e := range taskEvents(t, th.st, task.ID) {
-		if e.ToStatus == protocol.TaskStatusSuspended {
-			susCause = e.Cause
+	waitFor(t, 3*time.Second, "suspend transition recorded", func() bool {
+		for _, e := range taskEvents(t, th.st, task.ID) {
+			if e.ToStatus == protocol.TaskStatusSuspended {
+				susCause = e.Cause
+				return true
+			}
 		}
-	}
+		return false
+	})
 	if susCause.Actor != store.ActorSystem || susCause.Source != "directive" {
 		t.Fatalf("suspend cause %+v", susCause)
 	}
