@@ -695,3 +695,16 @@ func nextLinkURL(linkHeader string) string {
 	}
 	return ""
 }
+
+// UpdatePRBase changes the PR's base branch.
+func (c *Client) UpdatePRBase(ctx context.Context, r forge.Repo, number int, base string) error {
+	endpoint := fmt.Sprintf("%s%s/pulls/%d", c.apiBase, repoPath(r), number)
+	data, _, status, err := c.do(ctx, http.MethodPatch, endpoint, map[string]string{"base": base})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return mapHTTPError(status, data, "update PR base")
+	}
+	return nil
+}

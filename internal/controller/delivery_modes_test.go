@@ -29,6 +29,7 @@ type fakeForge struct {
 	mergeFn         func(forge.MergeRequest) (forge.MergeResult, error)
 	reviewComments  []forge.ReviewComment
 	compareURLValue string
+	baseUpdates     []string
 }
 
 func (f *fakeForge) Detect(_ context.Context, remoteURL string) (forge.Repo, error) {
@@ -487,4 +488,14 @@ func TestDeliveryModeDirectPassesTaskSIDAndSurfacesMergeMessage(t *testing.T) {
 	if rv.DeliveryStatus != store.DeliveryStatusDelivered || !strings.Contains(rv.DeliveryMessage, "syre/merged/S42") {
 		t.Fatalf("direct merge review = %+v", rv)
 	}
+}
+
+func (f *fakeForge) UpdatePRBase(_ context.Context, _ forge.Repo, _ int, base string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.baseUpdates = append(f.baseUpdates, base)
+	if f.pr != nil {
+		f.pr.Base = base
+	}
+	return nil
 }

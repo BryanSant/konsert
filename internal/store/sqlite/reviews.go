@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json/v2"
 	"errors"
 	"time"
 
@@ -14,24 +15,27 @@ import (
 
 const reviewCols = `id, sid, task_id, chat_id, decision, note, decided_by, decided_at,
 	delivery_mode, delivery_status, delivery_message, merge_method, merge_sha,
-	pr_number, pr_url, pr_state, pr_checks, pr_auto_merge, compare_url, pr_remote_url, pr_last_comment_at,
+	pr_number, pr_url, pr_state, pr_checks, pr_auto_merge, compare_url, pr_remote_url, pr_base, pr_last_comment_at, repo_prs_json,
 	follow_up_task_id, expedite, expedited_at, created_at, updated_at`
 
 func scanReview(sc interface{ Scan(...any) error }) (store.Review, error) {
 	var (
 		r                           store.Review
 		decided, expAt, lastComment sql.NullString
-		created, updated            string
+		created, updated, repoPRs   string
 		expedite, prAutoMerge       int
 	)
 	if err := sc.Scan(&r.ID, &r.SID, &r.TaskID, &r.ChatID, &r.Decision, &r.Note, &r.DecidedBy, &decided,
 		&r.DeliveryMode, &r.DeliveryStatus, &r.DeliveryMessage, &r.MergeMethod, &r.MergeSHA,
-		&r.PRNumber, &r.PRURL, &r.PRState, &r.PRChecks, &prAutoMerge, &r.CompareURL, &r.PRRemoteURL, &lastComment,
+		&r.PRNumber, &r.PRURL, &r.PRState, &r.PRChecks, &prAutoMerge, &r.CompareURL, &r.PRRemoteURL, &r.PRBase, &lastComment, &repoPRs,
 		&r.FollowUpTaskID, &expedite, &expAt, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Review{}, store.ErrNotFound
 		}
 		return store.Review{}, err
+	}
+	if repoPRs != "" && repoPRs != "[]" {
+		_ = json.Unmarshal([]byte(repoPRs), &r.RepoPRs)
 	}
 	r.DecidedAt = scanNullTime(decided)
 	r.PRAutoMerge = prAutoMerge != 0
@@ -73,7 +77,7 @@ func (s *SQLiteStore) SaveReview(ctx context.Context, r store.Review) (store.Rev
 	}
 	r.UpdatedAt = now
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO reviews (`+reviewCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO reviews (`+reviewCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			decision = excluded.decision, note = excluded.note, decided_by = excluded.decided_by,
 			decided_at = excluded.decided_at,
@@ -81,13 +85,13 @@ func (s *SQLiteStore) SaveReview(ctx context.Context, r store.Review) (store.Rev
 			delivery_message = excluded.delivery_message, merge_method = excluded.merge_method,
 			merge_sha = excluded.merge_sha, pr_number = excluded.pr_number, pr_url = excluded.pr_url,
 			pr_state = excluded.pr_state, pr_checks = excluded.pr_checks, pr_auto_merge = excluded.pr_auto_merge,
-			compare_url = excluded.compare_url, pr_remote_url = excluded.pr_remote_url,
-			pr_last_comment_at = excluded.pr_last_comment_at,
+			compare_url = excluded.compare_url, pr_remote_url = excluded.pr_remote_url, pr_base = excluded.pr_base,
+			pr_last_comment_at = excluded.pr_last_comment_at, repo_prs_json = excluded.repo_prs_json,
 			follow_up_task_id = excluded.follow_up_task_id, expedite = excluded.expedite,
 			expedited_at = excluded.expedited_at, updated_at = excluded.updated_at
 	`, r.ID, r.SID, r.TaskID, r.ChatID, r.Decision, r.Note, r.DecidedBy, nullTime(r.DecidedAt),
 		r.DeliveryMode, r.DeliveryStatus, r.DeliveryMessage, r.MergeMethod, r.MergeSHA,
-		r.PRNumber, r.PRURL, r.PRState, r.PRChecks, boolToInt(r.PRAutoMerge), r.CompareURL, r.PRRemoteURL, nullTime(r.PRLastCommentAt),
+		r.PRNumber, r.PRURL, r.PRState, r.PRChecks, boolToInt(r.PRAutoMerge), r.CompareURL, r.PRRemoteURL, r.PRBase, nullTime(r.PRLastCommentAt), repoPRsJSON(r.RepoPRs),
 		r.FollowUpTaskID, boolToInt(r.Expedite), nullTime(r.ExpeditedAt),
 		formatTime(r.CreatedAt), formatTime(r.UpdatedAt))
 	return r, err
@@ -129,4 +133,15 @@ func (s *SQLiteStore) MarkReviewCommentSeen(ctx context.Context, taskID, comment
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+func repoPRsJSON(prs []store.RepoPR) string {
+	if len(prs) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(prs)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }

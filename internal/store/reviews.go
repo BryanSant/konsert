@@ -2,6 +2,16 @@ package store
 
 import "time"
 
+// RepoPR is one repository's PR/MR in a multi-repo delivery.
+type RepoPR struct {
+	Repo      string `json:"repo"`
+	Number    int    `json:"number"`
+	URL       string `json:"url,omitempty"`
+	RemoteURL string `json:"remote_url,omitempty"`
+	State     string `json:"state,omitempty"`
+	Checks    string `json:"checks,omitempty"`
+}
+
 // Review decisions (Review.Decision).
 const (
 	ReviewApproved         = "approved"
@@ -69,19 +79,25 @@ type Review struct {
 	DecidedBy string     `json:"decided_by,omitempty"`
 	DecidedAt *time.Time `json:"decided_at,omitzero"`
 	// Delivery outcome and PR/MR tracking (SYR-H50YW).
-	DeliveryMode    string     `json:"delivery_mode,omitempty"`
-	DeliveryStatus  string     `json:"delivery_status,omitempty"`
-	DeliveryMessage string     `json:"delivery_message,omitempty"`
-	MergeMethod     string     `json:"merge_method,omitempty"`
-	MergeSHA        string     `json:"merge_sha,omitempty"`
-	PRNumber        int        `json:"pr_number,omitzero"`
-	PRURL           string     `json:"pr_url,omitempty"`
-	PRState         string     `json:"pr_state,omitempty"`
-	PRChecks        string     `json:"pr_checks,omitempty"`
-	PRAutoMerge     bool       `json:"pr_auto_merge,omitzero"`
-	CompareURL      string     `json:"compare_url,omitempty"`
-	PRRemoteURL     string     `json:"pr_remote_url,omitempty"`
+	DeliveryMode    string `json:"delivery_mode,omitempty"`
+	DeliveryStatus  string `json:"delivery_status,omitempty"`
+	DeliveryMessage string `json:"delivery_message,omitempty"`
+	MergeMethod     string `json:"merge_method,omitempty"`
+	MergeSHA        string `json:"merge_sha,omitempty"`
+	PRNumber        int    `json:"pr_number,omitzero"`
+	PRURL           string `json:"pr_url,omitempty"`
+	PRState         string `json:"pr_state,omitempty"`
+	PRChecks        string `json:"pr_checks,omitempty"`
+	PRAutoMerge     bool   `json:"pr_auto_merge,omitzero"`
+	CompareURL      string `json:"compare_url,omitempty"`
+	PRRemoteURL     string `json:"pr_remote_url,omitempty"`
+	// PRBase is the PR's base branch: the default branch, or a blocker's branch while
+	// the ticket is stacked on an unmerged PR (retargeted when that PR merges).
+	PRBase          string     `json:"pr_base,omitempty"`
 	PRLastCommentAt *time.Time `json:"pr_last_comment_at,omitzero"`
+	// RepoPRs tracks the PRs/MRs of a multi-repo ticket's other repos (the PR* fields
+	// above hold the first repo's).
+	RepoPRs []RepoPR `json:"repo_prs,omitempty"`
 	// FollowUpTaskID is the session that received requested changes.
 	FollowUpTaskID string     `json:"follow_up_task_id,omitempty"`
 	Expedite       bool       `json:"expedite"`

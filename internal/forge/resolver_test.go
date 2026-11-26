@@ -104,3 +104,5 @@ func TestDefaultResolverCachesDetectionAndClients(t *testing.T) {
 		t.Fatalf("ListHosts: %+v", hosts)
 	}
 }
+
+func (s *stubClient) UpdatePRBase(context.Context, Repo, int, string) error { return nil }
