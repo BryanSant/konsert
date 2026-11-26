@@ -83,6 +83,9 @@ func TestDaemonRefusesWorkThatBreaksADirective(t *testing.T) {
 	})
 	assertRefused(t, c, "t-cap1", "throttled")
 	release()
+	// Let the held task finish so its worktree and process release the temp repo;
+	// Windows can't remove a directory that is still in use.
+	waitTaskTerminal(t, c, "t-held1")
 
 	sendDirectives(t, c, protocol.WorkerDirective{ID: "d-chat", Kind: protocol.DirectiveKindMachinePause})
 	c.send(t, protocol.MsgAgentChatOpen, "", protocol.AgentChatOpen{ChatID: "c-dir1", Agent: "mock"})

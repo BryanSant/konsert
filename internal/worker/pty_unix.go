@@ -123,11 +123,24 @@ func (p *unixPtyProcess) Terminate() error {
 	return p.TerminateWithGrace(5 * time.Second)
 }
 
+// sigtermGrace is how long the process group gets after SIGTERM before SIGKILL.
+const sigtermGrace = 3 * time.Second
+
 func (p *unixPtyProcess) TerminateWithGrace(grace time.Duration) error {
 	if p.pgid <= 0 {
 		return nil
 	}
 	return terminateWithGrace(grace, p.Interrupt, p.Wait, func() error {
+		// SIGTERM before SIGKILL: tools that ignore SIGINT often clean up on SIGTERM.
+		if syscall.Kill(-p.pgid, syscall.SIGTERM) == nil {
+			deadline := time.Now().Add(sigtermGrace)
+			for time.Now().Before(deadline) {
+				if syscall.Kill(-p.pgid, 0) != nil {
+					return nil
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
 		err := syscall.Kill(-p.pgid, syscall.SIGKILL)
 		if err != nil && !errors.Is(err, syscall.ESRCH) {
 			if perr := syscall.Kill(p.pgid, syscall.SIGKILL); perr != nil && !errors.Is(perr, syscall.ESRCH) {
