@@ -329,11 +329,11 @@ func TestClaudeUsageLimitFixture(t *testing.T) {
 	}
 	errEv, seen := rec.wait(t, isKind(protocol.EventError))
 	ce := errEv.Error
-	wantReset := time.Unix(1795676400, 0).UTC()
+	wantReset := time.Unix(4102444800, 0).UTC()
 	if ce.Kind != protocol.ErrKindUsageLimit || ce.Window != "seven_day" || ce.ResetsAt == nil || !ce.ResetsAt.Equal(wantReset) || ce.Retryable || ce.Relogin != nil {
 		t.Fatalf("error = %+v", ce)
 	}
-	if !strings.HasPrefix(ce.Message, "Claude 2 is out of weekly usage until 2026-11-26 07:00 UTC") {
+	if !strings.HasPrefix(ce.Message, "Claude 2 is out of weekly usage until 2100-01-01 00:00 UTC") {
 		t.Fatalf("message = %q", ce.Message)
 	}
 	for _, ev := range seen {
@@ -766,7 +766,7 @@ func TestClaudeClassify(t *testing.T) {
 		{"Invalid API key · Fix external API key", 0, protocol.ErrKindAuth, false},
 		{"anything", 401, protocol.ErrKindAuth, false},
 		{"You've hit your weekly limit · resets Nov 26 at 12am (America/Denver)", 429, protocol.ErrKindUsageLimit, false},
-		{"Claude AI usage limit reached|1795676400", 0, protocol.ErrKindUsageLimit, false},
+		{"Claude AI usage limit reached|4102444800", 0, protocol.ErrKindUsageLimit, false},
 		{"API Error: 529 Overloaded", 0, protocol.ErrKindRateLimit, true},
 		{"x", 429, protocol.ErrKindRateLimit, true},
 		{"There's an issue with the selected model (claude-nope). It may not exist", 0, protocol.ErrKindModel, false},
@@ -777,7 +777,7 @@ func TestClaudeClassify(t *testing.T) {
 			t.Errorf("%q/%d: got %s/%v want %s/%v", tc.text, tc.status, kind, retry, tc.kind, tc.retry)
 		}
 	}
-	if ts := claudeParseResetEpoch("Claude AI usage limit reached|1795676400"); ts == nil || ts.Unix() != 1795676400 {
+	if ts := claudeParseResetEpoch("Claude AI usage limit reached|4102444800"); ts == nil || ts.Unix() != 4102444800 {
 		t.Fatalf("reset epoch = %v", ts)
 	}
 }
