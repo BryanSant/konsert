@@ -493,7 +493,7 @@ Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler
 - Hub SQLite schema for `projects`, `repos` (per-project repo registry keyed by remote URL with verify/delivery/merge defaults), `tickets` (ka hierarchy `Project > Initiative > Epic > Ticket`, acceptance items, comments, questions, hints, autonomy settings, statuses), `ticket_edges` (`blocked_by` DAG with cycle rejection), and `leases`.
 - Remove `Space` and `Workspace` taxonomy tables (pre-1.0, no migration); keep ad-hoc tasks allowed under a project without a lease or DAG.
 - Atomic SQLite lease claim in the scheduler (`status=running`, TTL default 10m), lease renewal on daemon heartbeat, orphan policy on expiry, and attributed lease breaking by user or Commander.
-- Per-ticket repo bindings (`1..n`) with one worktree provisioned per binding under `<workdir root>/<ticket sid>/<repo name>`, cleaned up on `done` delivery or after failed retention.
+- Per-ticket repo bindings (`1..n`) with one worktree provisioned per binding under `<workdir root>/.syre/tickets/<ticket sid>/<repo name>` (clones at `<workdir root>/.syre/clones/<repo name>`), cleaned up on `done` delivery or after failed retention.
 - Agent-facing work tools served by local `syred` over the per-chat MCP relay (`ticket_get`, `ticket_check`, `ticket_comment`, `ticket_followup`, plus existing `ask_user` and `request_user_action`), scoped strictly to the session's own ticket.
 - PWA Work board reading tickets (and ad-hoc tasks) with columns mapped from status categories, Initiative/Epic + Expedite swimlanes, and cards showing lease, attempt count, last digest line and blockers.
 
@@ -514,7 +514,7 @@ Phases 1–4 of the original roadmap (daemon and PTY core; hub, store, scheduler
 
 ### Phase A4: Verification gate, self-repair and cross-agent review
 
-- Daemon verification gate: when a worker finishes, `syred` runs `verify_cmd` (ticket override else repo default) in the ticket workdir under the machine's resource envelope and timeout.
+- Daemon verification gate: when a worker finishes and the ticket `verify_cmd` is empty, `syred` runs each binding's `verify_cmd` (repo command, else the project command) in that repo's worktree. A ticket-level `verify_cmd` with one binding runs in that worktree; with several bindings it runs once in `<workdir root>/.syre/tickets/<ticket sid>`. All commands must pass. The digest records the failing repo's command and exit, with passed/failed summed and the failure tail labelled with the repo name.
 - Self-repair loop: on verification failure with `attempt < retry_limit` (default 2), `syred` sends the compact failure tail back into the same worker session as the next prompt at zero Commander token cost; on exhausted retries, transition to `failed` (or `needs_you` when `escalate_on_blocker`) and push the digest.
 - Cross-agent review: when `cross_review` is enabled and verification passes, dispatch a review run on a different agent or model to check the diff against acceptance items; `changes-requested` loops back to the author session like a verify failure, and `approve` proceeds to delivery ([design/delivery.md](./design/delivery.md)).
 

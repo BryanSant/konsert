@@ -170,6 +170,18 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	if cfg.MaxConcurrent <= 0 {
 		cfg.MaxConcurrent = 2
 	}
+	// In-process tests construct WorkerConfig directly and skip LoadWorkerConfig,
+	// which is where these env vars are normally applied.
+	if len(cfg.AllowedRoots) == 0 {
+		if v := os.Getenv("SYRE_ALLOWED_ROOTS"); v != "" {
+			cfg.AllowedRoots = config.SplitList(v)
+		}
+	}
+	if len(cfg.CheckoutRoots) == 0 {
+		if v := os.Getenv("SYRE_CHECKOUT_ROOTS"); v != "" {
+			cfg.CheckoutRoots = config.SplitList(v)
+		}
+	}
 
 	d := &Daemon{
 		cfg:               cfg,

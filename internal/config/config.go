@@ -303,6 +303,9 @@ func applyWorkerEnv(cfg *WorkerConfig) {
 	if v := os.Getenv("SYRE_ALLOWED_ROOTS"); v != "" {
 		cfg.AllowedRoots = SplitList(v)
 	}
+	if v := os.Getenv("SYRE_CHECKOUT_ROOTS"); v != "" {
+		cfg.CheckoutRoots = SplitList(v)
+	}
 	if v := strings.ToLower(os.Getenv("SYRE_SANDBOX")); v == "1" || v == "true" {
 		cfg.Sandbox = true
 	}

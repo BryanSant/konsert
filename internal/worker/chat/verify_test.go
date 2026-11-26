@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -200,7 +202,7 @@ func TestManagerTurnEndVerifyDigest(t *testing.T) {
 		Agent:     MockAgent,
 		Cwd:       dir,
 		TicketSID: "SYR-FAIL1",
-		VerifyCmd: failCmd,
+		Verifies:  []protocol.AgentChatVerify{{Cmd: failCmd}},
 	})
 	mgr.Prompt(protocol.AgentChatPrompt{ChatID: "c-fail", TurnID: "t1", Text: "hello"})
 	evFail := waitTurnEnd("c-fail")
@@ -231,7 +233,7 @@ func TestManagerTurnEndVerifyDigest(t *testing.T) {
 		Agent:     MockAgent,
 		Cwd:       dir,
 		TicketSID: "SYR-PASS1",
-		VerifyCmd: passCmd,
+		Verifies:  []protocol.AgentChatVerify{{Cmd: passCmd}},
 	})
 	mgr.Prompt(protocol.AgentChatPrompt{ChatID: "c-pass", TurnID: "t1", Text: "hello"})
 	evPass := waitTurnEnd("c-pass")
@@ -240,5 +242,158 @@ func TestManagerTurnEndVerifyDigest(t *testing.T) {
 	}
 	if evPass.Digest.Verify == nil || evPass.Digest.Verify.Exit != 0 || evPass.Digest.Verify.Passed != 1 {
 		t.Fatalf("unexpected passing Verify: %+v", evPass.Digest.Verify)
+	}
+}
+
+func TestRunVerifyStepsAggregates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh syntax")
+	}
+	dir := t.TempDir()
+	pass := VerifyStep{
+		RepoName: "api",
+		Dir:      dir,
+		Cmd:      "printf '%s\\n' '--- PASS: TestOK (0.00s)' 'PASS'",
+	}
+	failCmd := "printf '%s\\n' '--- FAIL: TestBad (0.00s)' 'FAIL\texample.com/web\t0.01s' && exit 1"
+	fail := VerifyStep{RepoName: "web", Dir: dir, Cmd: failCmd}
+	res := RunVerifySteps(context.Background(), []VerifyStep{pass, fail}, time.Minute)
+	if res.Canceled || res.TimedOut || res.Skipped || res.Verify == nil {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if res.Verify.Cmd != failCmd || res.Verify.Exit != 1 {
+		t.Fatalf("Verify cmd/exit = %q/%d, want failing step", res.Verify.Cmd, res.Verify.Exit)
+	}
+	if res.Verify.Passed != 1 || res.Verify.Failed != 1 {
+		t.Fatalf("counts = passed %d failed %d", res.Verify.Passed, res.Verify.Failed)
+	}
+	out := string(res.Output)
+	if !strings.Contains(out, "api: --- PASS: TestOK") || !strings.Contains(out, "web: --- FAIL: TestBad") {
+		t.Fatalf("output not labelled:\n%s", out)
+	}
+	if !slices.Equal(res.Tests, []string{"TestBad"}) {
+		t.Fatalf("tests = %v", res.Tests)
+	}
+}
+
+func TestManagerVerifyRunsInBindingWorktrees(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh syntax")
+	}
+	root := t.TempDir()
+	ticketDir := filepath.Join(root, "ticket")
+	apiDir := filepath.Join(ticketDir, "api")
+	webDir := filepath.Join(ticketDir, "web")
+	for _, d := range []string{apiDir, webDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	doneCh := make(chan protocol.AgentChatEvent, 4)
+	reg := NewAccountRegistry(AccountOptions{
+		EnableMock: true,
+		LookPath:   func(string) (string, bool) { return "", false },
+	})
+	mgr := NewManager(ManagerOptions{
+		Engines:  map[string]Engine{MockAgent: NewMockEngine()},
+		Accounts: reg,
+		Sink: func(ev protocol.AgentChatEvent) {
+			if ev.Kind == protocol.EventTurnEnd {
+				doneCh <- ev
+			}
+		},
+		MachineName: "test-box",
+		ProvisionBindings: func(context.Context, string, string, []protocol.TaskRepoBinding) (ProvisionedWorktrees, error) {
+			return ProvisionedWorktrees{
+				Workdir: ticketDir,
+				Worktrees: []protocol.TaskWorktree{
+					{RepoName: "api", WorktreePath: apiDir},
+					{RepoName: "web", WorktreePath: webDir},
+				},
+			}, nil
+		},
+	})
+	defer mgr.Shutdown(context.Background())
+
+	mgr.Open(protocol.AgentChatOpen{
+		ChatID:    "c-cwd",
+		Agent:     MockAgent,
+		TicketSID: "SYR-CWD",
+		Bindings: []protocol.TaskRepoBinding{
+			{RepoName: "api"},
+			{RepoName: "web"},
+		},
+		Verifies: []protocol.AgentChatVerify{
+			{RepoName: "api", Cmd: "pwd > cwd.txt"},
+			{RepoName: "web", Cmd: "pwd > cwd.txt"},
+			{Cmd: "pwd > root.txt"},
+		},
+	})
+	mgr.Prompt(protocol.AgentChatPrompt{ChatID: "c-cwd", TurnID: "t1", Text: "hello"})
+	var ev protocol.AgentChatEvent
+	select {
+	case ev = <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for turn_end")
+	}
+	if ev.Digest == nil || ev.Digest.Verify == nil || ev.Digest.Verify.Exit != 0 {
+		t.Fatalf("verify digest = %+v", ev.Digest)
+	}
+	if !strings.Contains(ev.Digest.Verify.Cmd, "api: pwd > cwd.txt") || !strings.Contains(ev.Digest.Verify.Cmd, "web: pwd > cwd.txt") {
+		t.Fatalf("combined cmd = %q", ev.Digest.Verify.Cmd)
+	}
+	sameDir(t, readTrim(t, filepath.Join(apiDir, "cwd.txt")), apiDir)
+	sameDir(t, readTrim(t, filepath.Join(webDir, "cwd.txt")), webDir)
+	sameDir(t, readTrim(t, filepath.Join(ticketDir, "root.txt")), ticketDir)
+
+	failCmd := "printf '%s\\n' '--- FAIL: TestGate (0.00s)' '    gate_test.go:9: boom' 'FAIL\texample.com/gate\t0.01s' && exit 1"
+	mgr.Open(protocol.AgentChatOpen{
+		ChatID:    "c-label",
+		Agent:     MockAgent,
+		TicketSID: "SYR-LABEL",
+		Bindings:  []protocol.TaskRepoBinding{{RepoName: "web"}},
+		Verifies:  []protocol.AgentChatVerify{{RepoName: "web", Cmd: failCmd}},
+	})
+	mgr.Prompt(protocol.AgentChatPrompt{ChatID: "c-label", TurnID: "t1", Text: "hello"})
+	select {
+	case ev = <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for labelled failure")
+	}
+	d := ev.Digest
+	if d == nil || d.Verify == nil || d.Verify.Cmd != failCmd || d.Verify.Exit != 1 {
+		t.Fatalf("labelled verify = %+v", d)
+	}
+	if d.Failure == nil || !slices.Equal(d.Failure.Tests, []string{"TestGate"}) {
+		t.Fatalf("failure = %+v", d.Failure)
+	}
+	labelled := false
+	for _, line := range d.Failure.Tail {
+		if strings.HasPrefix(line, "web: ") {
+			labelled = true
+			break
+		}
+	}
+	if !labelled {
+		t.Fatalf("failure tail not labelled with repo: %v", d.Failure.Tail)
+	}
+}
+
+func readTrim(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func sameDir(t *testing.T, got, want string) {
+	t.Helper()
+	g, err1 := filepath.EvalSymlinks(got)
+	w, err2 := filepath.EvalSymlinks(want)
+	if err1 != nil || err2 != nil || g != w {
+		t.Fatalf("dir %q (%v) != %q (%v)", got, err1, want, err2)
 	}
 }

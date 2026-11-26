@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/config"
+	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
 	"github.com/BryanSant/syre/internal/worker"
@@ -105,7 +106,7 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	repo := repos[0]
 
 	// 1. Ticket opens a chat with ticket tools, calls ticket_check (via mock keyword check_item_0),
-	//    provisions worktree under <workdirRoot>/<ticket sid>/app, stores RunDigest, and moves to review.
+	//    provisions worktree under <workdirRoot>/.syre/tickets/<ticket sid>/app, stores RunDigest, and moves to review.
 	tk1, err := cs.st.CreateTicket(ctx, store.Ticket{
 		ProjectID: proj.ID,
 		Kind:      store.TicketKindFeature,
@@ -148,7 +149,7 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 		t.Fatalf("ticket chat must not have fleet_tools=true")
 	}
 	resolvedRoot, _ := filepath.EvalSymlinks(workdirRoot)
-	wantDir := filepath.Join(resolvedRoot, tk1.SID)
+	wantDir := gitutil.TicketWorkdir(resolvedRoot, tk1.SID)
 	if chat1.Cwd != wantDir {
 		t.Fatalf("chat1.Cwd = %q, want %q", chat1.Cwd, wantDir)
 	}

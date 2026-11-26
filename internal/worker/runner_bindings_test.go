@@ -41,7 +41,7 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 	repoA := filepath.Join(workdirRoot, "checkouts", "api")
 	initTestRepo(t, repoA, "main")
 
-	// Repo B: bare/remote repo that is NOT checked out locally (daemon must clone into .syre-clones/web).
+	// Repo B: bare/remote repo that is NOT checked out locally (daemon must clone into .syre/clones/web).
 	remoteB := filepath.Join(t.TempDir(), "web-origin")
 	initTestRepo(t, remoteB, "main")
 
@@ -85,7 +85,7 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 			{
 				RepoName:     "web",
 				RemoteURL:    remoteB,
-				CheckoutPath: "", // forces clone into <workdirRoot>/.syre-clones/web
+				CheckoutPath: "", // forces clone into <workdirRoot>/.syre/clones/web
 				BaseBranch:   "main",
 				TargetBranch: "feat/multi-web",
 			},
@@ -109,7 +109,7 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 	mu.Unlock()
 
 	resolvedRoot, _ := filepath.EvalSymlinks(workdirRoot)
-	wantTicketDir := filepath.Join(resolvedRoot, "SYR-MULTI")
+	wantTicketDir := gitutil.TicketWorkdir(resolvedRoot, "SYR-MULTI")
 	if last.Status != protocol.TaskStatusCompleted {
 		t.Fatalf("expected completed status, got %+v", last)
 	}
@@ -126,7 +126,7 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 		t.Fatalf("expected 2 reported worktrees, got %+v", last.Worktrees)
 	}
 
-	// Verify both worktrees exist under <workdirRoot>/SYR-MULTI/<repoName> on their target branches.
+	// Verify both worktrees exist under <workdirRoot>/.syre/tickets/SYR-MULTI/<repoName> on their target branches.
 	wantWT := map[string]string{
 		"api": "feat/multi-api",
 		"web": "feat/multi-web",
@@ -151,8 +151,8 @@ func TestRunnerMultiRepoTicketWorktreesAndCleanup(t *testing.T) {
 		}
 	}
 
-	// Verify repo B was cloned into <workdirRoot>/.syre-clones/web.
-	clonePath := filepath.Join(resolvedRoot, ".syre-clones", "web")
+	// Verify repo B was cloned into <workdirRoot>/.syre/clones/web.
+	clonePath := gitutil.CloneDir(resolvedRoot, "web")
 	if _, ok := gitutil.IsGitRepo(context.Background(), clonePath); !ok {
 		t.Fatalf("expected cloned repo at %s", clonePath)
 	}

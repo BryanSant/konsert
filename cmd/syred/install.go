@@ -474,6 +474,8 @@ func buildInstallConfig(fs *pflag.FlagSet) (config.WorkerConfig, []string, error
 			cfg.Sandbox, err = fs.GetBool(f.Name)
 		case "allowed-roots":
 			cfg.AllowedRoots, err = fs.GetStringSlice(f.Name)
+		case "checkout-roots":
+			cfg.CheckoutRoots, err = fs.GetStringSlice(f.Name)
 		case "max-concurrent":
 			cfg.MaxConcurrent, err = fs.GetInt(f.Name)
 		case "enable-mock-driver":

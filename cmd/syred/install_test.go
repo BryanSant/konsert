@@ -27,6 +27,7 @@ func TestBuildInstallConfigPersistsRunFlags(t *testing.T) {
 		"--sandbox-allow-shell",
 		"--tag", "gpu=yes", "--tag", "zone = a ",
 		"--allowed-roots", "/src,/work",
+		"--checkout-roots", "/src",
 		"--max-concurrent", "4",
 		"--no-linger", "--dry-run", // install-only flags: never persisted
 	)
@@ -36,7 +37,8 @@ func TestBuildInstallConfigPersistsRunFlags(t *testing.T) {
 	}
 	if cfg.ControllerURL != "wss://hub.example/ws/worker" || cfg.Name != "builder" ||
 		!cfg.Sandbox || cfg.MaxConcurrent != 4 || cfg.Tags["gpu"] != "yes" || cfg.Tags["zone"] != "a" ||
-		strings.Join(cfg.AllowedRoots, ",") != "/src,/work" {
+		strings.Join(cfg.AllowedRoots, ",") != "/src,/work" ||
+		strings.Join(cfg.CheckoutRoots, ",") != "/src" {
 		t.Errorf("cfg = %+v", cfg)
 	}
 	if strings.Join(extra, " ") != "--sandbox-allow-shell=true" {

@@ -73,6 +73,7 @@ type runOptions struct {
 	sandbox          bool
 	sandboxShell     bool
 	allowedRoots     []string
+	checkoutRoots    []string
 	tags             []string
 	maxConcurrent    int
 	enableMockDriver bool
@@ -89,6 +90,7 @@ func (o *runOptions) bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.sandbox, "sandbox", false, "Opt-in sandboxed mode (disables YOLO/skip-permissions flags)")
 	fs.BoolVar(&o.sandboxShell, "sandbox-allow-shell", false, "With --sandbox, still accept the unrestricted shell driver (env SYRED_SANDBOX_ALLOW_SHELL=1)")
 	fs.StringSliceVar(&o.allowedRoots, "allowed-roots", nil, "Opt-in comma-separated list of allowed workdir roots")
+	fs.StringSliceVar(&o.checkoutRoots, "checkout-roots", nil, "Directories to scan for git checkouts (default: allowed roots plus ~/src)")
 	fs.StringSliceVar(&o.tags, "tag", nil, "Worker tags in key=value format (repeatable)")
 	fs.IntVar(&o.maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
 	fs.BoolVar(&o.enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
@@ -121,6 +123,9 @@ func (o *runOptions) resolve(fs *pflag.FlagSet) (config.WorkerConfig, error) {
 	}
 	if fs.Changed("allowed-roots") {
 		cfg.AllowedRoots = o.allowedRoots
+	}
+	if fs.Changed("checkout-roots") {
+		cfg.CheckoutRoots = o.checkoutRoots
 	}
 	if fs.Changed("max-concurrent") {
 		cfg.MaxConcurrent = o.maxConcurrent
@@ -273,6 +278,9 @@ func newDoctorCmd() *cobra.Command {
 				fmt.Printf("  Allowed Roots    : %s\n", strings.Join(cfg.AllowedRoots, ", "))
 			} else {
 				fmt.Printf("  Allowed Roots    : (unrestricted)\n")
+			}
+			if len(cfg.CheckoutRoots) > 0 {
+				fmt.Printf("  Checkout Roots   : %s\n", strings.Join(cfg.CheckoutRoots, ", "))
 			}
 
 			fmt.Println("\nAgent Drivers:")

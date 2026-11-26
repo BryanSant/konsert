@@ -60,14 +60,29 @@ type AgentChatOpen struct {
 	// Git Bash when Git Bash is installed on the worker.
 	UseGitBash bool `json:"use_git_bash,omitzero"`
 	// TicketSID and Bindings identify a ticket-backed chat whose per-repo worktrees
-	// (<root>/<ticket sid>/<repo>) are provisioned by syred before opening the engine.
+	// (<root>/.syre/tickets/<ticket sid>/<repo>) are provisioned by syred before
+	// opening the engine. The chat cwd is the ticket workdir, the parent of those
+	// worktrees.
 	TicketSID string            `json:"ticket_sid,omitempty"`
 	Bindings  []TaskRepoBinding `json:"bindings,omitempty"`
-	// VerifyCmd is the verification command syred runs in the ticket workdir when a
-	// ticket chat's turn ends OK (empty skips verification).
-	VerifyCmd string `json:"verify_cmd,omitempty"`
+	// Verifies are the verification commands syred runs when a ticket chat's turn
+	// ends OK. Each RepoName selects that binding's worktree as cwd; an empty
+	// RepoName runs Cmd once in the ticket workdir (a ticket-level verify_cmd when
+	// the ticket has several bindings). Empty skips verification. All must pass.
+	Verifies []AgentChatVerify `json:"verifies,omitempty"`
 	// VerifyTimeoutSeconds bounds a single verification run (0 uses syred's default 20m).
 	VerifyTimeoutSeconds int `json:"verify_timeout_seconds,omitzero"`
+	// EngineWorktrees is filled by syred after provisioning, for in-process engines.
+	// The hub does not send it.
+	EngineWorktrees []TaskWorktree `json:"-"`
+}
+
+// AgentChatVerify is one verification command for a ticket chat.
+type AgentChatVerify struct {
+	// RepoName is the binding whose worktree is the command's cwd.
+	// Empty means the ticket workdir (parent of the per-repo worktrees).
+	RepoName string `json:"repo_name,omitempty"`
+	Cmd      string `json:"cmd"`
 }
 
 // AgentMCPServer is a Streamable HTTP MCP server handed to the agent.

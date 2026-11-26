@@ -26,6 +26,33 @@ func readPacketGolden(t *testing.T, name string) string {
 	return strings.TrimRight(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
 }
 
+func TestResolveVerifySteps(t *testing.T) {
+	repos := []verifyRepo{{Name: "api", Cmd: "go test ./pkg/auth/..."}, {Name: "web", Cmd: ""}}
+	steps := resolveVerifySteps("", "make test", repos)
+	line := formatVerifyLine(steps)
+	if line != "api: go test ./pkg/auth/...; web: make test" {
+		t.Fatalf("per-repo line = %q", line)
+	}
+	one := resolveVerifySteps("go test ./...", "make test", repos[:1])
+	if len(one) != 1 || one[0].RepoName != "api" || one[0].Cmd != "go test ./..." {
+		t.Fatalf("one binding ticket cmd = %+v", one)
+	}
+	if formatVerifyLine(one) != "api: go test ./..." {
+		t.Fatalf("one binding line = %q", formatVerifyLine(one))
+	}
+	many := resolveVerifySteps("go test ./...", "make test", repos)
+	if len(many) != 1 || many[0].RepoName != "" || many[0].Cmd != "go test ./..." {
+		t.Fatalf("several bindings ticket cmd = %+v", many)
+	}
+	if formatVerifyLine(many) != "go test ./..." {
+		t.Fatalf("several bindings line = %q", formatVerifyLine(many))
+	}
+	none := resolveVerifySteps("go test ./...", "", nil)
+	if formatVerifyLine(none) != "go test ./..." {
+		t.Fatalf("no bindings line = %q", formatVerifyLine(none))
+	}
+}
+
 func TestCompileDispatchPacketGoldenSimple(t *testing.T) {
 	th := newTestHub(t)
 	ctx := context.Background()
@@ -87,6 +114,19 @@ func TestCompileDispatchPacketGoldenSimple(t *testing.T) {
 		t.Fatalf("simple packet tokens = %d > %d", tokens, protocol.PacketMaxTokens)
 	}
 	t.Logf("packet_simple tokens=%d chars=%d", tokens, len(got))
+
+	// One binding: a ticket-level verify_cmd runs in that repo's worktree and is labelled.
+	tk.VerifyCmd = "go test ./..."
+	if _, err := th.st.UpdateTicket(ctx, tk); err != nil {
+		t.Fatal(err)
+	}
+	pkt2, err := th.h.CompileDispatchPacket(ctx, tk.ID, PacketOptions{WorkdirRoot: "/work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkt2.Verify != "api: go test ./..." {
+		t.Fatalf("one-binding ticket verify_cmd: got %q, want %q", pkt2.Verify, "api: go test ./...")
+	}
 }
 
 func TestCompileDispatchPacketGoldenMultiRepoWithContracts(t *testing.T) {
@@ -234,7 +274,8 @@ func TestCompileDispatchPacketGoldenMultiRepoWithContracts(t *testing.T) {
 	}
 	t.Logf("packet_multi_repo_contracts tokens=%d chars=%d", tokens, len(got))
 
-	// Verify precedence: ticket verify_cmd overrides repo verify_cmd.
+	// Several bindings: a ticket-level verify_cmd is one command in the ticket workdir,
+	// so the packet line stays the bare command.
 	tk.VerifyCmd = "go test ./..."
 	if _, err := th.st.UpdateTicket(ctx, tk); err != nil {
 		t.Fatal(err)
@@ -244,7 +285,7 @@ func TestCompileDispatchPacketGoldenMultiRepoWithContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pkt2.Verify != "go test ./..." {
-		t.Fatalf("ticket verify_cmd precedence: got %q, want %q", pkt2.Verify, "go test ./...")
+		t.Fatalf("ticket verify_cmd with several bindings: got %q, want %q", pkt2.Verify, "go test ./...")
 	}
 }
 
@@ -335,7 +376,14 @@ func TestSchedulerUsesCompiledPacketPrompt(t *testing.T) {
 	wi.Facts = &protocol.MachineFacts{WorkdirRoot: "/work"}
 	fw := th.connectWorker(t, wi, nil, "w-pkt")
 
-	_ = fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	openEnv := fw.expect(protocol.MsgAgentChatOpen, 3*time.Second)
+	open, err := protocol.DecodePayload[protocol.AgentChatOpen](openEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open.Verifies) != 1 || open.Verifies[0].RepoName != repo.Name || open.Verifies[0].Cmd != "go test ./..." {
+		t.Fatalf("open verifies = %+v, want [{%s go test ./...}]", open.Verifies, repo.Name)
+	}
 	env := fw.expect(protocol.MsgAgentChatPrompt, 3*time.Second)
 	p, err := protocol.DecodePayload[protocol.AgentChatPrompt](env)
 	if err != nil {
@@ -344,7 +392,7 @@ func TestSchedulerUsesCompiledPacketPrompt(t *testing.T) {
 	if !strings.Contains(p.Text, "ticket: "+tk.SID) {
 		t.Fatalf("prompt missing compiled packet header:\n%s", p.Text)
 	}
-	wantPath := "/work/" + tk.SID + "/" + repo.Name
+	wantPath := "/work/.syre/tickets/" + tk.SID + "/" + repo.Name
 	if !strings.Contains(p.Text, "path: "+wantPath) {
 		t.Fatalf("prompt missing post-placement worktree path %q:\n%s", wantPath, p.Text)
 	}

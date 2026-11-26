@@ -68,18 +68,43 @@ export async function createJoinCode(baseURL: string, cookie: string): Promise<s
   return ((await res.json()) as { code: string }).code;
 }
 
+function flagValue(args: string[], name: string): string {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === name && i + 1 < args.length) return args[i + 1];
+    if (a.startsWith(name + '=')) return a.slice(name.length + 1);
+  }
+  return '';
+}
+
 /**
  * Runs `syred join <hub> <code> --foreground` with its own state dir. Its identity and
  * credential stay out of the developer's ~/.syre, and it never runs (or reads the
  * logins of) the host's real agent CLIs: only mock accounts.
+ * Workdir and checkout roots point at a temp directory so ticket worktrees and clones
+ * are not created under the developer's ~/src. Pass --allowed-roots to override.
  */
 export function spawnJoin(syredBin: string, cwd: string, baseURL: string, code: string, stateDir: string, extra: string[]): ChildProcess {
-  return spawn(syredBin, ['join', baseURL, code, '--foreground', ...extra], {
+  const args = ['join', baseURL, code, '--foreground', ...extra];
+  let allowed = flagValue(extra, '--allowed-roots');
+  if (!allowed) {
+    allowed = path.join(stateDir, 'work');
+    fs.mkdirSync(allowed, { recursive: true });
+    args.push('--allowed-roots', allowed);
+  }
+  let checkouts = flagValue(extra, '--checkout-roots');
+  if (!checkouts) {
+    checkouts = allowed;
+    args.push('--checkout-roots', checkouts);
+  }
+  return spawn(syredBin, args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: subscriptionOnlyEnv({
       SYRE_STATE_DIR: stateDir,
       SYRE_DISABLE_AGENT_DISCOVERY: '1',
+      SYRE_ALLOWED_ROOTS: allowed,
+      SYRE_CHECKOUT_ROOTS: checkouts,
     }),
   });
 }
@@ -150,12 +175,20 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // The worker joins like a manual machine: a one-time code buys its own credential
   // (SYR-RK9YD); --foreground runs it here instead of installing a service.
   const code = await createJoinCode(baseURL, cookieHeader);
+  // First root is the e2e workspace, so ticket worktrees and clones land there.
+  // /var/tmp is included because some specs put git repos there and dispatch them
+  // as task workdirs. Neither is the developer's ~/src.
+  const roots = [workdir, '/var/tmp'].join(',');
   const worker = spawnJoin(syredBin, repoRoot, baseURL, code, path.join(tmpDir, 'state'), [
     '--name',
     workerName,
     '--host-group',
     'e2e-lab',
     '--enable-mock-driver',
+    '--allowed-roots',
+    roots,
+    '--checkout-roots',
+    roots,
   ]);
   procs.push(worker);
 

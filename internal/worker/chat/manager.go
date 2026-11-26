@@ -712,6 +712,12 @@ func (m *Manager) ensureOpen(c *chatState, turnID string) bool {
 	m.emitLocked(c, protocol.AgentChatEvent{Kind: protocol.EventStatus, Status: protocol.ChatStatusStarting})
 	c.mu.Unlock()
 
+	c.mu.Lock()
+	if len(c.worktrees) > 0 {
+		o.EngineWorktrees = append([]protocol.TaskWorktree(nil), c.worktrees...)
+	}
+	c.mu.Unlock()
+
 	emit := func(ev protocol.AgentChatEvent) { m.onEngineEvent(c, gen, ev) }
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultOpenTimeout)
 	defer cancel()
@@ -967,9 +973,9 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		c.mu.Lock()
 		valid := c.gen == gen
 		ticketSID := strings.TrimSpace(c.opts.TicketSID)
-		wts := c.worktrees
+		wts := append([]protocol.TaskWorktree(nil), c.worktrees...)
 		baseSHAs := c.worktreeBaseSHAs
-		verifyCmd := strings.TrimSpace(c.opts.VerifyCmd)
+		verifies := append([]protocol.AgentChatVerify(nil), c.opts.Verifies...)
 		verifyDir := c.effectiveDir
 		fallbackCwd := c.opts.Cwd
 		timeoutSec := c.opts.VerifyTimeoutSeconds
@@ -980,9 +986,11 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		if ticketSID != "" && len(wts) > 0 {
 			gitByRepo = captureWorktreeGit(wts, baseSHAs)
 		}
-		if ev.Kind == protocol.EventTurnEnd && ev.StopReason != "cancelled" && ev.StopReason != "error" && ticketSID != "" && verifyCmd != "" {
+		steps := verifySteps(verifies, wts, verifyDir)
+		if ev.Kind == protocol.EventTurnEnd && ev.StopReason != "cancelled" && ev.StopReason != "error" && ticketSID != "" && len(steps) > 0 {
 			if verifyDir == "" {
 				verifyDir, _ = ResolveCwd(fallbackCwd)
+				steps = verifySteps(verifies, wts, verifyDir)
 			}
 			timeout := m.opts.VerifyTimeout
 			if timeoutSec > 0 {
@@ -999,7 +1007,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 			c.verifyCancel = vcancel
 			c.mu.Unlock()
 
-			res := RunVerify(vctx, verifyDir, verifyCmd, timeout)
+			res := RunVerifySteps(vctx, steps, timeout)
 			vcancel()
 
 			c.mu.Lock()

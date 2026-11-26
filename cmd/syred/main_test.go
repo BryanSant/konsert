@@ -22,6 +22,13 @@ func TestMain(m *testing.M) {
 	os.Setenv("SYRE_STATE_DIR", dir)
 	os.Setenv("SYRE_ATTACHMENTS_DIR", dir+"/attachments")
 	os.Setenv("SYRE_DISABLE_AGENT_DISCOVERY", "1")
+	work := dir + "/work"
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create test work dir:", err)
+		os.Exit(1)
+	}
+	os.Setenv("SYRE_ALLOWED_ROOTS", work)
+	os.Setenv("SYRE_CHECKOUT_ROOTS", work)
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
 	os.Setenv(secrets.KeyEnv, base64.StdEncoding.EncodeToString(key))

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
@@ -18,14 +19,21 @@ const DefaultCheckoutMaxDepth = 4
 
 // DefaultCheckoutRoots returns the roots syred scans for git checkouts:
 // configuredRoots if non-empty, otherwise allowedRoots plus ~/src (deduplicated).
+// Under go test, ~/src is not added: tests point checkout roots at a temp dir.
 func DefaultCheckoutRoots(allowedRoots, configuredRoots []string) []string {
+	return defaultCheckoutRoots(allowedRoots, configuredRoots, !testing.Testing())
+}
+
+func defaultCheckoutRoots(allowedRoots, configuredRoots []string, includeHomeSrc bool) []string {
 	var raw []string
 	if len(configuredRoots) > 0 {
 		raw = append(raw, configuredRoots...)
 	} else {
 		raw = append(raw, allowedRoots...)
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			raw = append(raw, filepath.Join(home, "src"))
+		if includeHomeSrc {
+			if home, err := os.UserHomeDir(); err == nil && home != "" {
+				raw = append(raw, filepath.Join(home, "src"))
+			}
 		}
 	}
 	return dedupRoots(raw)
@@ -76,7 +84,8 @@ func ExpandHome(p string) string {
 var skipCheckoutDirs = map[string]bool{
 	".git":            true,
 	".syre-worktrees": true,
-	".syre-clones":    true,
+	".syre":           true, // ticket worktrees and clones (<root>/.syre/...)
+	".syre-clones":    true, // legacy clone dir, kept so old trees stay hidden
 	"node_modules":    true,
 	"vendor":          true,
 	"target":          true,

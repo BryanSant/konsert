@@ -13,7 +13,7 @@ import (
 const maxTurnToolOutputBytes = 16 * 1024
 
 // ProvisionedWorktrees is returned by ManagerOptions.ProvisionBindings after setting up
-// per-repo worktrees under <root>/<ticket sid>/<repo>.
+// per-repo worktrees under <root>/.syre/tickets/<ticket sid>/<repo>.
 type ProvisionedWorktrees struct {
 	Workdir   string
 	Worktrees []protocol.TaskWorktree
@@ -136,6 +136,11 @@ func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent
 			Git:             gitByRepo,
 			Verify:          verifyRes,
 		})
+		// Build re-parses Output. Repo-labelled lines hide "--- FAIL:" from that
+		// parse, so keep the names captured from each step's raw output.
+		if vr != nil && len(vr.Tests) > 0 && d.Failure != nil {
+			d.Failure.Tests = append([]string(nil), vr.Tests...)
+		}
 		return &d
 
 	case protocol.EventError:

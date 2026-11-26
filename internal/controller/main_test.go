@@ -22,6 +22,15 @@ func newTestDaemon(t *testing.T, cfg config.WorkerConfig, reg *drivers.Registry,
 	if cfg.StateDir == "" {
 		cfg.StateDir = t.TempDir()
 	}
+	// Checkout discovery must not walk the developer's ~/src. When the test already
+	// named allowed roots, scan those; otherwise scan a private empty directory.
+	if len(cfg.CheckoutRoots) == 0 {
+		if len(cfg.AllowedRoots) > 0 {
+			cfg.CheckoutRoots = append([]string(nil), cfg.AllowedRoots...)
+		} else {
+			cfg.CheckoutRoots = []string{t.TempDir()}
+		}
+	}
 	return worker.NewDaemon(cfg, reg, logger)
 }
 
@@ -47,6 +56,15 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("SYRE_STATE_DIR", dir)
 	os.Setenv("SYRE_ATTACHMENTS_DIR", dir+"/attachments")
+	work := dir + "/work"
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create test work dir:", err)
+		os.Exit(1)
+	}
+	// Backstop for a syred this process starts without config fields. newTestDaemon
+	// still sets checkout roots explicitly. Allowed roots stay unset here: empty means
+	// unrestricted, which task tests rely on, and resolveWorkdirRoot refuses ~/src.
+	os.Setenv("SYRE_CHECKOUT_ROOTS", work)
 	// Daemons started by integration tests must not run the host's real agent CLIs or
 	// import its wrapper scripts (e.g. ~/.local/bin/claude2): only mock/configured accounts.
 	os.Setenv("SYRE_DISABLE_AGENT_DISCOVERY", "1")

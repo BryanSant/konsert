@@ -812,7 +812,7 @@ func (h *Hub) buildChatOpen(ctx context.Context, cs store.ChatSession) (protocol
 	}
 	if cs.TicketID != "" && cs.QuestionID == "" {
 		open.TicketSID, open.Bindings = h.ticketChatBindings(ctx, cs.TicketID, cs.WorkerID)
-		open.VerifyCmd = h.ticketVerifyCmd(ctx, cs.TicketID)
+		open.Verifies = h.ticketVerifies(ctx, cs.TicketID)
 		open.VerifyTimeoutSeconds = int(h.verifyTimeout(ctx) / time.Second)
 	}
 	if cs.QuestionID != "" {

@@ -91,6 +91,31 @@ func initTempGitRepoWithRemote(t *testing.T, dir, remoteURL string) string {
 	return sha
 }
 
+func TestDefaultCheckoutRootsSkipHomeUnderTest(t *testing.T) {
+	allowed := t.TempDir()
+	got := DefaultCheckoutRoots([]string{allowed}, nil)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeSrc := filepath.Join(home, "src")
+	for _, p := range got {
+		if p == homeSrc {
+			t.Fatalf("DefaultCheckoutRoots included %s under go test: %v", homeSrc, got)
+		}
+	}
+	withHome := defaultCheckoutRoots([]string{allowed}, nil, true)
+	found := false
+	for _, p := range withHome {
+		if p == homeSrc {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("defaultCheckoutRoots(..., true) = %v, want %s", withHome, homeSrc)
+	}
+}
+
 func TestDiscoverCheckouts(t *testing.T) {
 	root := t.TempDir()
 	repo1 := filepath.Join(root, "org", "alpha")
@@ -113,9 +138,13 @@ func TestDiscoverCheckouts(t *testing.T) {
 	deepRepo := filepath.Join(root, "a", "b", "c", "deep")
 	initTempGitRepoWithRemote(t, deepRepo, "https://github.com/org/deep.git")
 
-	// Repo under .syre-clones should be skipped.
-	cloneRepo := filepath.Join(root, ".syre-clones", "cloned")
+	// Repos under .syre (clones and ticket worktrees) and the legacy clone dir are skipped.
+	cloneRepo := filepath.Join(root, ".syre", "clones", "cloned")
 	initTempGitRepoWithRemote(t, cloneRepo, "https://github.com/org/cloned.git")
+	legacyClone := filepath.Join(root, ".syre-clones", "legacy")
+	initTempGitRepoWithRemote(t, legacyClone, "https://github.com/org/legacy.git")
+	ticketRepo := filepath.Join(root, ".syre", "tickets", "tk-1", "app")
+	initTempGitRepoWithRemote(t, ticketRepo, "https://github.com/org/app.git")
 
 	found := DiscoverCheckouts(context.Background(), []string{root}, 2)
 	if len(found) != 1 {
