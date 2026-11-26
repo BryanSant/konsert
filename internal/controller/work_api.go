@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -380,7 +381,57 @@ func (s *Server) handleListTickets(w http.ResponseWriter, r *http.Request) {
 		writeWorkError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tickets": list})
+	edges, err := s.store.ListTicketEdgesByProject(r.Context(), f.ProjectID)
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	rawDigests, err := s.store.ListLatestDigestJSON(r.Context())
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	allow := map[string]struct{}{}
+	filtered := f.ProjectID != "" || f.ParentID != "" || f.RootOnly || f.Status != "" || f.Kind != "" || f.Limit > 0
+	if filtered {
+		for _, tk := range list {
+			allow[tk.ID] = struct{}{}
+		}
+		kept := edges[:0:0]
+		for _, e := range edges {
+			if _, ok := allow[e.TicketID]; ok {
+				kept = append(kept, e)
+			}
+		}
+		edges = kept
+	}
+	digests := make([]store.TicketDigestLine, 0, len(rawDigests))
+	for _, raw := range rawDigests {
+		if filtered {
+			if _, ok := allow[raw.TicketID]; !ok {
+				continue
+			}
+		}
+		digests = append(digests, digestLineFrom(raw.TicketID, raw.DigestJSON))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tickets": list, "edges": edges, "digests": digests})
+}
+
+// digestLineFrom pulls the board's one-line summary out of a run digest.
+func digestLineFrom(ticketID, raw string) store.TicketDigestLine {
+	line := store.TicketDigestLine{TicketID: ticketID}
+	var d protocol.RunDigest
+	if err := json.Unmarshal([]byte(raw), &d, protocol.JSONOptions); err != nil {
+		return line
+	}
+	line.Summary = strings.TrimSpace(d.Summary)
+	if line.Summary == "" {
+		line.Summary = strings.TrimSpace(d.Status)
+	}
+	line.Agent = d.Agent
+	line.Machine = d.Machine
+	line.Attempt = d.Attempt
+	return line
 }
 
 func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
@@ -450,6 +501,12 @@ func (s *Server) handleGetTicket(w http.ResponseWriter, r *http.Request) {
 	if store.IsContainerKind(tk.Kind) {
 		if rollup, err := s.store.GetTicketRollup(r.Context(), id); err == nil {
 			resp["rollup"] = rollup
+		}
+	}
+	if raw, err := s.store.LatestDigestJSON(r.Context(), tk.ID); err == nil && strings.TrimSpace(raw) != "" {
+		var d protocol.RunDigest
+		if err := json.Unmarshal([]byte(raw), &d, protocol.JSONOptions); err == nil {
+			resp["digest"] = d
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -596,6 +653,30 @@ func (s *Server) handleListTicketComments(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"comments": comments})
 }
 
+func (s *Server) handleCreateTicketComment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Body string `json:"body"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	author := strings.TrimSpace(auditActorFrom(r.Context()).User)
+	if author == "" || author == "system" {
+		author = "operator"
+	}
+	created, err := s.store.CreateTicketComment(r.Context(), store.TicketComment{
+		TicketID: id,
+		Author:   author,
+		Body:     body.Body,
+	})
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
 func (s *Server) handleRequeueTicket(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -661,8 +742,10 @@ func (s *Server) handleAddTicketEdge(w http.ResponseWriter, r *http.Request) {
 		writeWorkError(w, err)
 		return
 	}
+	edge := store.TicketEdge{TicketID: id, BlockedByID: blockerID, CreatedAt: time.Now().UTC()}
+	s.hub.broadcastFleetUpdate("ticket_edge", edge)
 	s.hub.broadcastAutopilotUpdate(r.Context())
-	writeJSON(w, http.StatusCreated, map[string]any{"ticket_id": id, "blocked_by_id": blockerID})
+	writeJSON(w, http.StatusCreated, edge)
 }
 
 func (s *Server) handleRemoveTicketEdge(w http.ResponseWriter, r *http.Request) {
@@ -672,6 +755,8 @@ func (s *Server) handleRemoveTicketEdge(w http.ResponseWriter, r *http.Request) 
 		writeWorkError(w, err)
 		return
 	}
+	edge := store.TicketEdge{TicketID: id, BlockedByID: blockerID}
+	s.hub.broadcastFleetUpdate("ticket_edge_deleted", edge)
 	s.hub.broadcastAutopilotUpdate(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "ticket_id": id, "blocked_by_id": blockerID})
 }

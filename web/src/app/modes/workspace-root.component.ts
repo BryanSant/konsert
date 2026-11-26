@@ -3,6 +3,7 @@ import { Router, RouterOutlet } from '@angular/router';
 import { SyreSocketService } from '../core/services/syre-socket.service';
 import { ControlStore } from '../core/state/control.store';
 import { FleetStore } from '../core/state/fleet.store';
+import { TicketStore } from '../core/state/ticket.store';
 import { QuestionsStore } from '../core/state/questions.store';
 import { SetupStore } from '../core/state/setup.store';
 import { TakenControlStore } from '../core/state/taken-control.store';
@@ -105,6 +106,7 @@ import { ModeUiStore } from './mode-ui.store';
 export class WorkspaceRootComponent implements OnInit, OnDestroy {
   readonly ui = inject(ModeUiStore);
   readonly fleet = inject(FleetStore);
+  private readonly tickets = inject(TicketStore);
   readonly setup = inject(SetupStore);
   readonly questions = inject(QuestionsStore);
   readonly needsYou = inject(NeedsYouStore);
@@ -149,6 +151,7 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
       .refresh()
       .catch(() => undefined)
       .finally(() => this.ui.fleetLoaded.set(true));
+    void this.tickets.load().catch(() => undefined).finally(() => this.tickets.loaded.set(true));
     void this.fleet.loadSettings();
     void this.control.load();
     void this.questions.load();

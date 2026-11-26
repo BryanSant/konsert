@@ -237,7 +237,7 @@ test.describe('Mode UI (desktop)', () => {
     const task = await dispatchWaiting(page, env, 'Write the migration guide\n- cover the new config keys\n- link the changelog');
     try {
       const board = page.getByTestId('work-board');
-      await expect(board.locator('[data-column]')).toHaveText([/Queued/, /Running/, /Needs you/, /Review/, /Done today/]);
+      await expect(board.locator('[data-column]')).toHaveText([/Queued/, /Running/, /Needs you/, /Review/, /Done/]);
       await expect(board.locator('[data-lane="Expedite"]')).toBeVisible();
       const card = board.locator(`[data-card="${task.sid}"]`);
       await expect(card).toContainText('Write the migration guide');

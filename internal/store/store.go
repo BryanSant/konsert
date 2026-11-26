@@ -525,8 +525,15 @@ type Store interface {
 	AddTicketEdge(ctx context.Context, ticketID, blockedByID string) error
 	RemoveTicketEdge(ctx context.Context, ticketID, blockedByID string) error
 	ListTicketEdges(ctx context.Context, ticketID string) ([]TicketEdge, error)
+	// ListTicketEdgesByProject returns blocked_by edges for tickets in projectID.
+	// An empty projectID returns every edge.
+	ListTicketEdgesByProject(ctx context.Context, projectID string) ([]TicketEdge, error)
 	// ListTicketBlocking returns edges where blockedByID blocks other tickets.
 	ListTicketBlocking(ctx context.Context, blockedByID string) ([]TicketEdge, error)
+	// ListLatestDigestJSON returns each ticket's newest non-empty task digest.
+	ListLatestDigestJSON(ctx context.Context) ([]TicketDigestRaw, error)
+	// LatestDigestJSON returns one ticket's newest non-empty task digest, or "" when it has none.
+	LatestDigestJSON(ctx context.Context, ticketID string) (string, error)
 
 	// Repo bindings per ticket.
 	PutTicketRepoBinding(ctx context.Context, b TicketRepoBinding) error

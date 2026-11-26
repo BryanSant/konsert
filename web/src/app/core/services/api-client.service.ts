@@ -30,7 +30,10 @@ import {
   SSHHost,
   SessionDefaults,
   TaskEvent,
+  RunDigest,
   Ticket,
+  TicketComment,
+  TicketDigestLine,
   TicketEdge,
   TicketRepoBinding,
   TicketRollup,
@@ -950,7 +953,7 @@ export class ApiClientService {
     });
   }
 
-  listTickets(params?: { project_id?: string; parent_id?: string; status?: string; kind?: string }): Promise<{ tickets: Ticket[] }> {
+  listTickets(params?: { project_id?: string; parent_id?: string; status?: string; kind?: string }): Promise<{ tickets: Ticket[]; edges?: TicketEdge[]; digests?: TicketDigestLine[] }> {
     const sp = new URLSearchParams();
     if (params?.project_id) sp.set('project_id', params.project_id);
     if (params?.parent_id) sp.set('parent_id', params.parent_id);
@@ -960,7 +963,7 @@ export class ApiClientService {
     return this.request(`/api/tickets${qs ? '?' + qs : ''}`);
   }
 
-  getTicket(id: string): Promise<{ ticket: Ticket; blocked_by: TicketEdge[]; repo_bindings: TicketRepoBinding[]; rollup?: TicketRollup }> {
+  getTicket(id: string): Promise<{ ticket: Ticket; blocked_by: TicketEdge[]; repo_bindings: TicketRepoBinding[]; rollup?: TicketRollup; digest?: RunDigest }> {
     return this.request(`/api/tickets/${encodeURIComponent(id)}`);
   }
 
@@ -980,6 +983,57 @@ export class ApiClientService {
 
   deleteTicket(id: string): Promise<{ ok: boolean; id: string }> {
     return this.request(`/api/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  listTicketComments(id: string): Promise<{ comments: TicketComment[] }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/comments`);
+  }
+
+  createTicketComment(id: string, body: string): Promise<TicketComment> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+  }
+
+  addTicketEdge(id: string, blockedById: string): Promise<TicketEdge> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/edges`, {
+      method: 'POST',
+      body: JSON.stringify({ blocked_by_id: blockedById }),
+    });
+  }
+
+  removeTicketEdge(id: string, blockerId: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/edges/${encodeURIComponent(blockerId)}`, { method: 'DELETE' });
+  }
+
+  putTicketRepo(id: string, repoId: string, binding?: { base_branch?: string; target_branch?: string }): Promise<TicketRepoBinding> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/repos/${encodeURIComponent(repoId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(binding ?? {}),
+    });
+  }
+
+  removeTicketRepo(id: string, repoId: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/repos/${encodeURIComponent(repoId)}`, { method: 'DELETE' });
+  }
+
+  getTicketPacket(id: string): Promise<{ packet: unknown; text: string; tokens: number }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/packet`);
+  }
+
+  requeueTicket(id: string, note?: string): Promise<Ticket> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/requeue`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? '' }),
+    });
+  }
+
+  cancelTicket(id: string, note?: string): Promise<Ticket> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? '' }),
+    });
   }
 
   // --- Forges (SYR-QHGWZ / SYR-CK7S2) ---

@@ -410,6 +410,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.Repo = item
 	case "ticket":
 		p.Ticket = item
+	case "ticket_edge", "ticket_edge_deleted":
+		p.TicketEdge = item
 	case "fleet_event":
 		p.FleetEvent = item
 	case "hold":
@@ -434,7 +436,7 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.ShellReminder = item
 	case "autopilot":
 		p.Autopilot = item
-	case "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
+	case "ticket_deleted", "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id
 		}
