@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"encoding/json/v2"
+	"math"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -176,6 +178,14 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	if !strings.Contains(dig1.Interface, "MockHandler") {
 		t.Fatalf("expected interface extracted into digest, got %+v", dig1)
 	}
+	passRows, err := cs.st.ListAttempts(ctx, tk1.ID, "")
+	if err != nil || len(passRows) != 1 || passRows[0].Attempt != 1 || passRows[0].Status != store.AttemptReview {
+		t.Fatalf("pass attempts: %+v err=%v", passRows, err)
+	}
+	// check_item_0 and the follow-up turn each report 120/42/0.001 on the same attempt.
+	if passRows[0].TokensIn != 120 || passRows[0].TokensOut != 42 || passRows[0].CostUSD == nil || math.Abs(*passRows[0].CostUSD-0.001) > 1e-9 {
+		t.Fatalf("pass attempt usage before follow-up: %+v", passRows[0])
+	}
 
 	// Session must stay open in review so SendTicketTurn can deliver a second turn.
 	isOpen := func(chatID string) bool {
@@ -203,6 +213,23 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 		evs, _ := cs.st.ListChatEvents(ctx, chat1.ID, 0, 500)
 		return len(evs) > len(beforeEvents)+1
 	})
+	passRows, _ = cs.st.ListAttempts(ctx, tk1.ID, "")
+	if len(passRows) != 1 || passRows[0].TokensIn != 240 || passRows[0].TokensOut != 84 || passRows[0].CostUSD == nil || math.Abs(*passRows[0].CostUSD-0.002) > 1e-9 {
+		t.Fatalf("pass attempt usage after follow-up: %+v", passRows)
+	}
+	code, raw := cs.api(t, http.MethodGet, "/api/tickets/"+tk1.ID+"/attempts", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET attempts: %d %s", code, raw)
+	}
+	var attemptBody struct {
+		Attempts []store.Attempt `json:"attempts"`
+	}
+	if err := json.Unmarshal(raw, &attemptBody, protocol.JSONOptions); err != nil {
+		t.Fatal(err)
+	}
+	if len(attemptBody.Attempts) != 1 || attemptBody.Attempts[0].Status != store.AttemptReview || attemptBody.Attempts[0].Attempt != 1 {
+		t.Fatalf("REST attempts: %+v", attemptBody.Attempts)
+	}
 
 	// 3. Engine error -> ticket failed with failure category + chat closed.
 	// Wait for autopilot auto-off after tk1 emptied the board, then re-enable Play.
@@ -241,6 +268,10 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	}
 	if digErr.Status != protocol.DigestStatusFailed || digErr.Failure == nil || digErr.Failure.Category != protocol.ErrKindAuth {
 		t.Fatalf("expected failed digest with auth category, got %+v", digErr)
+	}
+	authRows, _ := cs.st.ListAttempts(ctx, tkErr.ID, "")
+	if len(authRows) != 1 || authRows[0].Status != store.AttemptFailed || authRows[0].FailureCategory != protocol.ErrKindAuth {
+		t.Fatalf("auth attempt: %+v", authRows)
 	}
 	chatsErr, _ := cs.st.ListChatSessionsByTicket(ctx, tkErr.ID)
 	waitFor(t, 5*time.Second, "failed ticket chat closed on daemon", func() bool {

@@ -442,6 +442,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			s.cancelled(turn)
 			return
 		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	case s.opts.TicketSID != "" && strings.Contains(text, "check_item_0"):
@@ -454,6 +455,7 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 			s.cancelled(turn)
 			return
 		}
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventUsage, TurnID: turn, Usage: &protocol.AgentTokenUsage{InputTokens: 120, OutputTokens: 42, CostUSD: 0.001}})
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventTurnEnd, TurnID: turn, StopReason: "end_turn"})
 
 	case strings.Contains(text, "subagents"):

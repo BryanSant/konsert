@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { RunDigest, Ticket, TicketComment, TicketRepoBinding, TicketStatus } from '../../core/models/syre.models';
+import { Attempt, RunDigest, Ticket, TicketComment, TicketRepoBinding, TicketStatus } from '../../core/models/syre.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore } from '../../core/state/fleet.store';
 import { TicketStore } from '../../core/state/ticket.store';
@@ -177,6 +177,40 @@ function errText(err: unknown): string {
         }
       </section>
 
+      <section data-testid="ticket-attempts">
+        <h3 class="m-0 mb-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Attempts</h3>
+        @if (attempts().length === 0) {
+          <p class="m-0 text-[12px] text-[var(--sy-text-muted)]">No attempts yet.</p>
+        } @else {
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-[12px]">
+              <thead>
+                <tr class="text-[10.5px] uppercase tracking-wider text-[var(--sy-text-muted)]">
+                  <th class="py-1 pr-2 font-semibold">#</th>
+                  <th class="py-1 pr-2 font-semibold">Machine</th>
+                  <th class="py-1 pr-2 font-semibold">Agent</th>
+                  <th class="py-1 pr-2 font-semibold">Duration</th>
+                  <th class="py-1 pr-2 font-semibold">Status</th>
+                  <th class="py-1 font-semibold">Verify</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (a of attempts(); track a.id) {
+                  <tr>
+                    <td class="py-0.5 pr-2 font-mono-ide">{{ a.attempt }}</td>
+                    <td class="py-0.5 pr-2">{{ a.machine || a.worker_id || '—' }}</td>
+                    <td class="py-0.5 pr-2">{{ attemptAgent(a) }}</td>
+                    <td class="py-0.5 pr-2">{{ a.duration_s != null ? a.duration_s + 's' : '—' }}</td>
+                    <td class="py-0.5 pr-2">{{ attemptStatus(a) }}</td>
+                    <td class="py-0.5">{{ attemptVerify(a) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
+
       <section>
         <h3 class="m-0 mb-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Packet</h3>
         <pre class="m-0 max-h-40 overflow-auto rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-2)] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words" data-testid="ticket-packet">{{ packetText() || packetNote() }}</pre>
@@ -211,6 +245,7 @@ export class TicketPanelComponent {
   readonly error = signal('');
   readonly blockerError = signal('');
   readonly comments = signal<TicketComment[]>([]);
+  readonly attempts = signal<Attempt[]>([]);
   readonly repos = signal<TicketRepoBinding[]>([]);
   readonly digest = signal<RunDigest | null>(null);
   readonly diffText = signal('');
@@ -267,9 +302,27 @@ export class TicketPanelComponent {
         this.diffOpen.set(false);
         this.diffTruncated.set(false);
         this.diffNext.set(0);
+        this.attempts.set([]);
         void this.reload(id);
       });
     });
+  }
+
+  attemptAgent(a: Attempt): string {
+    const parts = [a.agent, a.model].filter((p) => !!p);
+    return parts.join('/') || '—';
+  }
+
+  attemptStatus(a: Attempt): string {
+    if (!a.status) return '—';
+    return a.failure_category ? `${a.status}/${a.failure_category}` : a.status;
+  }
+
+  attemptVerify(a: Attempt): string {
+    if (a.verify_exit == null && !a.verify_cmd) return '—';
+    if (a.verify_exit === 0) return 'pass';
+    const n = a.verify_failed ?? 0;
+    return n > 0 ? `fail ${n}` : 'fail';
   }
 
   repoName(id: string): string {
@@ -449,10 +502,11 @@ export class TicketPanelComponent {
 
   private async reload(id: string): Promise<void> {
     try {
-      const [detail, comments, packet] = await Promise.all([
+      const [detail, comments, packet, attempts] = await Promise.all([
         this.api.getTicket(id),
         this.api.listTicketComments(id).catch(() => ({ comments: [] as TicketComment[] })),
         this.api.getTicketPacket(id).catch((err: unknown) => ({ text: '', note: errText(err) })),
+        this.api.listTicketAttempts(id).catch(() => ({ attempts: [] as Attempt[] })),
       ]);
       if (this.ticket().id !== id) return;
       // A save that landed while this request was in flight is newer than the snapshot.
@@ -463,6 +517,7 @@ export class TicketPanelComponent {
       if (!this.diffRepo() && this.repos().length > 0) this.diffRepo.set(this.repoName(this.repos()[0].repo_id));
       this.digest.set(detail.digest ?? null);
       this.comments.set(comments.comments ?? []);
+      this.attempts.set(attempts.attempts ?? []);
       this.packetText.set(packet.text ?? '');
       this.packetNote.set('note' in packet && packet.note ? packet.note : 'No packet yet.');
     } catch (err) {

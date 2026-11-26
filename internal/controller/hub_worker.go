@@ -615,6 +615,9 @@ func (h *Hub) onTaskStatus(ctx context.Context, wc *workerConn, env protocol.Env
 		if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
 			_ = h.store.UpdateTaskDigest(ctx, p.TaskID, string(b))
 		}
+		if protocol.IsTerminalTaskStatus(p.Status) {
+			h.recordAdHocAttempt(ctx, cur, wc.id, d, p.Status, p.ExitCode)
+		}
 	} else if protocol.IsTerminalTaskStatus(p.Status) && len(cur.Followups) > 0 && strings.TrimSpace(cur.DigestJSON) != "" {
 		var d protocol.RunDigest
 		if err := json.Unmarshal([]byte(cur.DigestJSON), &d, protocol.JSONOptions); err == nil {

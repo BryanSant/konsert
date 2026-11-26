@@ -51,6 +51,27 @@ const (
 	TicketStatusCanceled = "canceled"
 )
 
+// Attempt statuses stored on attempts.status. An empty status means the attempt
+// is still open (a turn has been dispatched and has not finished).
+const (
+	AttemptReview    = "review"
+	AttemptNeedsYou  = "needs_you"
+	AttemptFailed    = "failed"
+	AttemptCompleted = "completed"
+	AttemptCanceled  = "canceled"
+)
+
+// ValidAttemptStatus reports whether s may be stored on an attempt row.
+// The empty string is the open (in-flight) status.
+func ValidAttemptStatus(s string) bool {
+	switch s {
+	case "", AttemptReview, AttemptNeedsYou, AttemptFailed, AttemptCompleted, AttemptCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 var TicketStatuses = []string{
 	TicketStatusBacklog,
 	TicketStatusReady,
@@ -157,7 +178,8 @@ type TicketHints struct {
 }
 
 // Ticket is a work item in Syre's work model (docs/design/work.md):
-// ka fields plus Syre runtime fields. Attempts and digest columns are added in later tickets.
+// ka fields plus Syre runtime fields. Attempt history is one row per loop
+// iteration in the attempts table; Ticket.Attempt is the latest attempt number.
 type Ticket struct {
 	ID           string           `json:"id"`
 	SID          string           `json:"sid"`
@@ -178,6 +200,37 @@ type Ticket struct {
 	Lease        *TicketLease     `json:"lease,omitzero"`
 	CreatedAt    time.Time        `json:"created_at"`
 	UpdatedAt    time.Time        `json:"updated_at"`
+}
+
+// Attempt is one loop iteration of a ticket or an ad-hoc task.
+// Machine is filled by REST and inspect from the worker name; it is not stored.
+type Attempt struct {
+	ID              string     `json:"id"`
+	TicketID        string     `json:"ticket_id,omitempty"`
+	TaskID          string     `json:"task_id"`
+	ChatID          string     `json:"chat_id,omitempty"`
+	Attempt         int        `json:"attempt"`
+	WorkerID        string     `json:"worker_id,omitempty"`
+	AccountID       string     `json:"account_id,omitempty"`
+	Agent           string     `json:"agent,omitempty"`
+	Model           string     `json:"model,omitempty"`
+	Machine         string     `json:"machine,omitempty"`
+	QueuedAt        *time.Time `json:"queued_at,omitzero"`
+	StartedAt       *time.Time `json:"started_at,omitzero"`
+	EndedAt         *time.Time `json:"ended_at,omitzero"`
+	QueueWaitS      *int64     `json:"queue_wait_s,omitzero"`
+	DurationS       *int64     `json:"duration_s,omitzero"`
+	ExitCode        *int       `json:"exit_code,omitzero"`
+	Status          string     `json:"status,omitempty"`
+	FailureCategory string     `json:"failure_category,omitempty"`
+	VerifyCmd       string     `json:"verify_cmd,omitempty"`
+	VerifyExit      *int       `json:"verify_exit,omitzero"`
+	VerifyPassed    *int       `json:"verify_passed,omitzero"`
+	VerifyFailed    *int       `json:"verify_failed,omitzero"`
+	TokensIn        int64      `json:"tokens_in,omitzero"`
+	TokensOut       int64      `json:"tokens_out,omitzero"`
+	CostUSD         *float64   `json:"cost_usd,omitzero"`
+	GitJSON         string     `json:"git_json,omitempty"`
 }
 
 // NormalizeAndValidateTicket fills default values for omitted fields and validates invariants.

@@ -77,7 +77,7 @@ summary: Rotation with reuse detection and a single 401 retry; tests pass.
 ```
 
 - **failed**: failure category (shared with chat engines: auth, usage_limit, rate_limit,
-  timeout, oom, disk_full, missing_tool, verify, agent_error, canceled), failing test names,
+  timeout, oom, disk_full, missing_tool, verify, agent_error, canceled, lost), failing test names,
   and the last 30 ANSI-stripped stderr lines.
 - **needs_you**: the worker's question and the 20 lines before it.
 - Test output is parsed for common runners (go test, jest/vitest, pytest, cargo, gradle,

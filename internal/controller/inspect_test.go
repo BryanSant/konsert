@@ -89,6 +89,30 @@ func TestInspect(t *testing.T) {
 		}
 	})
 
+	t.Run("digest includes the attempts table", func(t *testing.T) {
+		raw, err := json.Marshal(protocol.RunDigest{Status: protocol.DigestStatusReview, Summary: "shipped the button"}, protocol.JSONOptions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk, task := seedInspectTask(t, th, w1, "attempts table", store.Task{DigestJSON: string(raw)})
+		dur := int64(7)
+		if _, err := th.st.UpsertAttempt(ctx, store.Attempt{
+			TicketID: tk.ID, TaskID: task.ID, Attempt: 1, WorkerID: w1,
+			Agent: "mock", Model: "m", Status: store.AttemptReview, DurationS: &dur,
+			VerifyExit: intPtr(0),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := th.svc.Inspect(ctx, InspectRequest{Target: task.SID, Kind: protocol.InspectKindDigest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res.Text, "summary: shipped the button") || !strings.Contains(res.Text, "box-a") ||
+			!strings.Contains(res.Text, "mock/m") || !strings.Contains(res.Text, "7s") || !strings.Contains(res.Text, "pass") {
+			t.Fatalf("digest text=%q", res.Text)
+		}
+	})
+
 	t.Run("offline", func(t *testing.T) {
 		_, task := seedInspectTask(t, th, "w-off", "offline run", store.Task{})
 		_, err := th.svc.Inspect(ctx, InspectRequest{Target: task.SID, Kind: protocol.InspectKindLog})

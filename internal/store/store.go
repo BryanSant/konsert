@@ -549,6 +549,15 @@ type Store interface {
 	CreateTicketComment(ctx context.Context, c TicketComment) (TicketComment, error)
 	ListTicketComments(ctx context.Context, ticketID string) ([]TicketComment, error)
 
+	// UpsertAttempt inserts or updates one attempt row. Attempt 0 assigns the next
+	// number for the ticket (or, with no ticket, for the task). tickets.attempt is
+	// raised to the written number and never lowered. A failed/lost write does not
+	// replace a row that already finished.
+	UpsertAttempt(ctx context.Context, a Attempt) (Attempt, error)
+	// ListAttempts returns attempts for ticketID when it is set, otherwise for taskID,
+	// ordered by attempt number. One of the two ids is required.
+	ListAttempts(ctx context.Context, ticketID, taskID string) ([]Attempt, error)
+
 	// Computed rollups (done/total, blocked, running) for initiative/epic containers; never stored.
 	GetTicketRollup(ctx context.Context, id string) (TicketRollup, error)
 

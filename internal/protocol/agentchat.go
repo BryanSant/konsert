@@ -309,6 +309,7 @@ const (
 	ErrKindVerify      = "verify"       // verification command failed (reserved)
 	ErrKindAgentError  = "agent_error"  // generic agent/task failure
 	ErrKindCanceled    = "canceled"     // task was canceled
+	ErrKindLost        = "lost"         // worker disappeared; the attempt was requeued or failed
 )
 
 // AgentChatError explains why a turn or session failed, with what the user can do.

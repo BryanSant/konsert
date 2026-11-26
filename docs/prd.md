@@ -99,7 +99,7 @@ See [design/work.md](design/work.md) for the full schema and sync design.
 - **[gap]** *Work key*: a stable identity for "the same kind of work" across runs, derived from project + epic/ticket + repo + kind (e.g. `build`, `test`, `ml-train`, `review`). History, profiles and placement rules attach to work keys.
 - **[gap]** *Requirements* (hard): OS, architecture, tools and SDKs with versions, GPU, logins/accounts, minimum resources. Declared by the dispatcher or inherited from the work key's profile.
 - **[gap]** *Work profile* (learned): duration, peak memory, CPU-seconds, disk, success rate, common failure categories, per machine class. Starts unknown; updated from outcomes.
-- **[gap]** Outcome record per attempt (the attempts from [design/autopilot.md](design/autopilot.md)): machine, account, agent, model, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, rate limit, disk full, missing tool, verify, agent error, canceled), verify result, resource peaks, tokens and cost where known, git result.
+- **[gap]** Outcome record per attempt (the attempts from [design/autopilot.md](design/autopilot.md)): machine, account, agent, model, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, rate limit, disk full, missing tool, verify, agent error, canceled, lost), verify result, resource peaks, tokens and cost where known, git result.
 
 ### 5.5 Scheduling and placement
 

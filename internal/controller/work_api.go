@@ -639,6 +639,28 @@ func (s *Server) handleGetTicketPacket(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleListTicketAttempts(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.store.GetTicket(r.Context(), id); err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	rows, err := s.store.ListAttempts(r.Context(), id, "")
+	if err != nil {
+		writeWorkError(w, err)
+		return
+	}
+	for i := range rows {
+		if rows[i].WorkerID == "" {
+			continue
+		}
+		if wkr, werr := s.store.GetWorker(r.Context(), rows[i].WorkerID); werr == nil && wkr.Name != "" {
+			rows[i].Machine = wkr.Name
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attempts": rows})
+}
+
 func (s *Server) handleListTicketComments(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.store.GetTicket(r.Context(), id); err != nil {

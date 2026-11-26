@@ -30,6 +30,7 @@ import {
   SSHHost,
   SessionDefaults,
   TaskEvent,
+  Attempt,
   RunDigest,
   Ticket,
   TicketComment,
@@ -1002,6 +1003,10 @@ export class ApiClientService {
 
   listTicketComments(id: string): Promise<{ comments: TicketComment[] }> {
     return this.request(`/api/tickets/${encodeURIComponent(id)}/comments`);
+  }
+
+  listTicketAttempts(id: string): Promise<{ attempts: Attempt[] }> {
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/attempts`);
   }
 
   createTicketComment(id: string, body: string): Promise<TicketComment> {

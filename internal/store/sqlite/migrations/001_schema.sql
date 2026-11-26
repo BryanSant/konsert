@@ -302,6 +302,41 @@ CREATE TABLE chat_events (
 );
 CREATE INDEX idx_chat_events_turn ON chat_events(chat_id, turn_id);
 
+-- One row per loop iteration of a ticket or ad-hoc task (docs/design/autopilot.md).
+-- A self-repair turn or a requeue inserts a new attempt number; it does not overwrite
+-- the previous row. ticket_id is NULL for ad-hoc tasks. status '' means still open.
+CREATE TABLE attempts (
+    id               TEXT PRIMARY KEY,
+    ticket_id        TEXT REFERENCES tickets(id) ON DELETE CASCADE,
+    task_id          TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    chat_id          TEXT REFERENCES chat_sessions(id) ON DELETE SET NULL,
+    attempt          INTEGER NOT NULL,
+    worker_id        TEXT NOT NULL DEFAULT '',
+    account_id       TEXT NOT NULL DEFAULT '',
+    agent            TEXT NOT NULL DEFAULT '',
+    model            TEXT NOT NULL DEFAULT '',
+    queued_at        TEXT,
+    started_at       TEXT,
+    ended_at         TEXT,
+    queue_wait_s     INTEGER,
+    duration_s       INTEGER,
+    exit_code        INTEGER,
+    status           TEXT NOT NULL DEFAULT '',
+    failure_category TEXT NOT NULL DEFAULT '',
+    verify_cmd       TEXT NOT NULL DEFAULT '',
+    verify_exit      INTEGER,
+    verify_passed    INTEGER,
+    verify_failed    INTEGER,
+    tokens_in        INTEGER NOT NULL DEFAULT 0,
+    tokens_out       INTEGER NOT NULL DEFAULT 0,
+    cost_usd         REAL,
+    git_json         TEXT NOT NULL DEFAULT '',
+    CHECK (status IN ('', 'review', 'needs_you', 'failed', 'completed', 'canceled'))
+);
+CREATE INDEX idx_attempts_task ON attempts(task_id, attempt);
+CREATE UNIQUE INDEX idx_attempts_ticket_n ON attempts(ticket_id, attempt) WHERE ticket_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_attempts_adhoc_n ON attempts(task_id, attempt) WHERE ticket_id IS NULL;
+
 CREATE TABLE agent_accounts (
     worker_id  TEXT NOT NULL,
     account_id TEXT NOT NULL,

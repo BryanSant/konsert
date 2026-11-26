@@ -40,7 +40,11 @@ func (s *SQLiteStore) ClaimTicket(ctx context.Context, ticketID, workerID, taskI
 	res, err := tx.ExecContext(ctx, `
 		UPDATE tickets
 		SET status = 'running',
-		    attempt = 1,
+		    attempt = CASE
+		        WHEN attempt < 1 THEN 1
+		        WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.ticket_id = tickets.id) THEN attempt + 1
+		        ELSE attempt
+		    END,
 		    lease_worker_id = ?,
 		    lease_task_id = ?,
 		    lease_expires_at = ?,
