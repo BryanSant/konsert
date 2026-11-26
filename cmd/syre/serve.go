@@ -101,8 +101,8 @@ func runServe(ctx context.Context, cfg config.ControllerConfig, logger *slog.Log
 	// Cancel the server-lifetime context first: request contexts derive from it
 	// (BaseContext), so long-polls and socket loops unwind, and the reaper stops.
 	cancelLife()
-	// Close worker/browser sockets so their (hijacked) handlers return.
-	srv.Hub().Close()
+	// Close worker/browser sockets and MCP sessions so their handlers return.
+	srv.Close()
 	if err := httpSrv.Shutdown(shCtx); err != nil {
 		logger.Warn("http shutdown did not complete", "err", err)
 	}

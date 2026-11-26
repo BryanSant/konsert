@@ -340,8 +340,21 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 		})
 	}
 	h.addChatControlTools(srv, cs, control)
+	if rt.mcpSrv != nil {
+		closeMCPServerSessions(rt.mcpSrv)
+	}
+	rt.mcpSrv = srv
 	rt.mcp = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	rt.mcpFleet = cs.FleetTools
 	rt.mcpTicketID = ticketID
 	return rt.mcp
+}
+
+func closeMCPServerSessions(srv *mcp.Server) {
+	if srv == nil {
+		return
+	}
+	for sess := range srv.Sessions() {
+		_ = sess.Close()
+	}
 }

@@ -22,7 +22,11 @@ func secretTestServer(t *testing.T, dbPath string) (*Server, func()) {
 	cfg := config.DefaultControllerConfig()
 	cfg.NoAuth = true
 	cfg.DBPath = dbPath
-	return NewServer(cfg, st, nil, "test"), func() { _ = st.Close() }
+	srv := NewServer(cfg, st, nil, "test")
+	return srv, func() {
+		srv.Close()
+		_ = st.Close()
+	}
 }
 
 func TestLLMAPIKeyEncryptedAtRest(t *testing.T) {

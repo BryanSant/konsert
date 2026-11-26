@@ -131,8 +131,8 @@ func newLaunchTest(t *testing.T) *launchTest {
 	lt.ts = httptest.NewServer(srv)
 	srv.SetListenAddr("127.0.0.1:8420")
 	t.Cleanup(func() {
+		srv.Close()
 		lt.ts.Close()
-		srv.Hub().Close()
 		_ = st.Close()
 	})
 	return lt

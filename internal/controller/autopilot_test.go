@@ -26,9 +26,11 @@ func TestAutopilotAutoOffOnIdleWithFinalPulseAndAudit(t *testing.T) {
 	// Connect external MCP commander subscribed to syre://pulse.
 	mcpSrv := NewMCPServer(cs.svc, "test")
 	cTrans, sTrans := mcp.NewInMemoryTransports()
-	if _, err := mcpSrv.Connect(ctx, sTrans, nil); err != nil {
+	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer srvSess.Close()
 	var mu sync.Mutex
 	var pulses []string
 	var sess *mcp.ClientSession
@@ -44,7 +46,6 @@ func TestAutopilotAutoOffOnIdleWithFinalPulseAndAudit(t *testing.T) {
 			}
 		},
 	})
-	var err error
 	sess, err = client.Connect(ctx, cTrans, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +261,7 @@ func TestAutopilotRESTMCPAndAuditAttribution(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	doReq := func(method, path, body string) (int, map[string]any) {
 		t.Helper()
@@ -313,9 +315,11 @@ func TestAutopilotRESTMCPAndAuditAttribution(t *testing.T) {
 	// MCP tool: autopilot(project, action: pause|play|status) attributed to commander.
 	mcpSrv := NewMCPServer(serverControlPlane{FleetService: srv.Service(), srv: srv, admin: false}, "test")
 	cTrans, sTrans := mcp.NewInMemoryTransports()
-	if _, err := mcpSrv.Connect(ctx, sTrans, nil); err != nil {
+	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer srvSess.Close()
 	client := mcp.NewClient(&mcp.Implementation{Name: "commander", Version: "1.0"}, nil)
 	sess, err := client.Connect(ctx, cTrans, nil)
 	if err != nil {

@@ -101,6 +101,7 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// 1. Auth checks: unauthorized REST and MCP rejected.
 	resp, err := http.Get(ts.URL + "/api/fleet")
@@ -239,6 +240,7 @@ func TestBrowserPtySubscribeInteractiveAndUnsubscribe(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	wsBase := "ws" + strings.TrimPrefix(ts.URL, "http")
 	wCfg := config.DefaultWorkerConfig()
@@ -341,7 +343,9 @@ func TestControllerRestartTaskReadoption(t *testing.T) {
 
 	// Start Controller #1 on a fixed local port so we can restart Controller #2 on the exact same address.
 	srv1 := NewServer(cfg, st1, nil, "test-1")
+	defer srv1.Close()
 	ts1 := httptest.NewServer(srv1)
+	defer ts1.Close()
 	addr := ts1.Listener.Addr().String()
 
 	wCfg := config.DefaultWorkerConfig()
@@ -382,6 +386,7 @@ func TestControllerRestartTaskReadoption(t *testing.T) {
 	defer st2.Close()
 
 	srv2 := NewServer(cfg, st2, nil, "test-2")
+	defer srv2.Close()
 	httpSrv2 := &http.Server{Handler: srv2}
 	ln2, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -442,6 +447,7 @@ func TestCommanderChatToolLoop(t *testing.T) {
 	cfg.NoAuth = true
 	cfg.Commander.APIKey = "test-key"
 	srv := NewServer(cfg, st, nil, "test")
+	defer srv.Close()
 	srv.Commander().SetProvider(&mockLLMProvider{})
 
 	var deltas []string
@@ -480,6 +486,7 @@ func TestSettingsPersistenceAndLiveGitRPC(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// 1. Settings PUT & GET (API key must be masked as bool, never echoed)
 	putBody := `{"llm_provider":"anthropic","llm_model":"claude-sonnet-4-20250514","llm_api_key":"sk-ant-secret","terminal_font_size":14,"notify_desktop":true}`
@@ -579,6 +586,7 @@ func TestRemoteFSListAndDeleteWorkerAPI(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 	wCfg := config.DefaultWorkerConfig()
@@ -683,6 +691,7 @@ func TestTaxonomyAPIAndUnifiedSessionCascade(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// Connect a localhost-named worker with mock driver
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
@@ -856,6 +865,7 @@ func TestMachineFactsCachingDaemonFirstToolsAndCommanderMemory(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// Start worker daemon that ships real MachineFacts on worker.hello
 	rootDir := t.TempDir()
@@ -953,6 +963,7 @@ func TestFanOutQuotasAndExternalSessionTaxonomyMapping(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// Worker 1 has an epic-123 temp worktree; Worker 2 is clean (no-op).
 	root1 := t.TempDir()
@@ -1061,6 +1072,7 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	srv.Commander().SetProvider(&capturingLLMProvider{})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// Connect via in-memory transport (covers stdio MCP parity)
 	mcpSrv := NewMCPServer(srv.Service(), "test", srv.Commander())
@@ -1138,6 +1150,7 @@ func TestChatSessionRenameDeleteAndAttachments(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	// Connect worker daemon so POST /api/attachments routes over worker RPC to OS scratch dir.
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
@@ -1227,6 +1240,7 @@ func TestDuplicateIdentityAndCleanRemoval(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"
 

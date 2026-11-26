@@ -414,6 +414,7 @@ func TestTicketPacketAndCommentsREST(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	proj, repo := createProjectAndRepo(t, st, "Billing", false, false)
 	tk, err := st.CreateTicket(ctx, store.Ticket{

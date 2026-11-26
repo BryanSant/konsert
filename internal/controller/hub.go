@@ -39,9 +39,9 @@ type workerConn struct {
 	mu          sync.Mutex
 	activeTasks map[string]bool
 
-	// Spool (SYR-VZR9F, hub_spool.go): the daemon's applied-seq state (nil when the
-	// daemon does not spool), its last seq at hello, and whether the replay of what it
-	// spooled before this connection is done (replayDoneCh closes then).
+	// spool is the daemon's applied-seq state (nil when the daemon does not spool), its
+	// last seq at hello, and whether the replay of what it spooled before this connection
+	// is done (replayDoneCh closes then).
 	spool        *workerSpool
 	helloLastSeq uint64
 	replayDone   atomic.Bool
@@ -49,6 +49,9 @@ type workerConn struct {
 	// activeChats are the chats whose turn still runs on the daemon (from hello, or
 	// started on this connection while its spool replay is still in flight). Guarded by mu.
 	activeChats map[string]bool
+	// wg tracks per-connection helper goroutines (writer, linkwatch, spool ack) so
+	// ServeWorkerConn waits for them to exit after canceling connCtx.
+	wg *sync.WaitGroup
 }
 
 // markChatActive records that chatID has a live turn on this connection so a late
@@ -353,6 +356,8 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.closed = true
 	h.mu.Unlock()
+	// Stop any pending delegation timers so they cannot fire after Shutdown.
+	h.stopAllDelegationTimers()
 	// Keep the in-progress history buckets across a restart.
 	h.flushVitals(ctx, true)
 	h.cancel()
@@ -377,6 +382,19 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	for _, c := range clients {
 		c.cancel()
 		_ = c.conn.Close(websocket.StatusGoingAway, "controller shutting down")
+	}
+
+	h.mu.RLock()
+	chats := make([]*agentChatRT, 0, len(h.agentChats))
+	for _, rt := range h.agentChats {
+		chats = append(chats, rt)
+	}
+	h.mu.RUnlock()
+	for _, rt := range chats {
+		rt.mu.Lock()
+		srv := rt.mcpSrv
+		rt.mu.Unlock()
+		closeMCPServerSessions(srv)
 	}
 
 	done := make(chan struct{})

@@ -29,6 +29,7 @@ func TestListTicketAttemptsREST(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	workerID := ids.UUID()
 	if err := st.UpsertWorker(ctx, store.Worker{

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/syre/internal/commander"
@@ -14,6 +15,8 @@ import (
 // ServeBrowserConn handles a single authenticated browser PWA WebSocket client.
 func (h *Hub) ServeBrowserConn(ctx context.Context, conn *websocket.Conn, user string) {
 	conn.SetReadLimit(2 * 1024 * 1024)
+	var writerWG sync.WaitGroup
+	defer writerWG.Wait()
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	// Hijacked WebSocket handlers outlive http.Server.Shutdown; tie them to the hub.
@@ -39,7 +42,7 @@ func (h *Hub) ServeBrowserConn(ctx context.Context, conn *websocket.Conn, user s
 	}()
 
 	// Writer goroutine
-	go func() {
+	writerWG.Go(func() {
 		for {
 			select {
 			case <-connCtx.Done():
@@ -54,7 +57,7 @@ func (h *Hub) ServeBrowserConn(ctx context.Context, conn *websocket.Conn, user s
 				}
 			}
 		}
-	}()
+	})
 
 	// Read loop
 	for {
@@ -309,10 +312,13 @@ func (h *Hub) DisconnectDevice(deviceID string) int {
 	}
 	h.mu.RUnlock()
 	for _, c := range victims {
-		go func() {
+		c := c
+		if !h.goBackground(func(context.Context) {
 			_ = c.conn.Close(websocket.StatusPolicyViolation, "signed out")
 			c.cancel()
-		}()
+		}) {
+			c.cancel()
+		}
 	}
 	return len(victims)
 }

@@ -26,6 +26,7 @@ func TestRemoteClientPassesCSRFGuard(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	client := NewRemoteFleetClient(ts.URL, "admin-tok")
 	for name, call := range map[string]func() error{

@@ -19,6 +19,7 @@ import (
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Agent chat, hub side (docs/design/agent-chat.md).
@@ -117,6 +118,7 @@ type agentChatRT struct {
 	turnID        string // the turn in flight (for hub events raised during it)
 	token         string // plaintext MCP bearer token (memory only)
 	mcp           http.Handler
+	mcpSrv        *mcp.Server
 	mcpFleet      bool
 	mcpTicketID   string
 	asks          map[string]*pendingAsk
@@ -1309,9 +1311,17 @@ func (h *Hub) closeChat(ctx context.Context, chatID string) {
 func (h *Hub) forgetChat(chatID, workerID string) {
 	h.resolveAsks(chatID, "the chat was deleted", true)
 	h.mu.Lock()
+	rt := h.agentChats[chatID]
 	delete(h.agentChats, chatID)
 	wc := h.workers[workerID]
 	h.mu.Unlock()
+	if rt != nil {
+		rt.mu.Lock()
+		srv := rt.mcpSrv
+		rt.mcpSrv = nil
+		rt.mu.Unlock()
+		closeMCPServerSessions(srv)
+	}
 	if wc != nil {
 		h.sendWorkerJSON(wc, protocol.MsgAgentChatClose, protocol.AgentChatClose{ChatID: chatID})
 	}

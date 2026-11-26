@@ -80,6 +80,7 @@ func TestMain(m *testing.M) {
 	_, _ = rand.Read(key)
 	os.Setenv(secrets.KeyEnv, base64.StdEncoding.EncodeToString(key))
 	code := m.Run()
+	code = reportLeaksAtExit(code)
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
