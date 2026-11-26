@@ -213,6 +213,12 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 	} else if task != nil {
 		followups = len(task.Followups)
 	}
+	// With expand_scope off, followups need no judgment: file them to the backlog under
+	// the same parent and keep them out of the pulse. With it on, the Commander triages.
+	if followups > 0 && !h.ticketExpandScope(ctx, tk, proj) {
+		h.fileFollowupsToBacklog(ctx, tk, task, dig)
+		followups = 0
+	}
 
 	var workerID, taskID string
 	if task != nil {
@@ -740,5 +746,77 @@ func (h *Hub) notifyPulseMCPServers(ctx context.Context, servers []*mcp.Server) 
 		_ = srv.ResourceUpdated(ctx, &mcp.ResourceUpdatedNotificationParams{
 			URI: PulseResourceURI,
 		})
+	}
+}
+
+// ticketExpandScope resolves autonomy.expand_scope: ticket override, then project, then off.
+func (h *Hub) ticketExpandScope(ctx context.Context, tk store.Ticket, proj store.Project) bool {
+	if tk.Autonomy.ExpandScope != nil {
+		return *tk.Autonomy.ExpandScope
+	}
+	if proj.ID == "" && tk.ProjectID != "" {
+		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
+			proj = p
+		}
+	}
+	if proj.Autonomy.ExpandScope != nil {
+		return *proj.Autonomy.ExpandScope
+	}
+	return false
+}
+
+// fileFollowupsToBacklog files a run's followups as backlog tickets under the same parent
+// as tk (labelled followup), skipping any already filed with the same title there.
+func (h *Hub) fileFollowupsToBacklog(ctx context.Context, tk store.Ticket, task *store.Task, dig *protocol.RunDigest) {
+	var items []store.TaskFollowup
+	if task != nil && len(task.Followups) > 0 {
+		items = task.Followups
+	} else if dig != nil {
+		for _, f := range dig.Followups {
+			items = append(items, store.TaskFollowup{Title: f})
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	existing := map[string]bool{}
+	filter := store.TicketFilter{ProjectID: tk.ProjectID}
+	if tk.ParentID != "" {
+		filter.ParentID = tk.ParentID
+	}
+	if list, err := h.store.ListTickets(ctx, filter); err == nil {
+		for _, t := range list {
+			existing[strings.ToLower(strings.TrimSpace(t.Title))] = true
+		}
+	}
+	for _, f := range items {
+		title := strings.TrimSpace(f.Title)
+		if title == "" || existing[strings.ToLower(title)] {
+			continue
+		}
+		var body strings.Builder
+		if f.Why != "" {
+			body.WriteString(strings.TrimSpace(f.Why) + "\n\n")
+		}
+		if f.Scope != "" {
+			body.WriteString("Scope: " + strings.TrimSpace(f.Scope) + "\n\n")
+		}
+		body.WriteString("Found while working " + tk.SID + ".")
+		created, err := h.store.CreateTicket(ctx, store.Ticket{
+			ProjectID: tk.ProjectID,
+			ParentID:  tk.ParentID,
+			Kind:      store.TicketKindChore,
+			Title:     title,
+			Body:      body.String(),
+			Labels:    []string{"followup"},
+			Priority:  "P2",
+			Status:    store.TicketStatusBacklog,
+		})
+		if err != nil {
+			h.logger.Warn("file followup failed", "ticket_id", tk.ID, "title", title, "err", err)
+			continue
+		}
+		existing[strings.ToLower(title)] = true
+		h.broadcastFleetUpdate("ticket", created)
 	}
 }

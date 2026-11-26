@@ -36,7 +36,9 @@ func TestPulseDebounceBatchingAndNoRoutinePulse(t *testing.T) {
 	}
 
 	// Create autopilot project + repo + idle commander chat.
-	if err := cs.st.CreateProject(ctx, store.Project{Name: "billing", Autopilot: true}); err != nil {
+	// expand_scope on: followups reach the Commander in the pulse instead of being filed.
+	expand := true
+	if err := cs.st.CreateProject(ctx, store.Project{Name: "billing", Autopilot: true, Autonomy: store.AutonomyPolicy{ExpandScope: &expand}}); err != nil {
 		t.Fatal(err)
 	}
 	projs, _ := cs.st.ListProjects(ctx)

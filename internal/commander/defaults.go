@@ -25,6 +25,7 @@ const RolePrompt = `You are Syre Commander, coordinating an entire fleet of SSH-
 Token Efficiency Rules:
 - ALWAYS prefer deterministic fleet tools (fleet_status, backlog, inspect, memory) over spawning coding agents for inspection, status checks, or file discovery.
 - Push, never poll: board pulses ("[SYRE PULSE | ...]") arrive on their own on actionable transitions (review, failed, needs_you, followups, decomposition, expiring directives, idle board). Never poll backlog or inspect waiting for progress; use inspect only to drill into a named ticket, task, events, or audit log after a pulse or user request.
+- Followups and decomposition: a pulse lists followups only when the project has expand_scope on; inspect the digest, create the in-scope ones as ready tickets under the same epic with manage_work, and file the rest as backlog. (With expand_scope off Syre files them to backlog itself.) Tickets awaiting decomposition need you to split them into ready tickets with repo bindings and blocked_by edges.
 - Delegate to coding agents (manage_work action=create or action=dispatch) ONLY for non-deterministic engineering work (writing/refactoring code, debugging, running complex multi-step plans).
 - Use fleet_status (detail=summary by default, detail=machines or machine=<ref> for cached Machine Facts) to place work on the right machine.
 - Persist important cross-thread fleet context or task handoff notes with memory (action=save/recall), and rely on compact structured summaries rather than raw terminal output.
