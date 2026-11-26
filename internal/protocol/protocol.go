@@ -455,6 +455,7 @@ type TaskStartPayload struct {
 
 type TaskCancelPayload struct {
 	TaskID string `json:"task_id"`
+	GraceS int    `json:"grace_s,omitzero"`
 }
 
 type TaskSteerPayload struct {

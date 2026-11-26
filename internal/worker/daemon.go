@@ -906,7 +906,8 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		if err != nil {
 			return
 		}
-		_ = d.runner.CancelTask(p.TaskID)
+		grace := time.Duration(protocol.NormalizeStopGraceS(p.GraceS)) * time.Second
+		_ = d.runner.CancelTaskWithGrace(p.TaskID, grace)
 
 	case protocol.MsgSessionShellKill:
 		if p, err := protocol.DecodePayload[protocol.SessionShellKill](env); err == nil {

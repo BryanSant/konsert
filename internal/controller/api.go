@@ -290,9 +290,11 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/workers/{id}/drain", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDrainWorker)))
 	s.mux.Handle("POST /api/workers/{id}/suspend-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).SuspendAll))))
 	s.mux.Handle("POST /api/workers/{id}/resume-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).ResumeAll))))
-	s.mux.Handle("POST /api/workers/{id}/stop-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.workerControl((*Hub).StopAll))))
+	s.mux.Handle("POST /api/workers/{id}/stop-all", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStopAllWorker)))
+	s.mux.Handle("POST /api/projects/{id}/stop", s.requireBrowserAuth(s.byRef(ids.Project, s.handleStopProject)))
 	s.mux.Handle("GET /api/fleet/pause", s.requireBrowserAuth(s.handleGetFleetPause))
 	s.mux.Handle("POST /api/fleet/pause", s.requireBrowserAuth(s.handlePauseFleet))
+	s.mux.Handle("POST /api/fleet/stop", s.requireBrowserAuth(s.handleStopFleet))
 	s.mux.Handle("POST /api/fleet/resume", s.requireBrowserAuth(s.handleResumeFleet))
 	s.mux.Handle("GET /api/holds", s.requireBrowserAuth(s.handleListHolds))
 	s.mux.Handle("POST /api/holds", s.requireBrowserAuth(s.handleCreateHold))
@@ -1055,7 +1057,13 @@ func (s *Server) handleSteerTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	res, err := s.service.CancelTask(r.Context(), id)
+	var body struct {
+		GraceS int `json:"grace_s"`
+	}
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
+	res, err := s.service.CancelTaskWithGrace(r.Context(), id, body.GraceS)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})

@@ -41,3 +41,23 @@ func TestConPtyTaskCompletes(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsPtyTerminateWithGrace(t *testing.T) {
+	p, err := StartPty(context.Background(), PtyStartOptions{
+		Binary: "cmd.exe",
+		Args:   []string{"/C", "ping -n 30 127.0.0.1 >nul"},
+		Dir:    t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("StartPty: %v", err)
+	}
+	defer p.Close()
+
+	start := time.Now()
+	if err := p.TerminateWithGrace(300 * time.Millisecond); err != nil {
+		t.Fatalf("TerminateWithGrace: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("Windows TerminateWithGrace took too long: %v", elapsed)
+	}
+}

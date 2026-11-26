@@ -583,6 +583,28 @@ func (h *Hub) closeTicketChats(ctx context.Context, ticketID string) {
 	}
 }
 
+// stopTicketChatsWithGrace gracefully stops (cancel turn -> wait grace -> close session)
+// all agent chat sessions associated with ticketID, returning how many were signaled.
+func (h *Hub) stopTicketChatsWithGrace(ctx context.Context, ticketID string, graceS int) int {
+	if ticketID == "" {
+		return 0
+	}
+	graceS = protocol.NormalizeStopGraceS(graceS)
+	sessions, err := h.store.ListChatSessionsByTicket(ctx, ticketID)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, cs := range sessions {
+		if cs.Backend == store.ChatBackendAgent && cs.QuestionID == "" {
+			if _, err := h.stopChatWithGrace(ctx, cs, graceS, false); err == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // renewWorkerTicketLeases extends leases for every ticket leased to workerID whose
 // chat session (or legacy task) is currently active in the worker's heartbeat.
 func (h *Hub) renewWorkerTicketLeases(ctx context.Context, workerID string, activeTaskIDs, activeChatIDs []string, now time.Time) {
@@ -990,21 +1012,28 @@ func (h *Hub) expireTicketLeases(ctx context.Context, now time.Time) {
 // RequeueTicket breaks any active lease on ticketID, moves it back to ready, cancels its
 // running task (if any), and records an attributed audit + fleet timeline entry.
 func (h *Hub) RequeueTicket(ctx context.Context, ticketID, note string) (store.Ticket, error) {
-	return h.breakTicketLease(ctx, ticketID, store.TicketStatusReady, AuditTicketRequeue, "requeue", note)
+	return h.breakTicketLease(ctx, ticketID, store.TicketStatusReady, AuditTicketRequeue, "requeue", note, 0)
 }
 
 // CancelTicket breaks any active lease on ticketID, moves it to canceled, cancels its
 // running task (if any), and records an attributed audit + fleet timeline entry.
 func (h *Hub) CancelTicket(ctx context.Context, ticketID, note string) (store.Ticket, error) {
-	return h.breakTicketLease(ctx, ticketID, store.TicketStatusCanceled, AuditTicketCancel, "cancel", note)
+	return h.CancelTicketWithGrace(ctx, ticketID, note, protocol.DefaultStopGraceS)
 }
 
-func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditAction, verb, note string) (store.Ticket, error) {
+// CancelTicketWithGrace gracefully stops a ticket's chat(s) and leased task with graceS
+// before moving it to canceled, with audit attribution and batched commander fleet events.
+func (h *Hub) CancelTicketWithGrace(ctx context.Context, ticketID, note string, graceS int) (store.Ticket, error) {
+	return h.breakTicketLease(ctx, ticketID, store.TicketStatusCanceled, AuditTicketCancel, "cancel", note, protocol.NormalizeStopGraceS(graceS))
+}
+
+func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditAction, verb, note string, graceS int) (store.Ticket, error) {
 	tk, err := h.store.GetTicket(ctx, ticketID)
 	if err != nil {
 		return store.Ticket{}, err
 	}
 	cause := causeFrom(ctx)
+	defer h.beginDeliveryBatch()()
 	priorStatus := tk.Status
 	var priorWorkerID, priorTaskID string
 	if tk.Lease != nil {
@@ -1017,12 +1046,22 @@ func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditA
 		return store.Ticket{}, err
 	}
 
-	// Close any agent chat sessions bound to this ticket and mark the prior task canceled.
-	h.closeTicketChats(ctx, tk.ID)
+	// Stop or close any agent chat sessions bound to this ticket and cancel the prior task.
+	if graceS > 0 {
+		h.stopTicketChatsWithGrace(ctx, tk.ID, graceS)
+	} else {
+		h.closeTicketChats(ctx, tk.ID)
+	}
 	if priorTaskID != "" {
 		if t, err := h.store.GetTask(ctx, priorTaskID); err == nil && !protocol.IsTerminalTaskStatus(t.Status) {
 			h.setPendingCause(priorTaskID, protocol.TaskStatusCanceled, cause)
-			if !h.SendCancel(priorTaskID) {
+			var sent bool
+			if graceS > 0 {
+				sent = h.SendCancelWithGrace(priorTaskID, graceS)
+			} else {
+				sent = h.SendCancel(priorTaskID)
+			}
+			if !sent {
 				_, _ = h.setTaskStatus(ctx, priorTaskID, protocol.TaskStatusCanceled, "ticket "+verb+"d", "", nil, cause)
 			}
 		}
@@ -1032,18 +1071,22 @@ func (h *Hub) breakTicketLease(ctx context.Context, ticketID, nextStatus, auditA
 	if n := strings.TrimSpace(note); n != "" {
 		msg += ": " + n
 	}
+	meta := map[string]any{
+		"ticket_id":    tk.ID,
+		"ticket_sid":   tk.SID,
+		"prior_status": priorStatus,
+		"next_status":  updated.Status,
+		"note":         strings.TrimSpace(note),
+	}
+	if graceS > 0 {
+		meta["grace_s"] = graceS
+	}
 	h.recordAudit(ctx, store.AuditEvent{
 		Action:   auditAction,
 		WorkerID: priorWorkerID,
 		TaskID:   priorTaskID,
 		Message:  msg,
-		MetaJSON: auditMeta(map[string]any{
-			"ticket_id":    tk.ID,
-			"ticket_sid":   tk.SID,
-			"prior_status": priorStatus,
-			"next_status":  updated.Status,
-			"note":         strings.TrimSpace(note),
-		}),
+		MetaJSON: auditMeta(meta),
 	})
 	h.recordIntervention(ctx, cause, auditAction, priorWorkerID, priorTaskID, "", msg)
 	h.broadcastFleetUpdate("ticket", updated)

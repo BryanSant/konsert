@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/BryanSant/syre/internal/tokenbudget"
 )
 
 // PulseMaxTokens is the hard token budget for BoardPulse.Text() (docs/design/autopilot.md).
-const PulseMaxTokens = 120
+const PulseMaxTokens = tokenbudget.Pulse
 
 // PulseTriggerKind constants identify actionable board pulse triggers.
 const (

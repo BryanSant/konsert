@@ -1,6 +1,9 @@
 package worker
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // PtyStartOptions defines parameters for starting a cross-platform PTY process.
 type PtyStartOptions struct {
@@ -19,6 +22,7 @@ type PtyProcess interface {
 	Resize(cols, rows uint16) error
 	Interrupt() error
 	Terminate() error
+	TerminateWithGrace(grace time.Duration) error
 	Wait() (int, error)
 	Close() error
 	// Pid returns the OS process ID of the PTY's main child process.
@@ -34,4 +38,37 @@ func StartPty(ctx context.Context, opts PtyStartOptions) (PtyProcess, error) {
 		opts.Rows = 36
 	}
 	return startPlatformPty(ctx, opts)
+}
+
+// terminateWithGrace runs the cross-platform graceful-stop sequence: send a graceful
+// interrupt, wait up to grace for wait() to return, and if the process has not exited,
+// invoke kill() and wait for termination.
+func terminateWithGrace(grace time.Duration, interrupt func() error, wait func() (int, error), kill func() error) error {
+	_ = interrupt()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = wait()
+		close(done)
+	}()
+
+	if grace > 0 {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return nil
+		case <-timer.C:
+		}
+	} else {
+		select {
+		case <-done:
+			return nil
+		default:
+		}
+	}
+
+	err := kill()
+	<-done
+	return err
 }

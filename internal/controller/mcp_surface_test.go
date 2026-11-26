@@ -12,12 +12,13 @@ import (
 
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
+	"github.com/BryanSant/syre/internal/tokenbudget"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
-	commanderSchemaMaxTokens     = 2500
-	fleetStatus20MachineMaxToken = 400
+	commanderSchemaMaxTokens     = tokenbudget.ToolSchemas
+	fleetStatus20MachineMaxToken = tokenbudget.FleetStatus20
 )
 
 func connectInMemoryMCP(t *testing.T, srv *mcp.Server) *mcp.ClientSession {

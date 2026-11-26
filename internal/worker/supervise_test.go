@@ -27,12 +27,13 @@ func (p *lingeringPty) Read([]byte) (int, error) {
 	<-p.closed
 	return 0, io.EOF
 }
-func (p *lingeringPty) Write(b []byte) (int, error) { return len(b), nil }
-func (p *lingeringPty) Resize(uint16, uint16) error { return nil }
-func (p *lingeringPty) Interrupt() error            { return nil }
-func (p *lingeringPty) Terminate() error            { return p.Close() }
-func (p *lingeringPty) Wait() (int, error)          { return p.exit, nil }
-func (p *lingeringPty) Pid() int                    { return 0 }
+func (p *lingeringPty) Write(b []byte) (int, error)              { return len(b), nil }
+func (p *lingeringPty) Resize(uint16, uint16) error              { return nil }
+func (p *lingeringPty) Interrupt() error                         { return nil }
+func (p *lingeringPty) Terminate() error                         { return p.Close() }
+func (p *lingeringPty) TerminateWithGrace(_ time.Duration) error { return p.Close() }
+func (p *lingeringPty) Wait() (int, error)                       { return p.exit, nil }
+func (p *lingeringPty) Pid() int                                 { return 0 }
 func (p *lingeringPty) Close() error {
 	p.once.Do(func() { close(p.closed) })
 	return nil

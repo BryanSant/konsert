@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/UserExistsError/conpty"
@@ -112,11 +113,22 @@ func (p *windowsPtyProcess) Resize(cols, rows uint16) error {
 }
 
 func (p *windowsPtyProcess) Interrupt() error {
+	if pid := p.Pid(); pid > 0 {
+		_ = windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid))
+	}
 	_, err := p.cpty.Write([]byte{0x03}) // Ctrl+C
 	return err
 }
 
 func (p *windowsPtyProcess) Terminate() error {
+	return p.TerminateWithGrace(5 * time.Second)
+}
+
+func (p *windowsPtyProcess) TerminateWithGrace(grace time.Duration) error {
+	return terminateWithGrace(grace, p.Interrupt, p.Wait, p.kill)
+}
+
+func (p *windowsPtyProcess) kill() error {
 	if p.job != 0 {
 		_ = windows.TerminateJobObject(p.job, 1)
 	}

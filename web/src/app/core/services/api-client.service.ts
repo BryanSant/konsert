@@ -502,9 +502,17 @@ export class ApiClientService {
     return this.request<PolicyProposal>(`/api/policy-proposals/${encodeURIComponent(id)}/deny`, { method: 'POST' });
   }
 
-  /** Bulk machine control: suspend-all, resume-all or stop-all. */
-  workerBulk(workerId: string, action: 'suspend-all' | 'resume-all' | 'stop-all'): Promise<WorkerControlResult> {
-    return this.request(`/api/workers/${encodeURIComponent(workerId)}/${action}`, { method: 'POST' });
+  /** Bulk machine control: suspend-all, resume-all or stop-all (optional grace_s). */
+  workerBulk(
+    workerId: string,
+    action: 'suspend-all' | 'resume-all' | 'stop-all',
+    graceS?: number,
+  ): Promise<WorkerControlResult> {
+    const init: RequestInit = { method: 'POST' };
+    if (action === 'stop-all' && graceS !== undefined) {
+      init.body = JSON.stringify({ grace_s: graceS });
+    }
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/${action}`, init);
   }
 
   /** Per-machine heat history over a range, downsampled to `points` buckets (oldest first). */
@@ -518,6 +526,13 @@ export class ApiClientService {
 
   pauseFleet(): Promise<FleetPauseResult> {
     return this.request('/api/fleet/pause', { method: 'POST' });
+  }
+
+  stopFleet(graceS = 10): Promise<FleetPauseResult> {
+    return this.request('/api/fleet/stop', {
+      method: 'POST',
+      body: JSON.stringify({ grace_s: graceS }),
+    });
   }
 
   resumeFleet(): Promise<FleetPauseResult> {

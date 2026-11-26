@@ -993,6 +993,8 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 		switch action {
 		case "pause":
 			return s.hub.PauseEverything(ctx)
+		case "stop":
+			return s.hub.StopEverything(ctx, in.GraceS)
 		case "resume":
 			if err := needConfirm("Resume everything (restart dispatching and resume what Pause everything suspended)?"); err != nil {
 				return nil, err
@@ -1012,6 +1014,11 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 			return s.hub.Autopilot(ctx, AutopilotInput{Project: target, Action: "play"})
 		case "autopilot_pause", "pause":
 			return s.hub.Autopilot(ctx, AutopilotInput{Project: target, Action: "pause"})
+		case "stop":
+			if target == "" {
+				return nil, errors.New("target (project id, sid or name) is required for scope project stop")
+			}
+			return s.hub.StopProject(ctx, target, in.Reason, in.GraceS)
 		default:
 			return nil, fmt.Errorf("unsupported action %q for scope project", in.Action)
 		}
@@ -1037,7 +1044,7 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 			}
 			return s.hub.ResumeAll(ctx, workerID)
 		case "stop":
-			return s.hub.StopAll(ctx, workerID)
+			return s.hub.StopAllWithGrace(ctx, workerID, in.GraceS)
 		default:
 			return nil, fmt.Errorf("unsupported action %q for scope machine", in.Action)
 		}
@@ -1057,7 +1064,7 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 				}
 				return s.hub.resumeTask(ctx, t)
 			case "stop":
-				return s.CancelTask(ctx, t.ID)
+				return s.hub.cancelTaskWithGrace(ctx, t.ID, in.Reason, in.GraceS)
 			case "veto":
 				reason, note := splitVetoReason(in.Reason)
 				return s.hub.VetoTask(ctx, t.ID, reason, note)
@@ -1081,7 +1088,7 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 			updated, err := s.hub.resumeChat(ctx, cs)
 			return chatActionResult(updated), err
 		case "stop":
-			updated, err := s.hub.StopChatTurn(ctx, cs.ID)
+			updated, err := s.hub.StopChatWithGrace(ctx, cs.ID, in.GraceS)
 			return chatActionResult(updated), err
 		case "veto":
 			reason, note := splitVetoReason(in.Reason)
@@ -1102,7 +1109,7 @@ func (s *FleetService) Control(ctx context.Context, in ControlInput, confirm con
 		}
 		switch action {
 		case "stop":
-			return s.hub.CancelTicket(ctx, tk.ID, in.Reason)
+			return s.hub.CancelTicketWithGrace(ctx, tk.ID, in.Reason, in.GraceS)
 		case "pause", "suspend":
 			if tk.Lease == nil || tk.Lease.TaskID == "" {
 				return nil, fmt.Errorf("ticket %s has no running session to suspend", tk.SID)
@@ -1482,6 +1489,9 @@ func (c *RemoteFleetClient) Control(ctx context.Context, in ControlInput, confir
 		switch action {
 		case "pause":
 			return c.PauseEverything(ctx)
+		case "stop":
+			var res FleetPauseState
+			return res, c.doJSON(ctx, http.MethodPost, "/api/fleet/stop", map[string]any{"grace_s": in.GraceS}, &res)
 		case "resume":
 			return c.ResumeEverything(ctx)
 		case "autopilot_play":
@@ -1495,6 +1505,9 @@ func (c *RemoteFleetClient) Control(ctx context.Context, in ControlInput, confir
 			return c.Autopilot(ctx, AutopilotInput{Project: in.Target, Action: "play"})
 		case "autopilot_pause", "pause":
 			return c.Autopilot(ctx, AutopilotInput{Project: in.Target, Action: "pause"})
+		case "stop":
+			var res ProjectStopResult
+			return res, c.doJSON(ctx, http.MethodPost, "/api/projects/"+url.PathEscape(in.Target)+"/stop", map[string]any{"grace_s": in.GraceS, "reason": in.Reason}, &res)
 		}
 	case "machine":
 		switch action {
@@ -1504,6 +1517,9 @@ func (c *RemoteFleetClient) Control(ctx context.Context, in ControlInput, confir
 		case "undrain":
 			f := false
 			return c.DrainMachine(ctx, DrainInput{Machine: in.Target, Drained: &f})
+		case "stop":
+			var res WorkerControlResult
+			return res, c.doJSON(ctx, http.MethodPost, "/api/workers/"+url.PathEscape(in.Target)+"/stop-all", map[string]any{"grace_s": in.GraceS}, &res)
 		}
 	case "session":
 		switch action {
@@ -1512,7 +1528,12 @@ func (c *RemoteFleetClient) Control(ctx context.Context, in ControlInput, confir
 		case "resume":
 			return c.ResumeSession(ctx, SessionRefInput{TaskID: in.Target})
 		case "stop":
-			return c.CancelTask(ctx, in.Target)
+			var res ActionResult
+			if err := c.doJSON(ctx, http.MethodPost, "/api/tasks/"+url.PathEscape(in.Target)+"/cancel", map[string]any{"grace_s": in.GraceS}, &res); err == nil {
+				return res, nil
+			}
+			var chatRes map[string]any
+			return chatRes, c.doJSON(ctx, http.MethodPost, "/api/chats/"+url.PathEscape(in.Target)+"/stop", map[string]any{"grace_s": protocol.NormalizeStopGraceS(in.GraceS)}, &chatRes)
 		case "veto":
 			reason, note := splitVetoReason(in.Reason)
 			return c.VetoTask(ctx, VetoInput{TaskID: in.Target, Reason: reason, Note: note})
@@ -1520,7 +1541,7 @@ func (c *RemoteFleetClient) Control(ctx context.Context, in ControlInput, confir
 	case "ticket":
 		if action == "stop" {
 			var res any
-			return res, c.doJSON(ctx, http.MethodPost, "/api/tickets/"+url.PathEscape(in.Target)+"/cancel", map[string]string{"note": in.Reason}, &res)
+			return res, c.doJSON(ctx, http.MethodPost, "/api/tickets/"+url.PathEscape(in.Target)+"/cancel", map[string]any{"note": in.Reason, "grace_s": in.GraceS}, &res)
 		}
 	}
 	return nil, fmt.Errorf("unsupported control scope=%q action=%q", in.Scope, in.Action)

@@ -720,14 +720,15 @@ func (s *Server) handleRequeueTicket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelTicket(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Note string `json:"note"`
+		Note   string `json:"note"`
+		GraceS int    `json:"grace_s"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if !decodeJSON(w, r, &body) {
 			return
 		}
 	}
-	updated, err := s.hub.CancelTicket(r.Context(), id, body.Note)
+	updated, err := s.hub.CancelTicketWithGrace(r.Context(), id, body.Note, body.GraceS)
 	if err != nil {
 		writeWorkError(w, err)
 		return

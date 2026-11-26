@@ -151,12 +151,36 @@ import { MachineCredentialComponent } from './machine-credential.component';
               <app-icon name="play" [size]="11" />
               Resume all
             </button>
-            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="machine-stop-all" [disabled]="control.isBusy(worker().id)" (click)="stopAll()" syTooltip="Cancel every managed session on this machine">
+            <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="machine-stop-all" [disabled]="control.isBusy(worker().id)" (click)="openStopConfirm()" syTooltip="Gracefully stop every managed session on this machine with a grace period">
               <app-icon name="stop" [size]="10" />
-              Stop all
+              Stop…
             </button>
           </div>
         </div>
+        @if (confirmingStop()) {
+          <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[var(--sy-radius-md)] border border-[var(--sy-red)]/40 bg-[var(--sy-red-soft)] px-3 py-2 text-[12px]" data-testid="machine-stop-confirm-panel">
+            <span class="text-[#f6c0c0]">Stop every managed session on <strong>{{ worker().name }}</strong>?</span>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1.5 text-[#f6c0c0]">
+                <span>Grace</span>
+                <select
+                  class="sy-field sy-field-sm"
+                  data-testid="machine-stop-grace"
+                  [value]="stopGraceS()"
+                  (change)="stopGraceS.set(+$any($event.target).value)"
+                >
+                  <option value="5">5s</option>
+                  <option value="10">10s</option>
+                  <option value="30">30s</option>
+                  <option value="60">60s</option>
+                  <option value="300">300s</option>
+                </select>
+              </label>
+              <button type="button" class="sy-btn sy-btn-sm" data-testid="machine-stop-cancel" (click)="confirmingStop.set(false)">Cancel</button>
+              <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="machine-stop-confirm" (click)="confirmStopAll()">Stop sessions</button>
+            </div>
+          </div>
+        }
         @for (b of directiveRows(); track b.id) {
           <div class="flex items-center justify-between gap-2">
             <span class="text-[#c8cad0]">{{ b.text }}</span>
@@ -692,9 +716,18 @@ export class MachineDetailModalComponent {
     return w.launch === 'ssh' ? `over ssh (${w.ssh_target || w.name})` : 'on the hub\'s machine';
   });
 
-  stopAll(): void {
-    if (!window.confirm(`Stop every managed session on ${this.worker().name}?`)) return;
-    void this.control.workerBulk(this.worker().id, 'stop-all');
+  readonly confirmingStop = signal(false);
+  readonly stopGraceS = signal(10);
+
+  openStopConfirm(): void {
+    this.stopGraceS.set(10);
+    this.confirmingStop.set(true);
+  }
+
+  confirmStopAll(): void {
+    const grace = this.stopGraceS();
+    this.confirmingStop.set(false);
+    void this.control.workerBulk(this.worker().id, 'stop-all', grace);
   }
 
   retryStart(): void {
