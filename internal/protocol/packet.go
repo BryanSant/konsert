@@ -23,6 +23,7 @@ type DispatchPacket struct {
 	TicketSID  string               `json:"ticket_sid"`
 	Project    string               `json:"project,omitempty"`
 	Repos      []DispatchPacketRepo `json:"repos,omitempty"`
+	Stacked    []string             `json:"stacked,omitempty"`
 	Objective  string               `json:"objective"`
 	Acceptance []string             `json:"acceptance,omitempty"`
 	Contracts  []string             `json:"contracts,omitempty"`
@@ -38,6 +39,9 @@ func (p DispatchPacket) Text() string {
 	c := p
 	if len(p.Repos) > 0 {
 		c.Repos = append([]DispatchPacketRepo(nil), p.Repos...)
+	}
+	if len(p.Stacked) > 0 {
+		c.Stacked = append([]string(nil), p.Stacked...)
 	}
 	if len(p.Acceptance) > 0 {
 		c.Acceptance = append([]string(nil), p.Acceptance...)
@@ -144,6 +148,12 @@ func (p DispatchPacket) renderText() string {
 				parts = append(parts, "branch: "+r.Branch)
 			}
 			writeLine("  - {" + strings.Join(parts, ", ") + "}")
+		}
+	}
+	if len(p.Stacked) > 0 {
+		writeLine("stacked:")
+		for _, s := range p.Stacked {
+			writeLine("  - " + s)
 		}
 	}
 	if p.Objective != "" {

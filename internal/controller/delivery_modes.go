@@ -439,6 +439,7 @@ func (h *Hub) deliverDirect(ctx context.Context, svc *FleetService, t store.Task
 		Remote:        cfg.remoteName,
 		CommitMessage: title,
 		TaskSID:       firstNonEmpty(t.SID, t.ID),
+		StackBaseSHA:  h.ticketStackRetargetBaseSHA(ctx, t, cfg.defaultBranch),
 	})
 	if err != nil {
 		msg := "Asking " + h.workerLabel(ctx, t.WorkerID) + " to merge failed: " + err.Error()
@@ -806,6 +807,10 @@ func (h *Hub) pushAndOpenPR(ctx context.Context, t store.Task, cfg resolvedDeliv
 		Branch:        cfg.branch,
 		Remote:        cfg.remoteName,
 		CommitMessage: title,
+	}
+	if stackBase := h.ticketStackRetargetBaseSHA(ctx, t, base); stackBase != "" {
+		pushReq.RebaseOnto = base
+		pushReq.StackBaseSHA = stackBase
 	}
 	var headOwner string
 	if infoErr == nil && !info.CanPush {

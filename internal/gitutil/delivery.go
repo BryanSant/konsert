@@ -206,9 +206,68 @@ func PushBranch(ctx context.Context, dir string, req protocol.GitPushRequest) pr
 	}
 
 	target := strings.TrimSpace(req.RemoteURL)
+	remote := strings.TrimSpace(req.Remote)
+	if remote == "" {
+		remote, res.RemoteURL = primaryRemote(ctx, dir)
+	} else {
+		res.RemoteURL, _ = runGit(ctx, dir, "remote", "get-url", remote)
+	}
+
+	// When retargeting a stacked branch onto base after its blockers merged, rebase
+	// commits after StackBaseSHA onto RebaseOnto before pushing with --force-with-lease.
+	rebased := false
+	rebaseOnto := strings.TrimSpace(req.RebaseOnto)
+	stackBase := strings.TrimSpace(req.StackBaseSHA)
+	if rebaseOnto != "" && stackBase != "" {
+		if remote != "" {
+			_, _ = runGit(ctx, dir, "fetch", remote, rebaseOnto)
+		}
+		var ontoSHA string
+		for _, cand := range []string{
+			"refs/remotes/" + remote + "/" + rebaseOnto,
+			"refs/heads/" + rebaseOnto,
+			rebaseOnto,
+		} {
+			if remote == "" && strings.HasPrefix(cand, "refs/remotes/") {
+				continue
+			}
+			if s, err := runGit(ctx, dir, "rev-parse", "--verify", "--quiet", cand+"^{commit}"); err == nil && s != "" {
+				ontoSHA = s
+				break
+			}
+		}
+		if ontoSHA != "" && stackBase != ontoSHA {
+			if _, ancErr := runGit(ctx, dir, "merge-base", "--is-ancestor", stackBase, "HEAD"); ancErr == nil {
+				if err := requireGitIdentity(ctx, dir); err != nil {
+					res.Error = err.Error()
+					return res
+				}
+				if _, err := runGit(ctx, dir, "rebase", "--onto", ontoSHA, stackBase); err != nil {
+					_, files := conflictFiles(ctx, dir)
+					_, _ = runGit(ctx, dir, "rebase", "--abort")
+					if len(files) > 0 {
+						res.Error = fmt.Sprintf("rebase conflict retargeting %s onto %s (%s)", branch, rebaseOnto, strings.Join(files, ", "))
+					} else {
+						res.Error = fmt.Sprintf("rebase %s onto %s: %v", branch, rebaseOnto, err)
+					}
+					return res
+				}
+				rebased = true
+				if sha, err := CurrentSHA(ctx, dir); err == nil {
+					res.HeadSHA = sha
+				}
+			}
+		}
+	}
+
 	if target != "" {
 		res.RemoteURL = target
-		if _, err := runGit(ctx, dir, "push", target, "HEAD:refs/heads/"+branch); err != nil {
+		pushArgs := []string{"push"}
+		if rebased {
+			pushArgs = append(pushArgs, "--force-with-lease")
+		}
+		pushArgs = append(pushArgs, target, "HEAD:refs/heads/"+branch)
+		if _, err := runGit(ctx, dir, pushArgs...); err != nil {
 			res.Error = err.Error()
 			return res
 		}
@@ -216,17 +275,16 @@ func PushBranch(ctx context.Context, dir string, req protocol.GitPushRequest) pr
 		return res
 	}
 
-	remote := strings.TrimSpace(req.Remote)
-	if remote == "" {
-		remote, res.RemoteURL = primaryRemote(ctx, dir)
-	} else {
-		res.RemoteURL, _ = runGit(ctx, dir, "remote", "get-url", remote)
-	}
 	if remote == "" {
 		res.Error = "no git remote configured"
 		return res
 	}
-	if _, err := runGit(ctx, dir, "push", "-u", remote, branch); err != nil {
+	pushArgs := []string{"push", "-u"}
+	if rebased {
+		pushArgs = append(pushArgs, "--force-with-lease")
+	}
+	pushArgs = append(pushArgs, remote, branch)
+	if _, err := runGit(ctx, dir, pushArgs...); err != nil {
 		res.Error = err.Error()
 		return res
 	}
@@ -313,14 +371,15 @@ func MergeBranch(ctx context.Context, dir string, req protocol.GitMergeRequest) 
 		}
 	}
 
+	stackBaseSHA := strings.TrimSpace(req.StackBaseSHA)
 	if req.Push && hasRemote {
-		return mergeWithRemote(ctx, root, source, sourceSHA, target, remote, style, msg)
+		return mergeWithRemote(ctx, root, source, sourceSHA, target, remote, style, msg, stackBaseSHA)
 	}
 	sid := resolveMergeSID(req.TaskSID, dir, source)
-	return mergeLocalOnly(ctx, root, source, sourceSHA, target, style, msg, sid)
+	return mergeLocalOnly(ctx, root, source, sourceSHA, target, style, msg, sid, stackBaseSHA)
 }
 
-func mergeWithRemote(ctx context.Context, root, source, sourceSHA, target, remote, style, msg string) protocol.GitMergeResult {
+func mergeWithRemote(ctx context.Context, root, source, sourceSHA, target, remote, style, msg, stackBaseSHA string) protocol.GitMergeResult {
 	res := protocol.GitMergeResult{TargetBranch: target}
 
 	const maxAttempts = 2
@@ -338,7 +397,7 @@ func mergeWithRemote(ctx context.Context, root, source, sourceSHA, target, remot
 			}
 		}
 
-		newSHA, mergeRes, pushErr := runMergeInTempWorktree(ctx, root, source, sourceSHA, target, baseSHA, style, msg, func(tmpWT string) error {
+		newSHA, mergeRes, pushErr := runMergeInTempWorktree(ctx, root, source, sourceSHA, target, baseSHA, style, msg, stackBaseSHA, func(tmpWT string) error {
 			if beforeDirectPushHook != nil {
 				beforeDirectPushHook(attempt)
 			}
@@ -383,7 +442,7 @@ func mergeWithRemote(ctx context.Context, root, source, sourceSHA, target, remot
 	return res
 }
 
-func mergeLocalOnly(ctx context.Context, root, source, sourceSHA, target, style, msg, sid string) protocol.GitMergeResult {
+func mergeLocalOnly(ctx context.Context, root, source, sourceSHA, target, style, msg, sid, stackBaseSHA string) protocol.GitMergeResult {
 	res := protocol.GitMergeResult{TargetBranch: target}
 
 	oldTargetSHA, err := runGit(ctx, root, "rev-parse", "--verify", "refs/heads/"+target)
@@ -392,7 +451,7 @@ func mergeLocalOnly(ctx context.Context, root, source, sourceSHA, target, style,
 		return res
 	}
 
-	newSHA, mergeRes, _ := runMergeInTempWorktree(ctx, root, source, sourceSHA, target, oldTargetSHA, style, msg, nil)
+	newSHA, mergeRes, _ := runMergeInTempWorktree(ctx, root, source, sourceSHA, target, oldTargetSHA, style, msg, stackBaseSHA, nil)
 	if mergeRes != nil {
 		return *mergeRes
 	}
@@ -453,7 +512,7 @@ func mergeLocalOnly(ctx context.Context, root, source, sourceSHA, target, style,
 // and unconditionally removes the temp worktree before returning.
 func runMergeInTempWorktree(
 	ctx context.Context,
-	root, source, sourceSHA, target, baseSHA, style, msg string,
+	root, source, sourceSHA, target, baseSHA, style, msg, stackBaseSHA string,
 	afterMerge func(tmpWT string) error,
 ) (newSHA string, earlyRes *protocol.GitMergeResult, afterErr error) {
 	tmpParent, err := os.MkdirTemp(tempBaseDir(), "syre-merge-*")
@@ -470,13 +529,55 @@ func runMergeInTempWorktree(
 		_ = os.RemoveAll(tmpParent)
 	}()
 
+	// When delivering a stacked branch whose blockers have already merged into target,
+	// replay only the commits after stackBaseSHA onto baseSHA first so squash-merged
+	// blocker commits do not conflict or duplicate.
+	retarget := false
+	if stackBaseSHA != "" && stackBaseSHA != baseSHA {
+		if _, ancErr := runGit(ctx, root, "merge-base", "--is-ancestor", stackBaseSHA, sourceSHA); ancErr == nil {
+			retarget = true
+		}
+	}
+
 	startPoint := baseSHA
-	if style == "rebase" {
+	if style == "rebase" || retarget {
 		startPoint = sourceSHA
 	}
 	if _, err := runGit(ctx, root, "worktree", "add", "--detach", tmpWT, startPoint); err != nil {
 		r := protocol.GitMergeResult{TargetBranch: target, Error: fmt.Sprintf("create temp merge worktree: %v", err)}
 		return "", &r, nil
+	}
+
+	retargeted := false
+	if retarget {
+		if err := requireGitIdentity(ctx, tmpWT); err != nil {
+			r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
+			return "", &r, nil
+		}
+		if _, err := runGit(ctx, tmpWT, "rebase", "--onto", baseSHA, stackBaseSHA); err != nil {
+			res := protocol.GitMergeResult{TargetBranch: target}
+			res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
+			_, _ = runGit(ctx, tmpWT, "rebase", "--abort")
+			if res.Conflict {
+				res.Error = fmt.Sprintf("rebase conflict retargeting %s onto %s (%s)", source, target, strings.Join(res.ConflictFiles, ", "))
+			} else {
+				res.Error = err.Error()
+			}
+			return "", &res, nil
+		}
+		rebasedSHA, err := CurrentSHA(ctx, tmpWT)
+		if err != nil || rebasedSHA == "" {
+			r := protocol.GitMergeResult{TargetBranch: target, Error: "could not determine rebased commit SHA"}
+			return "", &r, nil
+		}
+		sourceSHA = rebasedSHA
+		retargeted = true
+		if style != "rebase" {
+			if _, err := runGit(ctx, tmpWT, "checkout", "--detach", baseSHA); err != nil {
+				r := protocol.GitMergeResult{TargetBranch: target, Error: fmt.Sprintf("checkout base after retarget: %v", err)}
+				return "", &r, nil
+			}
+		}
 	}
 
 	switch style {
@@ -517,20 +618,22 @@ func runMergeInTempWorktree(
 		}
 
 	case "rebase":
-		if err := requireGitIdentity(ctx, tmpWT); err != nil {
-			r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
-			return "", &r, nil
-		}
-		if _, err := runGit(ctx, tmpWT, "rebase", baseSHA); err != nil {
-			res := protocol.GitMergeResult{TargetBranch: target}
-			res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
-			_, _ = runGit(ctx, tmpWT, "rebase", "--abort")
-			if res.Conflict {
-				res.Error = fmt.Sprintf("rebase conflict rebasing %s onto %s (%s)", source, target, strings.Join(res.ConflictFiles, ", "))
-			} else {
-				res.Error = err.Error()
+		if !retargeted {
+			if err := requireGitIdentity(ctx, tmpWT); err != nil {
+				r := protocol.GitMergeResult{TargetBranch: target, Error: err.Error()}
+				return "", &r, nil
 			}
-			return "", &res, nil
+			if _, err := runGit(ctx, tmpWT, "rebase", baseSHA); err != nil {
+				res := protocol.GitMergeResult{TargetBranch: target}
+				res.Conflict, res.ConflictFiles = conflictFiles(ctx, tmpWT)
+				_, _ = runGit(ctx, tmpWT, "rebase", "--abort")
+				if res.Conflict {
+					res.Error = fmt.Sprintf("rebase conflict rebasing %s onto %s (%s)", source, target, strings.Join(res.ConflictFiles, ", "))
+				} else {
+					res.Error = err.Error()
+				}
+				return "", &res, nil
+			}
 		}
 	}
 

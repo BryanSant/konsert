@@ -242,10 +242,59 @@ func CloneRepo(ctx context.Context, remoteURL, destDir string) error {
 	return nil
 }
 
+// StackConflictError is returned when stacking multiple blocker branches onto a
+// dependent ticket's worktree hits a git merge conflict.
+type StackConflictError struct {
+	RepoName string
+	Branch   string
+	Files    []string
+}
+
+func (e *StackConflictError) Error() string {
+	repo := strings.TrimSpace(e.RepoName)
+	if repo == "" {
+		repo = "repo"
+	}
+	if len(e.Files) > 0 {
+		return fmt.Sprintf("merge conflict stacking %s in %s: %s", e.Branch, repo, strings.Join(e.Files, ", "))
+	}
+	return fmt.Sprintf("merge conflict stacking %s in %s", e.Branch, repo)
+}
+
+// QuestionText formats the conflict as an actionable needs_you digest question.
+func (e *StackConflictError) QuestionText() string {
+	repo := strings.TrimSpace(e.RepoName)
+	if repo == "" {
+		repo = "the repository"
+	}
+	if len(e.Files) > 0 {
+		return fmt.Sprintf("Merge conflict while stacking blocker branch %s in %s. Conflicting files: %s. Resolve the conflict or merge the blocker branch into base before requeuing.", e.Branch, repo, strings.Join(e.Files, ", "))
+	}
+	return fmt.Sprintf("Merge conflict while stacking blocker branch %s in %s. Resolve the conflict or merge the blocker branch into base before requeuing.", e.Branch, repo)
+}
+
 // CreateWorktreeAt creates a git worktree for repoRoot at worktreePath checked out to
 // targetBranch, creating targetBranch from baseBranch (or HEAD if baseBranch is empty)
 // when targetBranch does not yet exist locally.
 func CreateWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBranch, targetBranch string) (WorktreeInfo, error) {
+	return CreateStackedWorktreeAt(ctx, repoRoot, worktreePath, baseBranch, targetBranch, nil)
+}
+
+type resolvedStackRef struct {
+	branch string
+	sha    string
+}
+
+// CreateStackedWorktreeAt creates a git worktree for repoRoot at worktreePath checked out
+// to targetBranch. When targetBranch does not yet exist locally and stackOn names one or
+// more blocker branches not yet merged into baseBranch:
+//   - 1 unmerged blocker branch: targetBranch branches directly from that blocker's commit.
+//   - 2+ unmerged blocker branches: targetBranch branches from baseBranch and merges each
+//     blocker branch in order with `git merge --no-edit`; on conflict, the merge is aborted,
+//     the worktree/branch are cleaned up, and a *StackConflictError is returned.
+//
+// WorktreeInfo.BaseSHA reports the resulting base commit of the worktree.
+func CreateStackedWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBranch, targetBranch string, stackOn []string) (WorktreeInfo, error) {
 	if _, statErr := os.Lstat(worktreePath); statErr == nil {
 		return WorktreeInfo{}, fmt.Errorf("worktree path already exists: %s", worktreePath)
 	}
@@ -253,26 +302,56 @@ func CreateWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBranch, t
 		return WorktreeInfo{}, fmt.Errorf("create worktree parent: %w", err)
 	}
 
-	startPoint := resolveBaseRef(ctx, repoRoot, baseBranch)
-	baseSHA, _ := runGit(ctx, repoRoot, "rev-parse", startPoint)
+	baseRef := resolveBaseRef(ctx, repoRoot, baseBranch)
+	baseSHA, _ := runGit(ctx, repoRoot, "rev-parse", baseRef)
 	if baseSHA == "" {
 		baseSHA, _ = CurrentSHA(ctx, repoRoot)
 	}
 	info := WorktreeInfo{Path: worktreePath, BaseSHA: baseSHA, RepoRoot: repoRoot, Branch: targetBranch}
 
+	if targetBranch != "" {
+		if _, branchExistsErr := runGit(ctx, repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+targetBranch); branchExistsErr == nil {
+			if _, err := runGit(ctx, repoRoot, "worktree", "add", worktreePath, targetBranch); err != nil {
+				if _, err2 := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, targetBranch); err2 != nil {
+					return WorktreeInfo{}, fmt.Errorf("create worktree for existing branch %s: %w", targetBranch, err)
+				}
+			}
+			if sha, _ := CurrentSHA(ctx, worktreePath); sha != "" {
+				info.BaseSHA = sha
+			}
+			return info, nil
+		}
+	}
+
+	// Resolve requested stack branches and skip any already merged into baseRef.
+	var unmerged []resolvedStackRef
+	for _, raw := range stackOn {
+		br := strings.TrimSpace(raw)
+		if br == "" {
+			continue
+		}
+		sha, err := resolveStackBranchSHA(ctx, repoRoot, br)
+		if err != nil {
+			return WorktreeInfo{}, err
+		}
+		if baseSHA != "" {
+			if _, ancErr := runGit(ctx, repoRoot, "merge-base", "--is-ancestor", sha, baseSHA); ancErr == nil {
+				// Already merged into baseBranch; contributes nothing.
+				continue
+			}
+		}
+		unmerged = append(unmerged, resolvedStackRef{branch: br, sha: sha})
+	}
+
+	startPoint := baseRef
+	if len(unmerged) == 1 {
+		startPoint = unmerged[0].sha
+		info.BaseSHA = unmerged[0].sha
+	}
+
 	if targetBranch == "" {
 		if _, err := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, startPoint); err != nil {
 			return WorktreeInfo{}, fmt.Errorf("create detached worktree at %s: %w", worktreePath, err)
-		}
-		return info, nil
-	}
-
-	_, branchExistsErr := runGit(ctx, repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+targetBranch)
-	if branchExistsErr == nil {
-		if _, err := runGit(ctx, repoRoot, "worktree", "add", worktreePath, targetBranch); err != nil {
-			if _, err2 := runGit(ctx, repoRoot, "worktree", "add", "--detach", worktreePath, targetBranch); err2 != nil {
-				return WorktreeInfo{}, fmt.Errorf("create worktree for existing branch %s: %w", targetBranch, err)
-			}
 		}
 	} else {
 		if _, err := runGit(ctx, repoRoot, "worktree", "add", "-b", targetBranch, worktreePath, startPoint); err != nil {
@@ -280,7 +359,50 @@ func CreateWorktreeAt(ctx context.Context, repoRoot, worktreePath, baseBranch, t
 		}
 		info.CreatedBranch = true
 	}
+
+	if len(unmerged) >= 2 {
+		for _, u := range unmerged {
+			if _, err := runGit(ctx, worktreePath, "merge", "--no-edit", u.sha); err != nil {
+				isConflict, files := conflictFiles(ctx, worktreePath)
+				_, _ = runGit(ctx, worktreePath, "merge", "--abort")
+				_ = RemoveTaskWorktree(ctx, info)
+				if isConflict {
+					return WorktreeInfo{}, &StackConflictError{Branch: u.branch, Files: files}
+				}
+				return WorktreeInfo{}, fmt.Errorf("merge stack branch %s: %w", u.branch, err)
+			}
+		}
+		if headSHA, _ := CurrentSHA(ctx, worktreePath); headSHA != "" {
+			info.BaseSHA = headSHA
+		}
+	}
+
 	return info, nil
+}
+
+// resolveStackBranchSHA resolves a blocker branch to a commit SHA in repoRoot.
+// Worktrees of the same repo share the checkout/clone so local refs/heads/<branch>
+// is checked first; otherwise it fetches the branch from the primary remote.
+func resolveStackBranchSHA(ctx context.Context, repoRoot, branch string) (string, error) {
+	if sha, err := runGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}"); err == nil && sha != "" {
+		return sha, nil
+	}
+	remote, _ := primaryRemote(ctx, repoRoot)
+	if remote != "" {
+		_, _ = runGit(ctx, repoRoot, "fetch", remote, branch)
+		if sha, err := runGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", "refs/remotes/"+remote+"/"+branch+"^{commit}"); err == nil && sha != "" {
+			return sha, nil
+		}
+		if sha, err := runGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}"); err == nil && sha != "" {
+			return sha, nil
+		}
+	}
+	for _, ref := range []string{"refs/remotes/origin/" + branch, branch} {
+		if sha, err := runGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil && sha != "" {
+			return sha, nil
+		}
+	}
+	return "", fmt.Errorf("stack branch %q not found locally or on remote", branch)
 }
 
 // resolveBaseRef resolves baseBranch to an existing local/remote ref in repoRoot, falling back to HEAD.

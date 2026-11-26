@@ -599,12 +599,20 @@ func (h *Hub) ticketChatBindings(ctx context.Context, ticketID, workerID string)
 		if targetBranch == "" {
 			targetBranch = "syre/" + tk.SID
 		}
+		var stackOn []string
+		if stack := h.resolveRepoStack(ctx, tk.ID, br.repo.ID, br.repo.Name, baseBranch); len(stack) > 0 {
+			stackOn = make([]string, 0, len(stack))
+			for _, sb := range stack {
+				stackOn = append(stackOn, sb.Branch)
+			}
+		}
 		out = append(out, protocol.TaskRepoBinding{
 			RepoName:     br.repo.Name,
 			RemoteURL:    br.repo.RemoteURL,
 			CheckoutPath: checkoutPath,
 			BaseBranch:   baseBranch,
 			TargetBranch: targetBranch,
+			StackOn:      stackOn,
 		})
 	}
 	return tk.SID, out
@@ -790,6 +798,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 						CheckoutPath: wt.CheckoutPath,
 						WorktreePath: wt.WorktreePath,
 						Branch:       wt.Branch,
+						BaseSHA:      wt.BaseSHA,
 					}
 				}
 				_ = h.store.UpdateTaskWorktrees(ctx, task.ID, wts)
@@ -814,7 +823,15 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				}
 			}
 		case protocol.EventError:
-			if ev.Error != nil && (ev.Error.Kind != protocol.ErrKindTimeout || cs.Status == protocol.ChatStatusFailed) {
+			if ev.Error != nil && ev.Error.Kind == protocol.ErrKindConflict {
+				dig = &protocol.RunDigest{
+					TicketSID: tk.SID,
+					Status:    protocol.DigestStatusNeedsYou,
+					Agent:     cs.Agent,
+					Model:     cs.Model,
+					Question:  &protocol.DigestQuestion{Text: ev.Error.Message},
+				}
+			} else if ev.Error != nil && (ev.Error.Kind != protocol.ErrKindTimeout || cs.Status == protocol.ChatStatusFailed) {
 				cat := ev.Error.Kind
 				if cat == "" || cat == protocol.ErrKindExit || cat == protocol.ErrKindOther || cat == protocol.ErrKindProtocol {
 					cat = protocol.ErrKindAgentError
@@ -1025,6 +1042,27 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			return
 		}
 		if tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
+			return
+		}
+		if ev.Error != nil && ev.Error.Kind == protocol.ErrKindConflict {
+			errCode := 1
+			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptNeedsYou, protocol.ErrKindConflict, &errCode, 0)
+			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusNeedsYou); err == nil && changed {
+				h.broadcastFleetUpdate("ticket", updated)
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindConflict)
+				h.kickScheduler()
+			} else if tk.Lease == nil {
+				tk.Status = store.TicketStatusNeedsYou
+				if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
+					h.broadcastFleetUpdate("ticket", updated)
+					h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindConflict)
+					h.kickScheduler()
+				}
+			}
+			if task != nil {
+				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusWaitingInput, ev.Error.Message, "", &errCode, causeScheduler)
+			}
+			h.closeChat(ctx, cs.ID)
 			return
 		}
 		errCode := 1
