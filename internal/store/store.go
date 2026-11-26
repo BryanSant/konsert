@@ -724,6 +724,14 @@ type Store interface {
 	// DismissVeto closes an open veto without acknowledgement; false when not open.
 	DismissVeto(ctx context.Context, id, by string, at time.Time) (bool, error)
 
+	// Policy directives (docs/design/autopilot.md).
+	CreateDirective(ctx context.Context, d Directive) (Directive, error)
+	GetDirective(ctx context.Context, id string) (Directive, error)
+	ListDirectives(ctx context.Context, f DirectiveFilter) ([]Directive, error)
+	// EndDirective stamps ended_at when the directive is still open; false when it
+	// was already ended (the timer and the reaper may both pass).
+	EndDirective(ctx context.Context, id, by string, at time.Time) (bool, error)
+
 	// Questions (PRD §5.8b).
 	CreateQuestion(ctx context.Context, q Question) (Question, error)
 	GetQuestion(ctx context.Context, id string) (Question, error)

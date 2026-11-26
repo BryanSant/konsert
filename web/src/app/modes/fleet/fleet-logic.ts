@@ -1,5 +1,5 @@
 import { HeatHistory, HeatSample, ProjectGroup, ShellInfo, SubagentActivity, WorkerHeat } from '../../core/models/activity.models';
-import { Task, Worker } from '../../core/models/syre.models';
+import { PolicyDirective, Task, Worker } from '../../core/models/syre.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
 import { SpinnerDetail, SpinnerState, activityPhrase, heatSolid, spinnerDetailOf, spinnerStateOf } from '../../shared/spinner-logic';
@@ -22,6 +22,48 @@ export const HEAT_STRIP_POINTS = 48;
 export const FLEET_DONE_MS = 5 * 60_000;
 
 export type MachineBadge = 'RECONNECTING' | 'OFFLINE' | 'STARTING' | 'DRAINING' | 'FULL' | 'IDLE' | 'OK';
+
+/** One policy badge on a machine row ("paused until 18:00"). */
+export interface DirectiveBadge {
+  id: string;
+  text: string;
+}
+
+/** Local HH:MM, zero-padded so the text does not depend on locale formatting. */
+function clockHHMM(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** "paused until 18:00", "throttled max 1", "drained". An open-ended directive has no clock. */
+export function directiveBadgeText(d: PolicyDirective): string {
+  const clock = d.until ? clockHHMM(d.until) : '';
+  const tail = clock ? ` until ${clock}` : '';
+  if (d.kind === 'machine.pause') return `paused${tail}`;
+  if (d.kind === 'machine.drain') return `drained${tail}`;
+  if (d.kind === 'machine.throttle') {
+    const n = d.params?.max_concurrency;
+    return (n == null ? 'throttled' : `throttled max ${n}`) + tail;
+  }
+  return d.kind;
+}
+
+/** Active machine.* directives for one worker. A past `until` no longer applies. */
+export function activeMachineDirectives(directives: readonly PolicyDirective[] | undefined, workerId: string, now = Date.now()): PolicyDirective[] {
+  return (directives ?? []).filter((d) => {
+    if (d.target !== workerId || d.ended_at || !d.kind.startsWith('machine.')) return false;
+    if (d.until) {
+      const at = Date.parse(d.until);
+      if (!Number.isNaN(at) && at <= now) return false;
+    }
+    return true;
+  });
+}
+
+export function directiveBadges(directives: readonly PolicyDirective[] | undefined, workerId: string, now = Date.now()): DirectiveBadge[] {
+  return activeMachineDirectives(directives, workerId, now).map((d) => ({ id: d.id, text: directiveBadgeText(d) }));
+}
 
 /** A machine's state badge (grey baseline; amber only for FULL). */
 export function machineBadge(w: Worker, running: number): MachineBadge {
@@ -287,6 +329,8 @@ export interface MachineRow {
   next: string;
   /** Sessions it hosts that are suspended (Suspend ↔ Resume). */
   suspended: number;
+  /** Active policy on this machine: "paused until 18:00", "throttled max 1". */
+  directiveBadges: DirectiveBadge[];
 }
 
 export interface RowInputs {
@@ -297,6 +341,8 @@ export interface RowInputs {
   allItems: readonly WorkItem[];
   heat: Record<string, WorkerHeat>;
   now: number;
+  /** Active policy directives. Omitted by callers that predate them. */
+  directives?: readonly PolicyDirective[];
 }
 
 /** One row per machine with the sessions running on it (inside-out view of the projects). */
@@ -405,6 +451,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       load,
       next: next.get(w.id) ?? '',
       suspended: suspended.get(w.id) ?? 0,
+      directiveBadges: directiveBadges(inp.directives, w.id, inp.now),
     };
   });
 }

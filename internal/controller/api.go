@@ -299,6 +299,9 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/holds/{id}/release", s.requireBrowserAuth(s.byRef(ids.Hold, s.handleReleaseHold)))
 	s.mux.Handle("GET /api/requests", s.requireBrowserAuth(s.handleListRequests))
 	s.mux.Handle("POST /api/requests/{id}/resolve", s.requireBrowserAuth(s.byRef(ids.Request, s.handleResolveRequest)))
+	s.mux.Handle("GET /api/directives", s.requireBrowserAuth(s.handleListDirectives))
+	s.mux.Handle("POST /api/directives", s.requireBrowserAuth(s.handleCreateDirective))
+	s.mux.Handle("POST /api/directives/{id}/end", s.requireBrowserAuth(s.byRef(ids.Directive, s.handleEndDirective)))
 	s.mux.Handle("GET /api/overrides", s.requireBrowserAuth(s.handleListOverrides))
 	s.mux.Handle("POST /api/overrides", s.requireBrowserAuth(s.handleCreateOverride))
 	s.mux.Handle("POST /api/overrides/{id}/approve", s.requireBrowserAuth(s.byRef(ids.Override, s.decideOverrideHandler(true))))
@@ -430,6 +433,10 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 	if reviews == nil {
 		reviews = []store.Review{}
 	}
+	directives, _ := s.store.ListDirectives(r.Context(), store.DirectiveFilter{ActiveOnly: true, Now: s.hub.directiveClock(), Limit: 500})
+	if directives == nil {
+		directives = []store.Directive{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workers":            res.Workers,
 		"active_tasks_count": res.ActiveTasksCount,
@@ -442,6 +449,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"autopilot":          s.hub.AutopilotState(r.Context()),
 		"activity":           s.hub.activityList(),
 		"reviews":            reviews,
+		"directives":         directives,
 	})
 }
 

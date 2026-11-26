@@ -1,5 +1,5 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
-import { ListeningPort, Worker } from '../core/models/syre.models';
+import { DirectiveParams, ListeningPort, Worker } from '../core/models/syre.models';
 import { isVersionMismatch } from '../core/models/version';
 import { sidUrl } from '../core/routing/sid-links';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -10,7 +10,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { offlineText, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
+import { activeMachineDirectives, directiveBadgeText, offlineText, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -126,6 +126,9 @@ import { MachineCredentialComponent } from './machine-credential.component';
                 Drained: no new work
               </span>
             }
+            @for (b of directiveRows(); track b.id) {
+              <span class="rounded-full px-2 py-0.5 text-[10.5px] font-medium" style="color:#9ec5ff;box-shadow:inset 0 0 0 1px var(--sy-blue)" data-badge="DIRECTIVE" data-testid="directive-badge">{{ b.text }}</span>
+            }
           </div>
           <div class="flex items-center gap-1 flex-wrap">
             <button
@@ -154,6 +157,46 @@ import { MachineCredentialComponent } from './machine-credential.component';
             </button>
           </div>
         </div>
+        @for (b of directiveRows(); track b.id) {
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[#c8cad0]">{{ b.text }}</span>
+            <button type="button" class="sy-btn sy-btn-sm" data-testid="directive-end" [disabled]="directiveBusy()" (click)="endDirective(b.id)">End</button>
+          </div>
+        }
+        <form class="flex flex-wrap items-end gap-2" (submit)="$event.preventDefault(); createDirective()">
+          <label class="flex flex-col gap-0.5 text-[#86888f]">
+            <span>Policy</span>
+            <select class="sy-field sy-field-sm" data-testid="directive-kind" [value]="directiveKind()" (change)="directiveKind.set($any($event.target).value)">
+              <option value="machine.pause">Pause</option>
+              <option value="machine.throttle">Throttle</option>
+              <option value="machine.drain">Drain</option>
+            </select>
+          </label>
+          @if (directiveKind() === 'machine.pause') {
+            <label class="flex items-center gap-1 text-[#c8cad0] pb-1">
+              <input type="checkbox" data-testid="directive-suspend" [checked]="directiveSuspend()" (change)="directiveSuspend.set($any($event.target).checked)" />
+              Suspend running
+            </label>
+          }
+          @if (directiveKind() === 'machine.throttle') {
+            <label class="flex flex-col gap-0.5 text-[#86888f]">
+              <span>Max</span>
+              <input type="number" min="0" class="sy-field sy-field-sm w-16" data-testid="directive-max" [value]="directiveMax()" (input)="directiveMax.set($any($event.target).value)" />
+            </label>
+          }
+          <label class="flex flex-col gap-0.5 text-[#86888f]">
+            <span>Until</span>
+            <input type="datetime-local" class="sy-field sy-field-sm" data-testid="directive-until" [value]="directiveUntil()" (input)="directiveUntil.set($any($event.target).value)" />
+          </label>
+          <label class="flex flex-col gap-0.5 text-[#86888f] min-w-[8rem] flex-1">
+            <span>Reason</span>
+            <input type="text" class="sy-field sy-field-sm w-full" data-testid="directive-reason" [value]="directiveReason()" (input)="directiveReason.set($any($event.target).value)" />
+          </label>
+          <button type="submit" class="sy-btn sy-btn-sm" data-testid="directive-create" [disabled]="directiveBusy()">Set</button>
+        </form>
+        @if (directiveError()) {
+          <div role="alert" class="text-[#f09595]">{{ directiveError() }}</div>
+        }
         <sy-holds-requests [workerId]="worker().id" />
         <sy-your-actions [workerId]="worker().id" [limit]="8" />
       </section>
@@ -491,6 +534,16 @@ export class MachineDetailModalComponent {
   readonly savingShell = signal(false);
   readonly savingGitBash = signal(false);
   readonly shellError = signal('');
+  readonly directiveKind = signal('machine.pause');
+  readonly directiveSuspend = signal(false);
+  readonly directiveMax = signal('1');
+  readonly directiveUntil = signal('');
+  readonly directiveReason = signal('');
+  readonly directiveBusy = signal(false);
+  readonly directiveError = signal('');
+  readonly directiveRows = computed(() =>
+    activeMachineDirectives(this.fleet.directives(), this.worker().id).map((d) => ({ id: d.id, text: directiveBadgeText(d) })),
+  );
 
   readonly availableShells = computed(() => this.worker().facts?.shells ?? []);
   readonly hasGitBash = computed(
@@ -515,6 +568,61 @@ export class MachineDetailModalComponent {
       if (this.portsFor) void this.loadPorts(this.portsFor);
     }, 5 * 60_000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
+  async createDirective(): Promise<void> {
+    this.directiveError.set('');
+    const kind = this.directiveKind();
+    const params: DirectiveParams = {};
+    if (kind === 'machine.pause') params.suspend_running = this.directiveSuspend();
+    if (kind === 'machine.throttle') {
+      const n = Number(this.directiveMax());
+      if (!Number.isFinite(n) || n < 0) {
+        this.directiveError.set('Max concurrency must be 0 or more');
+        return;
+      }
+      params.max_concurrency = Math.trunc(n);
+    }
+    let until: string | undefined;
+    const local = this.directiveUntil().trim();
+    if (local) {
+      const t = new Date(local);
+      if (Number.isNaN(t.getTime())) {
+        this.directiveError.set('Until is not a valid time');
+        return;
+      }
+      until = t.toISOString();
+    }
+    this.directiveBusy.set(true);
+    try {
+      const d = await this.api.createDirective({
+        kind,
+        target: this.worker().id,
+        until,
+        reason: this.directiveReason().trim() || undefined,
+        params,
+      });
+      this.fleet.applyDirective(d);
+      this.directiveReason.set('');
+      this.directiveUntil.set('');
+    } catch (err) {
+      this.directiveError.set(err instanceof Error ? err.message : 'Could not set the directive');
+    } finally {
+      this.directiveBusy.set(false);
+    }
+  }
+
+  async endDirective(id: string): Promise<void> {
+    this.directiveError.set('');
+    this.directiveBusy.set(true);
+    try {
+      const d = await this.api.endDirective(id);
+      this.fleet.applyDirective(d);
+    } catch (err) {
+      this.directiveError.set(err instanceof Error ? err.message : 'Could not end the directive');
+    } finally {
+      this.directiveBusy.set(false);
+    }
   }
 
   private async loadPorts(id: string): Promise<void> {

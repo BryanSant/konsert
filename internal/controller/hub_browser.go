@@ -436,6 +436,8 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		p.ShellReminder = item
 	case "autopilot":
 		p.Autopilot = item
+	case "directive":
+		p.Directive = item
 	case "ticket_deleted", "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
 		if id, ok := item.(string); ok {
 			p.DeletedID = id

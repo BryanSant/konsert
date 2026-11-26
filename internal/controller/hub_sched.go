@@ -140,7 +140,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	}
 	counts := h.ActiveTaskCounts()
 	// Approved machine_slots overrides raise a machine's slot limit while they last.
+	// Directives then tighten: pause and drain drop the machine, throttle caps it.
 	workers, slots := h.applySlotOverrides(ctx, workers)
+	workers = h.applyMachineDirectives(ctx, workers)
 
 	for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
 		if ctx.Err() != nil {

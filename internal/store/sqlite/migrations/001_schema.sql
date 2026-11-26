@@ -8,7 +8,8 @@
 --   sid short typed ID from internal/ids, unique, shown to users and accepted in API
 --       paths next to the id: t-7qk3m task, c-w47xk chat, m-… machine, p-… project,
 --       r-… repo, tk-… ticket,
---       h-… hold, rq-… user request, q-… question, o-… override request, v-… veto.
+--       h-… hold, rq-… user request, q-… question, o-… override request, v-… veto,
+--       dr-… policy directive.
 -- Event/log/child tables keep integer or composite keys. External identities live in
 -- their own columns: chat_sessions.agent_session_id (the agent CLI's session) and
 -- tasks.external_id (the worker's key for a discovered session).
@@ -504,7 +505,7 @@ CREATE INDEX idx_audit_log_action ON audit_log(action, id);
 CREATE TABLE fleet_events (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at   TEXT NOT NULL,
-    kind         TEXT NOT NULL, -- status | action | hold | request | veto | notice
+    kind         TEXT NOT NULL, -- status | action | hold | request | veto | notice | directive | pulse
     action       TEXT NOT NULL DEFAULT '',
     actor_kind   TEXT NOT NULL, -- user | commander | agent | scheduler | system | unknown
     actor_source TEXT NOT NULL DEFAULT '',
@@ -703,6 +704,26 @@ CREATE TABLE override_requests (
     last_used_at     TEXT
 );
 CREATE INDEX idx_override_requests_status ON override_requests(status, expires_at);
+
+-- Policy directives (docs/design/autopilot.md): typed, timed, attributed policy.
+-- Active means ended_at IS NULL and (until IS NULL or until is still ahead).
+-- provider.disable is reserved for the next ticket; this table stores it, the API does not.
+CREATE TABLE directives (
+    id          TEXT PRIMARY KEY,
+    sid         TEXT NOT NULL UNIQUE, -- dr-…
+    kind        TEXT NOT NULL, -- machine.pause | machine.throttle | machine.drain | autopilot.pause | provider.disable
+    target      TEXT NOT NULL, -- worker id (machine.*) or project id (autopilot.pause)
+    params_json TEXT NOT NULL DEFAULT '{}',
+    until       TEXT, -- expiry; NULL means until someone ends it
+    provenance  TEXT NOT NULL, -- user | commander | system
+    actor       TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    ended_at    TEXT,
+    ended_by    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_directives_active ON directives(target, kind) WHERE ended_at IS NULL;
+CREATE INDEX idx_directives_until ON directives(until) WHERE ended_at IS NULL AND until IS NOT NULL;
 
 -- Vetoes awaiting the agent's acknowledgement (its next turn after delivery ending
 -- normally); escalated when unacknowledged past the deadline.

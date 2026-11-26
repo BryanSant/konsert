@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { HeatHistory, SessionActivity } from '../core/models/activity.models';
-import { ChatSession, Project, Task, Worker } from '../core/models/syre.models';
+import { ChatSession, PolicyDirective, Project, Task, Worker } from '../core/models/syre.models';
 import { groupWork } from '../core/state/activity-logic';
 import { WorkItem, buildWorkItems } from '../core/state/work-logic';
 import { ActivitySpinnerComponent } from '../shared/activity-spinner.component';
@@ -21,6 +21,7 @@ import { DONE_FADE_MS, buildStory, queuedLabel } from './command/live-work-logic
 import {
   askAvailability,
   describeStrip,
+  directiveBadgeText,
   heatStrip,
   heatText,
   machineBadge,
@@ -241,6 +242,23 @@ describe('fleet machine rows', () => {
     expect(machineBadge(worker('x', 'x', { max_concurrent: 1 }), 1)).toBe('FULL');
     expect(machineBadge(worker('x', 'x', { drained: true }), 0)).toBe('DRAINING');
     expect(machineBadge(worker('x', 'x', { status: 'offline', reconnecting_after_sleep: true }), 0)).toBe('RECONNECTING');
+  });
+
+  it('badges a machine with each active directive and hides one whose until has passed', () => {
+    const until = new Date(NOW + 3 * 3600_000);
+    const hh = String(until.getHours()).padStart(2, '0');
+    const mm = String(until.getMinutes()).padStart(2, '0');
+    const pause: PolicyDirective = { id: '1', sid: 'dr-pause', kind: 'machine.pause', target: 'w1', until: until.toISOString(), created_at: iso(NOW) };
+    const throttle: PolicyDirective = { id: '2', sid: 'dr-thr', kind: 'machine.throttle', target: 'w1', params: { max_concurrency: 1 }, created_at: iso(NOW) };
+    const past: PolicyDirective = { id: '3', sid: 'dr-old', kind: 'machine.drain', target: 'w1', until: iso(NOW - 1000), created_at: iso(NOW) };
+    const ended: PolicyDirective = { id: '4', sid: 'dr-end', kind: 'machine.pause', target: 'w1', ended_at: iso(NOW), created_at: iso(NOW) };
+    const other: PolicyDirective = { id: '5', sid: 'dr-else', kind: 'machine.drain', target: 'w9', created_at: iso(NOW) };
+    expect(directiveBadgeText(pause)).toBe(`paused until ${hh}:${mm}`);
+    expect(directiveBadgeText(throttle)).toBe('throttled max 1');
+    expect(directiveBadgeText({ ...other, kind: 'machine.drain' })).toBe('drained');
+    const workers = [worker('w1', 'desk')];
+    const rows = machineRows({ workers, tasks: [], groups: [], items: {}, allItems: [], heat: {}, now: NOW, directives: [pause, throttle, past, ended, other] });
+    expect(rows[0].directiveBadges.map((b) => b.text)).toEqual([`paused until ${hh}:${mm}`, 'throttled max 1']);
   });
 
   it('says what the outbound spool does when it matters', () => {

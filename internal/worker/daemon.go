@@ -78,6 +78,10 @@ type Daemon struct {
 	// attempt never got that far). Only touched by the Run goroutine.
 	helloAt time.Time
 
+	// directives is the hub's active policy for this machine (worker.directives).
+	dirMu      sync.Mutex
+	directives []protocol.WorkerDirective
+
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
 	discovery *SessionDiscovery
@@ -859,10 +863,22 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		return
 	}
 	switch env.Type {
+	case protocol.MsgWorkerDirectives:
+		p, err := protocol.DecodePayload[protocol.WorkerDirectivesPayload](env)
+		if err != nil {
+			d.logger.Warn("decode worker.directives failed", "err", err)
+			return
+		}
+		d.setDirectives(p.Directives)
+
 	case protocol.MsgTaskStart:
 		p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
 		if err != nil {
 			d.logger.Warn("decode task.start failed", "err", err)
+			return
+		}
+		if msg := d.directiveRefusal(); msg != "" {
+			d.runner.failTask(p.TaskID, "", msg)
 			return
 		}
 		// Validation and reservation happen here, in message order; git worktree creation and

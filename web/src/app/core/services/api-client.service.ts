@@ -15,6 +15,8 @@ import {
   DispatchTaskRequest,
   FSListResult,
   FleetSnapshotResponse,
+  CreateDirectiveRequest,
+  PolicyDirective,
   GitCommitResult,
   GitInspectResult,
   Project,
@@ -464,6 +466,24 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ drained }),
     });
+  }
+
+  listDirectives(query?: { target?: string; kind?: string; active?: boolean }): Promise<{ directives: PolicyDirective[] }> {
+    const q = new URLSearchParams();
+    if (query?.target) q.set('target', query.target);
+    if (query?.kind) q.set('kind', query.kind);
+    if (query?.active === false) q.set('active', '0');
+    const qs = q.toString();
+    const suffix = qs ? `?${qs}` : '';
+    return this.request(`/api/directives${suffix}`);
+  }
+
+  createDirective(body: CreateDirectiveRequest): Promise<PolicyDirective> {
+    return this.request<PolicyDirective>('/api/directives', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  endDirective(id: string): Promise<PolicyDirective> {
+    return this.request<PolicyDirective>(`/api/directives/${encodeURIComponent(id)}/end`, { method: 'POST' });
   }
 
   /** Bulk machine control: suspend-all, resume-all or stop-all. */

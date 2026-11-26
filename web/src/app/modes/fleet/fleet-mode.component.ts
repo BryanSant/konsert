@@ -146,6 +146,9 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
                       @if (versionMismatch(r.w); as note) {
                         <span class="sy-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [syTooltip]="note">VERSION</span>
                       }
+                      @for (b of r.directiveBadges; track b.id) {
+                        <span class="sy-badge" data-badge="DIRECTIVE" data-testid="directive-badge">{{ b.text }}</span>
+                      }
                     </span>
                   </div>
                   <div class="text-[12px] text-[var(--sy-text-secondary)] truncate">{{ r.spec }}</div>
@@ -557,7 +560,8 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
       color: #1b1406;
       background: var(--sy-amber);
     }
-    .sy-badge[data-badge='DRAINING'] {
+    .sy-badge[data-badge='DRAINING'],
+    .sy-badge[data-badge='DIRECTIVE'] {
       color: #9ec5ff;
       background: transparent;
       box-shadow: inset 0 0 0 1px var(--sy-blue);
@@ -666,6 +670,7 @@ export class FleetModeComponent {
       allItems: this.work.items(),
       heat: this.fleet.heatByWorker(),
       now: this.now(),
+      directives: this.fleet.directives(),
     }),
   );
 

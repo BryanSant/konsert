@@ -9,11 +9,14 @@ import (
 
 // WebSocket JSON control plane message types.
 const (
-	MsgWorkerHello     = "worker.hello"
-	MsgWorkerHeartbeat = "worker.heartbeat"
-	MsgWorkerFacts     = "worker.facts"
-	MsgWorkerQuotas    = "worker.quotas"
-	MsgExternalSession = "worker.external_session"
+	MsgWorkerHello = "worker.hello"
+	// MsgWorkerDirectives (hub → worker) replaces syred's active policy directives
+	// for this machine. Sent on hello and whenever that machine's directives change.
+	MsgWorkerDirectives = "worker.directives"
+	MsgWorkerHeartbeat  = "worker.heartbeat"
+	MsgWorkerFacts      = "worker.facts"
+	MsgWorkerQuotas     = "worker.quotas"
+	MsgExternalSession  = "worker.external_session"
 	// MsgWorkerPorts carries the listening ports (WorkerPortsPayload): sent every few
 	// minutes and as the reply (same envelope id) to MsgWorkerPortsRequest.
 	MsgWorkerPorts        = "worker.ports"
@@ -573,6 +576,41 @@ type FleetUpdatePayload struct {
 	ShellReminder any `json:"shell_reminder,omitzero"`
 	// Autopilot carries the fleet/project autopilot snapshot when Kind is "autopilot".
 	Autopilot any `json:"autopilot,omitzero"`
+	// Directive carries a policy directive when Kind is "directive".
+	Directive any `json:"directive,omitzero"`
+}
+
+// Policy directive kinds. provider.disable is reserved for a later ticket.
+const (
+	DirectiveKindMachinePause    = "machine.pause"
+	DirectiveKindMachineThrottle = "machine.throttle"
+	DirectiveKindMachineDrain    = "machine.drain"
+	DirectiveKindAutopilotPause  = "autopilot.pause"
+	DirectiveKindProviderDisable = "provider.disable"
+)
+
+// WorkerDirectiveParams is the machine-facing copy of a directive's params.
+// cpu_ceiling_pct and heavy_ok are forwarded; syred enforces pause, drain and
+// the concurrency cap only.
+type WorkerDirectiveParams struct {
+	MaxConcurrency *int  `json:"max_concurrency,omitempty"`
+	CPUCeilingPct  *int  `json:"cpu_ceiling_pct,omitempty"`
+	HeavyOK        *bool `json:"heavy_ok,omitempty"`
+	SuspendRunning bool  `json:"suspend_running,omitzero"`
+}
+
+// WorkerDirective is one active directive for the machine that receives it.
+type WorkerDirective struct {
+	ID     string                `json:"id"`
+	SID    string                `json:"sid"`
+	Kind   string                `json:"kind"`
+	Until  *time.Time            `json:"until,omitzero"`
+	Params WorkerDirectiveParams `json:"params"`
+}
+
+// WorkerDirectivesPayload replaces the daemon's directive set (empty clears it).
+type WorkerDirectivesPayload struct {
+	Directives []WorkerDirective `json:"directives"`
 }
 
 type GitChangedFile struct {

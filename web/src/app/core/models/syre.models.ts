@@ -823,6 +823,42 @@ export interface AuthMe {
   model: string;
 }
 
+/** Kind-specific policy. Throttle uses max_concurrency; pause uses suspend_running. */
+export interface DirectiveParams {
+  max_concurrency?: number;
+  cpu_ceiling_pct?: number;
+  heavy_ok?: boolean;
+  suspend_running?: boolean;
+}
+
+/**
+ * A typed, timed policy directive. machine.* targets a worker; autopilot.pause
+ * targets a project. provider.disable is reserved and the hub rejects it.
+ */
+export interface PolicyDirective {
+  id: string;
+  sid: string;
+  kind: string;
+  target: string;
+  params?: DirectiveParams;
+  /** RFC3339. Absent when the directive lasts until someone ends it. */
+  until?: string;
+  provenance?: string;
+  actor?: string;
+  reason?: string;
+  created_at: string;
+  ended_at?: string;
+  ended_by?: string;
+}
+
+export interface CreateDirectiveRequest {
+  kind: string;
+  target: string;
+  until?: string;
+  reason?: string;
+  params?: DirectiveParams;
+}
+
 export interface FleetSnapshotResponse {
   workers: Worker[];
   active_tasks_count: number;
@@ -840,6 +876,8 @@ export interface FleetSnapshotResponse {
   activity?: SessionActivity[];
   /** Review decisions and Expedite flags (SYR-BM8JR). */
   reviews?: Review[];
+  /** Active policy directives (machine pause, throttle, drain, autopilot pause). */
+  directives?: PolicyDirective[];
 }
 
 export interface DispatchTaskRequest {

@@ -3,6 +3,7 @@ import {
   AppSettings,
   AutopilotProjectState,
   AutopilotState,
+  PolicyDirective,
   Project,
   Repo,
   SessionDefaults,
@@ -51,6 +52,8 @@ export class FleetStore {
   });
   /** Review decisions and Expedite flags by "task:<id>" / "chat:<id>" (hub-stored, SYR-BM8JR). */
   readonly reviews = signal<Record<string, Review>>({});
+  /** Active policy directives from GET /api/fleet and fleet.update kind "directive". */
+  readonly directives = signal<PolicyDirective[]>([]);
   /** Fleet-wide and per-project Autopilot Play/Pause state and ticket counts. */
   readonly autopilot = signal<AutopilotState>({
     global: false,
@@ -143,6 +146,7 @@ export class FleetStore {
       if (snap.reviews) {
         this.reviews.set(Object.fromEntries(snap.reviews.map((r) => [reviewKey(r), r])));
       }
+      this.directives.set(snap.directives ?? []);
       for (const op of this.liveLog.slice(logStart)) op();
     } finally {
       this.refreshesInFlight--;
@@ -182,6 +186,25 @@ export class FleetStore {
     } catch {
       // ignore
     }
+  }
+
+  /**
+   * One directive pushed by the hub (fleet.update kind "directive") or returned by
+   * create/end. An ended directive, or one whose until has passed, drops out.
+   * Recorded through live() so an in-flight GET /api/fleet cannot revert it.
+   */
+  applyDirective(d: PolicyDirective): void {
+    this.live(() => {
+      this.directives.update((list) => {
+        const next = list.filter((x) => x.id !== d.id);
+        if (d.ended_at) return next;
+        if (d.until) {
+          const at = Date.parse(d.until);
+          if (!Number.isNaN(at) && at <= Date.now()) return next;
+        }
+        return [...next, d];
+      });
+    });
   }
 
   /** Autopilot snapshot pushed by the hub (fleet.update kind "autopilot"). */

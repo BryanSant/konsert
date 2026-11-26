@@ -252,7 +252,7 @@ func (h *Hub) pulseTicketTransition(ctx context.Context, tk store.Ticket, task *
 
 	globalOn := h.autopilotGlobal(ctx)
 	fleetPaused := h.fleetPaused(ctx)
-	projectPlaying := isProjectAutopilotPlaying(proj, globalOn, fleetPaused)
+	projectPlaying := isProjectAutopilotPlaying(proj, globalOn, fleetPaused, h.projectDirectivePaused(ctx, proj.ID))
 
 	if kind != "" {
 		h.recordPulseTrigger(ctx, pulseTriggerMeta{
@@ -366,7 +366,7 @@ func (h *Hub) pulseTicketDecompositionCheck(ctx context.Context, tk store.Ticket
 	if tk.ProjectID != "" {
 		if p, err := h.store.GetProject(ctx, tk.ProjectID); err == nil {
 			projName = p.Name
-			autopilot = isProjectAutopilotPlaying(p, h.autopilotGlobal(ctx), h.fleetPaused(ctx))
+			autopilot = isProjectAutopilotPlaying(p, h.autopilotGlobal(ctx), h.fleetPaused(ctx), h.projectDirectivePaused(ctx, p.ID))
 		}
 	}
 	h.recordPulseTrigger(ctx, pulseTriggerMeta{
@@ -420,7 +420,7 @@ func (h *Hub) checkProjectBoardIdle(ctx context.Context, projectID string) {
 		return
 	}
 	proj, err := h.store.GetProject(ctx, projectID)
-	if err != nil || !isProjectAutopilotPlaying(proj, h.autopilotGlobal(ctx), h.fleetPaused(ctx)) {
+	if err != nil || !isProjectAutopilotPlaying(proj, h.autopilotGlobal(ctx), h.fleetPaused(ctx), h.projectDirectivePaused(ctx, proj.ID)) {
 		h.markProjectActive(projectID)
 		return
 	}
@@ -498,7 +498,7 @@ func (h *Hub) buildBoardPulse(ctx context.Context, pulseEvents []store.FleetEven
 		globalOn := h.autopilotGlobal(ctx)
 		if projects, err := h.store.ListProjects(ctx); err == nil {
 			for _, proj := range projects {
-				if isProjectAutopilotPlaying(proj, globalOn, false) {
+				if isProjectAutopilotPlaying(proj, globalOn, false, h.projectDirectivePaused(ctx, proj.ID)) {
 					p.AutopilotState = "on"
 					break
 				}
@@ -518,13 +518,19 @@ func (h *Hub) buildBoardPulse(ctx context.Context, pulseEvents []store.FleetEven
 				}
 			}
 		}
+		var dirs []store.Directive
+		if list, dErr := h.store.ListDirectives(ctx, store.DirectiveFilter{OpenOnly: true, Limit: 1000}); dErr == nil {
+			dirs = list
+		}
+		loc := h.pulseClock().Location()
+		now := h.directiveClock()
 		for _, w := range workers {
 			if h.IsWorkerConnected(w.ID) {
 				p.FleetUp++
 			}
 			var states []string
-			if w.Drained {
-				states = append(states, "drained")
+			if phrase := h.directiveFleetPhrase(w, dirs, now, loc); phrase != "" {
+				states = append(states, phrase)
 			}
 			if heldWorkers[w.ID] {
 				states = append(states, "held")
