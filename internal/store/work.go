@@ -277,6 +277,22 @@ type TicketRollup struct {
 	Blocked  int    `json:"blocked"`
 }
 
+// TicketDigestRaw is the latest non-empty task digest JSON for one ticket.
+// The API turns it into a one-line summary for board cards.
+type TicketDigestRaw struct {
+	TicketID   string
+	DigestJSON string
+}
+
+// TicketDigestLine is the board's one-line view of a ticket's latest run digest.
+type TicketDigestLine struct {
+	TicketID string `json:"ticket_id"`
+	Summary  string `json:"summary,omitempty"`
+	Agent    string `json:"agent,omitempty"`
+	Machine  string `json:"machine,omitempty"`
+	Attempt  int    `json:"attempt,omitzero"`
+}
+
 // MaxTicketCommentChars is the maximum length (in runes) of a ticket comment body.
 const MaxTicketCommentChars = 500
 

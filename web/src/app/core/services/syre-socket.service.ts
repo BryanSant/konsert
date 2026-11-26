@@ -15,6 +15,8 @@ import {
   Repo,
   Task,
   TaskEvent,
+  Ticket,
+  TicketEdge,
   UsageSummary,
   Worker,
 } from '../models/syre.models';
@@ -33,6 +35,7 @@ import { ControlStore } from '../state/control.store';
 import { FleetEvent, FleetPause, Hold, OverrideRequest, UserRequest, Veto } from '../models/control.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 import { FleetStore } from '../state/fleet.store';
+import { TicketStore } from '../state/ticket.store';
 import { CommanderStore } from '../state/commander.store';
 import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
@@ -49,6 +52,7 @@ const SIGNED_OUT_CLOSE_CODE = 1008;
 @Injectable({ providedIn: 'root' })
 export class SyreSocketService {
   private readonly fleetStore = inject(FleetStore);
+  private readonly ticketStore = inject(TicketStore);
   private readonly commanderStore = inject(CommanderStore);
   private readonly auditStore = inject(AuditStore);
   private readonly controlStore = inject(ControlStore);
@@ -267,6 +271,8 @@ export class SyreSocketService {
           device?: Device;
           shell_reminder?: ShellReminder;
           autopilot?: AutopilotState;
+          ticket?: Ticket;
+          ticket_edge?: TicketEdge;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -276,6 +282,7 @@ export class SyreSocketService {
           const worker = this.fleetStore.workersById()[p.task.worker_id];
           const workerName = worker?.name || worker?.sid || p.task.worker_id;
           this.fleetStore.upsertTask(p.task);
+          this.ticketStore.applyTaskDigest(p.task);
           this.notifications.notifyTaskTransition(prev?.status, p.task, workerName);
         } else if (p.kind === CHAT_PROTOCOL.fleetAccountsKind && p.worker_id) {
           this.agentAccounts.applyWorkerAccounts(p.worker_id, p.accounts ?? []);
@@ -323,6 +330,14 @@ export class SyreSocketService {
           this.fleetStore.upsertRepo(p.repo);
         } else if (p.kind === 'repo_deleted' && p.deleted_id) {
           this.fleetStore.removeRepo(p.deleted_id);
+        } else if (p.kind === 'ticket' && p.ticket) {
+          this.ticketStore.upsert(p.ticket);
+        } else if (p.kind === 'ticket_deleted' && p.deleted_id) {
+          this.ticketStore.remove(p.deleted_id);
+        } else if (p.kind === 'ticket_edge' && p.ticket_edge) {
+          this.ticketStore.upsertEdge(p.ticket_edge);
+        } else if (p.kind === 'ticket_edge_deleted' && p.ticket_edge) {
+          this.ticketStore.dropEdge(p.ticket_edge.ticket_id, p.ticket_edge.blocked_by_id);
         }
         break;
       }

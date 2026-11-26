@@ -362,6 +362,13 @@ export interface TicketHints {
   tools?: string[];
 }
 
+export interface TicketLease {
+  worker_id: string;
+  task_id?: string;
+  expires_at: string;
+  heartbeat_at?: string;
+}
+
 export interface Ticket {
   id: string;
   sid: string;
@@ -377,8 +384,47 @@ export interface Ticket {
   hints?: TicketHints;
   verify_cmd?: string;
   autonomy?: AutonomyPolicy;
+  /** How many times Autopilot has attempted this ticket. */
+  attempt?: number;
+  lease?: TicketLease;
+  orphan_policy?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface TicketComment {
+  id: string;
+  ticket_id: string;
+  author: string;
+  body: string;
+  created_at: string;
+}
+
+/** One-line view of a ticket's latest run digest (board cards). */
+export interface TicketDigestLine {
+  ticket_id: string;
+  summary?: string;
+  agent?: string;
+  machine?: string;
+  attempt?: number;
+}
+
+/** Compact post-run digest (protocol.RunDigest). */
+export interface RunDigest {
+  ticket_sid?: string;
+  attempt?: number;
+  status: string;
+  machine?: string;
+  agent?: string;
+  model?: string;
+  duration_s?: number;
+  summary?: string;
+  interface?: string;
+  followups?: string[];
+  git?: Record<string, string>;
+  verify?: { cmd?: string; exit?: number; passed?: number; failed?: number };
+  failure?: { category?: string; tests?: string[]; tail?: string[] };
+  question?: { text?: string; context?: string[] };
 }
 
 export interface TicketEdge {
@@ -585,6 +631,8 @@ export interface Task {
   status: TaskStatus;
   summary: string;
   git_summary_json?: string;
+  /** Latest run digest, when the task worked a ticket. */
+  digest_json?: string;
   exit_code?: number | null;
   created_at: string;
   started_at?: string | null;

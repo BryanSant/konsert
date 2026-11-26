@@ -10,6 +10,7 @@ import {
 } from '../models/syre.models';
 import { AuditStore } from '../state/audit.store';
 import { FleetStore } from '../state/fleet.store';
+import { TicketStore } from '../state/ticket.store';
 import { CommanderStore } from '../state/commander.store';
 import { AuthService } from './auth.service';
 import {
@@ -185,6 +186,48 @@ describe('SyreSocketService', () => {
       unsubscribe();
       ws.receiveJSON('fleet.update', { kind: 'audit', audit: { id: 8, created_at: '', user: 'x', action: 'y' } });
       expect(seen).toEqual([7]);
+    });
+
+    it('applies ticket, edge, and ticket_deleted frames', () => {
+      socket.connect();
+      const ws = FakeWebSocket.last;
+      ws.open();
+      const tickets = TestBed.inject(TicketStore);
+      ws.receiveJSON('fleet.update', {
+        kind: 'ticket',
+        ticket: {
+          id: 'a',
+          sid: 't-a',
+          project_id: 'p',
+          kind: 'feature',
+          title: 'Schema',
+          acceptance: [],
+          labels: [],
+          priority: 'P2',
+          status: 'ready',
+          created_at: '',
+          updated_at: '',
+        },
+      });
+      expect(tickets.bySid('t-a')?.title).toBe('Schema');
+      ws.receiveJSON('fleet.update', {
+        kind: 'ticket_edge',
+        ticket_edge: { ticket_id: 'b', blocked_by_id: 'a', created_at: '' },
+      });
+      expect(tickets.edges()).toEqual([{ ticket_id: 'b', blocked_by_id: 'a', created_at: '' }]);
+      ws.receiveJSON('fleet.update', {
+        kind: 'ticket_edge_deleted',
+        ticket_edge: { ticket_id: 'b', blocked_by_id: 'a' },
+      });
+      expect(tickets.edges()).toEqual([]);
+      tickets.upsertEdge({ ticket_id: 'b', blocked_by_id: 'a', created_at: '' });
+      ws.receiveJSON('fleet.update', {
+        kind: 'ticket_edge_deleted',
+        ticket_edge: { ticket_id: 'b', blocked_by_id: 'a' },
+      });
+      expect(tickets.edges()).toEqual([]);
+      ws.receiveJSON('fleet.update', { kind: 'ticket_deleted', deleted_id: 'a' });
+      expect(tickets.bySid('t-a')).toBeUndefined();
     });
   });
 

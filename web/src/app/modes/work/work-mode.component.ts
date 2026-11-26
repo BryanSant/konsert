@@ -3,52 +3,70 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
-import { WorkColumn, WorkItem } from '../../core/state/work-logic';
+import { WorkColumn } from '../../core/state/work-logic';
 import { WorkStore } from '../../core/state/work.store';
 import { NeedsYouStore } from '../../core/state/needs-you.store';
+import { FleetStore } from '../../core/state/fleet.store';
+import { TicketStore } from '../../core/state/ticket.store';
 import { IconComponent } from '../../shared/icon.component';
-import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ControlLabelComponent } from '../control-label.component';
 import { ModeUiStore } from '../mode-ui.store';
 import { isPhoneWidth } from '../../app.routes';
 import { ReviewPanelComponent } from './review-panel.component';
 import { AutopilotControlComponent } from './autopilot-control.component';
 import { ItemSpinnerComponent } from '../item-spinner.component';
+import { TicketPanelComponent } from './ticket-panel.component';
+import { NewTicketDialogComponent } from './new-ticket-dialog.component';
+import { BoardCard, BoardColumn, SwimlaneBy, buildTicketBoard, defaultLaneBy } from './board-logic';
 
-export const COLUMN_LABELS: Record<WorkColumn, string> = {
+export const COLUMN_LABELS: Record<BoardColumn, string> = {
+  backlog: 'Backlog',
   queued: 'Queued',
   running: 'Running',
   needs_you: 'Needs you',
   review: 'Review',
-  done: 'Done today',
+  done: 'Done',
 };
 
 const VIEW_KEY = 'syre.work.view';
+const LANE_KEY = 'syre.work.lanes';
 
 /**
- * 2 Work: the flow board. Lanes are projects (plus Expedite), columns are lifecycle
- * states Syre owns, so agents and the scheduler move the cards and the user reviews
- * and decides. ⌘B toggles board and list.
+ * 2 Work: the flow board. Columns follow ticket status. Swimlanes are Expedite plus
+ * one per epic, initiative or project. Ad-hoc tasks and chats with no ticket stay
+ * on the board. ⌘B toggles board and list; a phone opens on the list.
  */
 @Component({
   selector: 'sy-work-mode',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent, AutopilotControlComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, IconComponent, ControlLabelComponent, ReviewPanelComponent, AutopilotControlComponent, TicketPanelComponent, NewTicketDialogComponent],
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
     <div class="flex flex-wrap items-center gap-3 px-4 pt-3 pb-2 text-[12.5px] shrink-0">
-      <span class="text-[var(--sy-text-muted)]">Lanes: project</span>
+      <label class="inline-flex items-center gap-1.5 text-[var(--sy-text-muted)]">Lanes
+        <select class="sy-field sy-field-sm" data-testid="lane-by" aria-label="Swimlanes" [value]="laneBy()" (change)="setLane($any($event.target).value)">
+          <option value="epic">Epic</option>
+          <option value="initiative">Initiative</option>
+          <option value="project">Project</option>
+        </select>
+      </label>
       <div class="inline-flex rounded-[var(--sy-radius-md)] bg-[var(--sy-surface-1)] p-0.5" role="group" aria-label="View">
         <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="view() === 'board'" data-testid="view-board" (click)="setView('board')">Board</button>
         <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="view() === 'list'" data-testid="view-list" (click)="setView('list')">List</button>
       </div>
       <span class="sy-kbd" aria-hidden="true">⌘B</span>
+      <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="showBacklog()" data-testid="show-backlog" (click)="showBacklog.set(!showBacklog())">Backlog</button>
+      <button type="button" class="sy-btn sy-btn-sm" [attr.aria-pressed]="showClosed()" data-testid="show-closed" (click)="showClosed.set(!showClosed())">Failed &amp; canceled</button>
       <sy-autopilot-control />
       <span class="ml-auto hidden xl:inline text-[var(--sy-text-secondary)]">Syre moves the cards; you review and decide.</span>
       <button type="button" class="sy-btn sy-btn-sm" data-testid="open-projects" (click)="ui.projectsOpen.set(true)">
         <app-icon name="project" [size]="12" />
         Projects
+      </button>
+      <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="new-ticket" (click)="creating.set(true)">
+        <app-icon name="plus" [size]="12" />
+        New ticket
       </button>
       <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="new-task" (click)="ui.newSession('chat')">
         <app-icon name="plus" [size]="12" />
@@ -66,7 +84,7 @@ const VIEW_KEY = 'syre.work.view';
     <div class="flex flex-1 min-h-0">
       <main class="flex-1 min-w-0 overflow-auto px-4 pb-4" aria-label="Work board">
         @if (view() === 'board') {
-          <div class="sy-board" role="table" aria-label="Work by project and state" data-testid="work-board">
+          <div class="sy-board" role="table" aria-label="Work by lane and state" data-testid="work-board" [style.--board-cols]="board().columns.length">
             <div role="row" class="contents">
               <div role="columnheader" class="sy-board-head"><span class="sy-sr-only">Lane</span></div>
               @for (c of board().columns; track c) {
@@ -76,30 +94,64 @@ const VIEW_KEY = 'syre.work.view';
                 </div>
               }
             </div>
-            @for (lane of lanes(); track lane.key) {
+            @for (lane of board().lanes; track lane.key) {
               <div role="row" class="contents" [attr.data-lane]="lane.name">
-                <div role="rowheader" class="pt-2.5 text-[12.5px] font-medium truncate" [class.text-[var(--sy-amber)]]="lane.key === 'expedite'" [class.text-[var(--sy-text)]]="lane.key !== 'expedite'">
-                  {{ lane.key === 'expedite' ? '⚑ Expedite' : lane.name }}
+                <div role="rowheader" class="pt-2.5 text-[12.5px] font-medium" [class.text-[var(--sy-amber)]]="lane.expedite" [class.text-[var(--sy-text)]]="!lane.expedite">
+                  <div class="truncate">{{ lane.expedite ? '⚑ Expedite' : lane.name }}</div>
+                  @if (lane.rollup; as roll) {
+                    <div class="mt-0.5 text-[10.5px] font-normal text-[var(--sy-text-muted)]" data-testid="lane-rollup">{{ roll.done }}/{{ roll.total }} · {{ roll.running }} running · {{ roll.blocked }} blocked</div>
+                  }
                 </div>
                 @for (c of board().columns; track c) {
                   <div role="cell" class="pt-1.5 min-h-[44px] flex flex-col gap-1.5" [attr.data-cell]="c">
-                    @for (it of lane.cells[c]; track it.id) {
+                    @for (card of lane.cells[c]; track card.id) {
                       <button
                         type="button"
                         class="sy-work-card"
-                        [class.sy-work-card-selected]="selected()?.id === it.id"
-                        [attr.aria-current]="selected()?.id === it.id ? 'true' : null"
-                        [attr.data-card]="it.sid"
-                        (click)="select(it)"
+                        [class.sy-work-card-selected]="isSelected(card)"
+                        [class.sy-work-card-blocked]="card.blocked"
+                        [attr.aria-current]="isSelected(card) ? 'true' : null"
+                        [attr.data-card]="card.sid"
+                        [attr.data-blocked]="card.blocked ? 'true' : null"
+                        (click)="selectCard(card)"
                       >
                         <span class="flex items-center gap-1.5 w-full">
-                          <sy-item-spinner [item]="it" [size]="20" [wordless]="true" class="shrink-0" />
-                          <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)]">{{ it.sid }}</span>
+                          @if (card.work) {
+                            <sy-item-spinner [item]="card.work" [size]="20" [wordless]="true" class="shrink-0" />
+                          }
+                          <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)]">{{ card.sid }}</span>
+                          @if (card.priority) {
+                            <span class="text-[10px] font-semibold text-[var(--sy-text-secondary)]" [class.text-[var(--sy-amber)]]="card.priority === 'P0'">{{ card.priority }}</span>
+                          }
                           <span class="flex-1"></span>
-                          <sy-control-label [label]="it.control" />
+                          @if (card.work) {
+                            <sy-control-label [label]="card.work.control" />
+                          }
+                          @if (card.acceptanceTotal > 0) {
+                            <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)]" data-testid="acceptance-progress">{{ card.acceptanceDone }}/{{ card.acceptanceTotal }}</span>
+                          }
                         </span>
-                        <span class="block mt-1 text-[12.5px] text-[var(--sy-text)] line-clamp-2">{{ it.title }}</span>
-                        <span class="block mt-0.5 text-[11px] truncate" [class.text-[var(--sy-amber)]]="it.stale" [class.text-[var(--sy-text-muted)]]="!it.stale">{{ cardSub(it) }}</span>
+                        <span class="block mt-1 text-[12.5px] text-[var(--sy-text)] line-clamp-2">{{ card.title }}</span>
+                        @if (card.kind === 'ticket') {
+                          @if (card.leaseMachine || card.leaseAgent) {
+                            <span class="block mt-0.5 text-[11px] text-[var(--sy-text-muted)] truncate" data-testid="lease">{{ leaseLine(card) }}</span>
+                          }
+                          @if (card.attempt > 1) {
+                            <span class="block mt-0.5 text-[11px] text-[var(--sy-text-muted)]" data-testid="attempt-count">attempt {{ card.attempt }}</span>
+                          }
+                          @if (card.digest) {
+                            <span class="block mt-0.5 text-[11px] text-[var(--sy-text-muted)] truncate" data-testid="digest-line">{{ card.digest }}</span>
+                          }
+                          @if (card.blockers.length) {
+                            <span class="mt-1 flex flex-wrap gap-1">
+                              @for (b of card.blockers; track b.id) {
+                                <span class="inline-flex rounded-full bg-[var(--sy-surface-1)] px-1.5 py-0.5 text-[10px] text-[var(--sy-text-secondary)]" data-testid="blocker-chip">blocked by {{ b.sid }}</span>
+                              }
+                            </span>
+                          }
+                        } @else {
+                          <span class="block mt-0.5 text-[11px] truncate" [class.text-[var(--sy-amber)]]="card.work?.stale" [class.text-[var(--sy-text-muted)]]="!card.work?.stale">{{ cardSub(card) }}</span>
+                        }
                       </button>
                     }
                   </div>
@@ -108,7 +160,7 @@ const VIEW_KEY = 'syre.work.view';
             }
           </div>
           @if (empty()) {
-            <p class="mt-6 text-center text-[12.5px] text-[var(--sy-text-muted)]" data-testid="work-empty">No work today yet. Queue something from Command or with New task.</p>
+            <p class="mt-6 text-center text-[12.5px] text-[var(--sy-text-muted)]" data-testid="work-empty">Nothing on the board. Create a ticket, or queue a task from Command.</p>
           }
         } @else {
           <table class="sy-work-list w-full text-[12.5px]" data-testid="work-list">
@@ -117,7 +169,7 @@ const VIEW_KEY = 'syre.work.view';
               <tr>
                 <th scope="col">State</th>
                 <th scope="col">Work</th>
-                <th scope="col">Project</th>
+                <th scope="col">Lane</th>
                 <th scope="col">Agent</th>
                 <th scope="col">Machine</th>
                 <th scope="col">Now</th>
@@ -128,18 +180,27 @@ const VIEW_KEY = 'syre.work.view';
                 <tr>
                   <th colspan="6" scope="rowgroup" class="sy-list-group">{{ labels[c] }} · {{ countOf(c) }}</th>
                 </tr>
-                @for (it of columnItems(c); track it.id) {
-                  <tr class="cursor-pointer hover:bg-[var(--sy-raised)]" [class.bg-[var(--sy-blue-soft)]]="selected()?.id === it.id" [attr.data-row]="it.sid" (click)="select(it)">
-                    <td><sy-control-label [label]="it.control" [fixed]="true" /></td>
+                @for (card of columnCards(c); track card.id) {
+                  <tr class="cursor-pointer hover:bg-[var(--sy-raised)]" [class.bg-[var(--sy-blue-soft)]]="isSelected(card)" [class.opacity-55]="card.blocked" [attr.data-row]="card.sid" [attr.data-blocked]="card.blocked ? 'true' : null" (click)="selectCard(card)">
                     <td>
-                      <button type="button" class="sy-focusable text-left text-[var(--sy-text)] rounded-sm" (click)="$event.stopPropagation(); select(it)">
-                        <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)] mr-1.5">{{ it.sid }}</span>{{ it.title }}
-                      </button>
+                      @if (card.work) {
+                        <sy-control-label [label]="card.work.control" [fixed]="true" />
+                      } @else {
+                        <span class="text-[var(--sy-text-secondary)]">{{ card.priority }}</span>
+                      }
                     </td>
-                    <td class="text-[var(--sy-text-secondary)]">{{ work.isExpedited(it.id) ? '⚑ ' : '' }}{{ it.projectName }}</td>
-                    <td class="text-[var(--sy-text-secondary)]">{{ it.sessionKind === 'terminal' ? 'terminal' : it.agent }}</td>
-                    <td class="text-[var(--sy-text-secondary)]">{{ it.machine }}</td>
-                    <td class="text-[var(--sy-text-muted)] max-w-[320px] truncate" [syTooltip]="it.nowTitle">{{ it.now }}</td>
+                    <td>
+                      <button type="button" class="sy-focusable text-left text-[var(--sy-text)] rounded-sm" (click)="$event.stopPropagation(); selectCard(card)">
+                        <span class="font-mono-ide text-[10.5px] text-[var(--sy-text-muted)] mr-1.5">{{ card.sid }}</span>{{ card.title }}
+                      </button>
+                      @for (b of card.blockers; track b.id) {
+                        <span class="ml-1.5 inline-flex rounded-full bg-[var(--sy-surface-1)] px-1.5 py-0.5 text-[10px] text-[var(--sy-text-secondary)]" data-testid="blocker-chip">blocked by {{ b.sid }}</span>
+                      }
+                    </td>
+                    <td class="text-[var(--sy-text-secondary)]">{{ card.priority === 'P0' || (card.work && work.isExpedited(card.id)) ? '⚑ ' : '' }}{{ card.laneName }}</td>
+                    <td class="text-[var(--sy-text-secondary)]">{{ card.agent }}</td>
+                    <td class="text-[var(--sy-text-secondary)]">{{ card.machine || card.leaseMachine }}</td>
+                    <td class="text-[var(--sy-text-muted)] max-w-[320px] truncate">{{ card.digest || card.now }}</td>
                   </tr>
                 }
               </tbody>
@@ -149,12 +210,22 @@ const VIEW_KEY = 'syre.work.view';
       </main>
 
       <aside class="hidden lg:flex flex-col w-[400px] shrink-0 bg-[var(--sy-bg-chrome)] border-l border-[var(--sy-hairline)]" aria-label="Review">
-        <sy-review-panel class="flex-1" [item]="selected()" />
+        @if (selectedTicket(); as tk) {
+          <sy-ticket-panel class="flex-1" [ticket]="tk" />
+        } @else {
+          <sy-review-panel class="flex-1" [item]="selectedWork()" />
+        }
       </aside>
     </div>
 
-    @if (selected(); as it) {
-      <!-- Narrow screens: the panel slides over the board. -->
+    @if (selectedTicket(); as tk) {
+      <div class="lg:hidden fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label="Ticket">
+        <div class="sy-backdrop absolute inset-0" (click)="clear()"></div>
+        <div class="sy-drawer-bottom relative z-10 w-full max-w-[440px] h-full bg-[var(--sy-bg-chrome)] flex flex-col">
+          <sy-ticket-panel class="flex-1" [ticket]="tk" />
+        </div>
+      </div>
+    } @else if (selectedWork(); as it) {
       <div class="lg:hidden fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-label="Review">
         <div class="sy-backdrop absolute inset-0" (click)="clear()"></div>
         <div class="sy-drawer-bottom relative z-10 w-full max-w-[440px] h-full bg-[var(--sy-bg-chrome)] flex flex-col">
@@ -162,11 +233,15 @@ const VIEW_KEY = 'syre.work.view';
         </div>
       </div>
     }
+
+    @if (creating()) {
+      <sy-new-ticket-dialog (closed)="creating.set(false)" />
+    }
   `,
   styles: `
     .sy-board {
       display: grid;
-      grid-template-columns: 120px repeat(5, minmax(160px, 1fr));
+      grid-template-columns: 148px repeat(var(--board-cols, 5), minmax(160px, 1fr));
       column-gap: 8px;
       min-width: 960px;
     }
@@ -200,6 +275,9 @@ const VIEW_KEY = 'syre.work.view';
     .sy-work-card-selected {
       box-shadow: inset 0 0 0 1px var(--sy-blue);
     }
+    .sy-work-card-blocked {
+      opacity: 0.55;
+    }
     .sy-work-list th,
     .sy-work-list td {
       padding: 6px 8px;
@@ -230,24 +308,53 @@ export class WorkModeComponent {
   readonly work = inject(WorkStore);
   readonly ui = inject(ModeUiStore);
   private readonly needsYou = inject(NeedsYouStore);
+  private readonly fleet = inject(FleetStore);
+  readonly tickets = inject(TicketStore);
   private readonly router = inject(Router);
   readonly labels = COLUMN_LABELS;
 
   readonly sid = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('sid') ?? '')), { initialValue: '' });
-  // A phone gets the list: the board needs a wide screen.
   readonly view = signal<'board' | 'list'>(isPhoneWidth() ? 'list' : loadView());
-  readonly board = this.work.board;
+  readonly laneChoice = signal<SwimlaneBy | null>(loadLane());
+  readonly showBacklog = signal(false);
+  readonly showClosed = signal(false);
+  readonly creating = signal(false);
   readonly cap = this.work.capacity;
 
-  readonly selected = computed(() => {
+  readonly laneBy = computed(() => this.laneChoice() ?? defaultLaneBy(this.tickets.tickets()));
+
+  readonly board = computed(() =>
+    buildTicketBoard({
+      tickets: this.tickets.tickets(),
+      edges: this.tickets.edges(),
+      digests: this.tickets.digests(),
+      projects: this.fleet.projects(),
+      workers: this.fleet.workersById(),
+      tasks: this.fleet.tasks(),
+      adHoc: this.work.items(),
+      expedited: (id) => this.work.isExpedited(id),
+      laneBy: this.laneBy(),
+      showBacklog: this.showBacklog(),
+      showClosed: this.showClosed(),
+    }),
+  );
+
+  readonly selectedTicket = computed(() => {
+    const sid = this.sid();
+    if (!sid) return null;
+    const tk = this.tickets.bySid(sid);
+    return tk ?? null;
+  });
+  readonly selectedWork = computed(() => {
+    if (this.selectedTicket()) return null;
     const sid = this.sid();
     return sid ? (this.work.bySid(sid) ?? null) : null;
   });
-  readonly missingSid = computed(() => (this.sid() && !this.selected() && this.ui.workLoaded() ? this.sid() : ''));
-
-  readonly lanes = computed(() => {
-    const b = this.board();
-    return [{ key: 'expedite', name: 'Expedite', cells: b.expedite }, ...b.lanes];
+  readonly missingSid = computed(() => {
+    const sid = this.sid();
+    if (!sid || this.selectedTicket() || this.selectedWork()) return '';
+    if (!this.ui.workLoaded() || !this.tickets.loaded()) return '';
+    return sid;
   });
 
   readonly empty = computed(() => this.board().columns.every((c) => this.countOf(c) === 0));
@@ -256,6 +363,9 @@ export class WorkModeComponent {
   constructor() {
     const doc = inject(DOCUMENT);
     const onKey = (ev: KeyboardEvent) => {
+      const target = ev.target as HTMLElement | null;
+      const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      if (typing) return;
       if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && ev.key.toLowerCase() === 'b') {
         ev.preventDefault();
         this.setView(this.view() === 'board' ? 'list' : 'board');
@@ -265,30 +375,41 @@ export class WorkModeComponent {
     inject(DestroyRef).onDestroy(() => doc.removeEventListener('keydown', onKey));
   }
 
-  countOf(c: WorkColumn): number {
-    const b = this.board();
-    return b.expedite[c].length + b.lanes.reduce((n, l) => n + l.cells[c].length, 0);
+  countOf(c: BoardColumn): number {
+    return this.board().lanes.reduce((n, l) => n + l.cells[c].length, 0);
   }
 
-  columnItems(c: WorkColumn): WorkItem[] {
-    const b = this.board();
-    return [...b.expedite[c], ...b.lanes.flatMap((l) => l.cells[c])];
+  columnCards(c: BoardColumn): BoardCard[] {
+    return this.board().lanes.flatMap((l) => l.cells[c]);
   }
 
-  cardSub(it: WorkItem): string {
+  isSelected(card: BoardCard): boolean {
+    const sid = this.sid();
+    return !!sid && (sid === card.sid || sid === card.id);
+  }
+
+  leaseLine(card: BoardCard): string {
+    return [card.leaseMachine, card.leaseAgent].filter(Boolean).join(' · ');
+  }
+
+  cardSub(card: BoardCard): string {
+    const it = card.work;
+    if (!it) return card.now;
     const who = it.sessionKind === 'terminal' ? 'terminal' : it.agent;
     const tail = it.stale ? 'machine not reporting' : it.column === 'running' || it.column === 'needs_you' || it.column === 'queued' ? it.now : '';
     return [who, it.machine, tail].filter(Boolean).join(' · ');
   }
 
-  /** Needs-you and review cards open the Needs-you dialog; others the side panel. */
-  select(it: WorkItem): void {
-    const e = it.column === 'needs_you' || it.column === 'review' ? this.needsYou.entryFor(it.id) : undefined;
-    if (e) {
-      this.needsYou.open(e.key);
-      return;
+  selectCard(card: BoardCard): void {
+    if (card.kind !== 'ticket' && card.work) {
+      const it = card.work;
+      const e = (it.column === 'needs_you' || it.column === 'review') && (it.column as WorkColumn) ? this.needsYou.entryFor(it.id) : undefined;
+      if (e) {
+        this.needsYou.open(e.key);
+        return;
+      }
     }
-    void this.router.navigate(['/work', it.sid]);
+    void this.router.navigate(['/work', card.sid]);
   }
 
   clear(): void {
@@ -303,6 +424,15 @@ export class WorkModeComponent {
       // ignore
     }
   }
+
+  setLane(v: SwimlaneBy): void {
+    this.laneChoice.set(v);
+    try {
+      localStorage.setItem(LANE_KEY, v);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 function loadView(): 'board' | 'list' {
@@ -311,4 +441,14 @@ function loadView(): 'board' | 'list' {
   } catch {
     return 'board';
   }
+}
+
+function loadLane(): SwimlaneBy | null {
+  try {
+    const v = localStorage.getItem(LANE_KEY);
+    if (v === 'epic' || v === 'initiative' || v === 'project') return v;
+  } catch {
+    // ignore
+  }
+  return null;
 }

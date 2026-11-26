@@ -742,15 +742,11 @@ func (s *SQLiteStore) RemoveTicketEdge(ctx context.Context, ticketID, blockedByI
 	return nil
 }
 
-func (s *SQLiteStore) ListTicketEdges(ctx context.Context, ticketID string) ([]store.TicketEdge, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT ticket_id, blocked_by_id, created_at
-		FROM ticket_edges WHERE ticket_id = ? ORDER BY created_at ASC
-	`, ticketID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+func scanTicketEdges(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) ([]store.TicketEdge, error) {
 	out := []store.TicketEdge{}
 	for rows.Next() {
 		var e store.TicketEdge
@@ -764,6 +760,82 @@ func (s *SQLiteStore) ListTicketEdges(ctx context.Context, ticketID string) ([]s
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) ListTicketEdgesByProject(ctx context.Context, projectID string) ([]store.TicketEdge, error) {
+	q := `
+		SELECT e.ticket_id, e.blocked_by_id, e.created_at
+		FROM ticket_edges e
+		JOIN tickets t ON t.id = e.ticket_id`
+	var args []any
+	if projectID != "" {
+		q += ` WHERE t.project_id = ?`
+		args = append(args, projectID)
+	}
+	q += ` ORDER BY e.created_at ASC, e.ticket_id ASC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTicketEdges(rows)
+}
+
+func (s *SQLiteStore) ListLatestDigestJSON(ctx context.Context) ([]store.TicketDigestRaw, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.ticket_id, t.digest_json
+		FROM tasks t
+		WHERE t.ticket_id != '' AND t.digest_json != ''
+		  AND t.id = (
+			SELECT t2.id FROM tasks t2
+			WHERE t2.ticket_id = t.ticket_id AND t2.digest_json != ''
+			ORDER BY COALESCE(t2.completed_at, t2.started_at, t2.created_at) DESC, t2.id DESC
+			LIMIT 1
+		  )
+		ORDER BY t.ticket_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []store.TicketDigestRaw{}
+	for rows.Next() {
+		var d store.TicketDigestRaw
+		if err := rows.Scan(&d.TicketID, &d.DigestJSON); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) LatestDigestJSON(ctx context.Context, ticketID string) (string, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT digest_json FROM tasks
+		WHERE ticket_id = ? AND digest_json != ''
+		ORDER BY COALESCE(completed_at, started_at, created_at) DESC, id DESC
+		LIMIT 1
+	`, ticketID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
+func (s *SQLiteStore) ListTicketEdges(ctx context.Context, ticketID string) ([]store.TicketEdge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ticket_id, blocked_by_id, created_at
+		FROM ticket_edges WHERE ticket_id = ? ORDER BY created_at ASC
+	`, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTicketEdges(rows)
+}
+
 func (s *SQLiteStore) ListTicketBlocking(ctx context.Context, blockedByID string) ([]store.TicketEdge, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT ticket_id, blocked_by_id, created_at
@@ -773,17 +845,7 @@ func (s *SQLiteStore) ListTicketBlocking(ctx context.Context, blockedByID string
 		return nil, err
 	}
 	defer rows.Close()
-	out := []store.TicketEdge{}
-	for rows.Next() {
-		var e store.TicketEdge
-		var createdAt string
-		if err := rows.Scan(&e.TicketID, &e.BlockedByID, &createdAt); err != nil {
-			return nil, err
-		}
-		e.CreatedAt = parseTime(createdAt)
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return scanTicketEdges(rows)
 }
 
 // --- Ticket Repo Bindings ---

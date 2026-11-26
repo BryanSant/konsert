@@ -143,4 +143,64 @@ func TestWorkModelRESTEndpoints(t *testing.T) {
 	if code != http.StatusOK || patched["status"] != store.TicketStatusRunning {
 		t.Fatalf("PATCH ticket = %d %v", code, patched)
 	}
+
+	// Board list carries blocked_by edges and the latest digest line.
+	if err := st.CreateTask(ctx, store.Task{
+		Agent:      "claude",
+		Workdir:    t.TempDir(),
+		Prompt:     "land the schema",
+		Status:     "completed",
+		TicketID:   f2ID,
+		DigestJSON: `{"summary":"landed the schema","agent":"claude","machine":"desk","attempt":2,"status":"completed"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code, board := req(http.MethodGet, "/api/tickets?project_id="+projID, "")
+	if code != http.StatusOK {
+		t.Fatalf("board list = %d %v", code, board)
+	}
+	edges, _ := board["edges"].([]any)
+	var sawEdge bool
+	for _, raw := range edges {
+		e, _ := raw.(map[string]any)
+		if e["ticket_id"] == f2ID && e["blocked_by_id"] == f1ID {
+			sawEdge = true
+		}
+	}
+	if !sawEdge {
+		t.Fatalf("board edges missing f2 blocked_by f1: %v", board["edges"])
+	}
+	digests, _ := board["digests"].([]any)
+	var sawDigest bool
+	for _, raw := range digests {
+		d, _ := raw.(map[string]any)
+		if d["ticket_id"] == f2ID && d["summary"] == "landed the schema" && d["machine"] == "desk" && d["agent"] == "claude" {
+			sawDigest = true
+		}
+	}
+	if !sawDigest {
+		t.Fatalf("board digests = %v", board["digests"])
+	}
+
+	code, got := req(http.MethodGet, "/api/tickets/"+f2ID, "")
+	if code != http.StatusOK {
+		t.Fatalf("GET ticket = %d %v", code, got)
+	}
+	dig, _ := got["digest"].(map[string]any)
+	if dig["summary"] != "landed the schema" {
+		t.Fatalf("ticket digest = %v", got["digest"])
+	}
+
+	code, cmt := req(http.MethodPost, "/api/tickets/"+f2ID+"/comments", `{"body":"shipped the schema"}`)
+	if code != http.StatusCreated || cmt["body"] != "shipped the schema" || cmt["author"] == "" {
+		t.Fatalf("POST comment = %d %v", code, cmt)
+	}
+	code, comments := req(http.MethodGet, "/api/tickets/"+f2ID+"/comments", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET comments = %d %v", code, comments)
+	}
+	list, _ := comments["comments"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("comments = %v", comments)
+	}
 }
