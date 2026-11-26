@@ -270,6 +270,31 @@ describe('TicketPanelComponent', () => {
     expect(api['updateTicket']).toHaveBeenCalledWith('b', { status: 'done' });
   });
 
+  it('fetches a capped diff only after View diff is clicked', async () => {
+    api['inspectTicket'] = vi.fn(async () => ({
+      text: 'diff body',
+      truncated: true,
+      next_offset: 200,
+      note: 'truncated; call inspect again with offset=200',
+    }));
+    const { fixture, el } = await open();
+    expect(api['inspectTicket']).not.toHaveBeenCalled();
+    expect(el.querySelector('[data-testid="ticket-diff"]')).toBeNull();
+
+    (el.querySelector('[data-testid="view-diff"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(api['inspectTicket']).toHaveBeenCalledWith('b', { kind: 'diff', repo: undefined, max_lines: 200, offset: 0 });
+    expect(el.querySelector('[data-testid="ticket-diff"]')?.textContent).toContain('diff body');
+    expect(el.querySelector('[data-testid="diff-note"]')?.textContent).toContain('offset=200');
+
+    (el.querySelector('[data-testid="diff-more"]') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(api['inspectTicket']).toHaveBeenLastCalledWith('b', { kind: 'diff', repo: undefined, max_lines: 200, offset: 200 });
+    expect(el.querySelector('[data-testid="ticket-diff"]')?.textContent).toContain('diff bodydiff body');
+  });
+
   it('shows a cycle error when adding a blocker fails', async () => {
     const { fixture, el } = await open();
     const pick = el.querySelector('[data-testid="add-blocker"]') as HTMLSelectElement;

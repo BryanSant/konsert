@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/BryanSant/syre/internal/config"
 	"github.com/BryanSant/syre/internal/protocol"
@@ -105,6 +106,110 @@ func TestInvalidToolArgumentsDoNotPoisonHistory(t *testing.T) {
 	}
 	if !strings.Contains(badResult, "invalid tool arguments") {
 		t.Fatalf("model should see an error result for call_bad, got %q", badResult)
+	}
+}
+
+type fixedExecutor struct{ result any }
+
+func (fixedExecutor) ToolDefinitions() []ToolDef { return nil }
+
+func (e fixedExecutor) ExecuteTool(context.Context, string, jsontext.Value) (any, error) {
+	return e.result, nil
+}
+
+func TestToolResultReplayIsCapped(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _ := newTestService(t, config.CommanderConfig{})
+	svc.executor = fixedExecutor{result: map[string]string{"blob": strings.Repeat("x", 8000)}}
+	prov := &scriptedProvider{replies: []Message{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "fleet_status", Arguments: jsontext.Value(`{}`)}}},
+		{Role: "assistant", Content: "done"},
+	}}
+	svc.SetProvider(prov)
+	var replayed any
+	if err := svc.HandleUserMessage(ctx, "s-cap", "go", StreamCallbacks{
+		OnTool: func(p protocol.ChatToolPayload) {
+			if p.Status == "completed" {
+				replayed = p.Result
+			}
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	shown, ok := replayed.(string)
+	if !ok || len(shown) > toolResultReplayCap || !strings.Contains(shown, "call inspect again") {
+		t.Fatalf("replayed=%T %v", replayed, replayed)
+	}
+	rows, err := st.ListChatMessages(ctx, "s-cap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	for _, r := range rows {
+		if r.Role == "tool" {
+			stored = r.Content
+		}
+	}
+	if stored == "" || len(stored) > toolResultReplayCap || !strings.HasSuffix(stored, "[truncated; call inspect again]") {
+		t.Fatalf("stored len=%d %q", len(stored), stored)
+	}
+	if len(prov.seen) < 2 {
+		t.Fatalf("provider calls=%d", len(prov.seen))
+	}
+	var replay string
+	for _, m := range prov.seen[1] {
+		if m.Role == "tool" {
+			replay = m.Content
+		}
+	}
+	if replay != stored {
+		t.Fatalf("history replay=%q stored=%q", replay, stored)
+	}
+
+	if err := st.CreateChatSession(ctx, store.ChatSession{ID: "s-old", Title: "old", Provider: "openai", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	calls, err := json.Marshal([]ToolCall{{ID: "old", Name: "fleet_status", Arguments: jsontext.Value("{}")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendChatMessage(ctx, store.ChatMessage{SessionID: "s-old", Role: "assistant", ToolJSON: string(calls)}); err != nil {
+		t.Fatal(err)
+	}
+	huge := strings.Repeat("z", 9000)
+	if _, err := st.AppendChatMessage(ctx, store.ChatMessage{
+		SessionID: "s-old", Role: "tool", Content: huge,
+		ToolJSON: `{"call_id":"old","name":"fleet_status","status":"completed"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _, err := svc.loadBoundedHistory(ctx, "s-old", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded string
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			loaded = m.Content
+		}
+	}
+	if loaded == "" || len(loaded) > toolResultReplayCap || !strings.Contains(loaded, "call inspect again") || loaded == huge {
+		t.Fatalf("loaded len=%d", len(loaded))
+	}
+}
+
+func TestCapToolResultReplay(t *testing.T) {
+	exact := strings.Repeat("a", toolResultReplayCap)
+	if capToolResultReplay(exact) != exact {
+		t.Fatal("a result at the cap should be unchanged")
+	}
+	over := capToolResultReplay(exact + "b")
+	if len(over) > toolResultReplayCap || !strings.HasSuffix(over, "[truncated; call inspect again]") {
+		t.Fatalf("len=%d", len(over))
+	}
+	wide := capToolResultReplay(strings.Repeat("é", 2000))
+	if len(wide) > toolResultReplayCap || !utf8.ValidString(wide) {
+		t.Fatalf("len=%d valid=%v", len(wide), utf8.ValidString(wide))
 	}
 }
 

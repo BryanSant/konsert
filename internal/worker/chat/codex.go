@@ -479,6 +479,7 @@ type codexSession struct {
 	watchdogFired  bool
 	suspended      bool // process tree frozen by the user; the watchdog does not run
 	closed         bool
+	retainedStderr string // stderr tail captured when the process is closed
 	stop           chan struct{}
 	stopOnce       sync.Once
 }
@@ -487,6 +488,26 @@ func (s *codexSession) AgentSessionID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.threadID
+}
+
+// StderrTail is the redacted engine stderr. A closed session returns the tail
+// captured when the process exited.
+func (s *codexSession) StderrTail(max int) string {
+	s.mu.Lock()
+	proc := s.proc
+	saved := s.retainedStderr
+	env := s.acct.Env
+	s.mu.Unlock()
+	tail := saved
+	if proc != nil {
+		if live := ccProcessStderr(proc, env); live != "" {
+			tail = live
+		}
+	}
+	if max > 0 && len(tail) > max {
+		tail = tail[len(tail)-max:]
+	}
+	return tail
 }
 
 // ensureProc starts app-server, checks the account and starts/resumes the thread.
@@ -896,6 +917,7 @@ func (s *codexSession) Close() error {
 	proc := s.proc
 	s.proc, s.conn = nil, nil
 	s.procGen++
+	env := s.acct.Env
 	s.mu.Unlock()
 	s.stopOnce.Do(func() { close(s.stop) })
 	if proc != nil {
@@ -907,6 +929,11 @@ func (s *codexSession) Close() error {
 		case <-time.After(2 * time.Second):
 			proc.Kill()
 			<-done
+		}
+		if tail := ccProcessStderr(proc, env); tail != "" {
+			s.mu.Lock()
+			s.retainedStderr = tail
+			s.mu.Unlock()
 		}
 	}
 	return nil

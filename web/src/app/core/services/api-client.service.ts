@@ -75,6 +75,21 @@ import {
 } from '../models/question.models';
 import { CHAT_PROTOCOL } from './chat-protocol';
 
+/** One capped page from GET /api/tickets/{id}/inspect. */
+export interface InspectResult {
+  target?: string;
+  kind?: string;
+  text?: string;
+  truncated?: boolean;
+  offset?: number;
+  next_offset?: number;
+  max_lines?: number;
+  note?: string;
+  repo?: string;
+  task_id?: string;
+  task_sid?: string;
+}
+
 /** Error thrown for non-2xx responses; carries the HTTP status. */
 export class ApiError extends Error {
   constructor(
@@ -1020,6 +1035,19 @@ export class ApiClientService {
 
   getTicketPacket(id: string): Promise<{ packet: unknown; text: string; tokens: number }> {
     return this.request(`/api/tickets/${encodeURIComponent(id)}/packet`);
+  }
+
+  inspectTicket(
+    id: string,
+    q: { kind: string; repo?: string; path?: string; max_lines?: number; offset?: number },
+  ): Promise<InspectResult> {
+    const params = new URLSearchParams();
+    params.set('kind', q.kind);
+    if (q.repo) params.set('repo', q.repo);
+    if (q.path) params.set('path', q.path);
+    if (q.max_lines != null) params.set('max_lines', String(q.max_lines));
+    if (q.offset != null) params.set('offset', String(q.offset));
+    return this.request(`/api/tickets/${encodeURIComponent(id)}/inspect?${params.toString()}`);
   }
 
   requeueTicket(id: string, note?: string): Promise<Ticket> {

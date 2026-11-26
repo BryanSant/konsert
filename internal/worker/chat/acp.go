@@ -1454,6 +1454,21 @@ func (s *acpSession) ProcessID() int {
 	return s.pidLocked()
 }
 
+// StderrTail is the engine's redacted stderr tail. The connection keeps the
+// buffer after Close, so a just-closed session can still be snapshotted.
+func (s *acpSession) StderrTail(max int) string {
+	s.mu.Lock()
+	var proc *Proc
+	if s.conn != nil {
+		proc = s.conn.proc
+	}
+	s.mu.Unlock()
+	if proc == nil {
+		return ""
+	}
+	return proc.StderrTail(max)
+}
+
 // Suspend freezes the agent's process tree (Suspender).
 func (s *acpSession) Suspend() error {
 	s.mu.Lock()

@@ -1168,15 +1168,19 @@ func (s *FleetService) ToolDefinitions() []commander.ToolDef {
 			},
 		},
 		{
-			Name:        "inspect_git_status",
-			Description: "Deterministic daemon RPC to inspect git branch, dirty files, and diff stats on a remote machine without invoking any coding agent.",
+			Name:        "inspect",
+			Description: inspectToolDescription,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"worker_id": map[string]any{"type": "string"},
-					"workdir":   map[string]any{"type": "string"},
+					"target":    map[string]any{"type": "string", "description": "Ticket or task id or sid"},
+					"kind":      map[string]any{"type": "string", "enum": []string{"digest", "diff_stat", "diff", "stderr", "log", "transcript", "file"}},
+					"repo":      map[string]any{"type": "string", "description": "Repo name when the ticket has more than one binding"},
+					"path":      map[string]any{"type": "string", "description": "Relative path. Required for kind file"},
+					"max_lines": map[string]any{"type": "integer", "description": "Lines per page (default 200, max 2000)"},
+					"offset":    map[string]any{"type": "integer", "description": "Line offset; pass next_offset from the previous page"},
 				},
-				"required": []string{"worker_id", "workdir"},
+				"required": []string{"target", "kind"},
 			},
 		},
 		{
@@ -1393,21 +1397,12 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 		}
 		return map[string]any{"machines": out}, nil
 
-	case "inspect_git_status":
-		var req struct {
-			WorkerID string `json:"worker_id"`
-			Workdir  string `json:"workdir"`
-		}
+	case "inspect":
+		var req InspectRequest
 		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid inspect_git_status args: %w", err)
+			return nil, fmt.Errorf("invalid inspect args: %w", err)
 		}
-		rpcCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgGitInspect, protocol.GitInspectRequest{Workdir: req.Workdir})
-		if err != nil {
-			return nil, err
-		}
-		return protocol.DecodePayload[protocol.GitInspectResult](env)
+		return s.Inspect(ctx, req)
 
 	case "list_remote_dir":
 		var req struct {
