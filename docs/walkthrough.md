@@ -133,8 +133,8 @@ out on purpose (for example a spare `claude2` profile).
 - [ ] Start a **New chat** with **Fleet tools** on (claude is fine). Send
       `Use the Syre fleet tools to dispatch a shell task on <this machine> that runs
       "uname -a && date", wait for it, and tell me its output.`
-- [ ] The transcript shows the fleet tool calls (`fleet_status`, `dispatch_task`,
-      `get_task_result`, ...), the task appears in the sidebar and finishes, and the
+- [ ] The transcript shows the fleet tool calls (`fleet_status`, `manage_work`,
+      `inspect`, ...), the task appears in the sidebar and finishes, and the
       agent's reply quotes the real `uname -a` output.
 - [ ] Open the task from the sidebar: its terminal output matches.
 

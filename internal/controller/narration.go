@@ -11,7 +11,6 @@ import (
 
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/store"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Project narration (SYR-H5BXK): the commander states each project's current goal (its
@@ -47,10 +46,6 @@ type SetNarrationResult struct {
 type NarrationBackend interface {
 	SetNarration(ctx context.Context, in SetNarrationInput) (SetNarrationResult, error)
 }
-
-const setNarrationDescription = "Set the headline of a project (its current goal) and/or a one-line 'now' for a task, shown in Syre's live work views. " +
-	"Update the headline when a plan starts or changes — not on every step; Syre already shows each session's live activity (thinking, running a tool, asking). " +
-	"Give a task a 'now' line when its purpose isn't obvious from its title. Plain, concrete words; one line each."
 
 // narrationLine normalizes a narration to one line and checks its length.
 func narrationLine(field, s string, max int) (string, error) {
@@ -141,44 +136,6 @@ func (s *FleetService) resolveProjectRef(ctx context.Context, ref string) string
 		}
 	}
 	return ""
-}
-
-// addNarrationTool registers set_narration on srv when backend supports it.
-func addNarrationTool(srv *mcp.Server, backend any) {
-	nb, ok := backend.(NarrationBackend)
-	if !ok {
-		return
-	}
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "set_narration",
-		Description: setNarrationDescription,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SetNarrationInput) (*mcp.CallToolResult, any, error) {
-		res, err := nb.SetNarration(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-}
-
-// setNarrationToolDef is set_narration for the API-key commander backend.
-var setNarrationToolDef = map[string]any{
-	"type": "object",
-	"properties": map[string]any{
-		"project":  map[string]any{"type": "string", "description": "Project id, sid (p-…) or name; defaults to the task's project"},
-		"headline": map[string]any{"type": "string", "description": "The project's current goal in one line (max 140 chars); set it when a plan starts or changes"},
-		"task":     map[string]any{"type": "string", "description": "Task id or sid (t-…) for the now line"},
-		"now":      map[string]any{"type": "string", "description": "One line (max 120 chars) on what the task is doing toward the goal"},
-	},
-}
-
-// decodeSetNarration parses set_narration arguments of the API-key backend.
-func decodeSetNarration(args []byte) (SetNarrationInput, error) {
-	var in SetNarrationInput
-	if err := json.Unmarshal(args, &in); err != nil {
-		return in, fmt.Errorf("invalid set_narration args: %w", err)
-	}
-	return in, nil
 }
 
 // detectTicket returns the first ka ticket id in texts ("" when none).

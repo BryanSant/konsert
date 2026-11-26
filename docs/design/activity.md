@@ -352,11 +352,8 @@ tooltip of the "Heat over the last" label and is repeated in Settings → Machin
 
 ## Project narration
 
-* **Commander**: the `set_narration` MCP tool (commander chats, `syre mcp`, and the
-  API-key backend) sets a project's `headline` (its current goal, ≤ 140 chars) and/or a task's
-  one-line `now` (≤ 120 chars). `dispatch_task` takes a short `title`. The standing prompt
-  (`commander.NarrationPrompt`) says to update headlines when a plan starts or changes, not on
-  every step, and to add a task's `now` only when its purpose isn't clear from its title.
+* **Commander**: project headlines and task `now` lines are set in the UI or automatically
+  from facts; `manage_work` (`action: dispatch`) takes a short `title`.
 * **Facts**: tasks record a `ticket_id` detected in their title or prompt; the hub resolves its
   title with `ka show` in the background (`ticket_title`).
 * **Fallbacks** (`web/src/app/core/state/activity-logic.ts`), so nothing is blank:

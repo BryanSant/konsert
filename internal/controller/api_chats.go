@@ -302,7 +302,7 @@ func (h *Hub) chatMCPHandler(cs store.ChatSession) http.Handler {
 	var srv *mcp.Server
 	var control HumanControlBackend
 	if cs.FleetTools && h.chatFleetBackend != nil {
-		srv = newMCPServer(h.chatFleetBackend, h.version, nil)
+		srv = newMCPServer(h.chatFleetBackend, h.version, nil, h.chatConfirm(cs.ID))
 		control, _ = h.chatFleetBackend.(HumanControlBackend)
 	} else {
 		v := h.version

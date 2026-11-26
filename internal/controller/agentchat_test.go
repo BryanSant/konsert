@@ -760,10 +760,10 @@ func TestCommanderIsAgentChatWithFleetTools(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names[tl.Name] = true
 	}
-	if !names["ask_user"] || !names["dispatch_task"] || !names["fleet_status"] || !names["set_policy"] {
+	if !names["ask_user"] || !names["manage_work"] || !names["fleet_status"] || !names["set_policy"] {
 		t.Fatalf("commander tools: %v", names)
 	}
-	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "fleet_status", Arguments: map[string]any{}})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "fleet_status", Arguments: map[string]any{"detail": "machines"}})
 	if err != nil || res.IsError || !strings.Contains(toolText(res), "w1") {
 		t.Fatalf("fleet_status via chat MCP: %v %+v", err, res)
 	}

@@ -91,7 +91,7 @@ that joined by hand.
 - **Stdio Bridge:** Configure your local desktop/CLI commander to run `syre mcp`. On the
   hub's machine it needs nothing else; elsewhere run `syre login https://hub:8420` once.
 
-Available MCP tools: `fleet_status`, `dispatch_task`, `list_tasks`, `get_task_result`, `steer_task`, `cancel_task`.
+Available MCP tools: `fleet_status`, `backlog`, `manage_work`, `control`, `set_policy`, `reply`, `inspect`, `memory`, `ask_commander`.
 
 ### 5. Built-in Commander Chat Configuration
 

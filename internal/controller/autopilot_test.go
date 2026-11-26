@@ -323,13 +323,13 @@ func TestAutopilotRESTMCPAndAuditAttribution(t *testing.T) {
 	}
 	defer sess.Close()
 
-	// Call MCP autopilot(project="Billing", action="pause") with commander context via hub directly too.
+	// Call MCP control(scope="project", target="Billing", action="autopilot_pause").
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "autopilot",
-		Arguments: map[string]any{"project": "Billing", "action": "pause"},
+		Name:      "control",
+		Arguments: map[string]any{"scope": "project", "target": "Billing", "action": "autopilot_pause"},
 	})
 	if err != nil || res.IsError {
-		t.Fatalf("MCP autopilot pause failed: err=%v res=%+v", err, res)
+		t.Fatalf("MCP control autopilot_pause failed: err=%v res=%+v", err, res)
 	}
 	var mcpState AutopilotProjectState
 	if err := json.Unmarshal([]byte(res.Content[0].(*mcp.TextContent).Text), &mcpState); err != nil {
@@ -344,20 +344,20 @@ func TestAutopilotRESTMCPAndAuditAttribution(t *testing.T) {
 	if _, err := srv.Hub().Autopilot(cmdCtx, AutopilotInput{Project: projSID, Action: "play"}); err != nil {
 		t.Fatalf("commander autopilot play: %v", err)
 	}
-	// Global status via MCP.
+	// Global autopilot state reflected in fleet_status summary via MCP.
 	resStatus, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "autopilot",
-		Arguments: map[string]any{"action": "status"},
+		Name:      "fleet_status",
+		Arguments: map[string]any{},
 	})
 	if err != nil || resStatus.IsError {
-		t.Fatalf("MCP autopilot status failed: err=%v res=%+v", err, resStatus)
+		t.Fatalf("MCP fleet_status failed: err=%v res=%+v", err, resStatus)
 	}
-	var globalOut AutopilotState
-	if err := json.Unmarshal([]byte(resStatus.Content[0].(*mcp.TextContent).Text), &globalOut); err != nil {
+	var sumOut FleetSummaryResult
+	if err := json.Unmarshal([]byte(resStatus.Content[0].(*mcp.TextContent).Text), &sumOut); err != nil {
 		t.Fatal(err)
 	}
-	if !globalOut.Global || globalOut.State != AutopilotStatePlaying {
-		t.Fatalf("unexpected MCP global status: %+v", globalOut)
+	if sumOut.Autopilot != AutopilotStatePlaying {
+		t.Fatalf("unexpected MCP fleet_status autopilot state: %+v", sumOut)
 	}
 
 	// Verify audit attribution: REST ("rest"), MCP ("mcp"), and commander ("commander").
