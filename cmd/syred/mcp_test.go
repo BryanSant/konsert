@@ -43,8 +43,10 @@ func TestMCPBridgeAgainstAuthEnabledHub(t *testing.T) {
 	defer st.Close()
 	hubCfg := config.DefaultControllerConfig()
 	hubCfg.RecoveryKey = "admin-tok"
-	ts := httptest.NewServer(controller.NewServer(hubCfg, st, nil, "test"))
+	srv := controller.NewServer(hubCfg, st, nil, "test")
+	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	workerCfg := config.WorkerConfig{ControllerURL: "ws" + ts.URL[len("http"):] + "/ws/worker", Credential: "smc_machine"}
 

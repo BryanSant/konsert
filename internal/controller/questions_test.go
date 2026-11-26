@@ -166,6 +166,7 @@ func TestQuestionQueueOrderAndDedupe(t *testing.T) {
 	}
 	// Survives a "restart": a fresh hub on the same store sees the same queue.
 	h2 := NewHub(cs.st, nil)
+	defer h2.Close()
 	if v2, _ := h2.questionQueue(ctx, false, ""); len(v2) != 4 {
 		t.Fatalf("after restart: %d questions", len(v2))
 	}

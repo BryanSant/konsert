@@ -37,6 +37,8 @@ type questionState struct {
 	summaryWaiters map[string]chan string
 	// timers for decided delegations (question id -> timer).
 	timers map[string]*time.Timer
+	// closed is set by Hub.Shutdown so no new delegation timers are armed.
+	closed bool
 	// refCache caches resolved references briefly.
 	refCache map[string]refCacheEntry
 }

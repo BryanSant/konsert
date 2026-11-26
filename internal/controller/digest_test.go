@@ -29,6 +29,7 @@ func TestTaskDigestStoredAndExposed(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	th := &testHub{h: srv.hub, st: st, svc: srv.service, ts: ts}
 	fw := th.dialWorker(t, protocol.WorkerInfo{ID: "w-digest", Name: "bocabox", Agents: []string{"claude"}}, nil)

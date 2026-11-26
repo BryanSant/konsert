@@ -55,6 +55,7 @@ func TestWorkerVersionFlowsToFleetAPI(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "1.5.0")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	wCfg := config.DefaultWorkerConfig()
 	wCfg.ControllerURL = "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/worker"

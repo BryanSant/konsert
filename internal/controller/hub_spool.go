@@ -123,7 +123,11 @@ func (h *Hub) startSpool(ctx, connCtx context.Context, wc *workerConn, hello pro
 		h.logger.Warn("load hub id failed", "worker_id", wc.id, "err", err)
 	}
 	h.sendWorkerJSON(wc, protocol.MsgWorkerSpoolResume, protocol.SpoolResume{HubID: hubID, Epoch: hello.Spool.Epoch, AppliedSeq: applied})
-	go h.spoolAckLoop(connCtx, wc)
+	if wc.wg != nil {
+		wc.wg.Go(func() { h.spoolAckLoop(connCtx, wc) })
+	} else {
+		go h.spoolAckLoop(connCtx, wc)
+	}
 }
 
 // handleWorkerEnvelope applies one message from a daemon: spooled records at most once,

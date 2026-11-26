@@ -37,8 +37,8 @@ func newSecurityTestServer(t *testing.T, mutate func(*config.ControllerConfig)) 
 	srv.attach.dialSSH = noSSH
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() {
+		srv.Close()
 		ts.Close()
-		srv.Hub().Close()
 	})
 	return srv, ts
 }

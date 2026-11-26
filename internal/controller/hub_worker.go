@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -43,6 +44,8 @@ func (h *Hub) disconnectWorkerWith(workerID string, code int, reason string) {
 // ServeWorkerConn handles a single authenticated syred WebSocket connection until disconnect.
 func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	conn.SetReadLimit(20 * 1024 * 1024)
+	var connWG sync.WaitGroup
+	defer connWG.Wait()
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer context.AfterFunc(h.ctx, cancel)()
@@ -96,6 +99,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		name:        hello.Worker.Name,
 		hostGroup:   hello.Worker.HostGroup,
 		hostname:    hello.Worker.Hostname,
+		wg:          &connWG,
 	}
 	wc.mcp = &mcprelay.Remote{
 		Ctx:        connCtx,
@@ -163,12 +167,15 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 		// half-open socket. Close it with a normal, reconnectable code: 4001
 		// (WSCloseWorkerRemoved) would make syred exit for good. The close
 		// handshake can block for seconds on a dead peer, so run it off this path.
-		go func(old *workerConn) {
+		old := prevConn
+		if !h.goBackground(func(context.Context) {
 			if old.conn != nil {
 				_ = old.conn.Close(websocket.StatusNormalClosure, "superseded by newer syred connection")
 			}
 			old.cancel()
-		}(prevConn)
+		}) {
+			old.cancel()
+		}
 	}
 
 	// The daemon's spool: tell it where to resume (hub_spool.go). A machine that
@@ -266,24 +273,28 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 	// heartbeat whenever it is quiet, so a live daemon is always heard from.
 	lv := linkwatch.New(linkwatch.Config{QuietAfter: h.LinkQuiet, DeadAfter: h.LinkDead}, nil)
 	var dead atomic.Bool
-	go lv.Monitor(connCtx, func() {
-		go func() {
-			pctx, pcancel := context.WithTimeout(connCtx, lv.Config().DeadAfter)
-			defer pcancel()
-			if conn.Ping(pctx) == nil {
-				lv.Received()
-			}
-		}()
-	}, func() {
-		// On a hub wake every link looks dead at once: note the wake first, while this
-		// machine still counts as linked (hub_wake.go).
-		h.checkWake(time.Now())
-		dead.Store(true)
-		cancel()
+	connWG.Go(func() {
+		var pingWG sync.WaitGroup
+		defer pingWG.Wait()
+		lv.Monitor(connCtx, func() {
+			pingWG.Go(func() {
+				pctx, pcancel := context.WithTimeout(connCtx, lv.Config().DeadAfter)
+				defer pcancel()
+				if conn.Ping(pctx) == nil {
+					lv.Received()
+				}
+			})
+		}, func() {
+			// On a hub wake every link looks dead at once: note the wake first, while this
+			// machine still counts as linked (hub_wake.go).
+			h.checkWake(time.Now())
+			dead.Store(true)
+			cancel()
+		})
 	})
 
 	// Writer goroutine
-	go func() {
+	connWG.Go(func() {
 		for {
 			select {
 			case <-connCtx.Done():
@@ -299,7 +310,7 @@ func (h *Hub) ServeWorkerConn(ctx context.Context, conn *websocket.Conn) {
 				lv.Sent()
 			}
 		}
-	}()
+	})
 
 	// Read loop
 	for {

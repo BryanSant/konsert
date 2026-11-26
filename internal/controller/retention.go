@@ -187,17 +187,18 @@ func (h *Hub) retentionLoop(ctx context.Context) {
 	if h.store == nil || h.RetentionEvery <= 0 {
 		return
 	}
-	wait := h.RetentionStartDelay
+	timer := time.NewTimer(h.RetentionStartDelay)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-timer.C:
 		}
-		wait = h.RetentionEvery
 		if _, err := h.runCompaction(ctx, "schedule", false); err != nil && ctx.Err() == nil && !errors.Is(err, errCompactionRunning) {
 			h.logger.Warn("history retention pass failed", "err", err)
 		}
+		timer.Reset(h.RetentionEvery)
 	}
 }
 

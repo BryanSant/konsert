@@ -345,6 +345,7 @@ func TestTicketLeaseBreakRESTAndAutopilotPatch(t *testing.T) {
 	srv := NewServer(cfg, st, nil, "test")
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
+	defer srv.Close()
 
 	req := func(method, path, body string) (int, map[string]any) {
 		t.Helper()

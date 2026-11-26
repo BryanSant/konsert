@@ -281,6 +281,9 @@ func (h *Hub) decideDelegated(ctx context.Context, orchChatID string, in answerQ
 func (h *Hub) scheduleDelegationDelivery(id string, d time.Duration) {
 	h.questions.mu.Lock()
 	defer h.questions.mu.Unlock()
+	if h.questions.closed {
+		return
+	}
 	h.questions.init()
 	if t := h.questions.timers[id]; t != nil {
 		t.Stop()
@@ -294,6 +297,20 @@ func (h *Hub) scheduleDelegationDelivery(id string, d time.Duration) {
 func (h *Hub) stopDelegationTimer(id string) {
 	if t := h.questions.timers[id]; t != nil {
 		t.Stop()
+		delete(h.questions.timers, id)
+	}
+}
+
+// stopAllDelegationTimers stops every pending delegation timer and prevents new ones
+// from being armed once the hub begins shutting down.
+func (h *Hub) stopAllDelegationTimers() {
+	h.questions.mu.Lock()
+	defer h.questions.mu.Unlock()
+	h.questions.closed = true
+	for id, t := range h.questions.timers {
+		if t != nil {
+			t.Stop()
+		}
 		delete(h.questions.timers, id)
 	}
 }

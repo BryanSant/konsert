@@ -220,9 +220,11 @@ func TestPulseExternalMCPResourceAndNotifications(t *testing.T) {
 
 	mcpSrv := NewMCPServer(cs.svc, "test")
 	cTrans, sTrans := mcp.NewInMemoryTransports()
-	if _, err := mcpSrv.Connect(ctx, sTrans, nil); err != nil {
+	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer srvSess.Close()
 
 	var mu sync.Mutex
 	var updatedURIs []string
@@ -317,9 +319,11 @@ func TestTicketVerifyFailTwiceProducesOneFailedPulseE2E(t *testing.T) {
 	// Connect an external MCP commander subscribed to syre://pulse to observe every pulse emitted.
 	mcpSrv := NewMCPServer(cs.svc, "test")
 	cTrans, sTrans := mcp.NewInMemoryTransports()
-	if _, err := mcpSrv.Connect(ctx, sTrans, nil); err != nil {
+	srvSess, err := mcpSrv.Connect(ctx, sTrans, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer srvSess.Close()
 	var mu sync.Mutex
 	var pulses []string
 	var sess *mcp.ClientSession
@@ -335,7 +339,6 @@ func TestTicketVerifyFailTwiceProducesOneFailedPulseE2E(t *testing.T) {
 			}
 		},
 	})
-	var err error
 	sess, err = client.Connect(ctx, cTrans, nil)
 	if err != nil {
 		t.Fatal(err)

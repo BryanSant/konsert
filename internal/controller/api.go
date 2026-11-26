@@ -23,6 +23,7 @@ import (
 	"github.com/BryanSant/syre/internal/store"
 	"github.com/BryanSant/syre/internal/worker"
 	"github.com/coder/websocket"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Server wires together HTTP REST API, Browser WS, Worker WS, MCP HTTP, and Embedded PWA.
@@ -71,6 +72,8 @@ type Server struct {
 	hubKeyFile string
 	// forges manages forge detection, encrypted credentials, and OAuth device flows (forges.go).
 	forges *forgeManager
+	// mcpServers holds the Streamable HTTP MCP servers so Shutdown closes their sessions.
+	mcpServers []*mcp.Server
 }
 
 // NewServer creates a fully wired Syre controller HTTP handler.
@@ -346,8 +349,11 @@ func (s *Server) registerRoutes() {
 		// Two MCP servers with separate session spaces: one for admin-scoped callers
 		// (recovery key, CLI/browser device credentials, --no-auth) and one for
 		// MCP-only device credentials, which may not redirect or replace the LLM API key.
-		adminMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: true}, s.version, s.orch)
-		scopedMCP := NewMCPHTTPHandler(serverControlPlane{FleetService: s.service, srv: s, admin: false}, s.version, s.orch)
+		adminSrv := NewMCPServer(serverControlPlane{FleetService: s.service, srv: s, admin: true}, s.version, s.orch)
+		scopedSrv := NewMCPServer(serverControlPlane{FleetService: s.service, srv: s, admin: false}, s.version, s.orch)
+		s.mcpServers = append(s.mcpServers, adminSrv, scopedSrv)
+		adminMCP := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return adminSrv }, nil)
+		scopedMCP := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return scopedSrv }, nil)
 		s.mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, ok, admin := s.auth.MCPScope(r)
 			if !ok {

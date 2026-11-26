@@ -64,8 +64,10 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	})
 	th := &testHub{h: srv.Hub(), st: st, svc: srv.Service(), ts: httptest.NewServer(wmux)}
 	t.Cleanup(func() {
+		srv.Close()
 		api.Close()
-		th.stop()
+		th.ts.Close()
+		_ = st.Close()
 	})
 	env := &auditEnv{srv: srv, api: api, th: th}
 

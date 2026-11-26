@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
@@ -19,6 +20,8 @@ func (h *Hub) RunReaper(ctx context.Context) {
 	h.wg.Add(1)
 	h.mu.Unlock()
 	defer h.wg.Done()
+	var wakeWG sync.WaitGroup
+	defer wakeWG.Wait()
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	defer context.AfterFunc(h.ctx, stop)()
@@ -26,7 +29,7 @@ func (h *Hub) RunReaper(ctx context.Context) {
 	// Decided delegations wait out their grace period across restarts.
 	h.resumeDelegations(ctx)
 	// Hub wake detection: a grace for links to re-attach after a sleep (hub_wake.go).
-	go h.wakeLoop(ctx)
+	wakeWG.Go(func() { h.wakeLoop(ctx) })
 
 	interval := h.ReapInterval
 	if interval <= 0 {

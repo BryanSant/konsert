@@ -576,8 +576,16 @@ func (h *Hub) dropThreadChat(ctx context.Context, chatID string, discard bool) {
 	delete(h.questions.threadText, chatID)
 	h.questions.mu.Unlock()
 	h.mu.Lock()
+	rt := h.agentChats[chatID]
 	delete(h.agentChats, chatID)
 	h.mu.Unlock()
+	if rt != nil {
+		rt.mu.Lock()
+		srv := rt.mcpSrv
+		rt.mcpSrv = nil
+		rt.mu.Unlock()
+		closeMCPServerSessions(srv)
+	}
 	if err := h.store.DeleteChatSession(ctx, chatID); err != nil {
 		h.logger.Warn("delete side-conversation chat failed", "chat_id", chatID, "err", err)
 	}

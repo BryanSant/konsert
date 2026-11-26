@@ -45,7 +45,10 @@ func newForgeTestServer(t *testing.T, cfgMod func(*config.ControllerConfig)) (*S
 			GlabConfigPath: "/nonexistent/glab/config.yml",
 		},
 	})
-	return srv, func() { _ = st.Close() }
+	return srv, func() {
+		srv.Close()
+		_ = st.Close()
+	}
 }
 
 func TestForgeTokenEndpointsEncryptedAndAudited(t *testing.T) {
