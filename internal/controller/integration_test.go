@@ -162,40 +162,51 @@ func TestEndToEndMCPDispatchGitDiffAndAuth(t *testing.T) {
 
 	repo := initTempGitRepo(t)
 	dispRes, err := mcpSession.CallTool(ctx, &mcp.CallToolParams{
-		Name: "dispatch_task",
+		Name: "manage_work",
 		Arguments: map[string]any{
-			"agent":        "mock",
-			"repo_path":    repo,
-			"branch":       "feat/mcp-e2e",
-			"use_worktree": true,
-			"prompt":       "TOUCH_FILE=hello.txt STREAM_LINES=3",
+			"action": "dispatch",
+			"items": []map[string]any{{
+				"agent":  "mock",
+				"repo":   repo,
+				"prompt": "TOUCH_FILE=hello.txt STREAM_LINES=3",
+			}},
 		},
 	})
 	if err != nil || dispRes.IsError {
-		t.Fatalf("MCP dispatch_task failed: %v res=%+v", err, dispRes)
+		t.Fatalf("MCP manage_work dispatch failed: %v res=%+v", err, dispRes)
 	}
-	var dispOut DispatchResult
-	if err := json.Unmarshal([]byte(dispRes.Content[0].(*mcp.TextContent).Text), &dispOut); err != nil {
-		t.Fatalf("decode dispatch result: %v", err)
+	var mwOut struct {
+		Action  string           `json:"action"`
+		Results []DispatchResult `json:"results"`
 	}
+	if err := json.Unmarshal([]byte(dispRes.Content[0].(*mcp.TextContent).Text), &mwOut); err != nil || len(mwOut.Results) != 1 {
+		t.Fatalf("decode manage_work dispatch result: %v %+v", err, mwOut)
+	}
+	dispOut := mwOut.Results[0]
 	if dispOut.TaskID == "" || dispOut.WorkerID != "worker-e2e-1" {
 		t.Fatalf("unexpected dispatch result: %+v", dispOut)
 	}
 
-	// Await task completion via MCP get_task_result(wait=true)
+	// Wait for task completion, then inspect(kind="result") via MCP.
+	if _, err := srv.Service().GetTaskResult(ctx, dispOut.TaskID, true, 15); err != nil {
+		t.Fatalf("wait for task completion: %v", err)
+	}
 	resCall, err := mcpSession.CallTool(ctx, &mcp.CallToolParams{
-		Name: "get_task_result",
+		Name: "inspect",
 		Arguments: map[string]any{
-			"task_id":         dispOut.TaskID,
-			"wait":            true,
-			"timeout_seconds": 15,
+			"target": dispOut.TaskID,
+			"kind":   "result",
 		},
 	})
 	if err != nil || resCall.IsError {
-		t.Fatalf("MCP get_task_result failed: %v res=%+v", err, resCall)
+		t.Fatalf("MCP inspect result failed: %v res=%+v", err, resCall)
+	}
+	var insRes InspectResult
+	if err := json.Unmarshal([]byte(resCall.Content[0].(*mcp.TextContent).Text), &insRes); err != nil {
+		t.Fatalf("decode inspect result: %v", err)
 	}
 	var taskRes TaskResult
-	if err := json.Unmarshal([]byte(resCall.Content[0].(*mcp.TextContent).Text), &taskRes); err != nil {
+	if err := json.Unmarshal([]byte(insRes.Text), &taskRes); err != nil {
 		t.Fatalf("decode task result: %v", err)
 	}
 	if taskRes.Status != protocol.TaskStatusCompleted || taskRes.ExitCode == nil || *taskRes.ExitCode != 0 {
@@ -886,19 +897,19 @@ func TestMachineFactsCachingDaemonFirstToolsAndCommanderMemory(t *testing.T) {
 		t.Fatalf("expected populated cached machine facts, got %+v", fOut.Facts)
 	}
 
-	// 2. Deterministic daemon-first tool: scan_temp_worktrees finds epic-123 worktree with 0 agent LLM calls
-	scanRes, err := srv.Service().ExecuteTool(ctx, "scan_temp_worktrees", jsontext.Value(`{"query":"epic-123"}`))
+	// 2. Deterministic daemon-first scan: ScanTempWorktrees finds epic-123 worktree with 0 agent LLM calls
+	scanRes, err := srv.Service().ScanTempWorktrees(ctx, "", "", "epic-123")
 	if err != nil {
-		t.Fatalf("scan_temp_worktrees failed: %v", err)
+		t.Fatalf("ScanTempWorktrees failed: %v", err)
 	}
 	scanBytes, _ := json.Marshal(scanRes)
 	if !strings.Contains(string(scanBytes), "epic-123-cleanup") {
 		t.Fatalf("expected deterministic scan to find epic-123-cleanup, got %s", string(scanBytes))
 	}
 
-	// 3. Deterministic save_memory + Commander context-window compaction checkpointing
-	if _, err := srv.Service().ExecuteTool(ctx, "save_memory", jsontext.Value(`{"scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
-		t.Fatalf("save_memory failed: %v", err)
+	// 3. Deterministic memory(action=save) + Commander context-window compaction checkpointing
+	if _, err := srv.Service().ExecuteTool(ctx, "memory", jsontext.Value(`{"action":"save","scope":"fleet","key":"gcp-box","summary":"foo1 has gcloud logged in"}`)); err != nil {
+		t.Fatalf("memory save failed: %v", err)
 	}
 
 	// Seed 30 old chat messages so loadBoundedHistory compacts older turns into SQLite thread_checkpoint
@@ -1074,24 +1085,19 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 	}
 	defer clientSess.Close()
 
-	// 1. update_settings + get_settings (never exposes api keys)
+	// 1. memory (save + recall) + ask_commander
 	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "update_settings",
-		Arguments: map[string]any{"updates": map[string]string{"default_agent": "codex", "default_model": "o4-mini"}},
+		Name:      "memory",
+		Arguments: map[string]any{"action": "save", "scope": "fleet", "key": "mcp-note", "summary": "verified via MCP"},
 	}); err != nil || res.IsError {
-		t.Fatalf("update_settings failed: %v res=%+v", err, res)
+		t.Fatalf("memory save failed: %v res=%+v", err, res)
 	}
-	setRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "get_settings"})
-	if err != nil || setRes.IsError || !strings.Contains(setRes.Content[0].(*mcp.TextContent).Text, "codex") {
-		t.Fatalf("get_settings failed: %v res=%+v", err, setRes)
-	}
-
-	// 3. save_memory + recall_memory + ask_commander
-	if res, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "save_memory",
-		Arguments: map[string]any{"scope": "fleet", "key": "mcp-note", "summary": "verified via MCP"},
-	}); err != nil || res.IsError {
-		t.Fatalf("save_memory failed: %v res=%+v", err, res)
+	memRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "memory",
+		Arguments: map[string]any{"action": "recall", "scope": "fleet"},
+	})
+	if err != nil || memRes.IsError || !strings.Contains(memRes.Content[0].(*mcp.TextContent).Text, "verified via MCP") {
+		t.Fatalf("memory recall failed: %v res=%+v", err, memRes)
 	}
 	orchRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "ask_commander",
@@ -1101,16 +1107,19 @@ func TestFullControlMCPToolsAndProgressNotifications(t *testing.T) {
 		t.Fatalf("ask_commander failed: %v res=%+v", err, orchRes)
 	}
 
-	// 4. Verify Streamable HTTP (/mcp) endpoint responds cleanly to RemoteFleetClient + MCP HTTP client
+	// 2. Verify Streamable HTTP (/mcp) endpoint responds cleanly to MCP HTTP client
 	httpClient := mcp.NewClient(&mcp.Implementation{Name: "http-mcp-client", Version: "1.0"}, nil)
 	httpSess, err := httpClient.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
 	if err != nil {
 		t.Fatalf("Streamable HTTP /mcp connect failed: %v", err)
 	}
 	defer httpSess.Close()
-	factsRes, err := httpSess.CallTool(ctx, &mcp.CallToolParams{Name: "inspect_machine_facts"})
+	factsRes, err := httpSess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "fleet_status",
+		Arguments: map[string]any{"detail": "machines"},
+	})
 	if err != nil || factsRes.IsError {
-		t.Fatalf("HTTP /mcp inspect_machine_facts failed: %v res=%+v", err, factsRes)
+		t.Fatalf("HTTP /mcp fleet_status machines failed: %v res=%+v", err, factsRes)
 	}
 }
 

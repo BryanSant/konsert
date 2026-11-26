@@ -12,7 +12,6 @@ import (
 
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/store"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -490,21 +489,6 @@ func (c *RemoteFleetClient) Autopilot(ctx context.Context, in AutopilotInput) (a
 	}
 	var out AutopilotState
 	return out, c.doJSON(ctx, http.MethodGet, "/api/autopilot", nil, &out)
-}
-
-// --- MCP tool registration ---
-
-func addAutopilotTool(srv *mcp.Server, b AutopilotBackend) {
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "autopilot",
-		Description: "Play, pause, or inspect Autopilot for a project (id, sid, or name) or globally (omit project). Distinct from Pause everything.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AutopilotInput) (*mcp.CallToolResult, any, error) {
-		res, err := b.Autopilot(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
 }
 
 // --- REST handlers ---

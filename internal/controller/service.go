@@ -1185,235 +1185,14 @@ func (s *FleetService) ScanTempWorktrees(ctx context.Context, workerID, rootPath
 
 func (s *FleetService) ToolDefinitions() []commander.ToolDef {
 	return []commander.ToolDef{
-		{
-			Name:        "fleet_status",
-			Description: "List all registered Syre worker nodes, their online status, available coding agents, cached machine facts, isolation tier, permission mode, and active task counts.",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		},
-		{
-			Name:        "inspect_machine_facts",
-			Description: "Deterministic zero-token lookup of cached Machine Facts (OS/patch, CPU/RAM/swap/disk, /tmp tmpfs, WSL/container/VM, installed tool versions like postgres 18, and safe auth_ready flags like gcloud).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"worker_id": map[string]any{"type": "string", "description": "Optional worker ID or name; omit to return facts for all machines"},
-				},
-			},
-		},
-		{
-			Name:        "inspect",
-			Description: inspectToolDescription,
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"target":    map[string]any{"type": "string", "description": "Ticket or task id or sid"},
-					"kind":      map[string]any{"type": "string", "enum": []string{"digest", "diff_stat", "diff", "stderr", "log", "transcript", "file"}},
-					"repo":      map[string]any{"type": "string", "description": "Repo name when the ticket has more than one binding"},
-					"path":      map[string]any{"type": "string", "description": "Relative path. Required for kind file"},
-					"max_lines": map[string]any{"type": "integer", "description": "Lines per page (default 200, max 2000)"},
-					"offset":    map[string]any{"type": "integer", "description": "Line offset; pass next_offset from the previous page"},
-				},
-				"required": []string{"target", "kind"},
-			},
-		},
-		{
-			Name:        "list_remote_dir",
-			Description: "Deterministic daemon RPC to list folders/git repos on a remote machine without invoking any coding agent.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"worker_id": map[string]any{"type": "string"},
-					"path":      map[string]any{"type": "string"},
-					"prefix":    map[string]any{"type": "string"},
-				},
-				"required": []string{"worker_id", "path"},
-			},
-		},
-		{
-			Name:        "scan_temp_worktrees",
-			Description: "Deterministic daemon RPC across one or all online machines to find .syre-worktrees or temp worktrees matching a query (short-circuits no-op hosts at zero agent token cost).",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"worker_id": map[string]any{"type": "string", "description": "Optional worker ID or name; omit to scan all online machines"},
-					"root_path": map[string]any{"type": "string", "description": "Optional root path to scan on target machine(s)"},
-					"query":     map[string]any{"type": "string", "description": "Optional substring filter such as an epic or branch name"},
-				},
-			},
-		},
-		{
-			Name:        "cleanup_worktree",
-			Description: "Deterministic daemon RPC to cleanly remove a Syre-managed git worktree on a remote machine without invoking any coding agent.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"worker_id": map[string]any{"type": "string"},
-					"workdir":   map[string]any{"type": "string"},
-				},
-				"required": []string{"worker_id", "workdir"},
-			},
-		},
-		{
-			Name:        "save_memory",
-			Description: "Persist a concise fleet, project, or session note in SQLite so the Commander remembers decisions and active bindings across context resets.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"scope":   map[string]any{"type": "string", "description": "Memory scope (default 'fleet', or 'project:<id>')"},
-					"key":     map[string]any{"type": "string", "description": "Short unique memory key"},
-					"summary": map[string]any{"type": "string", "description": "Concise summary to persist"},
-				},
-				"required": []string{"key", "summary"},
-			},
-		},
-		{
-			Name:        "recall_memory",
-			Description: "Query persisted Commander fleet/project/session memory entries from SQLite.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"scope": map[string]any{"type": "string", "description": "Optional scope filter (e.g. 'fleet')"},
-					"limit": map[string]any{"type": "integer"},
-				},
-			},
-		},
-		{
-			Name:        "dispatch_task",
-			Description: "Delegate non-deterministic coding/engineering work to a coding agent on a matching worker node in the fleet.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"worker_selector": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"worker_id":        map[string]any{"type": "string"},
-							"name":             map[string]any{"type": "string", "description": "Named host match (e.g. 'foo1')"},
-							"host_group":       map[string]any{"type": "string"},
-							"os":               map[string]any{"type": "string", "description": "OS constraint (darwin/macos, linux, windows)"},
-							"virtualization":   map[string]any{"type": "string", "description": "bare_metal, wsl, container, mac_container, vm"},
-							"required_tools":   map[string]any{"type": "object", "description": "Map of required tool -> minimum version (e.g. {\"postgres\":\"18\"})"},
-							"required_auth":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tools that must be logged in/ready (e.g. [\"gcloud\"])"},
-							"min_ram_mb":       map[string]any{"type": "integer"},
-							"min_disk_free_gb": map[string]any{"type": "integer"},
-							"tags":             map[string]any{"type": "object"},
-						},
-					},
-					"agent":           map[string]any{"type": "string", "description": "Agent driver name (e.g. claude, agy, grok, mock)"},
-					"repo_path":       map[string]any{"type": "string", "description": "Working directory / git repository path on the worker"},
-					"branch":          map[string]any{"type": "string", "description": "Optional git branch name (creates isolated worktree by default)"},
-					"use_worktree":    map[string]any{"type": "boolean", "description": "Use isolated git worktree when branch is specified (default true)"},
-					"prompt":          map[string]any{"type": "string", "description": "Instructions for the coding agent"},
-					"mode":            map[string]any{"type": "string", "enum": []string{"oneshot", "interactive"}},
-					"permission_mode": map[string]any{"type": "string", "enum": []string{"full_access", "sandboxed"}},
-					"timeout_seconds": map[string]any{"type": "integer"},
-				},
-				"required": []string{"agent", "repo_path", "prompt"},
-			},
-		},
-		{
-			Name:        "fan_out_fleet",
-			Description: "Execute a parallel operation across all matching online machines (e.g. cleaning up temp worktrees for an epic across the fleet), deterministically short-circuiting no-op hosts at zero agent token cost.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"kind":      map[string]any{"type": "string", "enum": []string{"worktree_cleanup", "agent_sweep"}},
-					"query":     map[string]any{"type": "string", "description": "Substring filter (e.g. 'epic-123')"},
-					"root_path": map[string]any{"type": "string"},
-					"apply":     map[string]any{"type": "boolean", "description": "For worktree_cleanup: delete removable matches when true (default dry-run)"},
-					"precheck":  map[string]any{"type": "boolean", "description": "For agent_sweep: skip machines with 0 deterministic matches"},
-					"agent":     map[string]any{"type": "string"},
-					"prompt":    map[string]any{"type": "string"},
-				},
-				"required": []string{"kind"},
-			},
-		},
-		{
-			Name:        "set_policy",
-			Description: "Set a policy directive (machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause). Tightening applies immediately when commander_policy_writes is tighten. Ending a directive (directive=end, id) or raising a cap loosens policy: call request_override instead. confirm mode files an approval card. none is read-only.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"target":      map[string]any{"type": "string", "description": "Machine, project, agent name or account id"},
-					"directive":   map[string]any{"type": "string", "description": "machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause, or end"},
-					"until":       map[string]any{"type": "string", "description": "RFC3339 expiry; omit for open-ended"},
-					"id":          map[string]any{"type": "string", "description": "Directive id or sid when directive is end"},
-					"reason":      map[string]any{"type": "string"},
-					"constraints": map[string]any{"type": "object", "description": "fallback, scope, max_concurrency, cpu_ceiling_pct, heavy_ok, suspend_running"},
-				},
-				"required": []string{"target", "directive"},
-			},
-		},
-		{
-			Name:        "list_tasks",
-			Description: "List recent and active fleet tasks with concise status and last milestone.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"status_filter": map[string]any{"type": "string"},
-					"worker_id":     map[string]any{"type": "string"},
-					"limit":         map[string]any{"type": "integer"},
-				},
-			},
-		},
-		{
-			Name:        "get_task_result",
-			Description: "Retrieve concise structured result for a task (exit code, summary, git diff stats, milestones). Set wait=true to block until completion.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"task_id":         map[string]any{"type": "string"},
-					"wait":            map[string]any{"type": "boolean"},
-					"timeout_seconds": map[string]any{"type": "integer"},
-				},
-				"required": []string{"task_id"},
-			},
-		},
-		{
-			Name:        "steer_task",
-			Description: "Send follow-up steering text or prompt response to a running or waiting_input task.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"task_id":        map[string]any{"type": "string"},
-					"input_text":     map[string]any{"type": "string"},
-					"append_newline": map[string]any{"type": "boolean"},
-				},
-				"required": []string{"task_id", "input_text"},
-			},
-		},
-		{
-			Name:        "cancel_task",
-			Description: "Cancel a queued or running task and terminate its remote process tree.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"task_id": map[string]any{"type": "string"},
-				},
-				"required": []string{"task_id"},
-			},
-		},
-		{
-			Name:        "set_narration",
-			Description: setNarrationDescription,
-			Parameters:  setNarrationToolDef,
-		},
-		{
-			Name:        "recent_events",
-			Description: recentEventsDescription,
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"machine":       map[string]any{"type": "string", "description": "Only events on this machine (id, sid or name)"},
-					"task_id":       map[string]any{"type": "string"},
-					"since_minutes": map[string]any{"type": "integer", "description": "How far back (default 120)"},
-					"limit":         map[string]any{"type": "integer"},
-					"all":           map[string]any{"type": "boolean", "description": "Include routine status changes"},
-				},
-			},
-		},
+		{Name: "fleet_status", Description: fleetStatusDesc, Parameters: fleetStatusSchema},
+		{Name: "backlog", Description: backlogDesc, Parameters: backlogSchema},
+		{Name: "manage_work", Description: manageWorkDesc, Parameters: manageWorkSchema},
+		{Name: "control", Description: controlDesc, Parameters: controlSchema},
+		{Name: "set_policy", Description: setPolicyDesc, Parameters: setPolicySchema},
+		{Name: "reply", Description: replyDesc, Parameters: replySchema},
+		{Name: "inspect", Description: inspectToolDescription, Parameters: inspectSchema},
+		{Name: "memory", Description: memoryDesc, Parameters: memorySchema},
 	}
 }
 
@@ -1422,32 +1201,50 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 	ctx = withDefaultAuditActor(ctx, auditSourceCommander, auditSourceCommander)
 	switch name {
 	case "fleet_status":
-		return s.FleetStatus(ctx)
-
-	case "inspect_machine_facts":
-		var req struct {
-			WorkerID string `json:"worker_id"`
-		}
-		_ = json.Unmarshal(args, &req)
-		fs, err := s.FleetStatus(ctx)
-		if err != nil {
-			return nil, err
-		}
-		type factRow struct {
-			WorkerID   string                 `json:"worker_id"`
-			WorkerSID  string                 `json:"worker_sid"`
-			WorkerName string                 `json:"worker_name"`
-			Status     string                 `json:"status"`
-			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
-		}
-		var out []factRow
-		for _, w := range fs.Workers {
-			if req.WorkerID != "" && w.ID != req.WorkerID && w.SID != req.WorkerID && !strings.EqualFold(w.Name, req.WorkerID) {
-				continue
+		var in FleetStatusInput
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &in); err != nil {
+				return nil, fmt.Errorf("invalid fleet_status args: %w", err)
 			}
-			out = append(out, factRow{WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
 		}
-		return map[string]any{"machines": out}, nil
+		return s.FleetStatusView(ctx, in)
+
+	case "backlog":
+		var in BacklogInput
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &in); err != nil {
+				return nil, fmt.Errorf("invalid backlog args: %w", err)
+			}
+		}
+		return s.Backlog(ctx, in)
+
+	case "manage_work":
+		var in ManageWorkInput
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid manage_work args: %w", err)
+		}
+		return s.ManageWork(ctx, in)
+
+	case "control":
+		var in ControlInput
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid control args: %w", err)
+		}
+		return s.Control(ctx, in, nil)
+
+	case "set_policy":
+		var in SetPolicyInput
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid set_policy args: %w", err)
+		}
+		return s.SetPolicy(ctx, in)
+
+	case "reply":
+		var in ReplyInput
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid reply args: %w", err)
+		}
+		return s.Reply(ctx, in, nil)
 
 	case "inspect":
 		var req InspectRequest
@@ -1456,162 +1253,12 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 		}
 		return s.Inspect(ctx, req)
 
-	case "list_remote_dir":
-		var req struct {
-			WorkerID string `json:"worker_id"`
-			Path     string `json:"path"`
-			Prefix   string `json:"prefix"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid list_remote_dir args: %w", err)
-		}
-		rpcCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
-		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgFSList, protocol.FSListRequest{
-			Path:     req.Path,
-			Prefix:   req.Prefix,
-			DirsOnly: true,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return protocol.DecodePayload[protocol.FSListResult](env)
-
-	case "scan_temp_worktrees":
-		var req struct {
-			WorkerID string `json:"worker_id"`
-			RootPath string `json:"root_path"`
-			Query    string `json:"query"`
-		}
-		_ = json.Unmarshal(args, &req)
-		return s.ScanTempWorktrees(ctx, req.WorkerID, req.RootPath, req.Query)
-
-	case "cleanup_worktree":
-		var req struct {
-			WorkerID string `json:"worker_id"`
-			Workdir  string `json:"workdir"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid cleanup_worktree args: %w", err)
-		}
-		rpcCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
-		defer cancel()
-		env, err := s.hub.RequestWorker(rpcCtx, req.WorkerID, protocol.MsgGitWorktreeCleanup, protocol.GitWorktreeCleanupRequest{Workdir: req.Workdir})
-		if err != nil {
-			return nil, err
-		}
-		return protocol.DecodePayload[protocol.GitWorktreeCleanupResult](env)
-
-	case "save_memory":
-		var req struct {
-			Scope   string `json:"scope"`
-			Key     string `json:"key"`
-			Summary string `json:"summary"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil || strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Summary) == "" {
-			return nil, fmt.Errorf("key and summary are required")
-		}
-		if strings.TrimSpace(req.Scope) == "" {
-			req.Scope = "fleet"
-		}
-		entry := store.MemoryEntry{
-			Scope:   strings.TrimSpace(req.Scope),
-			Key:     strings.TrimSpace(req.Key),
-			Summary: strings.TrimSpace(req.Summary),
-		}
-		if err := s.store.UpsertMemory(ctx, entry); err != nil {
-			return nil, err
-		}
-		return map[string]any{"ok": true, "scope": entry.Scope, "key": entry.Key}, nil
-
-	case "recall_memory":
-		var req struct {
-			Scope string `json:"scope"`
-			Limit int    `json:"limit"`
-		}
-		_ = json.Unmarshal(args, &req)
-		items, err := s.store.ListMemory(ctx, req.Scope, req.Limit)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"entries": items}, nil
-
-	case "fan_out_fleet":
-		var req FanOutRequest
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid fan_out_fleet args: %w", err)
-		}
-		return s.FanOutFleet(ctx, req)
-
-	case "dispatch_task":
-		var req DispatchRequest
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid dispatch_task args: %w", err)
-		}
-		return s.DispatchTask(ctx, req)
-
-	case "list_tasks":
-		var req struct {
-			StatusFilter string `json:"status_filter"`
-			WorkerID     string `json:"worker_id"`
-			Limit        int    `json:"limit"`
-		}
-		_ = json.Unmarshal(args, &req)
-		return s.ListTasks(ctx, req.StatusFilter, req.WorkerID, req.Limit)
-
-	case "get_task_result":
-		var req struct {
-			TaskID         string `json:"task_id"`
-			Wait           bool   `json:"wait"`
-			TimeoutSeconds int    `json:"timeout_seconds"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid get_task_result args: %w", err)
-		}
-		return s.GetTaskResult(ctx, req.TaskID, req.Wait, req.TimeoutSeconds)
-
-	case "steer_task":
-		var req struct {
-			TaskID        string `json:"task_id"`
-			InputText     string `json:"input_text"`
-			AppendNewline *bool  `json:"append_newline"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid steer_task args: %w", err)
-		}
-		appendNL := true
-		if req.AppendNewline != nil {
-			appendNL = *req.AppendNewline
-		}
-		return s.SteerTask(ctx, req.TaskID, req.InputText, appendNL)
-
-	case "cancel_task":
-		var req struct {
-			TaskID string `json:"task_id"`
-		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, fmt.Errorf("invalid cancel_task args: %w", err)
-		}
-		return s.CancelTask(ctx, req.TaskID)
-
-	case "recent_events":
-		var req RecentEventsInput
-		_ = json.Unmarshal(args, &req)
-		return s.RecentEvents(ctx, req)
-
-	case "set_narration":
-		in, err := decodeSetNarration(args)
-		if err != nil {
-			return nil, err
-		}
-		return s.SetNarration(ctx, in)
-
-	case "set_policy":
-		var in SetPolicyInput
+	case "memory":
+		var in MemoryInput
 		if err := json.Unmarshal(args, &in); err != nil {
-			return nil, fmt.Errorf("invalid set_policy args: %w", err)
+			return nil, fmt.Errorf("invalid memory args: %w", err)
 		}
-		return s.SetPolicy(ctx, in)
+		return s.Memory(ctx, in)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)

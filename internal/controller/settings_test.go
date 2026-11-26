@@ -46,14 +46,6 @@ func connectMCPHTTP(t *testing.T, url, token string) *mcp.ClientSession {
 	return sess
 }
 
-func callUpdateSettings(t *testing.T, sess *mcp.ClientSession, updates map[string]string) (*mcp.CallToolResult, error) {
-	t.Helper()
-	return sess.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "update_settings",
-		Arguments: map[string]any{"updates": updates},
-	})
-}
-
 func getSettings(t *testing.T, baseURL, adminToken string) (settingsResponse, string) {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/settings", nil)
@@ -76,7 +68,7 @@ func getSettings(t *testing.T, baseURL, adminToken string) (settingsResponse, st
 	return out, string(raw)
 }
 
-func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
+func TestMCPSettingsToolsRemovedAndRESTNeverLeaksKey(t *testing.T) {
 	_, ts := newSecurityTestServer(t, func(c *config.ControllerConfig) {
 		c.NoAuth = false
 		c.RecoveryKey = "admin-tok"
@@ -85,65 +77,17 @@ func TestMCPSettingsShareRESTPathAndScope(t *testing.T) {
 	})
 
 	scoped := connectMCPHTTP(t, ts.URL, mintMCPCredential(t, ts.URL, "admin-tok"))
-
-	// A model change through MCP takes effect immediately (no restart).
-	res, err := callUpdateSettings(t, scoped, map[string]string{"llm_model": "gpt-4.1"})
-	if err != nil || res.IsError {
-		t.Fatalf("mcp llm_model update failed: %v %+v", err, res)
-	}
-	got, _ := getSettings(t, ts.URL, "admin-tok")
-	if got.LLMModel != "gpt-4.1" {
-		t.Fatalf("live settings not updated by MCP: %+v", got)
-	}
-
-	// An MCP-token-only caller may not redirect the key or replace it.
-	for _, upd := range []map[string]string{
-		{"llm_base_url": "https://attacker.example/v1"},
-		{"llm_api_key": "sk-attacker"},
-		{"clear_api_key": "true"},
-	} {
-		res, err = callUpdateSettings(t, scoped, upd)
+	for _, removed := range []string{"get_settings", "update_settings"} {
+		res, err := scoped.CallTool(context.Background(), &mcp.CallToolParams{Name: removed})
 		if err == nil && (res == nil || !res.IsError) {
-			t.Fatalf("expected %v to be refused for MCP-token caller", upd)
+			t.Fatalf("expected removed tool %q to fail on /mcp, got %+v", removed, res)
 		}
 	}
-	got, _ = getSettings(t, ts.URL, "admin-tok")
-	if got.LLMBaseURL != "" || !got.LLMAPIKeySet {
-		t.Fatalf("scoped caller changed key routing: %+v", got)
-	}
 
-	// Validation applies to MCP too.
-	res, err = callUpdateSettings(t, scoped, map[string]string{"llm_provider": "antropic"})
-	if err == nil && (res == nil || !res.IsError) {
-		t.Fatal("expected unknown provider to be rejected over MCP")
-	}
-	res, err = callUpdateSettings(t, scoped, map[string]string{"bogus_key": "x"})
-	if err == nil && (res == nil || !res.IsError) {
-		t.Fatal("expected unknown settings key to be rejected over MCP")
-	}
-
-	// The admin token over MCP holds admin scope.
-	admin := connectMCPHTTP(t, ts.URL, "admin-tok")
-	res, err = callUpdateSettings(t, admin, map[string]string{"llm_base_url": "https://proxy.example.com/v1"})
-	if err != nil || res.IsError {
-		t.Fatalf("admin llm_base_url update failed: %v %+v", err, res)
-	}
+	// GET /api/settings never echoes the API key.
 	got, raw := getSettings(t, ts.URL, "admin-tok")
-	if got.LLMBaseURL != "https://proxy.example.com/v1" {
-		t.Fatalf("admin base URL change not live: %+v", got)
-	}
-	if strings.Contains(raw, "sk-original-secret") {
-		t.Fatalf("GET /api/settings echoed the API key: %s", raw)
-	}
-
-	// get_settings over MCP reflects live config and never includes the key.
-	gs, err := scoped.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_settings"})
-	if err != nil || gs.IsError {
-		t.Fatalf("get_settings: %v %+v", err, gs)
-	}
-	text := gs.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(text, "gpt-4.1") || strings.Contains(text, "sk-original-secret") {
-		t.Fatalf("unexpected get_settings output: %s", text)
+	if !got.LLMAPIKeySet || strings.Contains(raw, "sk-original-secret") {
+		t.Fatalf("GET /api/settings leaked or hid key state: %s", raw)
 	}
 }
 

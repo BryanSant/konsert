@@ -17,6 +17,9 @@ const (
 	InspectKindLog        = "log"
 	InspectKindTranscript = "transcript"
 	InspectKindFile       = "file"
+	InspectKindResult     = "result"
+	InspectKindEvents     = "events"
+	InspectKindAudit      = "audit"
 
 	// InspectDefaultMaxLines is the page size when the caller omits max_lines.
 	InspectDefaultMaxLines = 200

@@ -16,7 +16,7 @@ import (
 )
 
 // inspectToolDescription is the shared MCP and commander description of inspect.
-const inspectToolDescription = "Read one capped page of a ticket or task artifact. kind is digest, diff_stat, diff, stderr, log, transcript, or file. Pages default to 200 lines (max 2000) and 64 KB. When truncated is true, call inspect again with offset set to next_offset. Pass repo when the ticket has more than one binding. path is required for kind file (and optional for diff and diff_stat)."
+const inspectToolDescription = "Read a capped page (200 lines default, max 2000, 64KB) of a ticket/task artifact or log. kind: digest, diff_stat, diff, stderr, log, transcript, file, result, events, audit. target is optional for events/audit (machine, task, or omit for fleet). Pass offset=next_offset when truncated."
 
 const (
 	transcriptBatch    = 5000
@@ -26,14 +26,14 @@ const (
 	transcriptRenderCap = 8 << 20
 )
 
-// InspectRequest is one page of a ticket or task artifact.
+// InspectRequest is one page of a ticket/task artifact, task result, recent events, or audit log.
 type InspectRequest struct {
-	Target   string `json:"target" jsonschema:"Ticket or task id or sid"`
-	Kind     string `json:"kind" jsonschema:"digest, diff_stat, diff, stderr, log, transcript, or file"`
-	Repo     string `json:"repo,omitempty" jsonschema:"Repo name when the ticket has more than one binding. Required for diff, diff_stat, and file in that case"`
-	Path     string `json:"path,omitempty" jsonschema:"Relative path in the worktree. Required for kind file. Optional path filter for diff and diff_stat"`
-	MaxLines int    `json:"max_lines,omitempty" jsonschema:"Lines per page (default 200, maximum 2000)"`
-	Offset   int    `json:"offset,omitempty" jsonschema:"Line offset. Pass the previous response's next_offset to read the next page"`
+	Target   string `json:"target,omitempty" jsonschema:"Ticket, task, or machine id/sid (optional for events/audit)"`
+	Kind     string `json:"kind" jsonschema:"digest, diff_stat, diff, stderr, log, transcript, file, result, events, or audit"`
+	Repo     string `json:"repo,omitempty" jsonschema:"Repo name when ticket has multiple bindings"`
+	Path     string `json:"path,omitempty" jsonschema:"Relative path (required for file, optional for diff/diff_stat)"`
+	MaxLines int    `json:"max_lines,omitempty" jsonschema:"Lines per page (default 200, max 2000)"`
+	Offset   int    `json:"offset,omitempty" jsonschema:"Line offset (use next_offset when truncated)"`
 }
 
 // InspectResult is one capped page. NextOffset is the offset to pass for the next page.
@@ -83,11 +83,17 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 	if req.Offset < 0 {
 		req.Offset = 0
 	}
-	if req.Target == "" {
-		return InspectResult{}, &inspectFailure{Status: http.StatusBadRequest, Msg: "target is required"}
-	}
 	if !validInspectKind(req.Kind) {
 		return InspectResult{}, &inspectFailure{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown inspect kind %q", req.Kind)}
+	}
+	if req.Kind == protocol.InspectKindEvents {
+		return s.inspectEvents(ctx, req)
+	}
+	if req.Kind == protocol.InspectKindAudit {
+		return s.inspectAudit(ctx, req)
+	}
+	if req.Target == "" {
+		return InspectResult{}, &inspectFailure{Status: http.StatusBadRequest, Msg: "target is required"}
 	}
 	task, ticketID, err := s.resolveInspectTarget(ctx, req.Target)
 	if err != nil {
@@ -104,6 +110,20 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 		Path:     req.Path,
 	}
 	switch req.Kind {
+	case protocol.InspectKindResult:
+		if task.ID == "" {
+			return InspectResult{}, &inspectFailure{Status: http.StatusNotFound, Msg: "no run recorded for this ticket"}
+		}
+		tr, rErr := s.GetTaskResult(ctx, task.ID, false, 0)
+		if rErr != nil {
+			return InspectResult{}, rErr
+		}
+		b, mErr := json.Marshal(tr, protocol.JSONOptions)
+		if mErr != nil {
+			return InspectResult{}, mErr
+		}
+		applyPage(&res, protocol.PageText(string(b), req.MaxLines, req.Offset))
+		return res, nil
 	case protocol.InspectKindDigest:
 		return s.inspectDigest(ctx, req, res, task, ticketID), nil
 	case protocol.InspectKindTranscript:
@@ -164,11 +184,70 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 func validInspectKind(kind string) bool {
 	switch kind {
 	case protocol.InspectKindDigest, protocol.InspectKindDiffStat, protocol.InspectKindDiff,
-		protocol.InspectKindStderr, protocol.InspectKindLog, protocol.InspectKindTranscript, protocol.InspectKindFile:
+		protocol.InspectKindStderr, protocol.InspectKindLog, protocol.InspectKindTranscript,
+		protocol.InspectKindFile, protocol.InspectKindResult, protocol.InspectKindEvents,
+		protocol.InspectKindAudit:
 		return true
 	default:
 		return false
 	}
+}
+
+func (s *FleetService) inspectEvents(ctx context.Context, req InspectRequest) (InspectResult, error) {
+	in := RecentEventsInput{Limit: req.MaxLines}
+	if req.Target != "" {
+		taskID := resolveRef(ctx, s.store, ids.Task, req.Target)
+		if _, err := s.store.GetTask(ctx, taskID); err == nil {
+			in.TaskID = taskID
+		} else {
+			in.Machine = req.Target
+		}
+	}
+	var chat *store.ChatSession
+	if o, ok := chatOriginFrom(ctx); ok && o.id != "" {
+		if cs, err := s.store.GetChatSession(ctx, o.id); err == nil {
+			chat = &cs
+		}
+	}
+	evRes, err := s.hub.RecentEvents(ctx, in, chat)
+	if err != nil {
+		return InspectResult{}, err
+	}
+	b, err := json.Marshal(evRes, protocol.JSONOptions)
+	if err != nil {
+		return InspectResult{}, err
+	}
+	res := InspectResult{Target: req.Target, Kind: req.Kind}
+	applyPage(&res, protocol.PageText(string(b), req.MaxLines, req.Offset))
+	return res, nil
+}
+
+func (s *FleetService) inspectAudit(ctx context.Context, req InspectRequest) (InspectResult, error) {
+	in := ListAuditInput{Limit: req.MaxLines}
+	if req.Target != "" {
+		taskID := resolveRef(ctx, s.store, ids.Task, req.Target)
+		if _, err := s.store.GetTask(ctx, taskID); err == nil {
+			in.TaskID = taskID
+		} else {
+			workerID := s.hub.resolveMachine(ctx, req.Target)
+			if _, err := s.store.GetWorker(ctx, workerID); err == nil {
+				in.WorkerID = workerID
+			} else {
+				in.Action = req.Target
+			}
+		}
+	}
+	auRes, err := s.ListAudit(ctx, in)
+	if err != nil {
+		return InspectResult{}, err
+	}
+	b, err := json.Marshal(auRes, protocol.JSONOptions)
+	if err != nil {
+		return InspectResult{}, err
+	}
+	res := InspectResult{Target: req.Target, Kind: req.Kind}
+	applyPage(&res, protocol.PageText(string(b), req.MaxLines, req.Offset))
+	return res, nil
 }
 
 func (s *FleetService) resolveInspectTarget(ctx context.Context, target string) (store.Task, string, error) {

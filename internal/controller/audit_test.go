@@ -260,23 +260,36 @@ func TestAuditTaskControlActionsRecordUser(t *testing.T) {
 
 	// MCP (MCP-only device credential): attributed to that device.
 	sess := connectMCPHTTP(t, e.api.URL, e.mcpTok)
-	callTool(t, sess, "steer_task", map[string]any{"task_id": "t1", "input_text": secret})
+	callTool(t, sess, "reply", map[string]any{"target": "t1", "message": secret})
 	expectAudit(t, e.latest(t, AuditSteer), AuditSteer, e.mcpUser, "mcp", "w1", "t1")
-	callTool(t, sess, "cancel_task", map[string]any{"task_id": "t4"})
+	callTool(t, sess, "control", map[string]any{"scope": "session", "target": "t4", "action": "stop"})
 	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, e.mcpUser, "mcp", "w1", "t4")
 
-	// MCP's read-only audit tool sees the same log.
-	res := callTool(t, sess, "list_audit", map[string]any{"task_id": "t1", "action": AuditSteer})
+	// MCP's read-only inspect(kind=audit) sees the same log.
+	res := callTool(t, sess, "inspect", map[string]any{"kind": "audit", "target": "t1"})
 	text := res.Content[0].(*mcp.TextContent).Text
+	var insRes InspectResult
+	if err := json.Unmarshal([]byte(text), &insRes); err != nil {
+		t.Fatalf("inspect audit envelope = %s (%v)", text, err)
+	}
 	var viaMCP AuditListResponse
-	if err := json.Unmarshal([]byte(text), &viaMCP); err != nil || len(viaMCP.Events) != 3 {
-		t.Fatalf("list_audit = %s (%v)", text, err)
+	if err := json.Unmarshal([]byte(insRes.Text), &viaMCP); err != nil {
+		t.Fatalf("inspect audit payload = %s (%v)", insRes.Text, err)
+	}
+	steerCount := 0
+	for _, ev := range viaMCP.Events {
+		if ev.Action == AuditSteer {
+			steerCount++
+		}
+	}
+	if steerCount != 3 {
+		t.Fatalf("inspect audit steer events = %d, want 3 (all=%+v)", steerCount, viaMCP.Events)
 	}
 
 	// The Commander's tool calls are attributed to "commander".
 	e.seedTask(t, "t5", "w1")
-	args, _ := json.Marshal(map[string]any{"task_id": "t5"})
-	if _, err := e.srv.Service().ExecuteTool(context.Background(), "cancel_task", args); err != nil {
+	args, _ := json.Marshal(map[string]any{"scope": "session", "target": "t5", "action": "stop"})
+	if _, err := e.srv.Service().ExecuteTool(context.Background(), "control", args); err != nil {
 		t.Fatal(err)
 	}
 	expectAudit(t, e.latest(t, AuditCancel), AuditCancel, "commander", "commander", "w1", "t5")
@@ -353,7 +366,6 @@ func TestAuditGitCommitWorkerRemovalAndWakeLock(t *testing.T) {
 func TestAuditSettingsRecordKeysNeverSecrets(t *testing.T) {
 	e := newAuditEnv(t)
 	const restSecret = "sk-rest-super-secret"
-	const mcpSecret = "sk-mcp-super-secret"
 
 	code, raw := e.do(t, credCookie, http.MethodPut, "/api/settings", `{"llm_api_key":"`+restSecret+`","llm_model":"gpt-4.1","terminal_font_size":14}`)
 	if code != http.StatusOK {
@@ -370,11 +382,6 @@ func TestAuditSettingsRecordKeysNeverSecrets(t *testing.T) {
 	if strings.Join(meta.Keys, ",") != "llm_api_key,llm_model,terminal_font_size" {
 		t.Fatalf("settings keys = %v", meta.Keys)
 	}
-
-	// The admin token over MCP may replace the key; still keys only.
-	admin := connectMCPHTTP(t, e.api.URL, auditAdminTok)
-	callTool(t, admin, "update_settings", map[string]any{"updates": map[string]string{"llm_api_key": mcpSecret}})
-	expectAudit(t, e.latest(t, AuditSettingsUpdate), AuditSettingsUpdate, "recovery key", "mcp", "", "")
 
 	if code, _ := e.do(t, credBearer, http.MethodPut, "/api/settings", `{"clear_api_key":true}`); code != http.StatusOK {
 		t.Fatalf("clear key: %d", code)
@@ -397,7 +404,7 @@ func TestAuditSettingsRecordKeysNeverSecrets(t *testing.T) {
 	}
 	for _, ev := range all {
 		blob := fmt.Sprintf("%+v", ev)
-		if strings.Contains(blob, restSecret) || strings.Contains(blob, mcpSecret) {
+		if strings.Contains(blob, restSecret) {
 			t.Fatalf("secret recorded in audit log: %s", blob)
 		}
 	}

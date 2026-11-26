@@ -63,7 +63,8 @@ func (s *FleetService) SetPolicy(ctx context.Context, in SetPolicyInput) (SetPol
 func registerSetPolicyTool(srv *mcp.Server, backend PolicyBackend) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "set_policy",
-		Description: "Set a policy directive. Creating pause, throttle, drain, provider.disable or autopilot.pause tightens policy and applies immediately when commander_policy_writes is tighten (the default), attributed to the user via Commander, with a receipt the user can undo. Ending a directive or raising a cap loosens operator policy: this tool does not do that — call request_override and ask the user to approve it. directive \"end\" with id ends a directive. confirm mode turns every tightening change into an approval card. none makes this tool read-only.",
+		Description: setPolicyDesc,
+		InputSchema: setPolicySchema,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SetPolicyInput) (*mcp.CallToolResult, any, error) {
 		res, err := backend.SetPolicy(ctx, in)
 		if err != nil {

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/BryanSant/syre/internal/commander"
 	"github.com/BryanSant/syre/internal/ids"
@@ -105,52 +104,9 @@ func (s *FleetService) RecallMemory(ctx context.Context, scope string, limit int
 	return s.store.ListMemory(ctx, scope, limit)
 }
 
-type emptyInput struct{}
-
-type listTasksInput struct {
-	StatusFilter string `json:"status_filter,omitempty" jsonschema:"Filter by task status (queued, running, waiting_input, completed, failed, canceled)"`
-	WorkerID     string `json:"worker_id,omitempty" jsonschema:"Filter by worker id or sid (m-…)"`
-	Limit        int    `json:"limit,omitzero" jsonschema:"Maximum tasks to return (default 50)"`
-}
-
-type getTaskResultInput struct {
-	TaskID         string `json:"task_id" jsonschema:"Task id or sid (t-…) to inspect"`
-	Wait           bool   `json:"wait,omitzero" jsonschema:"Block until task reaches a terminal state while emitting concise milestone progress notifications (default false)"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitzero" jsonschema:"Maximum seconds to wait when wait=true (default 300)"`
-}
-
-type steerTaskInput struct {
-	TaskID        string `json:"task_id" jsonschema:"Running or waiting_input task id or sid (t-…)"`
-	InputText     string `json:"input_text" jsonschema:"Text to send to the agent PTY stdin"`
-	AppendNewline *bool  `json:"append_newline,omitzero" jsonschema:"Append trailing newline (default true)"`
-}
-
-type cancelTaskInput struct {
-	TaskID string `json:"task_id" jsonschema:"Task id or sid (t-…) to cancel"`
-}
-
-type inspectFactsInput struct {
-	WorkerID string `json:"worker_id,omitempty" jsonschema:"Optional worker id, sid (m-…) or name; omit for all machines"`
-}
-
-type updateSettingsInput struct {
-	Updates map[string]string `json:"updates" jsonschema:"Map of Syre settings keys to values (e.g. default_agent, default_model, default_permission_mode)"`
-}
-
 type askCommanderInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Optional Commander session ID (creates/reuses 'mcp-commander' if omitted)"`
-	Prompt    string `json:"prompt" jsonschema:"Question or fleet instruction for Syre Commander"`
-}
-
-type saveMemoryInput struct {
-	Scope   string `json:"scope,omitempty" jsonschema:"Memory scope (default 'fleet')"`
-	Key     string `json:"key" jsonschema:"Unique memory key"`
-	Summary string `json:"summary" jsonschema:"Concise summary to persist"`
-}
-
-type recallMemoryInput struct {
-	Scope string `json:"scope,omitempty" jsonschema:"Optional scope filter"`
-	Limit int    `json:"limit,omitzero"`
+	SessionID string `json:"session_id,omitempty" jsonschema:"Optional Commander session ID"`
+	Prompt    string `json:"prompt" jsonschema:"Question or instruction for Syre Commander"`
 }
 
 func jsonToolResult(v any) (*mcp.CallToolResult, any, error) {
@@ -165,27 +121,24 @@ func jsonToolResult(v any) (*mcp.CallToolResult, any, error) {
 	}, v, nil
 }
 
-// NewMCPServer constructs a full-control MCP server exposing Syre's fleet, taxonomy,
-// facts, configuration, memory, fan-out, and Commander tools with concise progress notifications.
+// NewMCPServer constructs the external /mcp (and stdio) MCP server exposing Syre's
+// consolidated fleet tool surface. Undoing a user's action (resume/undrain) is refused
+// on /mcp and must be done in the UI or confirmed in a Commander chat.
 func NewMCPServer(backend FleetBackend, version string, orch ...*commander.Service) *mcp.Server {
 	var orchSvc *commander.Service
 	if len(orch) > 0 {
 		orchSvc = orch[0]
 	}
-	srv := newMCPServer(backend, version, orchSvc)
-	// Human-control tools; undoing a user's action needs the UI (no chat to confirm in).
-	if hc, ok := backend.(HumanControlBackend); ok {
-		addHumanControlTools(srv, hc, nil, nil)
-	}
+	srv := newMCPServer(backend, version, orchSvc, nil)
 	if pb, ok := backend.(PulseBackend); ok {
 		pb.RegisterPulseMCPServer(srv)
 	}
 	return srv
 }
 
-// newMCPServer builds the fleet tool server without the human-control tools (per-chat
-// endpoints add their own, which can ask the chat's user to confirm).
-func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Service) *mcp.Server {
+// newMCPServer builds the consolidated fleet tool server. confirm is nil for external
+// /mcp (refuses resume/undrain) and set to chatConfirm for Commander chats.
+func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Service, confirm confirmFunc) *mcp.Server {
 	if version == "" {
 		version = "1.0.0"
 	}
@@ -224,222 +177,33 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 		})
 	}
 
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "fleet_status",
-		Description: "Inspect registered Syre workers, their online status, cached machine facts, isolation tier, permission mode, available coding agents, and active task counts.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-		res, err := backend.FleetStatus(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "inspect_machine_facts",
-		Description: "Inspect cached OS/patch, CPU/RAM/swap/disk, virtualization, tool versions (e.g. postgres 18), and safe auth_ready flags (e.g. gcloud) across the fleet.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in inspectFactsInput) (*mcp.CallToolResult, any, error) {
-		fs, err := backend.FleetStatus(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		type row struct {
-			WorkerID   string                 `json:"worker_id"`
-			WorkerSID  string                 `json:"worker_sid"`
-			WorkerName string                 `json:"worker_name"`
-			Status     string                 `json:"status"`
-			Facts      *protocol.MachineFacts `json:"facts,omitzero"`
-		}
-		out := []row{}
-		for _, w := range fs.Workers {
-			if in.WorkerID != "" && w.ID != in.WorkerID && w.SID != in.WorkerID && !strings.EqualFold(w.Name, in.WorkerID) {
-				continue
-			}
-			out = append(out, row{WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status, Facts: w.Facts})
-		}
-		return jsonToolResult(map[string]any{"machines": out})
-	})
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "dispatch_task",
-		Description: "Dispatch a coding agent session/task to a matching worker node in the Syre fleet (supports fact-based selectors like required_tools, required_auth, os, name).",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DispatchRequest) (*mcp.CallToolResult, any, error) {
-		res, err := backend.DispatchTask(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-
-	addNarrationTool(srv, backend)
-	if ap, ok := backend.(AutopilotBackend); ok {
-		addAutopilotTool(srv, ap)
+	if sb, ok := backend.(SurfaceBackend); ok {
+		registerSurfaceTools(srv, sb, confirm)
 	}
 
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "list_tasks",
-		Description: "List active and recent fleet tasks/sessions with concise status, elapsed time, and last milestone.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTasksInput) (*mcp.CallToolResult, any, error) {
-		res, err := backend.ListTasks(ctx, in.StatusFilter, in.WorkerID, in.Limit)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(map[string]any{"tasks": res})
-	})
+	if pb, ok := backend.(PolicyBackend); ok {
+		registerSetPolicyTool(srv, pb)
+	}
 
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "get_task_result",
-		Description: "Retrieve concise structured task results (exit code, final summary, git diff stats, milestones). Set wait=true to await completion while streaming concise milestone progress notifications (no raw PTY bytes).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in getTaskResultInput) (*mcp.CallToolResult, any, error) {
-		// Stream concise structured milestone notifications while waiting when client supplied a progress token.
-		var stopProgress context.CancelFunc
-		if in.Wait && req != nil && req.Session != nil {
-			if token := req.Params.GetProgressToken(); token != nil {
-				if cp, ok := backend.(ControlPlaneBackend); ok {
-					pCtx, pCancel := context.WithCancel(ctx)
-					stopProgress = pCancel
-					go func() {
-						var lastEventID int64
-						var step float64
-						ticker := time.NewTicker(400 * time.Millisecond)
-						defer ticker.Stop()
-						for {
-							select {
-							case <-pCtx.Done():
-								return
-							case <-ticker.C:
-								evs, err := cp.ListTaskEvents(pCtx, in.TaskID, lastEventID)
-								if err != nil {
-									continue
-								}
-								for _, ev := range evs {
-									lastEventID = ev.ID
-									step++
-									_ = req.Session.NotifyProgress(pCtx, &mcp.ProgressNotificationParams{
-										ProgressToken: token,
-										Progress:      step,
-										Message:       fmt.Sprintf("[%s] %s", ev.Kind, ev.Message),
-									})
-								}
-							}
-						}
-					}()
-				}
-			}
-		}
-		if stopProgress != nil {
-			defer stopProgress()
-		}
-
-		res, err := backend.GetTaskResult(ctx, in.TaskID, in.Wait, in.TimeoutSeconds)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "steer_task",
-		Description: "Send steering input or follow-up prompt text to a running or waiting_input session.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in steerTaskInput) (*mcp.CallToolResult, any, error) {
-		appendNL := true
-		if in.AppendNewline != nil {
-			appendNL = *in.AppendNewline
-		}
-		res, err := backend.SteerTask(ctx, in.TaskID, in.InputText, appendNL)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "cancel_task",
-		Description: "Cancel a queued or running session and cleanly terminate its remote process group.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cancelTaskInput) (*mcp.CallToolResult, any, error) {
-		res, err := backend.CancelTask(ctx, in.TaskID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-
-	// Read-only fleet audit log (SYR-WP2A5).
-	if ab, ok := backend.(AuditBackend); ok {
+	if ib, ok := backend.(InspectBackend); ok {
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "list_audit",
-			Description: "Read the fleet-wide operator audit log (Take Control, steer, cancel, git commit, worker removal, settings and wake-lock changes), newest first. Filter by worker_id, task_id, user, action or time; page with before_id = next_cursor.",
+			Name:        "inspect",
+			Description: inspectToolDescription,
+			InputSchema: inspectSchema,
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in ListAuditInput) (*mcp.CallToolResult, any, error) {
-			res, err := ab.ListAudit(ctx, in)
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in InspectRequest) (*mcp.CallToolResult, any, error) {
+			res, err := ib.Inspect(ctx, in)
 			if err != nil {
 				return nil, nil, err
 			}
 			return jsonToolResult(res)
-		})
-	}
-
-	// Full control-plane tools (fan-out, settings, memory, Commander)
-	if cp, ok := backend.(ControlPlaneBackend); ok {
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "fan_out_fleet",
-			Description: "Run a parallel operation across all matching online machines (short-circuiting no-op hosts deterministically via daemon at zero token cost).",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in FanOutRequest) (*mcp.CallToolResult, any, error) {
-			res, err := cp.FanOutFleet(ctx, in)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
-
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "get_settings",
-			Description: "Read Syre controller settings and session defaults (API keys are never exposed).",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-			res, err := cp.GetSettingsMap(ctx)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
-
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "update_settings",
-			Description: "Configure Syre settings (default_agent, default_model, default_permission_mode, llm_provider, llm_model, etc.).",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateSettingsInput) (*mcp.CallToolResult, any, error) {
-			res, err := cp.UpdateSettingsMap(ctx, in.Updates)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
-
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "save_memory",
-			Description: "Persist a concise note in Syre's SQLite Commander memory store.",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in saveMemoryInput) (*mcp.CallToolResult, any, error) {
-			if err := cp.SaveMemory(ctx, in.Scope, in.Key, in.Summary); err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(map[string]any{"ok": true, "scope": in.Scope, "key": in.Key})
-		})
-
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "recall_memory",
-			Description: "Query persisted fleet/project/session memory entries from Syre's SQLite store.",
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in recallMemoryInput) (*mcp.CallToolResult, any, error) {
-			entries, err := cp.RecallMemory(ctx, in.Scope, in.Limit)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(map[string]any{"entries": entries})
 		})
 	}
 
 	if orchSvc != nil {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "ask_commander",
-			Description: "Invoke or query Syre's logical-fleet Commander programmatically and return its concise response.",
+			Description: "Invoke or query Syre Commander programmatically and return its concise response.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in askCommanderInput) (*mcp.CallToolResult, any, error) {
 			sid := strings.TrimSpace(in.SessionID)
 			if sid == "" {
@@ -453,24 +217,6 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 				return nil, nil, err
 			}
 			return jsonToolResult(map[string]any{"session_id": sid, "response": buf.String()})
-		})
-	}
-
-	if pb, ok := backend.(PolicyBackend); ok {
-		registerSetPolicyTool(srv, pb)
-	}
-
-	if ib, ok := backend.(InspectBackend); ok {
-		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "inspect",
-			Description: inspectToolDescription,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in InspectRequest) (*mcp.CallToolResult, any, error) {
-			res, err := ib.Inspect(ctx, in)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
 		})
 	}
 

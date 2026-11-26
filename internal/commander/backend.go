@@ -22,7 +22,7 @@ import (
 const maxTurns = 10
 
 // defaultSystemPrompt is the API-key backend's system prompt.
-const defaultSystemPrompt = RolePrompt + apiToolsPrompt + "\n" + NarrationPrompt
+const defaultSystemPrompt = RolePrompt
 
 // ContextProvider optionally supplies a compact live fleet + taxonomy + memory digest for every LLM turn.
 type ContextProvider interface {

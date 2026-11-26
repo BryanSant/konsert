@@ -197,104 +197,6 @@ var errNeedsUI = errors.New("this undoes something the user did: only the user c
 const recentEventsDescription = "Recent fleet events with attribution: what the user did (Syre UI, CLI, Syre terminals), holds, open requests, vetoes, pauses and failures — who caused each change and how sure Syre is. " +
 	"Call it BEFORE investigating anything that changed unexpectedly (a service stopped, a session ended, a port closed): if the user caused it, stop and ask the user instead of investigating or undoing it. Also lists active holds and open requests."
 
-// addHumanControlTools registers recent_events and the intervention tools on srv.
-// confirm asks the user before undoing their actions (nil: refuse).
-func addHumanControlTools(srv *mcp.Server, b HumanControlBackend, recent func(context.Context, RecentEventsInput) (RecentEventsResult, error), confirm confirmFunc) {
-	if recent == nil {
-		recent = b.RecentEvents
-	}
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "recent_events", Description: recentEventsDescription,
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in RecentEventsInput) (*mcp.CallToolResult, any, error) {
-		res, err := recent(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "suspend_session",
-		Description: "Freeze a session's process tree (task_id or chat_id) when the user asks you to. Work is kept; it resumes intact.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SessionRefInput) (*mcp.CallToolResult, any, error) {
-		res, err := b.SuspendSession(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "resume_session",
-		Description: "Resume a suspended session (task_id or chat_id). The user confirms first.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SessionRefInput) (*mcp.CallToolResult, any, error) {
-		if confirm == nil {
-			return nil, nil, errNeedsUI
-		}
-		if err := confirm(ctx, "Resume suspended session "+strings.TrimSpace(in.TaskID+" "+in.ChatID)+"?"); err != nil {
-			return nil, nil, err
-		}
-		res, err := b.ResumeSession(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "veto_task",
-		Description: "Veto a task for the user: cancel it and record why (reason wrong_approach, wrong_machine, not_now, dangerous or other, plus the user's note) in commander memory so the approach isn't retried.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in VetoInput) (*mcp.CallToolResult, any, error) {
-		res, err := b.VetoTask(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "drain_machine",
-		Description: "Drain a machine when the user asks (it finishes current work and accepts nothing new); drained=false undrains it after the user confirms.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DrainInput) (*mcp.CallToolResult, any, error) {
-		if in.Drained != nil && !*in.Drained {
-			if confirm == nil {
-				return nil, nil, errNeedsUI
-			}
-			if err := confirm(ctx, "Undrain "+in.Machine+" so it accepts new work again?"); err != nil {
-				return nil, nil, err
-			}
-		}
-		res, err := b.DrainMachine(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "pause_everything",
-		Description: "Pause everything when the user asks: stop all dispatching and suspend every running managed session.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-		res, err := b.PauseEverything(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "resume_everything",
-		Description: "Resume after Pause everything (restores what the pause suspended). The user confirms first.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-		if confirm == nil {
-			return nil, nil, errNeedsUI
-		}
-		if err := confirm(ctx, "Resume everything (restart dispatching and resume what Pause everything suspended)?"); err != nil {
-			return nil, nil, err
-		}
-		res, err := b.ResumeEverything(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		return jsonToolResult(res)
-	})
-}
-
 // chatConfirm asks the chat's user to confirm with a yes/no question elicitation.
 func (h *Hub) chatConfirm(chatID string) confirmFunc {
 	return func(ctx context.Context, question string) error {
@@ -319,27 +221,15 @@ func (h *Hub) chatConfirm(chatID string) confirmFunc {
 	}
 }
 
-// addChatControlTools registers the per-chat human-control tools: request_user_action,
-// release_hold, recent_events (scoped to the chat) and, for commander chats, the
-// intervention tools.
+// addChatControlTools registers the per-chat human-control tools:
+// - Commander chats (fleet != nil): request_override (interventions live in `control` and `inspect`).
+// - Non-commander agent chats: recent_events (scoped to the chat), request_user_action, release_hold.
 func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet HumanControlBackend) {
 	chatID := cs.ID
-	recent := func(ctx context.Context, in RecentEventsInput) (RecentEventsResult, error) {
-		cur, err := h.store.GetChatSession(ctx, chatID)
-		if err != nil {
-			return RecentEventsResult{}, err
-		}
-		return h.RecentEvents(ctx, in, &cur)
-	}
 	if fleet != nil {
-		addHumanControlTools(srv, fleet, recent, h.chatConfirm(chatID))
 		mcp.AddTool(srv, &mcp.Tool{
-			Name: "request_override",
-			Description: "Break glass: ask the user for a time-boxed exception to a limit or hold when the work truly needs it — e.g. " +
-				"scope=machine_slots machine=mac extra_slots=1 duration_minutes=30 to allow a 2nd session on mac for 30m, or scope=hold hold_id=h-… to lift a hold for a while. " +
-				"The request shows in Syre's Needs you with your reason and what approving allows; it returns at once. Nothing changes until the user approves: " +
-				"you are told the decision (and later the expiry) before your next turn, or a turn starts if you are idle. Syre enforces an approved override until it expires. " +
-				"Never use it to undo something the user did on purpose without saying so in the reason.",
+			Name:        "request_override",
+			Description: "Ask the user for a time-boxed exception to a limit or hold (scope: machine_slots, hold, session, machine). Returns immediately; enforced once approved.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest, in requestOverrideInput) (*mcp.CallToolResult, any, error) {
 			o, err := h.createOverride(ctx, chatID, in)
 			if err != nil {
@@ -347,18 +237,25 @@ func (h *Hub) addChatControlTools(srv *mcp.Server, cs store.ChatSession, fleet H
 			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: requestOverrideReply(o)}}}, nil, nil
 		})
-	} else {
-		mcp.AddTool(srv, &mcp.Tool{
-			Name: "recent_events", Description: recentEventsDescription,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, in RecentEventsInput) (*mcp.CallToolResult, any, error) {
-			res, err := recent(ctx, in)
-			if err != nil {
-				return nil, nil, err
-			}
-			return jsonToolResult(res)
-		})
+		return
 	}
+	recent := func(ctx context.Context, in RecentEventsInput) (RecentEventsResult, error) {
+		cur, err := h.store.GetChatSession(ctx, chatID)
+		if err != nil {
+			return RecentEventsResult{}, err
+		}
+		return h.RecentEvents(ctx, in, &cur)
+	}
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "recent_events", Description: recentEventsDescription,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in RecentEventsInput) (*mcp.CallToolResult, any, error) {
+		res, err := recent(ctx, in)
+		if err != nil {
+			return nil, nil, err
+		}
+		return jsonToolResult(res)
+	})
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "request_user_action",
 		Description: "Ask the user to DO something on a machine that you cannot or must not do yourself (e.g. restart nginx — you have no sudo; plug in a device; approve a deploy). " +
