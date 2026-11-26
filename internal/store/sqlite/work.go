@@ -927,12 +927,13 @@ func (s *SQLiteStore) PutExternalRef(ctx context.Context, ref store.ExternalRef)
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO external_refs (ticket_id, tracker, external_id, url, version)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO external_refs (ticket_id, tracker, external_id, url, version, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ticket_id, tracker, external_id) DO UPDATE SET
 			url = excluded.url,
-			version = excluded.version
-	`, ref.TicketID, ref.Tracker, ref.ExternalID, strings.TrimSpace(ref.URL), strings.TrimSpace(ref.Version))
+			version = excluded.version,
+			synced_at = excluded.synced_at
+	`, ref.TicketID, ref.Tracker, ref.ExternalID, strings.TrimSpace(ref.URL), strings.TrimSpace(ref.Version), syncedAt(ref.SyncedAt))
 	return err
 }
 
@@ -951,22 +952,13 @@ func (s *SQLiteStore) RemoveExternalRef(ctx context.Context, ticketID, tracker, 
 
 func (s *SQLiteStore) ListExternalRefs(ctx context.Context, ticketID string) ([]store.ExternalRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ticket_id, tracker, external_id, url, version
+		SELECT ticket_id, tracker, external_id, url, version, synced_at
 		FROM external_refs WHERE ticket_id = ? ORDER BY tracker ASC, external_id ASC
 	`, ticketID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := []store.ExternalRef{}
-	for rows.Next() {
-		var r store.ExternalRef
-		if err := rows.Scan(&r.TicketID, &r.Tracker, &r.ExternalID, &r.URL, &r.Version); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return scanExternalRefs(rows)
 }
 
 // --- Computed Rollups (never stored) ---

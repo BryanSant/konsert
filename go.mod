@@ -5,7 +5,7 @@ go 1.27.3
 toolchain go1.27.4
 
 require (
-	github.com/KanArtist/ka v1.3.0
+	github.com/KanArtist/ka v1.3.1-0.20261126192119-60269f0e08d4
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
@@ -22,6 +22,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/gofrs/flock v0.13.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect

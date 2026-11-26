@@ -544,6 +544,15 @@ type Store interface {
 	PutExternalRef(ctx context.Context, ref ExternalRef) error
 	RemoveExternalRef(ctx context.Context, ticketID, tracker, externalID string) error
 	ListExternalRefs(ctx context.Context, ticketID string) ([]ExternalRef, error)
+	// TicketByExternalRef returns the ticket linked to externalID in tracker.
+	TicketByExternalRef(ctx context.Context, tracker, externalID string) (Ticket, error)
+	// ListExternalRefsByTracker returns every ref of tracker.
+	ListExternalRefsByTracker(ctx context.Context, tracker string) ([]ExternalRef, error)
+	CreateTracker(ctx context.Context, t Tracker) error
+	GetTracker(ctx context.Context, id string) (Tracker, error)
+	ListTrackers(ctx context.Context, projectID string) ([]Tracker, error)
+	UpdateTracker(ctx context.Context, t Tracker) error
+	DeleteTracker(ctx context.Context, id string) error
 
 	// Short comments posted on tickets (agent sessions and operators).
 	CreateTicketComment(ctx context.Context, c TicketComment) (TicketComment, error)

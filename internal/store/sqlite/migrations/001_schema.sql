@@ -146,9 +146,28 @@ CREATE TABLE external_refs (
     external_id TEXT NOT NULL,
     url         TEXT NOT NULL DEFAULT '',
     version     TEXT NOT NULL DEFAULT '',
+    -- synced_at is the ticket's updated_at as of the last pull or push for this ref;
+    -- a later updated_at means Syre changed the ticket and it needs pushing.
+    synced_at   TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (ticket_id, tracker, external_id)
 ) WITHOUT ROWID;
 CREATE INDEX idx_external_refs_lookup ON external_refs(tracker, external_id);
+
+-- External trackers synced into a project's work (docs/design/work.md#tracker-sync).
+-- id is also the tracker name stored in external_refs.tracker.
+CREATE TABLE trackers (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL,
+    config_json  TEXT NOT NULL DEFAULT '{}',
+    cursor       TEXT NOT NULL DEFAULT '',
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    last_pull_at TEXT NOT NULL DEFAULT '',
+    last_push_at TEXT NOT NULL DEFAULT '',
+    last_error   TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX idx_trackers_project ON trackers(project_id);
 
 -- Short comments on tickets posted by agent sessions or operators.
 CREATE TABLE ticket_comments (
