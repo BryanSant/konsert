@@ -81,6 +81,7 @@ describe('control components', () => {
       resumeFleet: vi.fn(async () => ({ paused: false })),
       releaseHold: vi.fn(async (id: string) => ({ id, released_at: new Date().toISOString() })),
       resolveRequest: vi.fn(async (id: string, status: string) => ({ id, status })),
+      endDirective: vi.fn(async (id: string) => ({ id, kind: 'provider.disable', target: 'codex', created_at: new Date().toISOString(), ended_at: new Date().toISOString() })),
     };
     TestBed.configureTestingModule({ providers: [{ provide: ApiClientService, useValue: api }] });
     TestBed.inject(FleetStore).workers.set([
@@ -231,5 +232,39 @@ describe('control components', () => {
     expect(text).toContain('You via a Syre terminal');
     expect(text).toContain('high');
     expect(text).toContain('host-1');
+  });
+
+  it('offers Undo on a user directive receipt and ends it', async () => {
+    const control = TestBed.inject(ControlStore);
+    const fleet = TestBed.inject(FleetStore);
+    fleet.applyDirective({ id: 'd1', sid: 'dr-1', kind: 'provider.disable', target: 'codex', provenance: 'user', created_at: new Date().toISOString(), params: { fallback: 'claude', scope: 'agent' } });
+    control.applyEvent({
+      id: 8,
+      created_at: new Date().toISOString(),
+      kind: 'directive',
+      action: 'created',
+      cause: { actor: 'user', source: 'commander', confidence: 'certain' },
+      summary: 'Directive dr-1 (provider.disable) created on Codex',
+      meta_json: JSON.stringify({ directive_id: 'd1', provenance: 'user' }),
+    });
+    control.applyEvent({
+      id: 9,
+      created_at: new Date().toISOString(),
+      kind: 'directive',
+      action: 'created',
+      cause: { actor: 'system', source: 'directive', confidence: 'certain' },
+      summary: 'usage window',
+      meta_json: JSON.stringify({ directive_id: 'd2', provenance: 'system' }),
+    });
+    const fixture = TestBed.createComponent(YourActionsComponent);
+    await settle(fixture);
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).toContain('You via Commander');
+    const undos = root.querySelectorAll('[data-testid="directive-undo"]');
+    expect(undos).toHaveLength(1);
+    (undos[0] as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(api['endDirective']).toHaveBeenCalledWith('d1');
+    expect(fleet.directives().find((d) => d.id === 'd1')).toBeUndefined();
   });
 });

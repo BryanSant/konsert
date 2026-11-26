@@ -21,7 +21,9 @@ import { DONE_FADE_MS, buildStory, queuedLabel } from './command/live-work-logic
 import {
   askAvailability,
   describeStrip,
+  accountProviderNote,
   directiveBadgeText,
+  providerDirectiveText,
   heatStrip,
   heatText,
   machineBadge,
@@ -259,6 +261,29 @@ describe('fleet machine rows', () => {
     const workers = [worker('w1', 'desk')];
     const rows = machineRows({ workers, tasks: [], groups: [], items: {}, allItems: [], heat: {}, now: NOW, directives: [pause, throttle, past, ended, other] });
     expect(rows[0].directiveBadges.map((b) => b.text)).toEqual([`paused until ${hh}:${mm}`, 'throttled max 1']);
+  });
+
+  it('shows a provider disable on machines that have the agent, and next to the account', () => {
+    const until = new Date(NOW + 3 * 3600_000);
+    const hh = String(until.getHours()).padStart(2, '0');
+    const mm = String(until.getMinutes()).padStart(2, '0');
+    const disable: PolicyDirective = {
+      id: 'p', sid: 'dr-p', kind: 'provider.disable', target: 'codex', until: until.toISOString(),
+      params: { fallback: 'claude', scope: 'agent' }, created_at: iso(NOW),
+    };
+    const acct: PolicyDirective = {
+      id: 'a', sid: 'dr-a', kind: 'provider.disable', target: 'claude2', until: until.toISOString(),
+      params: { scope: 'account', fallback: 'grok' }, created_at: iso(NOW),
+    };
+    const agentLine = `Codex disabled until ${hh}:${mm} → fallback Claude`;
+    const accountLine = `Account claude2 disabled until ${hh}:${mm} → fallback Grok`;
+    expect(providerDirectiveText(disable)).toBe(agentLine);
+    expect(providerDirectiveText(acct)).toBe(accountLine);
+    const rows = machineRows({ workers: [worker('w1', 'desk')], tasks: [], groups: [], items: {}, allItems: [], heat: {}, now: NOW, directives: [disable, acct] });
+    expect(rows[0].directiveBadges.map((b) => b.text)).toEqual([agentLine]);
+    expect(accountProviderNote('claude2', 'claude', [disable, acct], NOW)).toBe(accountLine);
+    expect(accountProviderNote('other', 'codex', [disable], NOW)).toBe(agentLine);
+    expect(accountProviderNote('claude', 'claude', [disable], NOW)).toBe('');
   });
 
   it('says what the outbound spool does when it matters', () => {

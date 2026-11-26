@@ -608,6 +608,8 @@ export interface AppSettings {
   default_merge_style?: MergeStyle;
   /** Global Autopilot Play switch: every project plays unless explicitly paused. */
   autopilot_global?: boolean;
+  /** Commander set_policy: tighten (default), confirm (approval card), or none (read-only). */
+  commander_policy_writes?: 'tighten' | 'confirm' | 'none' | string;
 }
 
 export type AutopilotDisplayState = 'playing' | 'paused' | 'finished';
@@ -829,11 +831,15 @@ export interface DirectiveParams {
   cpu_ceiling_pct?: number;
   heavy_ok?: boolean;
   suspend_running?: boolean;
+  /** provider.disable: agent to prefer when the target is skipped. */
+  fallback?: string;
+  /** provider.disable: "agent" (a whole provider) or "account" (one account id). */
+  scope?: 'agent' | 'account' | string;
 }
 
 /**
  * A typed, timed policy directive. machine.* targets a worker; autopilot.pause
- * targets a project. provider.disable is reserved and the hub rejects it.
+ * targets a project; provider.disable targets an agent name or an account id.
  */
 export interface PolicyDirective {
   id: string;
@@ -857,6 +863,28 @@ export interface CreateDirectiveRequest {
   until?: string;
   reason?: string;
   params?: DirectiveParams;
+}
+
+/**
+ * A Commander set_policy change held for the user when commander_policy_writes
+ * is confirm. Approval creates the directive; denial drops it.
+ */
+export interface PolicyProposal {
+  id: string;
+  sid: string;
+  chat_id?: string;
+  kind: string;
+  target: string;
+  params?: DirectiveParams;
+  until?: string;
+  reason?: string;
+  summary: string;
+  status: 'pending' | 'approved' | 'denied' | string;
+  actor_id?: string;
+  created_at: string;
+  decided_at?: string;
+  decided_by?: string;
+  applied_id?: string;
 }
 
 export interface FleetSnapshotResponse {

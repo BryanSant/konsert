@@ -375,6 +375,7 @@ func (h *Hub) onAgentCapabilities(ctx context.Context, wc *workerConn, env proto
 			h.logger.Warn("store agent account failed", "worker_id", wc.id, "account_id", a.ID, "err", err)
 		}
 	}
+	h.syncUsageDirectives(ctx, rep.Accounts)
 	views, _ := h.agentAccountViews(ctx, wc.id)
 	// The PWA applies account updates per worker: without worker_id it dropped them, so
 	// login/usage changes only showed after a reload (SYR-PYG35).
@@ -611,10 +612,14 @@ func (h *Hub) defaultAgentTarget(ctx context.Context) (string, protocol.AgentAcc
 	if h.hostname != nil {
 		host = h.hostname()
 	}
-	// Exhausted accounts (usage window used up) are skipped while any other
-	// usable account exists anywhere in the fleet.
+	idx, _ := h.loadProviderIndex(ctx)
+	// Disabled agents and accounts are never chosen. An exhausted window with no
+	// reset time stays a last resort: the window may already have cleared.
 	for _, allowExhausted := range []bool{false, true} {
 		usable := func(a protocol.AgentAccount) bool {
+			if idx.accountDisabled(a.ID) || idx.agentBlocked(a.Agent) {
+				return false
+			}
 			return accountChatUsable(a) && (allowExhausted || !accountExhausted(a))
 		}
 		for _, c := range cands {
@@ -683,6 +688,11 @@ func applyAccountDefaults(cs *store.ChatSession, a protocol.AgentAccount) {
 // An explicit worker/agent/account is kept; anything missing is chosen from the
 // reported capabilities.
 func (h *Hub) resolveChatTarget(ctx context.Context, cs *store.ChatSession) {
+	if note, blocked := h.retargetChat(ctx, cs); blocked != "" {
+		return
+	} else if note != "" {
+		h.noteProviderSubstitution(ctx, cs.TaskID, cs.TicketID, note)
+	}
 	if cs.WorkerID == "" {
 		if cs.Agent != "" || cs.AccountID != "" {
 			// Prefer a worker where the named account is usable; otherwise take
@@ -709,6 +719,9 @@ func (h *Hub) resolveChatTarget(ctx context.Context, cs *store.ChatSession) {
 		return
 	}
 	accts := h.workerAccounts(ctx, cs.WorkerID)
+	if idx, err := h.loadProviderIndex(ctx); err == nil {
+		accts = idx.enabledAccounts(accts)
+	}
 	if a, ok := findAccount(accts, cs.Agent, cs.AccountID); ok {
 		applyAccountDefaults(cs, a)
 		return
@@ -866,6 +879,16 @@ func (h *Hub) workerLabel(ctx context.Context, workerID string) string {
 
 // sendAgentChat runs chat.send for an agent-backend session.
 func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatSendRequest) error {
+	if note, blocked := h.retargetChat(ctx, &cs); blocked != "" {
+		e := protocol.AgentChatError{Kind: protocol.ErrKindUsageLimit, Message: blocked}
+		h.hubError(ctx, cs.ID, e)
+		return errors.New(blocked)
+	} else if note != "" {
+		h.noteProviderSubstitution(ctx, cs.TaskID, cs.TicketID, note)
+		if err := h.store.UpdateChatSession(ctx, cs); err != nil {
+			return err
+		}
+	}
 	if cs.WorkerID == "" || cs.Agent == "" {
 		h.resolveChatTarget(ctx, &cs)
 		if cs.WorkerID == "" || cs.Agent == "" {

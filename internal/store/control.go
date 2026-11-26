@@ -17,10 +17,11 @@ const (
 // Cause sources (Cause.Source) for user actions; other actors use free-form sources
 // such as "mcp", "worker", "reaper".
 const (
-	SourceUI       = "ui"
-	SourceCLI      = "cli"
-	SourceTerminal = "terminal"
-	SourceSSH      = "ssh"
+	SourceUI        = "ui"
+	SourceCLI       = "cli"
+	SourceTerminal  = "terminal"
+	SourceSSH       = "ssh"
+	SourceCommander = "commander"
 )
 
 // Confidence of an attribution.

@@ -28,6 +28,7 @@ import {
   heatStrip,
   machineRows,
   offlineText,
+  providerDirectiveLines,
   queueReasons,
   shellChip,
   shellRows,
@@ -102,6 +103,13 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
         </button>
       </div>
 
+      @if (providerLines().length) {
+        <div class="flex flex-wrap gap-1.5" data-testid="fleet-provider-directives">
+          @for (line of providerLines(); track line) {
+            <span class="sy-badge" data-badge="DIRECTIVE" data-testid="fleet-provider-line">{{ line }}</span>
+          }
+        </div>
+      }
       @if (wakeError()) {
         <p role="alert" class="m-0 rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] px-3 py-2 text-[12px] text-[#f3a5a5]">{{ wakeError() }}</p>
       }
@@ -660,6 +668,8 @@ export class FleetModeComponent {
     const able = this.fleet.workers().filter((w) => w.status === 'online' && w.wake_lock?.supported);
     return able.length > 0 && able.every((w) => this.wakeOn(w));
   });
+
+  readonly providerLines = computed(() => providerDirectiveLines(this.fleet.directives(), this.now()));
 
   readonly rows = computed(() =>
     machineRows({

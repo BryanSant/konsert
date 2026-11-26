@@ -527,6 +527,15 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	onlineWorkers, slots := s.hub.applySlotOverrides(ctx, onlineWorkers)
 	onlineWorkers = s.hub.applyMachineDirectives(ctx, onlineWorkers)
 	req.AccountID = strings.TrimSpace(req.AccountID)
+	requestedAgent, requestedAccount := req.Agent, req.AccountID
+	var placement providerDecision
+	if req.Agent != "shell" && sessionKind != "terminal" {
+		var idx providerIndex
+		placement, idx = s.hub.applyProviderPlacement(ctx, req.Agent, req.AccountID, false, onlineWorkers)
+		req.Agent = placement.Agent
+		req.AccountID = placement.AccountID
+		onlineWorkers = filterProviderWorkers(onlineWorkers, req.Agent, idx)
+	}
 	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
@@ -544,6 +553,24 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		}
 	}
 	var warnings []string
+	if placement.Substitution != "" {
+		warnings = append(warnings, placement.Substitution)
+	}
+	if ok && req.Agent == "" && sessionKind != "terminal" {
+		idx, _ := s.hub.loadProviderIndex(ctx)
+		req.Agent = pickAllowedAgent(selected, idx)
+		if req.Agent == "" {
+			ok = false
+			selected = store.Worker{}
+		}
+	}
+	if !ok {
+		// Leave the preference on the queued task. A later pass substitutes.
+		req.Agent = requestedAgent
+		req.AccountID = requestedAccount
+		placement = providerDecision{}
+		warnings = nil
+	}
 	if ok {
 		if a, found := s.hub.lookupAccount(ctx, selected.ID, req.Agent, req.AccountID); found {
 			if u, exhausted := exhaustedWindow(a, time.Now()); exhausted {
@@ -590,6 +617,13 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		return DispatchResult{}, err
 	}
 	s.hub.recordTaskTransition(ctx, task, "", cause, "")
+	if placement.Substitution != "" {
+		workerID := ""
+		if ok {
+			workerID = selected.ID
+		}
+		s.hub.recordAttemptSubstitution(ctx, task.ID, task.TicketID, workerID, req.Agent, req.AccountID, placement.Substitution, 0)
+	}
 
 	// Persist last-used Machine/Agent/Model for future chat sessions.
 	if sessionKind == "chat" && origin != protocol.TaskOriginScratch {
@@ -1297,6 +1331,22 @@ func (s *FleetService) ToolDefinitions() []commander.ToolDef {
 			},
 		},
 		{
+			Name:        "set_policy",
+			Description: "Set a policy directive (machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause). Tightening applies immediately when commander_policy_writes is tighten. Ending a directive (directive=end, id) or raising a cap loosens policy: call request_override instead. confirm mode files an approval card. none is read-only.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target":      map[string]any{"type": "string", "description": "Machine, project, agent name or account id"},
+					"directive":   map[string]any{"type": "string", "description": "machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause, or end"},
+					"until":       map[string]any{"type": "string", "description": "RFC3339 expiry; omit for open-ended"},
+					"id":          map[string]any{"type": "string", "description": "Directive id or sid when directive is end"},
+					"reason":      map[string]any{"type": "string"},
+					"constraints": map[string]any{"type": "object", "description": "fallback, scope, max_concurrency, cpu_ceiling_pct, heavy_ok, suspend_running"},
+				},
+				"required": []string{"target", "directive"},
+			},
+		},
+		{
 			Name:        "list_tasks",
 			Description: "List recent and active fleet tasks with concise status and last milestone.",
 			Parameters: map[string]any{
@@ -1555,6 +1605,13 @@ func (s *FleetService) ExecuteTool(ctx context.Context, name string, args jsonte
 			return nil, err
 		}
 		return s.SetNarration(ctx, in)
+
+	case "set_policy":
+		var in SetPolicyInput
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("invalid set_policy args: %w", err)
+		}
+		return s.SetPolicy(ctx, in)
 
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)

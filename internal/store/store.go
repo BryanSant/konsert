@@ -732,6 +732,14 @@ type Store interface {
 	// was already ended (the timer and the reaper may both pass).
 	EndDirective(ctx context.Context, id, by string, at time.Time) (bool, error)
 
+	// Policy proposals: Commander set_policy changes waiting for the user (confirm mode).
+	CreatePolicyProposal(ctx context.Context, p PolicyProposal) (PolicyProposal, error)
+	GetPolicyProposal(ctx context.Context, id string) (PolicyProposal, error)
+	ListPolicyProposals(ctx context.Context, f PolicyProposalFilter) ([]PolicyProposal, error)
+	// DecidePolicyProposal approves or denies a pending proposal. appliedID is the
+	// directive created on approval. false when it was no longer pending.
+	DecidePolicyProposal(ctx context.Context, id, status, by, appliedID string, at time.Time) (bool, error)
+
 	// Questions (PRD §5.8b).
 	CreateQuestion(ctx context.Context, q Question) (Question, error)
 	GetQuestion(ctx context.Context, id string) (Question, error)

@@ -13,7 +13,7 @@
 //     m-… machine, p-… project, r-… repo, tk-… ticket, h-… hold,
 //     rq-… user request, q-… question, o-… override request, v-… veto, rv-… review,
 //     dv-… device credential, pc-… pairing code, mc-… machine credential,
-//     dr-… policy directive. The hub
+//     dr-… policy directive, pp-… policy proposal. The hub
 //     checks each candidate against the database, so a short suffix is safe; it grows by
 //     one character when collisions get frequent.
 package ids
@@ -50,12 +50,14 @@ const (
 	PairingCode Kind = "pc"
 	// MachineCredential is a syred's own credential (SYR-RK9YD).
 	MachineCredential Kind = "mc"
-	// Directive is a policy directive (machine pause/throttle/drain, autopilot pause).
+	// Directive is a policy directive (machine pause/throttle/drain, provider disable, autopilot pause).
 	Directive Kind = "dr"
+	// Policy is a Commander set_policy change waiting for the user to approve it.
+	Policy Kind = "pp"
 )
 
 // Kinds lists every user-facing kind.
-var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Ticket, Hold, Request, Question, Override, Veto, Review, Device, PairingCode, MachineCredential, Directive}
+var Kinds = []Kind{Task, Chat, Machine, Project, Repo, Ticket, Hold, Request, Question, Override, Veto, Review, Device, PairingCode, MachineCredential, Directive, Policy}
 
 // Alphabet is lower-case Crockford base32: digits and letters without i, l, o, u.
 // IDs are lower case because they appear in URLs (https://…/chats/c-yvp2f).

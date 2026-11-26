@@ -3,7 +3,7 @@ import { UrlSegment } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { modeMatcher } from '../app.routes';
 import { Hold, OverrideRequest, Veto, formatDuration } from '../core/models/control.models';
-import { ChatSession, Task, Worker } from '../core/models/syre.models';
+import { ChatSession, PolicyProposal, Task, Worker } from '../core/models/syre.models';
 import { QuestionView } from '../core/models/question.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { ControlStore } from '../core/state/control.store';
@@ -464,6 +464,44 @@ describe('needs-you queue', () => {
       expect(root.querySelector('[data-testid="override-decided"]')?.textContent).toContain('Approved');
       vi.advanceTimersByTime(1300);
       expect(store.current()?.key).toBe('o:o2');
+      fixture.destroy();
+    });
+
+    it('a confirm-mode policy card approves into a directive and deny drops it', async () => {
+      const store = TestBed.inject(NeedsYouStore);
+      const control = TestBed.inject(ControlStore);
+      const fleet = TestBed.inject(FleetStore);
+      const proposal = (id: string, over: Partial<PolicyProposal> = {}): PolicyProposal => ({
+        id, sid: `pp-${id}`, kind: 'provider.disable', target: 'codex', summary: 'Disable Codex until 14:00 → fallback Claude',
+        reason: 'quiet hours', status: 'pending', created_at: new Date().toISOString(), ...over,
+      });
+      api['approvePolicyProposal'] = vi.fn(async () => ({ id: 'd1', sid: 'dr-1', kind: 'provider.disable', target: 'codex', created_at: new Date().toISOString(), provenance: 'user' }));
+      api['denyPolicyProposal'] = vi.fn(async (id: string) => proposal(id, { status: 'denied' }));
+      control.applyProposal(proposal('p1'));
+      expect(store.entries().map((e) => e.key)).toEqual(['pp:p1']);
+      expect(store.entries()[0].title).toContain('Disable Codex until 14:00');
+      store.open('pp:p1');
+      const fixture = TestBed.createComponent(NeedsYouDialogComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const card = root.querySelector('[data-testid="needs-you-policy"]')!;
+      expect(card.getAttribute('data-policy')).toBe('pp-p1');
+      expect(card.querySelector('[data-testid="policy-reason"]')?.textContent).toContain('quiet hours');
+      card.querySelector<HTMLButtonElement>('[data-testid="policy-approve"]')!.click();
+      await flushMicrotasks();
+      expect(api['approvePolicyProposal']).toHaveBeenCalledWith('p1');
+      expect(fleet.directives().map((d) => d.id)).toEqual(['d1']);
+      expect(store.entries()).toEqual([]);
+      fixture.detectChanges();
+      expect(root.querySelector('[data-testid="policy-decided"]')?.textContent).toContain('Approved');
+
+      control.applyProposal(proposal('p2'));
+      store.open('pp:p2');
+      fixture.detectChanges();
+      root.querySelector<HTMLButtonElement>('[data-testid="policy-deny"]')!.click();
+      await flushMicrotasks();
+      expect(api['denyPolicyProposal']).toHaveBeenCalledWith('p2');
+      expect(store.entries()).toEqual([]);
       fixture.destroy();
     });
 

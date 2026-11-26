@@ -11,6 +11,7 @@ import {
   FRAME_PTY_STDIN,
   FRAME_TASK_ID_SIZE,
   PolicyDirective,
+  PolicyProposal,
   Project,
   PtyFrameEvent,
   Repo,
@@ -273,6 +274,7 @@ export class SyreSocketService {
           shell_reminder?: ShellReminder;
           autopilot?: AutopilotState;
           directive?: PolicyDirective;
+          policy_proposal?: PolicyProposal;
           ticket?: Ticket;
           ticket_edge?: TicketEdge;
         } | undefined;
@@ -321,6 +323,8 @@ export class SyreSocketService {
           this.fleetStore.applyAutopilot(p.autopilot);
         } else if (p.kind === 'directive' && p.directive) {
           this.fleetStore.applyDirective(p.directive);
+        } else if (p.kind === 'policy_proposal' && p.policy_proposal) {
+          this.controlStore.applyProposal(p.policy_proposal);
         } else if (p.kind === 'question' && p.question) {
           this.questionsStore.apply(p.question);
         } else if (p.kind === 'worker_deleted' && p.deleted_id) {

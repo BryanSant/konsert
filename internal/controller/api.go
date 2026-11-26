@@ -302,6 +302,10 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/directives", s.requireBrowserAuth(s.handleListDirectives))
 	s.mux.Handle("POST /api/directives", s.requireBrowserAuth(s.handleCreateDirective))
 	s.mux.Handle("POST /api/directives/{id}/end", s.requireBrowserAuth(s.byRef(ids.Directive, s.handleEndDirective)))
+	s.mux.Handle("POST /api/policy", s.requireBrowserAuth(s.handleSetPolicy))
+	s.mux.Handle("GET /api/policy-proposals", s.requireBrowserAuth(s.handleListPolicyProposals))
+	s.mux.Handle("POST /api/policy-proposals/{id}/approve", s.requireBrowserAuth(s.byRef(ids.Policy, s.handleApprovePolicyProposal)))
+	s.mux.Handle("POST /api/policy-proposals/{id}/deny", s.requireBrowserAuth(s.byRef(ids.Policy, s.handleDenyPolicyProposal)))
 	s.mux.Handle("GET /api/overrides", s.requireBrowserAuth(s.handleListOverrides))
 	s.mux.Handle("POST /api/overrides", s.requireBrowserAuth(s.handleCreateOverride))
 	s.mux.Handle("POST /api/overrides/{id}/approve", s.requireBrowserAuth(s.byRef(ids.Override, s.decideOverrideHandler(true))))
@@ -758,6 +762,8 @@ type settingsResponse struct {
 	PulseDebounceSeconds int `json:"pulse_debounce_seconds"`
 	// AutopilotGlobal enables Autopilot Play across all projects unless explicitly paused.
 	AutopilotGlobal bool `json:"autopilot_global"`
+	// CommanderPolicyWrites is tighten (default), confirm, or none.
+	CommanderPolicyWrites string `json:"commander_policy_writes"`
 	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -805,6 +811,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		VerifyTimeoutSeconds:  int(s.hub.verifyTimeout(ctx).Seconds()),
 		PulseDebounceSeconds:  int(s.hub.pulseDebounce(ctx).Seconds()),
 		AutopilotGlobal:       s.hub.autopilotGlobal(ctx),
+		CommanderPolicyWrites: s.hub.commanderPolicyWrites(ctx),
 		CommanderBackend:      store.ChatBackendAgent,
 		CommanderChatID:       saved[commanderChatSetting],
 	}

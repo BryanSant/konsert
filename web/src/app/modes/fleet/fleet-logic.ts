@@ -65,6 +65,82 @@ export function directiveBadges(directives: readonly PolicyDirective[] | undefin
   return activeMachineDirectives(directives, workerId, now).map((d) => ({ id: d.id, text: directiveBadgeText(d) }));
 }
 
+/** "Claude", "Codex", "Antigravity", or the name as stored. */
+export function providerAgentLabel(name: string): string {
+  switch (name.trim().toLowerCase()) {
+    case 'claude':
+      return 'Claude';
+    case 'codex':
+      return 'Codex';
+    case 'grok':
+      return 'Grok';
+    case 'agy':
+      return 'Antigravity';
+    case 'cursor':
+      return 'Cursor';
+    case 'copilot':
+      return 'Copilot';
+    case 'mock':
+      return 'Mock';
+    default: {
+      const n = name.trim();
+      return n || 'Agent';
+    }
+  }
+}
+
+/** "Codex disabled until 14:00 → fallback Claude", or "Account claude2 disabled until 14:00". */
+export function providerDirectiveText(d: PolicyDirective): string {
+  const clock = d.until ? clockHHMM(d.until) : '';
+  const tail = clock ? ` until ${clock}` : '';
+  const fb = d.params?.fallback ? ` → fallback ${providerAgentLabel(d.params.fallback)}` : '';
+  if (d.params?.scope === 'account') return `Account ${d.target} disabled${tail}${fb}`;
+  return `${providerAgentLabel(d.target)} disabled${tail}${fb}`;
+}
+
+function directiveStillActive(d: PolicyDirective, now: number): boolean {
+  if (d.ended_at) return false;
+  if (d.until) {
+    const at = Date.parse(d.until);
+    if (!Number.isNaN(at) && at <= now) return false;
+  }
+  return true;
+}
+
+/** Active provider.disable directives. A past `until` no longer applies. */
+export function providerDirectives(directives: readonly PolicyDirective[] | undefined, now = Date.now()): PolicyDirective[] {
+  return (directives ?? []).filter((d) => d.kind === 'provider.disable' && directiveStillActive(d, now));
+}
+
+/** One line per active provider disable, for the fleet strip and the usage popover. */
+export function providerDirectiveLines(directives: readonly PolicyDirective[] | undefined, now = Date.now()): string[] {
+  return providerDirectives(directives, now).map(providerDirectiveText);
+}
+
+/** Agent-wide disables for agents this machine has installed. Account disables stay in usage. */
+export function providerBadgesForWorker(
+  directives: readonly PolicyDirective[] | undefined,
+  worker: { agents?: readonly string[] },
+  now = Date.now(),
+): DirectiveBadge[] {
+  const agents = new Set((worker.agents ?? []).map((a) => a.toLowerCase()));
+  return providerDirectives(directives, now)
+    .filter((d) => d.params?.scope !== 'account' && agents.has(d.target.toLowerCase()))
+    .map((d) => ({ id: d.id, text: providerDirectiveText(d) }));
+}
+
+/**
+ * The provider line for one account: an account-scoped disable wins, otherwise
+ * an agent-wide disable of that account's agent. Empty when neither applies.
+ */
+export function accountProviderNote(accountId: string, agent: string, directives: readonly PolicyDirective[] | undefined, now = Date.now()): string {
+  const list = providerDirectives(directives, now);
+  const account = list.find((d) => d.params?.scope === 'account' && d.target === accountId);
+  if (account) return providerDirectiveText(account);
+  const wide = list.find((d) => d.params?.scope !== 'account' && d.target.toLowerCase() === agent.toLowerCase());
+  return wide ? providerDirectiveText(wide) : '';
+}
+
 /** A machine's state badge (grey baseline; amber only for FULL). */
 export function machineBadge(w: Worker, running: number): MachineBadge {
   if (w.reconnecting_after_sleep) return 'RECONNECTING';
@@ -451,7 +527,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
       load,
       next: next.get(w.id) ?? '',
       suspended: suspended.get(w.id) ?? 0,
-      directiveBadges: directiveBadges(inp.directives, w.id, inp.now),
+      directiveBadges: [...directiveBadges(inp.directives, w.id, inp.now), ...providerBadgesForWorker(inp.directives, w, inp.now)],
     };
   });
 }

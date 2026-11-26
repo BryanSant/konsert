@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -186,18 +185,6 @@ func (h *Hub) ticketWorkerSelector(ctx context.Context, tk store.Ticket) WorkerS
 	return sel
 }
 
-func pickWorkerAgent(w store.Worker) string {
-	for _, pref := range preferredAgentOrder {
-		if slices.Contains(w.Agents, pref) {
-			return pref
-		}
-	}
-	if len(w.Agents) > 0 {
-		return w.Agents[0]
-	}
-	return ""
-}
-
 // scheduleDispatchableTickets runs at the end of each scheduler pass, after queued tasks.
 // Precedence: fleet paused > project paused/directive > global/project play.
 func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.Worker, counts map[string]int, slots slotPlan) {
@@ -276,6 +263,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		holdText := strings.TrimSpace(tk.Title + "\n" + tk.Body)
 		sel := h.ticketWorkerSelector(ctx, tk)
 
+		pinnedAgent := strings.TrimSpace(tk.Hints.Agent) != ""
 		agent := strings.TrimSpace(tk.Hints.Agent)
 		if agent == "" {
 			agent = defaultAgent
@@ -309,12 +297,18 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 			return matched, matched == len(resolved), true
 		}
 
+		dec, idx := h.applyProviderPlacement(ctx, agent, "", pinnedAgent, eligible)
+		if dec.Wait {
+			continue
+		}
+		agent = dec.Agent
+		eligible = filterProviderWorkers(eligible, agent, idx)
 		w, ok := SelectWorkerWithLocality(eligible, counts, sel, agent, permMode, localityFn)
 		if !ok {
 			continue
 		}
 		if agent == "" {
-			agent = pickWorkerAgent(w)
+			agent = pickAllowedAgent(w, idx)
 			if agent == "" {
 				continue
 			}
@@ -417,17 +411,21 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		h.broadcastFleetUpdate("chat_session", cs)
 
 		attemptN := h.beginAttempt(ctx, store.Attempt{
-			TicketID:  tk.ID,
-			TaskID:    taskID,
-			ChatID:    chatID,
-			Attempt:   claimedTk.Attempt,
-			WorkerID:  w.ID,
-			AccountID: cs.AccountID,
-			Agent:     cs.Agent,
-			Model:     cs.Model,
-			QueuedAt:  &task.CreatedAt,
-			StartedAt: task.StartedAt,
+			TicketID:     tk.ID,
+			TaskID:       taskID,
+			ChatID:       chatID,
+			Attempt:      claimedTk.Attempt,
+			WorkerID:     w.ID,
+			AccountID:    cs.AccountID,
+			Agent:        cs.Agent,
+			Model:        cs.Model,
+			QueuedAt:     &task.CreatedAt,
+			StartedAt:    task.StartedAt,
+			Substitution: dec.Substitution,
 		})
+		if dec.Substitution != "" {
+			h.noteProviderSubstitution(ctx, taskID, tk.ID, dec.Substitution)
+		}
 		// Fleet pause beats an in-flight pass. The open is the point of no return:
 		// a pause stored while the packet was compiled must not still dispatch.
 		if h.fleetPaused(ctx) {

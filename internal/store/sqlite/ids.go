@@ -28,6 +28,7 @@ var idTables = map[ids.Kind]string{
 	ids.PairingCode:       "pairing_codes",
 	ids.MachineCredential: "machine_credentials",
 	ids.Directive:         "directives",
+	ids.Policy:            "policy_proposals",
 }
 
 // NewSID mints a unique short ID of the given kind, checking candidates against its

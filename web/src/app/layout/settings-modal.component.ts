@@ -191,6 +191,27 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
+        <!-- Commander policy writes (SYR-P3H92) -->
+        <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Commander policy</div>
+          <label for="settings-commander-policy-writes" class="block text-[12px] text-[#d4d4d8]">When the Commander sets policy</label>
+          <select
+            id="settings-commander-policy-writes"
+            name="commanderPolicyWrites"
+            data-testid="settings-commander-policy-writes"
+            [ngModel]="commanderPolicyWrites()"
+            (ngModelChange)="commanderPolicyWrites.set($event)"
+            class="sy-field w-full"
+          >
+            <option value="tighten">Tighten immediately (default)</option>
+            <option value="confirm">Ask me to approve every change</option>
+            <option value="none">Read-only</option>
+          </select>
+          <p class="m-0 text-[11.5px] text-[#8e9098]">
+            Tightening (pause, throttle, drain, disable a provider) applies at once, attributed to you via Commander, with Undo on the receipt. Ending a directive or raising a cap still needs your approval. Confirm turns every tightening change into a Needs you card.
+          </p>
+        </div>
+
         <!-- Shells left running by finished sessions (SYR-DCEZV) -->
         <sy-shell-policy-settings />
 
@@ -372,6 +393,7 @@ export class SettingsModalComponent implements OnInit {
   readonly deviceIdleDays = signal(90);
   readonly defaultDeliveryMode = signal<DeliveryMode>('');
   readonly defaultMergeStyle = signal<MergeStyle>('squash');
+  readonly commanderPolicyWrites = signal('tighten');
   readonly deliveryModeOptions = DELIVERY_MODE_OPTIONS;
   readonly mergeStyleOptions = MERGE_STYLE_OPTIONS;
 
@@ -398,6 +420,7 @@ export class SettingsModalComponent implements OnInit {
       this.deviceIdleDays.set(s.device_idle_days || 90);
       this.defaultDeliveryMode.set(s.default_delivery_mode || '');
       this.defaultMergeStyle.set(s.default_merge_style || 'squash');
+      this.commanderPolicyWrites.set(s.commander_policy_writes || 'tighten');
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
     }
@@ -455,6 +478,7 @@ export class SettingsModalComponent implements OnInit {
         device_idle_days: Math.min(3650, Math.max(1, Math.round(this.deviceIdleDays() || 90))),
         default_delivery_mode: this.defaultDeliveryMode(),
         default_merge_style: this.defaultMergeStyle(),
+        commander_policy_writes: this.commanderPolicyWrites(),
       });
       this.fleet.settings.set(updated);
       this.auth.provider.set(updated.llm_provider);

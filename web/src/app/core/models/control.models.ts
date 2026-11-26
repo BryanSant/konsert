@@ -230,7 +230,34 @@ const SOURCE_LABELS: Record<string, string> = {
   terminal: 'a Syre terminal',
   ssh: 'SSH',
   mcp: 'MCP',
+  commander: 'Commander',
 };
+
+/**
+ * Directive id a receipt can undo: a user-created directive that is still active.
+ * System usage-limit directives and already-ended ones return ''.
+ */
+export function directiveUndoId(
+  ev: FleetEvent,
+  active: readonly { id: string; ended_at?: string; provenance?: string }[],
+): string {
+  if (ev.kind !== 'directive' || ev.action !== 'created' || ev.cause?.actor !== 'user') return '';
+  let meta: { directive_id?: string; provenance?: string } = {};
+  if (ev.meta_json) {
+    try {
+      meta = JSON.parse(ev.meta_json) as { directive_id?: string; provenance?: string };
+    } catch {
+      return '';
+    }
+  }
+  if (meta.provenance && meta.provenance !== 'user') return '';
+  const id = meta.directive_id || '';
+  if (!id) return '';
+  const live = active.find((d) => d.id === id);
+  if (!live || live.ended_at) return '';
+  if (live.provenance && live.provenance !== 'user') return '';
+  return id;
+}
 
 /** Who did it, from the viewer's perspective ("You", "The commander", ...). */
 export function actorLabel(c: Cause | undefined | null): string {

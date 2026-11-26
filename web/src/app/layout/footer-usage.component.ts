@@ -16,6 +16,7 @@ import { IconComponent } from '../shared/icon.component';
 import { PopoverComponent, PopoverTriggerDirective } from '../shared/popover.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { UsageRingComponent } from '../shared/usage-ring.component';
+import { accountProviderNote, providerDirectiveLines } from '../modes/fleet/fleet-logic';
 
 export interface FooterAccountRow {
   workerId: string;
@@ -83,6 +84,13 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
           {{ accounts.refreshing() ? 'Checking…' : 'Refresh' }}
         </button>
       </div>
+      @if (providerLines().length) {
+        <div class="px-3.5 pb-2 space-y-1" data-testid="usage-provider-directives">
+          @for (line of providerLines(); track line) {
+            <p class="m-0 text-[11.5px] text-[#e9bd76]" data-testid="provider-directive-line">{{ line }}</p>
+          }
+        </div>
+      }
       <div class="max-h-[340px] overflow-y-auto px-2 pb-2 space-y-0.5" data-testid="usage-list">
         @for (r of rows(); track r.workerId + r.account.id) {
           <div class="rounded-[var(--sy-radius-md)] px-2 py-2 hover:bg-[var(--sy-raised)]" [attr.data-account-row]="r.account.id" [attr.data-health]="r.health">
@@ -104,6 +112,9 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
                 >
                   {{ r.state }}
                 </span>
+                @if (providerNote(r); as note) {
+                  <span class="block truncate text-[11px] text-[#e9bd76]" data-testid="provider-directive">{{ note }}</span>
+                }
               </span>
               @if (r.health === 'logged_out') {
                 <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" (click)="relogin(r)">Sign in</button>
@@ -186,10 +197,15 @@ export class FooterUsageComponent {
       .slice(0, 3),
   );
   readonly loggedOut = computed(() => this.rows().filter((r) => r.health === 'logged_out'));
+  readonly providerLines = computed(() => providerDirectiveLines(this.fleet.directives()));
   readonly apiTokens = computed(() => {
     const u = this.fleet.usage();
     return (u.total_input_tokens + u.total_output_tokens).toLocaleString();
   });
+
+  providerNote(r: FooterAccountRow): string {
+    return accountProviderNote(r.account.id, r.account.agent, this.fleet.directives());
+  }
 
   relogin(r: FooterAccountRow): void {
     this.open.set(false);

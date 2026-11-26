@@ -64,6 +64,7 @@ func (s *FleetService) GetSettingsMap(ctx context.Context) (map[string]any, erro
 		"default_agent":           saved["default_agent"],
 		"default_model":           saved["default_model"],
 		"default_permission_mode": saved["default_permission_mode"],
+		"commander_policy_writes": firstNonEmpty(saved[commanderPolicyWritesSetting], policyWritesTighten),
 	}
 	return out, nil
 }
@@ -455,6 +456,10 @@ func newMCPServer(backend FleetBackend, version string, orchSvc *commander.Servi
 		})
 	}
 
+	if pb, ok := backend.(PolicyBackend); ok {
+		registerSetPolicyTool(srv, pb)
+	}
+
 	if ib, ok := backend.(InspectBackend); ok {
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "inspect",
@@ -662,6 +667,12 @@ func (c *RemoteFleetClient) SaveMemory(ctx context.Context, scope, key, summary 
 		"key":     key,
 		"summary": summary,
 	}, nil)
+}
+
+func (c *RemoteFleetClient) SetPolicy(ctx context.Context, in SetPolicyInput) (SetPolicyResult, error) {
+	var res SetPolicyResult
+	err := c.doJSON(ctx, http.MethodPost, "/api/policy", in, &res)
+	return res, err
 }
 
 func (c *RemoteFleetClient) RecallMemory(ctx context.Context, scope string, limit int) ([]store.MemoryEntry, error) {

@@ -100,6 +100,8 @@ func describeActor(c store.Cause) string {
 			return "the user via a Syre terminal"
 		case store.SourceSSH:
 			return "the user over SSH"
+		case store.SourceCommander:
+			return "the user via Commander"
 		}
 		return "the user"
 	case store.ActorCommander:

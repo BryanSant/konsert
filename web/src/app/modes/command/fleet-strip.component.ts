@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import { FleetStore } from '../../core/state/fleet.store';
 import { machineLoadLabel, occupiesSlot } from '../../core/state/work-logic';
+import { providerDirectiveLines } from '../fleet/fleet-logic';
 import { FooterUsageComponent } from '../../layout/footer-usage.component';
 import { HeatAvatarComponent } from '../../shared/activity-spinner.component';
 import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
@@ -31,6 +32,9 @@ import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
           ><span aria-hidden="true" class="inline-flex"><sy-heat-avatar [machine]="m.machine" [size]="14" /></span>{{ m.text }}@if (m.heatPct !== null) {<span class="font-mono-ide text-[11px]" [style.color]="m.heatColor">{{ m.heatPct }}%<span class="sy-sr-only"> heat</span></span>}</a
         >
       }
+      @for (line of providerLines(); track line) {
+        <span class="text-[#e9bd76]" data-testid="fleet-provider-line">{{ line }}</span>
+      }
       <span class="flex-1"></span>
       <sy-footer-usage />
     </footer>
@@ -38,6 +42,7 @@ import { heatTextColor, spinnerMachine } from '../../shared/spinner-logic';
 })
 export class FleetStripComponent {
   private readonly fleet = inject(FleetStore);
+  readonly providerLines = computed(() => providerDirectiveLines(this.fleet.directives()));
 
   readonly machines = computed(() => {
     const running = new Map<string, number>();

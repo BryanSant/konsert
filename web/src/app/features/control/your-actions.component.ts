@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
-import { FleetEvent, actorLabel, sourceLabel } from '../../core/models/control.models';
+import { FleetEvent, actorLabel, directiveUndoId, sourceLabel } from '../../core/models/control.models';
 import { ControlStore } from '../../core/state/control.store';
 import { FleetStore } from '../../core/state/fleet.store';
 import { CommanderStore } from '../../core/state/commander.store';
@@ -14,6 +14,7 @@ const KIND_LABELS: Record<string, string> = {
   veto: 'Veto',
   notice: 'Told agent',
   status: 'Status',
+  directive: 'Directive',
 };
 
 /**
@@ -94,6 +95,9 @@ const KIND_LABELS: Record<string, string> = {
                     {{ sid }}
                   </button>
                 }
+                @if (undoId(ev); as id) {
+                  <button type="button" class="sy-btn sy-btn-sm !h-5 !px-1.5" data-testid="directive-undo" (click)="undo(id)">Undo</button>
+                }
               </div>
             </div>
           </li>
@@ -132,6 +136,18 @@ export class YourActionsComponent {
 
   kindLabel(ev: FleetEvent): string {
     return KIND_LABELS[ev.kind] ?? ev.kind;
+  }
+
+  undoId(ev: FleetEvent): string {
+    return directiveUndoId(ev, this.fleet.directives());
+  }
+
+  async undo(id: string): Promise<void> {
+    try {
+      await this.fleet.endDirective(id);
+    } catch {
+      // The directive stays; the user can end it from the machine view.
+    }
   }
 
   actorText(ev: FleetEvent): string {

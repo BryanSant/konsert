@@ -247,21 +247,36 @@ func TestAgentChatLoggedOutRefusalAndExhaustedHint(t *testing.T) {
 		t.Fatal("agent.chat.open sent for a logged-out account")
 	}
 
-	// Exhausted: still forwarded, with a rate_limit hint event.
+	// Exhausted with a reset: placement substitutes the logged-in account and does not hint rate_limit.
 	chat3 := cs.createChat(t, map[string]any{"account_id": "claude3"})
 	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat3.ID, Content: "hi"})
-	decodeOpen(t, w)
-	prompt, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
-	hint := expectChatEvent(t, b, protocol.EventRateLimit)
-	if hint.RateLimit == nil || hint.RateLimit.State != "exhausted" || hint.RateLimit.Window != "seven_day" || hint.Text == "" {
-		t.Fatalf("exhausted hint: %+v", hint)
+	open := decodeOpen(t, w)
+	if open.Agent != "claude" || open.AccountID != "claude" {
+		t.Fatalf("substituted open: %+v", open)
 	}
+	prompt, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
 	// A usage_limit error is persisted on the session.
 	w.send(protocol.MsgAgentChatEvent, protocol.AgentChatEvent{ChatID: chat3.ID, Seq: 1, TurnID: prompt.TurnID, Kind: protocol.EventError,
 		Error: &protocol.AgentChatError{Kind: protocol.ErrKindUsageLimit, Message: "limit", Window: "seven_day", ResetsAt: &resets}})
-	expectChatEvent(t, b, protocol.EventError)
-	if s := mustSession(t, cs.st, chat3.ID); s.Status != protocol.ChatStatusFailed || !strings.Contains(s.LastErrorJSON, `"usage_limit"`) {
-		t.Fatalf("usage_limit not persisted: %+v", s)
+	deadline := time.Now().Add(3 * time.Second)
+	sawError := false
+	for time.Now().Before(deadline) && !sawError {
+		ev, err := protocol.DecodePayload[protocol.AgentChatEvent](b.expect(protocol.MsgAgentChatEvent, time.Until(deadline)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ev.Kind == protocol.EventRateLimit {
+			t.Fatalf("rate_limit after substitution: %+v", ev)
+		}
+		if ev.Kind == protocol.EventError && ev.Error != nil && ev.Error.Kind == protocol.ErrKindUsageLimit {
+			sawError = true
+		}
+	}
+	if !sawError {
+		t.Fatal("usage_limit error was not delivered")
+	}
+	if s := mustSession(t, cs.st, chat3.ID); s.Status != protocol.ChatStatusFailed || !strings.Contains(s.LastErrorJSON, `"usage_limit"`) || s.AccountID != "claude" {
+		t.Fatalf("usage_limit not persisted on the substituted account: %+v", s)
 	}
 
 	// /api/agents/accounts exposes auth and exhausted state.
@@ -277,6 +292,42 @@ func TestAgentChatLoggedOutRefusalAndExhaustedHint(t *testing.T) {
 	if len(res.Accounts) != 3 || !byID["claude3"].Exhausted || byID["claude3"].ExhaustedUntil == nil || byID["claude"].Exhausted ||
 		byID["claude2"].Auth.State != protocol.AuthLoggedOut || !byID["claude"].WorkerOnline || byID["claude"].WorkerName != "box" {
 		t.Fatalf("accounts view: %s", raw)
+	}
+}
+
+func TestExplicitChatKeepsUsageHeldAccount(t *testing.T) {
+	cs := newChatServer(t)
+	resets := time.Now().Add(2 * time.Hour).UTC()
+	tired := func(id string) protocol.AgentAccount {
+		a := claudeAccount(id, id == "mock")
+		a.Agent = "mock"
+		a.Usage = []protocol.AgentRateLimit{{Window: "five_hour", State: "exhausted", ResetsAt: &resets}}
+		return a
+	}
+	w := cs.connectAgentWorker(t, "w1", "box", tired("mock"), tired("mock2"))
+	b := cs.dialBrowser(t)
+	chat := cs.createChat(t, map[string]any{"account_id": "mock2"})
+	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat.ID, Content: "still send"})
+	open := decodeOpen(t, w)
+	if open.AccountID != "mock2" || open.Agent != "mock" {
+		t.Fatalf("open: %+v", open)
+	}
+	prompt, _ := protocol.DecodePayload[protocol.AgentChatPrompt](w.expect(protocol.MsgAgentChatPrompt, 3*time.Second))
+	if prompt.Text != "still send" {
+		t.Fatalf("prompt: %+v", prompt)
+	}
+
+	// An operator disable still refuses the chat.
+	until := time.Now().Add(time.Hour).UTC()
+	mustDirective(t, cs.h, DirectiveInput{Kind: store.DirectiveProviderDisable, Target: "mock", Until: &until})
+	chat2 := cs.createChat(t, map[string]any{"account_id": "mock2"})
+	b.send(protocol.MsgChatSend, chatSendRequest{SessionID: chat2.ID, Content: "nope"})
+	ev := expectChatEvent(t, b, protocol.EventError)
+	if ev.Error == nil || ev.Error.Kind != protocol.ErrKindUsageLimit || !strings.Contains(ev.Error.Message, "disabled") {
+		t.Fatalf("operator disable: %+v", ev.Error)
+	}
+	if got := w.drain(protocol.MsgAgentChatOpen, 300*time.Millisecond); len(got) != 0 {
+		t.Fatal("agent.chat.open sent for an operator-disabled agent")
 	}
 }
 
@@ -659,11 +710,11 @@ func TestDefaultTargetSkipsExhaustedAccount(t *testing.T) {
 	if wid, a, ok := cs.h.defaultAgentTarget(context.Background()); !ok || wid != "w1" || a.ID != "claude" {
 		t.Fatalf("got %s/%s %v, want w1/claude", wid, a.ID, ok)
 	}
-	// Only exhausted accounts left: still usable (the window may reset early).
+	// Only an exhausted account with a future reset: a system disable blocks it.
 	cs2 := newChatServer(t)
 	cs2.connectAgentWorker(t, "w1", "box", c2)
-	if _, a, ok := cs2.h.defaultAgentTarget(context.Background()); !ok || a.ID != "claude2" {
-		t.Fatalf("exhausted-only fallback: %s %v", a.ID, ok)
+	if _, a, ok := cs2.h.defaultAgentTarget(context.Background()); ok {
+		t.Fatalf("exhausted-only with a reset should not be a target: %s", a.ID)
 	}
 }
 
@@ -709,7 +760,7 @@ func TestCommanderIsAgentChatWithFleetTools(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names[tl.Name] = true
 	}
-	if !names["ask_user"] || !names["dispatch_task"] || !names["fleet_status"] {
+	if !names["ask_user"] || !names["dispatch_task"] || !names["fleet_status"] || !names["set_policy"] {
 		t.Fatalf("commander tools: %v", names)
 	}
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "fleet_status", Arguments: map[string]any{}})
@@ -743,11 +794,11 @@ func TestDispatchAccountChecksAndFields(t *testing.T) {
 	})
 	var res DispatchResult
 	_ = json.Unmarshal(raw, &res)
-	if code != http.StatusCreated || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "five_hour") {
+	if code != http.StatusCreated || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "substituted claude for claude3") || strings.Contains(res.Warnings[0], "five_hour") {
 		t.Fatalf("exhausted dispatch: %d %s", code, raw)
 	}
 	start, _ := protocol.DecodePayload[protocol.TaskStartPayload](w.expect(protocol.MsgTaskStart, 3*time.Second))
-	if start.AccountID != "claude3" || start.ApprovalMode != "plan" || start.Effort != "low" {
+	if start.AccountID != "claude" || start.ApprovalMode != "plan" || start.Effort != "low" {
 		t.Fatalf("task.start payload: %+v", start)
 	}
 }

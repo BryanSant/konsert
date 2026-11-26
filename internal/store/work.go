@@ -231,6 +231,9 @@ type Attempt struct {
 	TokensOut       int64      `json:"tokens_out,omitzero"`
 	CostUSD         *float64   `json:"cost_usd,omitzero"`
 	GitJSON         string     `json:"git_json,omitempty"`
+	// Substitution records that placement ran this attempt on a different agent
+	// than the one requested, because a provider.disable was in force.
+	Substitution string `json:"substitution,omitempty"`
 }
 
 // NormalizeAndValidateTicket fills default values for omitted fields and validates invariants.
