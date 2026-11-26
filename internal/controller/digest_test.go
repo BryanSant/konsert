@@ -127,4 +127,25 @@ func TestTaskDigestStoredAndExposed(t *testing.T) {
 	if !strings.Contains(apiRes.Summary, "ticket: SYR-X17JQ") || apiRes.Summary != wantText {
 		t.Fatalf("unexpected API Summary: %q", apiRes.Summary)
 	}
+
+	rows, err := st.ListAttempts(ctx, "", task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != store.AttemptReview || rows[0].TicketID != "" ||
+		rows[0].Agent != "claude" || rows[0].Model != "opus" ||
+		rows[0].DurationS == nil || *rows[0].DurationS != 42 || !strings.Contains(rows[0].GitJSON, "api") {
+		t.Fatalf("adhoc attempt: %+v", rows)
+	}
+	ins, err := srv.service.Inspect(ctx, InspectRequest{Target: task.ID, Kind: protocol.InspectKindDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ins.Text, "summary: Rotation implemented") || !strings.Contains(ins.Text, "bocabox") ||
+		!strings.Contains(ins.Text, "claude/opus") || !strings.Contains(ins.Text, "42s") || !strings.Contains(ins.Text, "review") {
+		t.Fatalf("inspect digest:\n%s", ins.Text)
+	}
+	if res.Summary != wantText {
+		t.Fatalf("GetTaskResult.Summary gained the attempts table: %q", res.Summary)
+	}
 }

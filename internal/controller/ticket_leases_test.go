@@ -313,6 +313,23 @@ func TestTicketLeaseExpiryRequeuesAndRedispaches(t *testing.T) {
 	if got.Status != store.TicketStatusRunning || got.Lease == nil || got.Lease.WorkerID != "w-2" || got.Lease.TaskID == firstLeased.Lease.TaskID {
 		t.Fatalf("expected ticket re-leased on w-2 with new task: %+v", got)
 	}
+	if got.Attempt != 2 {
+		t.Fatalf("ticket attempt = %d, want 2 after requeue", got.Attempt)
+	}
+	attempts, err := th.st.ListAttempts(ctx, tk.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 2 {
+		t.Fatalf("attempts: %+v", attempts)
+	}
+	if attempts[0].Attempt != 1 || attempts[0].Status != store.AttemptFailed || attempts[0].FailureCategory != protocol.ErrKindLost ||
+		attempts[0].WorkerID != "w-1" || attempts[0].TaskID != firstLeased.Lease.TaskID {
+		t.Fatalf("lost attempt: %+v", attempts[0])
+	}
+	if attempts[1].Attempt != 2 || attempts[1].Status != "" || attempts[1].WorkerID != "w-2" {
+		t.Fatalf("redispatched attempt: %+v", attempts[1])
+	}
 }
 
 func TestTicketLeaseBreakRESTAndAutopilotPatch(t *testing.T) {

@@ -413,7 +413,20 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context, workers []store.W
 		}
 		h.broadcastFleetUpdate("chat_session", cs)
 
+		attemptN := h.beginAttempt(ctx, store.Attempt{
+			TicketID:  tk.ID,
+			TaskID:    taskID,
+			ChatID:    chatID,
+			Attempt:   claimedTk.Attempt,
+			WorkerID:  w.ID,
+			AccountID: cs.AccountID,
+			Agent:     cs.Agent,
+			Model:     cs.Model,
+			QueuedAt:  &task.CreatedAt,
+			StartedAt: task.StartedAt,
+		})
 		if err := h.sendAgentChat(ctx, cs, chatSendRequest{SessionID: cs.ID, Content: prompt}); err != nil {
+			h.abandonAttempt(ctx, tk.ID, taskID, attemptN)
 			h.logger.Warn("dispatch of ticket chat failed; releasing ticket back to ready",
 				"ticket_id", tk.ID, "task_id", taskID, "chat_id", chatID, "worker_id", w.ID, "err", err)
 			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)
@@ -698,9 +711,9 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 	var mergedDig *protocol.RunDigest
 	if dig != nil {
 		d := *dig
-		if attempt := max(tk.Attempt, 1); d.Attempt < attempt {
-			d.Attempt = attempt
-		}
+		// The ticket counter names the attempt. The worker's per-turn count
+		// climbs on follow-ups that stay on the same attempt row.
+		d.Attempt = max(tk.Attempt, 1)
 		if task != nil {
 			mergeTaskFollowupsIntoDigest(&d, task.Followups)
 			if b, err := json.Marshal(&d, protocol.JSONOptions); err == nil {
@@ -717,12 +730,15 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 
 	switch ev.Kind {
 	case protocol.EventElicitation:
-		if tk.Status == store.TicketStatusRunning {
-			tk.Status = store.TicketStatusNeedsYou
-			if updated, err := h.store.UpdateTicket(ctx, tk); err == nil {
-				h.broadcastFleetUpdate("ticket", updated)
-				h.pulseTicketTransition(ctx, updated, task, mergedDig, "question")
+		if tk.Status == store.TicketStatusRunning || tk.Status == store.TicketStatusNeedsYou {
+			if tk.Status == store.TicketStatusRunning {
+				tk.Status = store.TicketStatusNeedsYou
+				if updated, err := h.store.UpdateTicket(ctx, tk); err == nil {
+					h.broadcastFleetUpdate("ticket", updated)
+					h.pulseTicketTransition(ctx, updated, task, mergedDig, "question")
+				}
 			}
+			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptNeedsYou, "", nil, 0)
 		}
 		if task != nil && !protocol.IsTerminalTaskStatus(task.Status) {
 			_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusWaitingInput, "", "", nil, causeScheduler)
@@ -749,6 +765,7 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		}
 		switch ev.StopReason {
 		case "cancelled":
+			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptCanceled, protocol.ErrKindCanceled, nil, 0)
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusCanceled); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
 				h.checkProjectBoardIdle(ctx, updated.ProjectID)
@@ -758,6 +775,8 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			}
 			h.closeChat(ctx, cs.ID)
 		case "error":
+			errCode := 1
+			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, "", &errCode, 0)
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
 				h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
@@ -771,27 +790,45 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 			if isVerifyFailureDigest(dig) {
 				retryLimit, escalateOnBlocker := h.ticketAutonomy(ctx, tk)
 				currentAttempt := max(tk.Attempt, 1)
-				if dig.Attempt > currentAttempt {
+				if dig != nil && dig.Attempt > currentAttempt {
 					currentAttempt = dig.Attempt
 				}
+				exitCode := 1
+				if dig != nil && dig.Verify != nil && dig.Verify.Exit != 0 {
+					exitCode = dig.Verify.Exit
+				}
+				h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, protocol.ErrKindVerify, &exitCode, currentAttempt)
 				if currentAttempt < retryLimit {
 					tk.Attempt = currentAttempt + 1
 					if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 						h.broadcastFleetUpdate("ticket", updated)
 					}
+					repairN := 0
+					if task != nil {
+						repairN = h.beginAttempt(ctx, store.Attempt{
+							TicketID:  tk.ID,
+							TaskID:    task.ID,
+							ChatID:    cs.ID,
+							Attempt:   tk.Attempt,
+							WorkerID:  cs.WorkerID,
+							AccountID: cs.AccountID,
+							Agent:     cs.Agent,
+							Model:     cs.Model,
+						})
+					}
 					repairPrompt := formatVerifyRepairPrompt(currentAttempt, retryLimit, dig)
 					if sErr := h.SendTicketTurn(ctx, tk.ID, repairPrompt); sErr == nil {
 						return
 					} else {
+						if task != nil {
+							h.abandonAttempt(ctx, tk.ID, task.ID, repairN)
+						}
 						h.logger.Warn("self-repair turn dispatch failed; escalating ticket",
 							"ticket_id", tk.ID, "ticket_sid", tk.SID, "attempt", currentAttempt, "err", sErr)
 					}
 				}
-				// Retries exhausted (or repair dispatch failed).
-				exitCode := 1
-				if dig.Verify != nil && dig.Verify.Exit != 0 {
-					exitCode = dig.Verify.Exit
-				}
+				// Retries exhausted (or repair dispatch failed). The failed row was
+				// recorded above; exitCode is the verify command's exit.
 				if escalateOnBlocker {
 					if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusNeedsYou); err == nil && changed {
 						h.broadcastFleetUpdate("ticket", updated)
@@ -828,6 +865,15 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				h.closeChat(ctx, cs.ID)
 				return
 			}
+			okStatus := store.AttemptReview
+			if mergedDig != nil && mergedDig.Status == protocol.DigestStatusCompleted {
+				okStatus = store.AttemptCompleted
+			}
+			if mergedDig != nil && mergedDig.Failure != nil && mergedDig.Failure.Category == protocol.ErrKindCanceled {
+				okStatus = store.AttemptCanceled
+			}
+			okCode := 0
+			h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, okStatus, "", &okCode, 0)
 			if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReview); err == nil && changed {
 				h.broadcastFleetUpdate("ticket", updated)
 				h.pulseTicketTransition(ctx, updated, task, mergedDig, "")
@@ -855,6 +901,11 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		if tk.Status != store.TicketStatusRunning && tk.Status != store.TicketStatusNeedsYou {
 			return
 		}
+		errCode := 1
+		if ev.Error != nil && ev.Error.ExitCode != nil {
+			errCode = *ev.Error.ExitCode
+		}
+		h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, "", &errCode, 0)
 		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
 			h.broadcastFleetUpdate("ticket", updated)
 			h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
@@ -908,6 +959,7 @@ func (h *Hub) expireTicketLeases(ctx context.Context, now time.Time) {
 			"next_status", ex.Ticket.Status,
 		)
 		if ex.TaskID != "" {
+			h.markAttemptLost(ctx, ex.Ticket.ID, ex.TaskID, ex.WorkerID, ex.Ticket.Attempt)
 			h.forgetTask(ex.TaskID)
 			code := -1
 			_, _ = h.setTaskStatus(ctx, ex.TaskID, protocol.TaskStatusFailed, "ticket lease expired", "", &code, causeReaper)

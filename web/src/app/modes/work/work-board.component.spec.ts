@@ -43,6 +43,7 @@ describe('WorkModeComponent board', () => {
     api = {
       getTicket: vi.fn(async (id: string) => ({ ticket: ticket({ id, title: id }), blocked_by: [], repo_bindings: [] })),
       listTicketComments: vi.fn(async () => ({ comments: [] })),
+      listTicketAttempts: vi.fn(async () => ({ attempts: [] })),
       getTicketPacket: vi.fn(async () => ({ packet: {}, text: '', tokens: 0 })),
       updateTicket: vi.fn(),
       createTicket: vi.fn(),
@@ -228,6 +229,7 @@ describe('TicketPanelComponent', () => {
     api = {
       getTicket: vi.fn(async () => ({ ticket: current, blocked_by: [], repo_bindings: [], digest: { status: 'completed', summary: 'landed the schema' } })),
       listTicketComments: vi.fn(async () => ({ comments: [] })),
+      listTicketAttempts: vi.fn(async () => ({ attempts: [] })),
       getTicketPacket: vi.fn(async () => ({ packet: {}, text: 'packet preview', tokens: 4 })),
       updateTicket: vi.fn(async (_id: string, patch: Partial<Ticket>) => ({ ...current, ...patch, updated_at: '2026-11-25T02:00:00Z' })),
       addTicketEdge: vi.fn(async () => {
@@ -259,6 +261,7 @@ describe('TicketPanelComponent', () => {
     expect(el.querySelector('[data-testid="ticket-body"]')?.textContent).toContain('Write the store');
     expect(el.querySelector('[data-testid="ticket-acceptance"]')?.textContent).toContain('edges reject cycles');
     expect(el.querySelector('[data-testid="ticket-digest"]')?.textContent).toContain('landed the schema');
+    expect(el.querySelector('[data-testid="ticket-attempts"]')?.textContent).toContain('No attempts yet.');
     expect(el.querySelector('[data-testid="ticket-packet"]')?.textContent).toContain('packet preview');
 
     const status = el.querySelector('[data-testid="ticket-status"]') as HTMLSelectElement;
@@ -268,6 +271,50 @@ describe('TicketPanelComponent', () => {
     (el.querySelector('[data-testid="ticket-move"]') as HTMLButtonElement).click();
     await fixture.whenStable();
     expect(api['updateTicket']).toHaveBeenCalledWith('b', { status: 'done' });
+  });
+
+  it('lists attempts under the digest', async () => {
+    api['listTicketAttempts'] = vi.fn(async () => ({
+      attempts: [
+        {
+          id: 'a1',
+          task_id: 't1',
+          attempt: 1,
+          machine: 'bocabox',
+          worker_id: 'w1',
+          agent: 'claude',
+          model: 'opus',
+          duration_s: 42,
+          status: 'failed',
+          failure_category: 'verify',
+          verify_exit: 1,
+          verify_failed: 3,
+        },
+        {
+          id: 'a2',
+          task_id: 't1',
+          attempt: 2,
+          worker_id: 'w2',
+          agent: 'mock',
+          duration_s: 5,
+          status: 'review',
+          verify_exit: 0,
+        },
+      ],
+    }));
+    const { fixture, el } = await open();
+    expect(api['listTicketAttempts']).toHaveBeenCalledWith('b');
+    const table = el.querySelector('[data-testid="ticket-attempts"]');
+    expect(table?.textContent).toContain('bocabox');
+    expect(table?.textContent).toContain('claude/opus');
+    expect(table?.textContent).toContain('42s');
+    expect(table?.textContent).toContain('failed/verify');
+    expect(table?.textContent).toContain('fail 3');
+    expect(table?.textContent).toContain('w2');
+    expect(table?.textContent).toContain('pass');
+    const digest = el.querySelector('[data-testid="ticket-digest"]');
+    expect(digest && table && (digest.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
+    fixture.detectChanges();
   });
 
   it('fetches a capped diff only after View diff is clicked', async () => {

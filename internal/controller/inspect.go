@@ -105,7 +105,7 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 	}
 	switch req.Kind {
 	case protocol.InspectKindDigest:
-		return s.inspectDigest(req, res, task), nil
+		return s.inspectDigest(ctx, req, res, task, ticketID), nil
 	case protocol.InspectKindTranscript:
 		if task.ID == "" && ticketID == "" {
 			return InspectResult{}, &inspectFailure{Status: http.StatusNotFound, Msg: "no transcript for this session"}
@@ -198,13 +198,19 @@ func (s *FleetService) resolveInspectTarget(ctx context.Context, target string) 
 	return tasks[0], tk.ID, nil
 }
 
-func (s *FleetService) inspectDigest(req InspectRequest, res InspectResult, task store.Task) InspectResult {
+func (s *FleetService) inspectDigest(ctx context.Context, req InspectRequest, res InspectResult, task store.Task, ticketID string) InspectResult {
 	text := ""
 	if strings.TrimSpace(task.DigestJSON) != "" {
 		var d protocol.RunDigest
 		if json.Unmarshal([]byte(task.DigestJSON), &d, protocol.JSONOptions) == nil {
 			text = d.Text()
 		}
+	}
+	if table := s.attemptTable(ctx, ticketID, task.ID); table != "" {
+		if text != "" {
+			text += "\n\n"
+		}
+		text += table
 	}
 	if strings.TrimSpace(text) == "" {
 		res.MaxLines = protocol.ClampInspectMaxLines(req.MaxLines)

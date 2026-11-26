@@ -126,6 +126,30 @@ func TestTicketVerifySelfRepairEndToEnd(t *testing.T) {
 	if digRepair.Verify == nil || digRepair.Verify.Exit != 0 || digRepair.Verify.Cmd != tkRepair.VerifyCmd {
 		t.Fatalf("expected passing verify in digest, got %+v", digRepair.Verify)
 	}
+	repairRows, err := cs.st.ListAttempts(ctx, tkRepair.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repairRows) != 2 || repairRows[0].Attempt != 1 || repairRows[1].Attempt != 2 {
+		t.Fatalf("repair attempts: %+v", repairRows)
+	}
+	if repairRows[0].Status != store.AttemptFailed || repairRows[0].FailureCategory != protocol.ErrKindVerify ||
+		repairRows[0].VerifyExit == nil || *repairRows[0].VerifyExit == 0 {
+		t.Fatalf("attempt 1: %+v", repairRows[0])
+	}
+	if repairRows[1].Status != store.AttemptReview || repairRows[1].VerifyExit == nil || *repairRows[1].VerifyExit != 0 {
+		t.Fatalf("attempt 2: %+v", repairRows[1])
+	}
+	if curRepair.Attempt != 2 {
+		t.Fatalf("ticket attempt = %d, want 2", curRepair.Attempt)
+	}
+	// The failing turn is the default mock path (usage once). The repair turn reports its own usage.
+	if repairRows[0].TokensIn != 120 || repairRows[0].TokensOut != 42 || repairRows[0].CostUSD == nil {
+		t.Fatalf("attempt 1 usage: %+v", repairRows[0])
+	}
+	if repairRows[1].TokensIn != 120 || repairRows[1].TokensOut != 42 || repairRows[1].CostUSD == nil {
+		t.Fatalf("attempt 2 usage: %+v", repairRows[1])
+	}
 	// Verify the repair prompt was actually sent to the same chat session.
 	chatsRepair, _ := cs.st.ListChatSessionsByTicket(ctx, tkRepair.ID)
 	if len(chatsRepair) != 1 {

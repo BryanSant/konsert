@@ -52,6 +52,7 @@ func mapChatErrorCategory(e *protocol.AgentChatError) string {
 		protocol.ErrKindMissingTool,
 		protocol.ErrKindVerify,
 		protocol.ErrKindCanceled,
+		protocol.ErrKindLost,
 		protocol.ErrKindModel,
 		protocol.ErrKindAgentError:
 		return e.Kind

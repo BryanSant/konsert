@@ -110,6 +110,7 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 			}
 			continue
 		}
+		h.markTaskLostAttempt(ctx, t)
 		code := -1
 		_, _ = h.setTaskStatus(ctx, t.ID, protocol.TaskStatusFailed, "worker went offline while task was active", "", &code, causeReaper)
 	}
@@ -119,6 +120,7 @@ func (h *Hub) handleOrphanTasks(ctx context.Context, workerID string) {
 // restart), unless a hold covers it: nothing automatic may happen on a held scope, so it
 // fails with the hold's explanation instead. It reports whether the task was requeued.
 func (h *Hub) requeueOrphan(ctx context.Context, t store.Task, summary string) bool {
+	h.markTaskLostAttempt(ctx, t)
 	if hold, ok := h.holdBlocking(ctx, holdCheck{workerID: t.WorkerID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt, restart: true}); ok {
 		code := -1
 		_, _ = h.setTaskStatus(ctx, t.ID, protocol.TaskStatusFailed,
@@ -203,6 +205,7 @@ func (h *Hub) reconcileLostTasks(ctx context.Context, wc *workerConn, taskIDs []
 			}
 			continue
 		}
+		h.markTaskLostAttempt(ctx, t)
 		code := -1
 		_, _ = h.setTaskStatus(ctx, id, protocol.TaskStatusFailed, "task lost: worker no longer reports it", "", &code, causeReaper)
 		kick = true // capacity freed

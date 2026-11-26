@@ -49,6 +49,7 @@ type FailureClassInput struct {
 	ExitCode int
 	TimedOut bool
 	Canceled bool
+	Lost     bool // worker disappeared (lease expiry or orphan); not inferred from text
 	OOM      bool
 	Text     string // cleaned output/stderr/summary text
 	WaitErr  error
@@ -56,6 +57,9 @@ type FailureClassInput struct {
 
 // ClassifyTaskFailure maps a failed/canceled task's signals to a canonical failure category.
 func ClassifyTaskFailure(in FailureClassInput) string {
+	if in.Lost {
+		return protocol.ErrKindLost
+	}
 	if in.Canceled {
 		return protocol.ErrKindCanceled
 	}

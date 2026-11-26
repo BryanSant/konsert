@@ -400,6 +400,36 @@ export interface TicketComment {
   created_at: string;
 }
 
+/** One loop iteration of a ticket (GET /api/tickets/{id}/attempts). */
+export interface Attempt {
+  id: string;
+  ticket_id?: string;
+  task_id: string;
+  chat_id?: string;
+  attempt: number;
+  worker_id?: string;
+  account_id?: string;
+  agent?: string;
+  model?: string;
+  machine?: string;
+  queued_at?: string;
+  started_at?: string;
+  ended_at?: string;
+  queue_wait_s?: number;
+  duration_s?: number;
+  exit_code?: number;
+  status?: string;
+  failure_category?: string;
+  verify_cmd?: string;
+  verify_exit?: number;
+  verify_passed?: number;
+  verify_failed?: number;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost_usd?: number;
+  git_json?: string;
+}
+
 /** One-line view of a ticket's latest run digest (board cards). */
 export interface TicketDigestLine {
   ticket_id: string;

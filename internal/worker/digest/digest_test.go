@@ -84,6 +84,7 @@ func TestClassifyTaskFailure(t *testing.T) {
 		want string
 	}{
 		{"canceled", FailureClassInput{Canceled: true, ExitCode: 137}, protocol.ErrKindCanceled},
+		{"lost", FailureClassInput{Lost: true, Canceled: true, ExitCode: 137}, protocol.ErrKindLost},
 		{"timeout", FailureClassInput{TimedOut: true, ExitCode: 137}, protocol.ErrKindTimeout},
 		{"oom_137", FailureClassInput{ExitCode: 137}, protocol.ErrKindOOM},
 		{"oom_sigkill", FailureClassInput{ExitCode: -9}, protocol.ErrKindOOM},
