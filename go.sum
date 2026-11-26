@@ -1,5 +1,5 @@
-github.com/KanArtist/ka v1.3.1-0.20261126192119-60269f0e08d4 h1:cHNJnQzreOr3IZMNcphB5tx3JCQQBuFIrPzZaGKCGg0=
-github.com/KanArtist/ka v1.3.1-0.20261126192119-60269f0e08d4/go.mod h1:CWpNIZ0rWDseLIio70CtX4WSd3bol3xz19EIdYbrcGQ=
+github.com/KanArtist/ka v1.4.0 h1:akOkeagpHvKd9T+pLlGmimzWpN/giyaGbBaTd1oVG00=
+github.com/KanArtist/ka v1.4.0/go.mod h1:CWpNIZ0rWDseLIio70CtX4WSd3bol3xz19EIdYbrcGQ=
 github.com/UserExistsError/conpty v0.1.4 h1:+3FhJhiqhyEJa+K5qaK3/w6w+sN3Nh9O9VbJyBS02to=
 github.com/UserExistsError/conpty v0.1.4/go.mod h1:PDglKIkX3O/2xVk0MV9a6bCWxRmPVfxqZoTG/5sSd9I=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=

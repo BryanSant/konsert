@@ -5,7 +5,7 @@ go 1.27.3
 toolchain go1.27.4
 
 require (
-	github.com/KanArtist/ka v1.3.1-0.20261126192119-60269f0e08d4
+	github.com/KanArtist/ka v1.4.0
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24

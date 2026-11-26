@@ -161,8 +161,8 @@ type Tracker interface {
   `authority: syre`, which ka clients treat as read-only (no stealing, never stale). Pulls
   force a fetch and re-read the cursor's second (ka stamps have one-second resolution).
   Statuses map to ka's default workflow (backlog/ready/in_progress/blocked/review/done/
-  canceled); `research` maps to `spike`. Stores that use authority claims need clients on the
-  ka release that understands `claim.authority` (raise `requires_ka` once that is tagged).
+  canceled); `research` maps to `spike`. Stores that use authority claims need ka 1.4.0+
+  clients: run `ka store require 1.4.0` on the store before adding a ka tracker.
 - **Built-in only**: projects with no tracker use Syre's tables directly; nothing else needed.
 
 ## Board
