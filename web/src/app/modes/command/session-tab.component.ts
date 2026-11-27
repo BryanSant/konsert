@@ -36,7 +36,9 @@ import { TakeControlService } from '../take-control.service';
       @if (it.observed) {
         <span class="text-[11.5px] text-[var(--sy-text-muted)]">observed: started outside Syre</span>
       }
-      <div class="flex items-center gap-1">
+      <!-- Wraps on a phone: one unwrapped row is wider than the screen, and focusing the
+           terminal then scrolls the whole tab sideways under the quick keys (SYR-WKJM6). -->
+      <div class="flex flex-wrap items-center gap-1 min-w-0 max-w-full">
         <sy-session-controls [kind]="it.kind" [sessionId]="it.id" [status]="it.status" [showHold]="it.live" />
         @if (it.kind === 'chat' && (it.status === 'working' || it.status === 'starting' || it.status === 'needs_you')) {
           <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="session-stop-turn" (click)="agentChat.cancel(it.id)" aria-label="Stop the turn">

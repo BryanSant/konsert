@@ -637,6 +637,29 @@ test.describe('Mode UI (phone)', () => {
     await expect(page.getByTestId('mobile-fleet-state')).toHaveText('FLEET: RUNNING');
   });
 
+  test('nothing floats over the terminal quick keys after Take control (SYR-WKJM6)', async ({ page }) => {
+    const env = loadEnv();
+    await signIn(page, env);
+    const task = await dispatchWaiting(page, env, 'Phone quick keys task');
+    try {
+      await page.goto(`${env.baseURL}/command/${task.sid}`);
+      await page.getByTestId('take-control').click();
+      for (const name of ['Ctrl+C', 'Esc', 'Tab', 'Enter']) {
+        const key = page.getByRole('button', { name, exact: true });
+        await expect(key).toBeInViewport({ ratio: 1 });
+        // The key itself must be what a tap at its centre hits.
+        const topmost = await key.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return hit === el || el.contains(hit);
+        });
+        expect(topmost, `${name} key is covered`).toBe(true);
+      }
+    } finally {
+      await cancel(page, task.id);
+    }
+  });
+
   test('a needs-you item opens the dialog as a full-screen sheet; answering moves on', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/command');
