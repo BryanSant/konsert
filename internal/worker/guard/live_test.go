@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 //
 //	SYRE_GUARD_LIVE=1 go test -run TestLiveShed -v -timeout 10m ./internal/worker/guard
 //	SYRE_GUARD_LIVE=1 SYRE_GUARD_LIVE_HOG=commit go test -run TestLiveShed -v ./internal/worker/guard  (Windows)
+//	SYRE_GUARD_LIVE=1 SYRE_GUARD_MODE=adaptive_strict SYRE_GUARD_LIVE_HOG=thrash \
+//	  SYRE_GUARD_THRASH_ANON_MB=1600 SYRE_GUARD_THRASH_FILE_MB=2048 go test -run TestLiveShed ...  (Linux pool stall)
 func TestLiveShed(t *testing.T) {
 	switch os.Getenv("SYRE_GUARD_HOG") {
 	case "1":
@@ -23,6 +26,9 @@ func TestLiveShed(t *testing.T) {
 		return
 	case "commit":
 		commitHog()
+		return
+	case "thrash":
+		thrashHog()
 		return
 	}
 	if os.Getenv("SYRE_GUARD_LIVE") != "1" {
@@ -263,6 +269,43 @@ func TestLiveHighCommit(t *testing.T) {
 		t.Fatalf("high-commit job failed: %v", werr)
 	}
 	t.Logf("finished in %s untouched, peak %d MiB", time.Since(start).Round(time.Millisecond), u.PeakRSS>>20)
+}
+
+// thrashHog holds SYRE_GUARD_THRASH_ANON_MB of anonymous memory, writes a
+// SYRE_GUARD_THRASH_FILE_MB file under TMPDIR and reads it in a loop. When the file
+// doesn't fit under the worker slice's MemoryHigh beside the anonymous memory, its pages
+// churn: the workers stall at the ceiling while the host's MemAvailable, which counts
+// that page cache as reclaimable, stays above the reserve. That is the case only the
+// pool-stall trip catches.
+func thrashHog() {
+	anon, _ := strconv.Atoi(os.Getenv("SYRE_GUARD_THRASH_ANON_MB"))
+	fileMB, _ := strconv.Atoi(os.Getenv("SYRE_GUARD_THRASH_FILE_MB"))
+	x := uint64(time.Now().UnixNano()) | 1
+	held := make([]uint64, anon<<20/8)
+	for i := range held {
+		x ^= x << 13
+		x ^= x >> 7
+		x ^= x << 17
+		held[i] = x
+	}
+	f, err := os.CreateTemp("", "syre-thrash-*")
+	if err != nil {
+		os.Exit(3)
+	}
+	defer os.Remove(f.Name())
+	block := make([]byte, 1<<20)
+	for i := 0; i < fileMB; i++ {
+		block[0] = byte(i)
+		if _, err := f.Write(block); err != nil {
+			os.Exit(3)
+		}
+	}
+	for {
+		for off := int64(0); off < int64(fileMB)<<20; off += int64(len(block)) {
+			_, _ = f.ReadAt(block, off)
+		}
+		runtime.KeepAlive(held)
+	}
 }
 
 // commitHog commits 512 MiB every 100 ms and never touches it: on Windows the Go

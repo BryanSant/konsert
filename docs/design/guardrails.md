@@ -82,10 +82,15 @@ Limits live on the **slice**, never on a scope (`systemctl --user set-property -
 `MemoryHigh` is a ceiling on all workers together, not a reservation. Idle workers hold
 nothing. One job can use the whole pool when it is alone.
 
-A **pool stall** watch covers the case the ceiling creates. (Live on bocaminipc-wsl,
-forced strict, the below-reserve trip fired first: `MemoryHigh` is soft and the host's
-own ~1 GiB of non-worker memory puts workers at the ceiling below the reserve already.
-The stall trip only leads when almost nothing else uses memory.) Workers can't push host
+A **pool stall** watch covers the case the ceiling creates. It matters when much of
+what the workers hold is file cache: `MemAvailable` counts that cache as reclaimable, so
+the host looks healthy while the workers thrash it at the ceiling (a big build churning
+through more files than fit). With anonymous memory alone, workers at the ceiling leave
+the host the reserve minus everything outside Syre, so the below-reserve trip fires
+first; that is what happened live on bocaminipc-wsl. Live in a 3 GiB VM, a session
+holding 1.6 GiB and re-reading a 2 GiB file sat at the ceiling with the host at 1.07
+GiB available (7× the reserve). PSI full avg10 passed 20% at about 15 s, and the
+session was shed at 19 s with `worker_pool_memory_stall`. Workers can't push host
 `MemAvailable` below the reserve, so a job that genuinely needs more than the ceiling
 would crawl in reclaim forever. The watchdog reads the slice's `memory.pressure`. When
 "full" avg10 stays ≥ 20% for 5 s, it sheds the newest session.
