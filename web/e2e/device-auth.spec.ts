@@ -153,6 +153,15 @@ test.describe('Device sign-in (auth on)', () => {
 
     // The laptop sees it arrive live.
     await expect(page.getByTestId('paired-notice')).toContainText('E2E phone is signed in');
+    // Icon and text sit on one line (the icon used to break the line before the text).
+    expect(
+      await page.getByTestId('paired-notice').evaluate((el) => {
+        const icon = el.querySelector('app-icon')!.getBoundingClientRect();
+        const text = el.querySelector('span')!.getBoundingClientRect();
+        const mid = icon.top + icon.height / 2;
+        return mid > text.top && mid < text.bottom && text.height < 2 * icon.height + 8;
+      }),
+    ).toBe(true);
     await page.getByRole('button', { name: 'Done' }).click();
     const phoneRow = page.getByTestId('device-list').locator('li').filter({ hasText: 'E2E phone' });
     await expect(phoneRow).toContainText('Phone');

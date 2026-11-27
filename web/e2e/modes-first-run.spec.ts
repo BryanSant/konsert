@@ -95,6 +95,15 @@ test.describe('Mode UI first run', () => {
     await expect(page.getByTestId('first-run-local')).toHaveText(/Will start syred/);
     await page.getByTestId('first-run-add-local').click();
     await expect(page.getByTestId('first-run-online')).toContainText(`${os.hostname()} is online`, { timeout: 20_000 });
+    // Icon and text sit on one line (the icon used to break the line before the text).
+    expect(
+      await page.getByTestId('first-run-online').evaluate((el) => {
+        const icon = el.querySelector('app-icon')!.getBoundingClientRect();
+        const text = el.querySelector('span')!.getBoundingClientRect();
+        const mid = icon.top + icon.height / 2;
+        return mid > text.top && mid < text.bottom && text.height < 2 * icon.height + 8;
+      }),
+    ).toBe(true);
     await expect(page.getByTestId('first-run-composer')).toBeEnabled();
     await expect(page.getByTestId('pause-everything')).toBeVisible();
 

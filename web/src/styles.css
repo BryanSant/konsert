@@ -235,6 +235,16 @@ dialog.sy-dialog::backdrop {
   line-height: 1.4;
 }
 
+/* Preflight makes the <svg> inside an icon display:block, so a bare <app-icon> in running
+   text would break the line before the text. Keep icons inline; utilities still override. */
+@layer base {
+  app-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    vertical-align: -0.125em;
+  }
+}
+
 /* Component classes live in the components layer so Tailwind utilities (hidden, sm:*, h-*)
    can override them per use. */
 @layer components {

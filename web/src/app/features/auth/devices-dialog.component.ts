@@ -229,10 +229,11 @@ export type DevicesView = 'list' | 'add' | 'mcp';
               @if (paired(); as p) {
                 <div
                   role="status"
-                  class="rounded-lg bg-[#69b879]/10 px-4 py-3 text-[#8fd49d]"
+                  class="flex items-center gap-2 max-w-full whitespace-nowrap rounded-lg bg-[#69b879]/10 px-4 py-3 text-[#8fd49d]"
                   data-testid="paired-notice"
                 >
-                  <app-icon name="check-circle" [size]="15" /> <b>{{ p.name }}</b> is signed in.
+                  <app-icon name="check-circle" [size]="15" />
+                  <span class="min-w-0 truncate"><b>{{ p.name }}</b> is signed in.</span>
                 </div>
                 <div class="flex gap-2">
                   <button type="button" class="sy-btn" (click)="openAdd()">Add another</button>

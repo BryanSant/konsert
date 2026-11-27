@@ -33,9 +33,9 @@ export const FIRST_RUN_SUGGESTIONS = [
       </p>
 
       @if (online()) {
-        <div class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-green-soft)] px-4 py-3.5 text-[13.5px] text-[#cdebd3]" role="status" data-testid="first-run-online">
+        <div class="flex items-center gap-2 whitespace-nowrap rounded-[var(--sy-radius-lg)] bg-[var(--sy-green-soft)] px-4 py-3.5 text-[13.5px] text-[#cdebd3]" role="status" data-testid="first-run-online">
           <app-icon name="check" [size]="13" />
-          {{ online()!.name }} is online. Ask the commander for anything below.
+          <span class="min-w-0 truncate">{{ online()!.name }} is online. Ask the commander for anything below.</span>
         </div>
       } @else {
         <section class="rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] px-5 py-4 flex flex-col gap-3" aria-labelledby="sy-first-run-step">
