@@ -102,7 +102,11 @@ func (h *Hub) throttleAfterShed(ctx context.Context, workerID string, ev *protoc
 	}
 	until := now.Add(shedThrottleFor)
 	reason := "guardrails shed work under memory pressure"
-	if ev != nil && ev.ActiveSessions > 0 {
+	switch {
+	case ev == nil || ev.ActiveSessions <= 0:
+	case ev.ActiveSessions == 1:
+		reason += " with 1 session running"
+	default:
 		reason += fmt.Sprintf(" with %d sessions running", ev.ActiveSessions)
 	}
 	if _, err := h.CreateDirective(withCause(ctx, causeGuardrails), DirectiveInput{

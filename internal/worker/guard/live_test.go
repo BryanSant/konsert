@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -79,6 +80,51 @@ loop:
 	if worst > 5*time.Second {
 		t.Errorf("host unresponsive: a 100ms ticker was %s late", worst)
 	}
+}
+
+// TestLiveHighCommit runs a job that commits far more memory than it touches (a JVM
+// with a large -Xms, Node with big untouched ArrayBuffers) under the native guard and
+// expects it to finish untouched: the guard must judge physical memory, not commit.
+//
+//	SYRE_GUARD_LIVE=1 SYRE_GUARD_CMD='sh job.sh' go test -run TestLiveHighCommit -v ./internal/worker/guard
+func TestLiveHighCommit(t *testing.T) {
+	if os.Getenv("SYRE_GUARD_LIVE") != "1" || os.Getenv("SYRE_GUARD_CMD") == "" {
+		t.Skip("set SYRE_GUARD_LIVE=1 and SYRE_GUARD_CMD to run the live high-commit check")
+	}
+	argv := strings.Fields(os.Getenv("SYRE_GUARD_CMD"))
+	virt := os.Getenv("SYRE_GUARD_VIRT")
+	if virt == "" {
+		virt = "bare_metal"
+	}
+	g := New(Config{
+		Baseline: NewBaseline(hostTotalRAM(), DetectDesktop(), virt),
+		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	})
+	st := g.Status()
+	t.Logf("mode %s via %s, reserve %d MiB of %d MiB", st.Mode, st.Mechanism, st.Reserve>>20, st.TotalRAM>>20)
+
+	bin, err := exec.LookPath(argv[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := g.Prepare(LaunchSpec{Binary: bin, Args: argv[1:], Owner: "high-commit", Kind: "task", Priority: PriorityTicket, Headless: true})
+	cmd := exec.Command(l.Binary, l.Args...)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	setGroup(cmd)
+	start := time.Now()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	s := l.Attach(cmd.Process.Pid)
+	werr := cmd.Wait()
+	u := s.Release(cmd.ProcessState)
+	if u.Shed != nil {
+		t.Fatalf("high-commit job shed: %+v", *u.Shed)
+	}
+	if werr != nil {
+		t.Fatalf("high-commit job failed: %v", werr)
+	}
+	t.Logf("finished in %s untouched, peak %d MiB", time.Since(start).Round(time.Millisecond), u.PeakRSS>>20)
 }
 
 // hog fills 128 MiB with incompressible data every 100 ms until it is killed. (Touching
