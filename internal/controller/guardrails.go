@@ -23,48 +23,87 @@ const (
 	// defaultShedCooldown is how long a machine gets no new ticket runs after a shed,
 	// so it can recover before work lands on it again. Without it, a machine still
 	// short of memory sheds each new run within seconds and burns a ticket's sheds.
+	// Each further shed in a streak doubles it, up to maxShedCooldown.
 	defaultShedCooldown = 2 * time.Minute
+	maxShedCooldown     = time.Hour
+	// shedStreakQuiet: a machine that goes this long past its cooldown without
+	// shedding again starts its next streak from the base cooldown.
+	shedStreakQuiet = time.Hour
 )
 
-// shedCooldowns records, per machine, until when it gets no new ticket runs.
+// shedCooldowns records, per machine, until when it gets no new ticket runs. A machine
+// that keeps shedding (memory taken by something outside Syre, say) backs off
+// exponentially instead of shedding a ticket every few minutes forever; a run that
+// ends any other way on it ends the streak.
 type shedCooldowns struct {
-	mu    sync.Mutex
-	until map[string]time.Time
+	mu sync.Mutex
+	m  map[string]*shedStreak
 	// period overrides defaultShedCooldown (tests); 0 means the default.
 	period time.Duration
 }
 
+type shedStreak struct {
+	n     int // sheds in the current streak
+	until time.Time
+}
+
+func (c *shedCooldowns) base() time.Duration {
+	if c.period > 0 {
+		return c.period
+	}
+	return defaultShedCooldown
+}
+
+// start records a shed on the machine and returns how long it now cools down.
 func (c *shedCooldowns) start(workerID string, now time.Time) time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	d := c.period
-	if d <= 0 {
-		d = defaultShedCooldown
+	if c.m == nil {
+		c.m = map[string]*shedStreak{}
 	}
-	if c.until == nil {
-		c.until = map[string]time.Time{}
+	st := c.m[workerID]
+	if st == nil || now.Sub(st.until) > shedStreakQuiet {
+		st = &shedStreak{}
+		c.m[workerID] = st
 	}
-	c.until[workerID] = now.Add(d)
+	st.n++
+	d := c.base()
+	limit := max(maxShedCooldown, d)
+	for i := 1; i < st.n && d < limit; i++ {
+		d *= 2
+	}
+	d = min(d, limit)
+	st.until = now.Add(d)
 	return d
 }
 
+// active reports whether the machine is cooling down.
 func (c *shedCooldowns) active(workerID string, now time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	u, ok := c.until[workerID]
-	if ok && !now.Before(u) {
-		delete(c.until, workerID)
-		return false
-	}
-	return ok
+	st := c.m[workerID]
+	return st != nil && now.Before(st.until)
+}
+
+// clear ends the machine's shed streak: a run finished on it without a shed.
+func (c *shedCooldowns) clear(workerID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, workerID)
 }
 
 var causeGuardrails = store.Cause{Actor: store.ActorSystem, Source: "guardrails", Confidence: store.ConfidenceCertain}
 
 // handleTicketShed records a shed attempt, throttles the machine, and requeues the
-// ticket (or, after repeated sheds, hands it to the user).
+// ticket (or, after repeated sheds it caused, hands it to the user). A bystander shed,
+// where the run held little of the memory in use, is recorded as host_memory_full and
+// never counts toward escalation: it says nothing about what the ticket needs.
 func (h *Hub) handleTicketShed(ctx context.Context, tk store.Ticket, cs store.ChatSession, task *store.Task, dig *protocol.RunDigest, cerr *protocol.AgentChatError) {
-	h.finishTicketAttempt(ctx, tk, cs, task, dig, store.AttemptFailed, protocol.ErrKindMemoryPressureShed, nil, 0)
+	category := protocol.ErrKindMemoryPressureShed
+	if cerr.Shed != nil && cerr.Shed.Bystander {
+		category = protocol.FailureHostMemoryFull
+	}
+	h.finishTicketAttempt(ctx, tk, cs, task, dig, store.AttemptFailed, category, nil, 0)
 	h.throttleAfterShed(ctx, cs.WorkerID, cerr.Shed)
 	if cs.WorkerID != "" {
 		wait := h.shedCooldown.start(cs.WorkerID, time.Now())
@@ -92,12 +131,13 @@ func (h *Hub) handleTicketShed(ctx context.Context, tk store.Ticket, cs store.Ch
 		_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusFailed, summary, "", nil, causeGuardrails)
 	}
 	h.logger.Warn("ticket run shed by machine guardrails",
-		"ticket_id", tk.ID, "ticket_sid", tk.SID, "worker_id", cs.WorkerID, "sheds", sheds, "next_status", next)
+		"ticket_id", tk.ID, "ticket_sid", tk.SID, "worker_id", cs.WorkerID, "sheds", sheds, "category", category, "next_status", next)
 	h.closeChat(ctx, cs.ID)
 	h.kickScheduler()
 }
 
-// ticketShedCount counts the ticket's attempts that ended in a shed.
+// ticketShedCount counts the ticket's attempts that ended in a shed it caused
+// (bystander sheds are host_memory_full and don't count).
 func (h *Hub) ticketShedCount(ctx context.Context, ticketID string) int {
 	rows, err := h.store.ListAttempts(ctx, ticketID, "")
 	if err != nil {

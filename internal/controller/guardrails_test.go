@@ -76,6 +76,35 @@ func TestSetPolicyGuardrailsTightenFreelyLoosenWithApproval(t *testing.T) {
 	}
 }
 
+func TestShedCooldownBacksOff(t *testing.T) {
+	var c shedCooldowns
+	t0 := time.Unix(1_700_000_000, 0)
+	want := []time.Duration{2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 16 * time.Minute, 32 * time.Minute, time.Hour, time.Hour}
+	now := t0
+	for i, w := range want {
+		if got := c.start("w1", now); got != w {
+			t.Fatalf("shed %d: cooldown %s, want %s", i+1, got, w)
+		}
+		if !c.active("w1", now.Add(w-time.Second)) || c.active("w1", now.Add(w)) {
+			t.Fatalf("shed %d: active window wrong", i+1)
+		}
+		now = now.Add(w) // the next shed lands right after the cooldown
+	}
+	if c.active("w2", now) {
+		t.Fatal("cooldown leaked to another machine")
+	}
+	// A clean finish ends the streak.
+	c.clear("w1")
+	if got := c.start("w1", now); got != 2*time.Minute {
+		t.Fatalf("after clear: %s, want the base cooldown", got)
+	}
+	// So does a quiet hour past the cooldown.
+	c.start("w1", now)
+	if got := c.start("w1", now.Add(4*time.Minute+shedStreakQuiet+time.Second)); got != 2*time.Minute {
+		t.Fatalf("after a quiet hour: %s, want the base cooldown", got)
+	}
+}
+
 func TestThrottleAfterShed(t *testing.T) {
 	th := newTestHub(t)
 	ctx := context.Background()
@@ -120,7 +149,7 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 	initTestGitRepo(t, repoOrigin, "main")
 	daemon, stop := startTicketTestDaemon(t, cs, workdirRoot)
 	defer stop()
-	cs.h.shedCooldown.period = 2 * time.Second
+	cs.h.shedCooldown.period = time.Second // doubles per shed: 1, 2, 4, 8 s
 
 	if err := cs.st.CreateProject(ctx, store.Project{Name: "ShedE2E", Autopilot: true}); err != nil {
 		t.Fatal(err)
@@ -155,7 +184,7 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 		}
 		return ""
 	}
-	shed := func(round int) {
+	shedAs := func(bystander bool, wantCount int) {
 		cs.h.SchedulePending(ctx)
 		var chatID string
 		waitFor(t, 15*time.Second, "ticket running a turn", func() bool {
@@ -165,11 +194,15 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 		guard.Announce(guard.Evidence{
 			Owner: chatID, Kind: "chat", Reason: guard.ReasonBelowReserve,
 			RSS: 3 << 30, HostAvail: 90 << 20, Reserve: 410 << 20, ActiveSessions: 2,
+			HostUsed: 15 << 30, Bystander: bystander,
 		})
 		waitFor(t, 15*time.Second, "shed attempt recorded", func() bool {
-			return cs.h.ticketShedCount(ctx, tk.ID) == round
+			rows, _ := cs.st.ListAttempts(ctx, tk.ID, "")
+			cur, _ := cs.st.GetTicket(ctx, tk.ID)
+			return len(rows) > 0 && cur.Status != store.TicketStatusRunning && cs.h.ticketShedCount(ctx, tk.ID) == wantCount
 		})
 	}
+	shed := func(round int) { shedAs(false, round) }
 
 	shed(1)
 	waitFor(t, 10*time.Second, "ticket requeued to ready", func() bool {
@@ -178,7 +211,7 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 	})
 	// The machine is cooling down: the ticket must not land on it again yet.
 	cs.h.SchedulePending(ctx)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	if cur, _ := cs.st.GetTicket(ctx, tk.ID); cur.Status != store.TicketStatusReady {
 		t.Fatalf("ticket re-leased during the shed cooldown: %s", cur.Status)
 	}
@@ -217,6 +250,19 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 		t.Fatalf("auto throttle = %+v", throttles)
 	}
 
+	// A bystander shed (the run held little of the memory in use) requeues without
+	// counting toward escalation.
+	shedAs(true, 1)
+	rows, _ = cs.st.ListAttempts(ctx, tk.ID, "")
+	bystanders := 0
+	for _, r := range rows {
+		if r.FailureCategory == protocol.FailureHostMemoryFull {
+			bystanders++
+		}
+	}
+	if bystanders != 1 {
+		t.Fatalf("want one host_memory_full attempt: %+v", rows)
+	}
 	shed(2)
 	shed(3)
 	waitFor(t, 10*time.Second, "third shed hands the ticket to the user", func() bool {
