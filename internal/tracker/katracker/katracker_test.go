@@ -176,3 +176,20 @@ func TestKaTrackerRoundTrip(t *testing.T) {
 		t.Fatalf("ka sees the Syre ticket as %+v", d.Summary)
 	}
 }
+
+// An edit in the same second as the last sync must change the version, or the syncer
+// skips it as an echo; an unchanged ticket keeps its version.
+func TestItemVersionSeesSameSecondEdits(t *testing.T) {
+	const stamp = "2026-11-27T21:05:24Z"
+	a := tracker.Item{ExternalID: "SYR-1", Title: "Add Sub", Labels: []string{"x", "y"}}
+	b := a
+	b.Title = "Add Sub with tests"
+	if itemVersion(stamp, a) == itemVersion(stamp, b) {
+		t.Fatal("a same-second retitle kept the version")
+	}
+	same := a
+	same.Labels = []string{"x", "y"}
+	if itemVersion(stamp, a) != itemVersion(stamp, same) {
+		t.Fatal("an unchanged item got a new version")
+	}
+}

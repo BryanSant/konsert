@@ -6,6 +6,8 @@ package katracker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
 	"os"
@@ -132,7 +134,7 @@ func (k *Tracker) Pull(ctx context.Context, cursor string) ([]tracker.Item, stri
 
 func itemFromDetail(d *kaservice.Detail) tracker.Item {
 	it := tracker.Item{
-		ExternalID: d.ID, URL: d.Path, Version: d.Updated,
+		ExternalID: d.ID, URL: d.Path,
 		Kind: kindFromKa(d.Kind), Title: d.Title, Body: d.Body, Labels: d.Labels,
 		Priority: d.Priority, Status: StatusFromKa(d.Status),
 	}
@@ -150,7 +152,21 @@ func itemFromDetail(d *kaservice.Detail) tracker.Item {
 	if d.Claim != nil {
 		it.Claim = &tracker.Claim{By: d.Claim.By, Authority: d.Claim.Authority}
 	}
+	it.Version = itemVersion(d.Updated, it)
 	return it
+}
+
+// itemVersion is the ka updated stamp plus a hash of the fields Syre syncs. The stamp
+// alone has one-second resolution: an edit in the same second as the last sync left it
+// unchanged, and the syncer skipped the edit as an echo of what it already had.
+func itemVersion(updated string, it tracker.Item) string {
+	it.Version, it.URL = "", ""
+	raw, err := json.Marshal(it, json.Deterministic(true))
+	if err != nil {
+		return updated
+	}
+	sum := sha256.Sum256(raw)
+	return updated + "#" + hex.EncodeToString(sum[:6])
 }
 
 // Push creates or updates tickets in the ka store.
@@ -166,7 +182,7 @@ func (k *Tracker) Push(ctx context.Context, items []tracker.PushItem) ([]tracker
 		} else {
 			res.ExternalID = id
 			if d, err := k.svc.Get(kaservice.GetIn{ID: id}); err == nil {
-				res.URL, res.Version = d.Path, d.Updated
+				res.URL, res.Version = d.Path, itemFromDetail(d).Version
 			}
 		}
 		out = append(out, res)
