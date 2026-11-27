@@ -48,6 +48,7 @@ func (p *darwinPlat) wrap(*Launch, Mode)                      {}
 func (p *darwinPlat) release(s *Session)                      { s.plat = nil }
 func (p *darwinPlat) throttle(*Session, throttleState)        {} // background() covers it
 func (p *darwinPlat) oomKills() (uint64, bool)                { return 0, false }
+func (p *darwinPlat) commit(*Session) uint64                  { return 0 }
 
 // treeOf is the session's process tree (tree_unix.go).
 func treeOf(s *Session) *procTree {

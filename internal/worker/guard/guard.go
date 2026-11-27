@@ -41,6 +41,7 @@ const (
 	ReasonCritical     = "kernel_memory_pressure_critical"
 	ReasonPoolStall    = "worker_pool_memory_stall"
 	ReasonSwapGrowth   = "swap_growth"
+	ReasonCommitLow    = "commit_limit_low"
 )
 
 // swapBudget is how much swap agent work may add once it starts: min(25% RAM, 2 GiB),
@@ -84,6 +85,12 @@ type Signal struct {
 	// without scopes, where no MemorySwapMax caps the workers).
 	SwapUsed uint64
 	SwapOK   bool
+	// CommitAvail is the commit limit minus the commit charge, of CommitTotal (Windows:
+	// RAM plus page file). When it runs out, allocations fail system-wide, syred's and
+	// Explorer's included, however much RAM is free.
+	CommitAvail uint64
+	CommitTotal uint64
+	CommitOK    bool
 }
 
 // Evidence describes one shed, for the session's owner, the digest and logs.
@@ -97,7 +104,10 @@ type Evidence struct {
 	Reserve        uint64
 	ActiveSessions int // managed sessions running when the shed happened, the victim included
 	// HostUsed is the host's memory in use at the trip (total − available; 0 unknown).
+	// For a commit trip it is the host's commit charge.
 	HostUsed uint64
+	// Commit is the shed session's committed memory, for a commit trip (0 otherwise).
+	Commit uint64
 	// Bystander marks a victim that held little of the memory in use (under
 	// 1/culpritShare of it): the machine was full for other reasons, so the shed
 	// says nothing about how much memory this work needs.
@@ -652,7 +662,11 @@ func (g *Guard) tick() {
 	if reason == "" {
 		return
 	}
-	victim := pickVictim(sessions, g.plat.rss)
+	size := g.plat.rss
+	if reason == ReasonCommitLow {
+		size = g.plat.commit // the session holding the most commit frees the most
+	}
+	victim := pickVictim(sessions, size)
 	if victim == nil {
 		return
 	}
@@ -730,9 +744,14 @@ func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 	if now.Before(g.settleUntil) {
 		return ""
 	}
+	// Commit is a hard wall too, but no trend: a JVM's -Xms commits gigabytes in one
+	// step and must not be shed for that alone.
+	commitLow := sig.CommitOK && reserve > 0 && sig.CommitAvail < reserve
 	switch {
 	case sig.Level == LevelCritical:
 		return ReasonCritical
+	case commitLow:
+		return ReasonCommitLow
 	case hardLow, low && now.Sub(g.lowSince) >= lowDebounce:
 		return ReasonBelowReserve
 	case stall && now.Sub(g.stallSince) >= stallDebounce:
@@ -813,7 +832,13 @@ func (g *Guard) shed(s *Session, reason string, sig Signal, reserve, total uint6
 	if sig.AvailOK && sig.Avail < total {
 		ev.HostUsed = total - sig.Avail
 	}
-	ev.Bystander = ev.RSS > 0 && ev.HostUsed > 0 && ev.RSS*culpritShare < ev.HostUsed
+	share := ev.RSS
+	if reason == ReasonCommitLow {
+		ev.Commit = g.plat.commit(s)
+		ev.HostUsed = sig.CommitTotal - min(sig.CommitAvail, sig.CommitTotal)
+		share = ev.Commit
+	}
+	ev.Bystander = share > 0 && ev.HostUsed > 0 && share*culpritShare < ev.HostUsed
 	s.mu.Lock()
 	s.shed = &ev
 	s.mu.Unlock()

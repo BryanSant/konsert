@@ -128,7 +128,14 @@ One **Job Object per managed session**, in every mode, including chat engines an
   agents that drive a browser keep working.
 - **Never** a job or process memory limit.
 
-The watchdog reads `GlobalMemoryStatusEx` (available physical memory). It freezes with
+The watchdog reads `GlobalMemoryStatusEx`: available physical memory, and the commit
+headroom (`ullAvailPageFile`, the commit limit minus the commit charge). Physical memory
+is the right measure for JVM and Node reservations, but Windows also has a hard commit
+limit (RAM plus page file): when it runs out, every allocation on the machine fails,
+syred's and Explorer's included. Commit headroom below the reserve sheds at once, with no
+debounce, and the victim is the session holding the most private commit
+(`PagefileUsage` summed over its processes). There is no trend trip for commit: a JVM's
+`-Xms` commits gigabytes in one step, which is fine while headroom remains. It freezes with
 `NtSuspendProcess` over the tree and kills with `TerminateJobObject`. Peak memory is
 resident memory, like on Linux and macOS. Windows keeps no peak working set for a job
 (`PeakJobMemoryUsed` is committed memory, which would report a JVM with a large `-Xms` at
@@ -197,10 +204,11 @@ Priorities apply in every mode except passthrough. `syred` logs which steps were
 It runs only while a managed session exists and the mode isn't passthrough, so an idle
 host pays nothing. It polls every 250 ms. It trips on:
 
-1. available memory < reserve for more than 500 ms,
-2. kernel pressure level CRITICAL (macOS), or
-3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes), or
-4. swap growth past `min(25% RAM, 2 GiB)` since work began, for more than 500 ms, while
+1. available memory < reserve for more than 500 ms (at once under a container's limit),
+2. kernel pressure level CRITICAL (macOS),
+3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes),
+4. commit headroom < reserve (Windows), at once, or
+5. swap growth past `min(25% RAM, 2 GiB)` since work began, for more than 500 ms, while
    the host is also short: pressure WARN or worse, or available memory under twice the
    reserve (macOS, and Linux without scopes, where no `MemorySwapMax` caps the workers).
    macOS pages a runaway out and keeps "available" high, so this is what catches it there.
@@ -208,7 +216,8 @@ host pays nothing. It polls every 250 ms. It trips on:
    add gigabytes over a long session. After 2 minutes of calm (normal pressure, memory
    healthy) the baseline moves up to the swap in use then.
 
-On a trip it picks the **lowest priority, then the largest** session: ticket runs
+On a trip it picks the **lowest priority, then the largest** session (by committed
+memory for a commit trip): ticket runs
 first, then dispatched tasks, then a person's own chat, which goes only when nothing else
 is left. Within a priority the session using the most memory goes, so a shed removes the
 pressure instead of a small run that happened to start last; the most recently started

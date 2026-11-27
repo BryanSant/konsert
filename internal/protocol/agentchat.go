@@ -351,7 +351,7 @@ type ShedEvidence struct {
 	// Session is what was shed: "chat" (the agent engine) or "verify".
 	Session string `json:"session"`
 	// Reason: host_memory_below_reserve, kernel_memory_pressure_critical or
-	// worker_pool_memory_stall or swap_growth.
+	// worker_pool_memory_stall, swap_growth or commit_limit_low (Windows).
 	Reason      string `json:"reason"`
 	RSSMB       uint64 `json:"rss_mb,omitzero"`
 	HostAvailMB uint64 `json:"host_avail_mb,omitzero"`

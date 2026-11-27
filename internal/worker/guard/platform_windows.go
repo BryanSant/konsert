@@ -214,6 +214,11 @@ func (winPlat) sample() Signal {
 	ms := memoryStatusEx{Length: uint32(unsafe.Sizeof(memoryStatusEx{}))}
 	if r, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&ms))); r != 0 {
 		sig.Avail, sig.AvailOK = ms.AvailPhys, true
+		// ullTotalPageFile / ullAvailPageFile are the system commit limit and what is
+		// left of it, not the page file alone.
+		if ms.TotalPageFile > 0 {
+			sig.CommitAvail, sig.CommitTotal, sig.CommitOK = ms.AvailPageFile, ms.TotalPageFile, true
+		}
 	}
 	return sig
 }
@@ -290,6 +295,33 @@ func (ws *winSess) workingSet(job windows.Handle) (sum, maxPeak uint64) {
 		add(h, alive(h))
 	}
 	return sum, maxPeak
+}
+
+// commit sums the private commit (PagefileUsage) of the session's live processes.
+func (winPlat) commit(s *Session) uint64 {
+	ws := winOf(s)
+	job := ws.handle()
+	if job == 0 {
+		return 0
+	}
+	ws.adopt(true)
+	var sum uint64
+	for _, pid := range jobPIDs(job) {
+		if h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid); err == nil {
+			if pmc, ok := memCounters(h); ok {
+				sum += uint64(pmc.PagefileUsage)
+			}
+			_ = windows.CloseHandle(h)
+		}
+	}
+	for _, h := range ws.extraHandles() {
+		if alive(h) {
+			if pmc, ok := memCounters(h); ok {
+				sum += uint64(pmc.PagefileUsage)
+			}
+		}
+	}
+	return sum
 }
 
 // rss sums the working sets of the session's processes.

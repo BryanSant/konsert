@@ -22,6 +22,9 @@ type platform interface {
 	kill(s *Session) error
 	// rss is the tree's resident memory now (0 unknown).
 	rss(s *Session) uint64
+	// commit is the tree's committed memory now, where the OS has a commit limit
+	// (Windows); 0 elsewhere.
+	commit(s *Session) uint64
 	// peak is the tree's peak memory so far (0 unknown).
 	peak(s *Session) uint64
 	// background moves the tree to (or back from) background priority.

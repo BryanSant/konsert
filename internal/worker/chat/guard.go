@@ -97,15 +97,23 @@ func ShedMessage(ev guard.Evidence) string {
 		msg = "Shed by host memory pressure: agent work stalled at the machine's memory ceiling"
 	case guard.ReasonSwapGrowth:
 		msg = "Shed by host memory pressure: the machine was paging agent work out to disk"
+	case guard.ReasonCommitLow:
+		msg = fmt.Sprintf("Shed by host memory pressure: Windows was within its %d MiB survival reserve of the commit limit (RAM plus page file), where every allocation on the machine fails", ev.Reserve/mib)
 	}
-	if ev.RSS > 0 {
+	if ev.Commit > 0 {
+		msg += fmt.Sprintf(", so Syre stopped %s holding %.1f GiB of commit", what, float64(ev.Commit)/float64(1<<30))
+	} else if ev.RSS > 0 {
 		msg += fmt.Sprintf(", so Syre stopped %s at %.1f GiB", what, float64(ev.RSS)/float64(1<<30))
 	} else {
 		msg += ", so Syre stopped " + what
 	}
 	if ev.Bystander {
-		msg += fmt.Sprintf(". Most of the %.1f GiB in use was elsewhere on the machine, so this says nothing about what the work needs",
-			float64(ev.HostUsed)/float64(1<<30))
+		inUse := "in use"
+		if ev.Commit > 0 {
+			inUse = "committed"
+		}
+		msg += fmt.Sprintf(". Most of the %.1f GiB %s was elsewhere on the machine, so this says nothing about what the work needs",
+			float64(ev.HostUsed)/float64(1<<30), inUse)
 	}
 	return msg + ". Not a code error; the work can run again."
 }

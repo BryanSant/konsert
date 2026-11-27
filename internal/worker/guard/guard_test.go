@@ -7,15 +7,16 @@ import (
 )
 
 type fakePlat struct {
-	mu      sync.Mutex
-	sig     Signal
-	frozen  []int
-	killed  []int
-	bg      map[int]bool
-	order   []string
-	wrapped bool
-	rssBy   map[int]uint64 // per-pid RSS; 42 MiB when unset
-	ooms    uint64
+	mu       sync.Mutex
+	sig      Signal
+	frozen   []int
+	killed   []int
+	bg       map[int]bool
+	order    []string
+	wrapped  bool
+	rssBy    map[int]uint64 // per-pid RSS; 42 MiB when unset
+	ooms     uint64
+	commitBy map[int]uint64
 }
 
 func (f *fakePlat) mechanism(Mode) string                   { return "fake" }
@@ -38,6 +39,11 @@ func (f *fakePlat) rss(s *Session) uint64 {
 func (f *fakePlat) peak(*Session) uint64             { return 0 }
 func (f *fakePlat) throttle(*Session, throttleState) {}
 func (f *fakePlat) selfProtect() []string            { return nil }
+func (f *fakePlat) commit(s *Session) uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.commitBy[s.pid]
+}
 func (f *fakePlat) oomKills() (uint64, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -476,5 +482,30 @@ func TestHardLimitShedsWithoutDebounce(t *testing.T) {
 	g.tick()
 	if len(p.killed) != 0 {
 		t.Fatal("a host dip shed without the debounce")
+	}
+}
+
+// Windows: commit headroom below the reserve sheds at once, and the victim is the
+// session holding the most commit, not the most resident memory.
+func TestCommitLowShedsLargestCommit(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	p.rssBy = map[int]uint64{41: 4 << 30, 42: 200 << 20}
+	p.commitBy = map[int]uint64{41: 4 << 30, 42: 30 << 30}
+	attach(g, clk, 41, PriorityTicket, "resident")
+	c := attach(g, clk, 42, PriorityTicket, "committer")
+	r := g.baseline.Reserve
+	// A JVM-sized commit leaves plenty of headroom: nothing happens.
+	p.set(Signal{Avail: 6 << 30, AvailOK: true, CommitAvail: 7 << 30, CommitTotal: 44 << 30, CommitOK: true})
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("shed with commit headroom left")
+	}
+	p.set(Signal{Avail: 6 << 30, AvailOK: true, CommitAvail: r - 1, CommitTotal: 44 << 30, CommitOK: true})
+	g.tick()
+	if len(p.killed) != 1 || p.killed[0] != 42 {
+		t.Fatalf("killed %v, want the largest committer 42", p.killed)
+	}
+	if ev := c.Shed(); ev == nil || ev.Reason != ReasonCommitLow || ev.Commit != 30<<30 || ev.Bystander {
+		t.Fatalf("evidence = %+v", ev)
 	}
 }

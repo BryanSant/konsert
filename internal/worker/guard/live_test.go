@@ -15,9 +15,14 @@ import (
 // expects the guard to shed it while this process stays responsive.
 //
 //	SYRE_GUARD_LIVE=1 go test -run TestLiveShed -v -timeout 10m ./internal/worker/guard
+//	SYRE_GUARD_LIVE=1 SYRE_GUARD_LIVE_HOG=commit go test -run TestLiveShed -v ./internal/worker/guard  (Windows)
 func TestLiveShed(t *testing.T) {
-	if os.Getenv("SYRE_GUARD_HOG") == "1" {
+	switch os.Getenv("SYRE_GUARD_HOG") {
+	case "1":
 		hog()
+		return
+	case "commit":
+		commitHog()
 		return
 	}
 	if os.Getenv("SYRE_GUARD_LIVE") != "1" {
@@ -41,7 +46,13 @@ func TestLiveShed(t *testing.T) {
 	exe, _ := os.Executable()
 	l := g.Prepare(LaunchSpec{Binary: exe, Args: []string{"-test.run", "^TestLiveShed$"}, Owner: "hog", Kind: "task", Priority: PriorityTicket, Headless: true})
 	cmd := exec.Command(l.Binary, l.Args...)
-	cmd.Env = append(os.Environ(), "SYRE_GUARD_HOG=1")
+	// SYRE_GUARD_LIVE_HOG=commit runs a hog that commits memory without touching it
+	// (Windows: it must be shed before the commit limit, with RAM still free).
+	kind := os.Getenv("SYRE_GUARD_LIVE_HOG")
+	if kind == "" {
+		kind = "1"
+	}
+	cmd.Env = append(os.Environ(), "SYRE_GUARD_HOG="+kind)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	setGroup(cmd)
 	if err := cmd.Start(); err != nil {
@@ -156,6 +167,17 @@ func TestLiveHighCommit(t *testing.T) {
 		t.Fatalf("high-commit job failed: %v", werr)
 	}
 	t.Logf("finished in %s untouched, peak %d MiB", time.Since(start).Round(time.Millisecond), u.PeakRSS>>20)
+}
+
+// commitHog commits 512 MiB every 100 ms and never touches it: on Windows the Go
+// runtime commits what it allocates, so the commit charge climbs while RAM stays free.
+func commitHog() {
+	var keep [][]byte
+	for {
+		keep = append(keep, make([]byte, 512<<20))
+		runtime.KeepAlive(keep)
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // hog fills 128 MiB with incompressible data every 100 ms until it is killed. (Touching

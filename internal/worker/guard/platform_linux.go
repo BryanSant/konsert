@@ -470,6 +470,9 @@ func (ls *linuxSess) notePeak(v uint64) {
 
 func (p *linuxPlat) background(*Session, bool) {}
 
+// commit: Linux overcommits; the watchdog judges available memory instead.
+func (p *linuxPlat) commit(*Session) uint64 { return 0 }
+
 // throttle renices a session that has no scope (the slice's CPUWeight covers the rest).
 func (p *linuxPlat) throttle(s *Session, t throttleState) {
 	ls := sessOf(s)

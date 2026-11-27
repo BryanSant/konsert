@@ -22,3 +22,11 @@ func TestShedMessageSaysWhenTheMachineWasFullElsewhere(t *testing.T) {
 		t.Fatalf("protocol evidence = %+v", ev)
 	}
 }
+
+func TestShedMessageForCommit(t *testing.T) {
+	ev := guard.Evidence{Kind: "chat", Reason: guard.ReasonCommitLow, Reserve: 1536 * mib, RSS: 200 * mib, Commit: 30 << 30, HostUsed: 43 << 30}
+	m := ShedMessage(ev)
+	if !strings.Contains(m, "commit limit") || !strings.Contains(m, "holding 30.0 GiB of commit") {
+		t.Fatalf("commit message = %q", m)
+	}
+}
