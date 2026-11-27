@@ -580,7 +580,7 @@ Built alongside 5a (open requests are questions with an action attached).
 
 ### Phase 6: Processes and load (Visibility II)
 
-- Daemon process sampler (per OS: `/proc` on Linux, `libproc`/`ps` on macOS, Toolhelp/`NtQuerySystemInformation` on Windows): per-process CPU and RSS every 5 s while work runs, 30 s idle.
+- Daemon process sampler (done, SYR-7AK2A: `internal/worker/procs`). It reads `/proc/<pid>/stat` on Linux, `kern.proc.all` plus `proc_pid_rusage` on macOS, and one `NtQuerySystemInformation(SystemProcessInformation)` call on Windows. For each process it records parent, name, start time, cumulative CPU and memory: RSS on Linux, physical footprint on macOS, working set on Windows. CPU% comes from the delta between samples, keyed by PID and start time. It samples every 5 s while work runs and every 30 s idle. On macOS, other users' processes come back without CPU and memory unless syred runs as root. Measured cost per sample at the 5 s interval: 0.1% of one core on macOS (768 processes), 0.22% on Linux (659), 0.016% on Windows (171). The daemon starts it with its first consumer (attribution, SYR-G1JPX).
 - Attribution: managed sessions by process group / job object; observed sessions by descendant tree of the agent process, keeping orphaned descendants attributed by start-time lineage until they exit.
 - Machine load split into agent load and other load, with top non-agent processes; input-idle time on interactive machines (macOS `IOHIDSystem` idle, Windows `GetLastInputInfo`, Linux logind `IdleHint`).
 - Store: `metric_samples` (machine and session, downsampled 1 min / 1 h, retention settings), session peaks on the task row.
