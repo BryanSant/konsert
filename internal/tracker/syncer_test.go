@@ -194,3 +194,44 @@ func TestDeletedInTrackerCancelsIdleTicket(t *testing.T) {
 		t.Fatal("a ticket the tracker deleted was pushed back")
 	}
 }
+
+// Live-run regression: Syre marks a ticket done; the tracker echoes Syre's earlier push.
+// The echo must not revert done, and done must be pushed. A concurrent human status
+// change in the tracker loses to Syre's unpushed change.
+func TestSyreChangeSurvivesEchoAndConcurrentTrackerStatus(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.fake.EchoPushes = true
+	e.fake.Put(Item{ExternalID: "K-1", Title: "Work", Status: "review"})
+	e.sync(t)
+
+	mark := func(status string) {
+		t.Helper()
+		time.Sleep(5 * time.Millisecond)
+		tk := e.ticket(t, "K-1")
+		tk.Status = status
+		if _, err := e.st.UpdateTicket(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mark(store.TicketStatusDone)
+	e.sync(t) // pushes done; the fake echoes it
+	e.sync(t) // pulls the echo
+	if got := e.ticket(t, "K-1").Status; got != store.TicketStatusDone {
+		t.Fatalf("Syre status after echo = %q, want done", got)
+	}
+	if it, _ := e.fake.Get("K-1"); it.Status != store.TicketStatusDone {
+		t.Fatalf("tracker status = %q, want done pushed", it.Status)
+	}
+
+	// Concurrent edits: Syre cancels while a human moves it to ready in the tracker.
+	mark(store.TicketStatusCanceled)
+	e.fake.Put(Item{ExternalID: "K-1", Title: "Work", Status: "ready"})
+	e.sync(t)
+	if got := e.ticket(t, "K-1").Status; got != store.TicketStatusCanceled {
+		t.Fatalf("Syre status = %q, want its unpushed canceled to win", got)
+	}
+	if it, _ := e.fake.Get("K-1"); it.Status != store.TicketStatusCanceled {
+		t.Fatalf("tracker status = %q, want canceled pushed", it.Status)
+	}
+}

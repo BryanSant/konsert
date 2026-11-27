@@ -264,8 +264,15 @@ func (s *Syncer) applyPulled(ctx context.Context, t *store.Tracker, it Item, cap
 		s.markSynced(ctx, t.ID, it, tk)
 		return tk, nil
 	}
-	dirty := s.isDirty(ctx, t.ID, existing)
-	merged, changed := MergePulled(existing, it, caps)
+	ref, linked := s.refFor(ctx, t.ID, existing.ID)
+	// The tracker hasn't changed since our last pull or push (typically the echo of our
+	// own push): nothing to apply.
+	if linked && it.Version != "" && it.Version == ref.Version {
+		return existing, nil
+	}
+	dirty := !linked || existing.UpdatedAt.After(ref.SyncedAt)
+	// Syre's unpushed change wins over the tracker's status; the push sends it.
+	merged, changed := mergePulled(existing, it, caps, dirty)
 	if !changed {
 		if !dirty {
 			s.markSynced(ctx, t.ID, it, existing)

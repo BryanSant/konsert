@@ -107,6 +107,12 @@ func syreActive(tk store.Ticket) bool {
 // MergePulled applies a pulled item to tk by field ownership and reports whether tk
 // changed. Parent and blocked_by are resolved by the syncer (they need ID lookups).
 func MergePulled(tk store.Ticket, it Item, caps Caps) (store.Ticket, bool) {
+	return mergePulled(tk, it, caps, false)
+}
+
+// mergePulled is MergePulled; keepStatus leaves tk's status alone (Syre has an unpushed
+// change, which wins and is pushed next).
+func mergePulled(tk store.Ticket, it Item, caps Caps, keepStatus bool) (store.Ticket, bool) {
 	changed := false
 	setStr := func(dst *string, v string) {
 		if v != "" && *dst != v {
@@ -129,7 +135,7 @@ func MergePulled(tk store.Ticket, it Item, caps Caps) (store.Ticket, bool) {
 			tk.Acceptance, changed = merged, true
 		}
 	}
-	if it.Status != "" && it.Status != tk.Status && !syreActive(tk) && store.ValidTicketStatus(it.Status) {
+	if !keepStatus && it.Status != "" && it.Status != tk.Status && !syreActive(tk) && store.ValidTicketStatus(it.Status) {
 		tk.Status, changed = it.Status, true
 	}
 	return tk, changed
