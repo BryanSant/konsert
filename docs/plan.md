@@ -544,7 +544,7 @@ Existing Phases 5–11 follow; Phase 7 attempts and failure classifier move into
 
 Goal: every agent session on a machine shows up, whoever started it.
 
-- `internal/worker/observe/`: a `Source` interface per agent (`Discover`, `Tail(session) <-chan protocol.AgentChatEvent`). Sources read the session stores agents already write:
+- `internal/worker/observe/` (interface and registry done, SYR-9BQN9): a `Source` per agent with `Discover(since)` and `Read(session, offset)`, which returns `protocol.AgentChatEvent`s for complete records plus the next offset. A `Registry` polls every 2 s and re-reads a session only when its size or mtime changed. It persists offsets in the state dir, so a restart resumes rather than replays, and skips sessions idle beyond 24 h. It never reports a managed session (a `ManagedSet` of chat/hook session ids, plus any predicate). New sessions wait a 3 s grace before their first report, and a late managed mark retracts. Sources read the session stores agents already write:
   - claude: `~/.claude/projects/<encoded cwd>/*.jsonl` (and every `CLAUDE_CONFIG_DIR` account, e.g. `~/.claude2`);
   - codex: `~/.codex/sessions/**/rollout-*.jsonl`;
   - grok, cursor-agent, copilot, agy: their session/state stores (see [research/agent-cli-capabilities.md](./research/agent-cli-capabilities.md); add what's missing).
