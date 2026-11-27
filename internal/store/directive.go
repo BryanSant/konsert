@@ -9,6 +9,9 @@ const (
 	DirectiveMachineDrain    = "machine.drain"
 	DirectiveAutopilotPause  = "autopilot.pause"
 	DirectiveProviderDisable = "provider.disable"
+	// DirectiveMachineGuardrails sets a machine's guardrail mode; the newest active
+	// one wins (docs/design/guardrails.md).
+	DirectiveMachineGuardrails = "machine.guardrails"
 )
 
 // Scope of a provider.disable target.
@@ -27,8 +30,9 @@ const (
 // DirectiveParams is the kind-specific payload. Throttle uses MaxConcurrency (0 drops
 // the machine), CPUCeilingPct and HeavyOK. Pause uses SuspendRunning. provider.disable
 // uses Fallback (an agent name) and Scope (agent or account). Pointers keep an omitted
-// cap distinct from zero. CPU ceiling and heavy_ok are stored and forwarded;
-// enforcement of those two waits on an OS envelope that does not exist yet.
+// cap distinct from zero. syred enforces throttle CPU priority and cpu_ceiling_pct
+// through its guardrails; heavy_ok is stored and forwarded only. Guardrails is the
+// machine.guardrails mode.
 type DirectiveParams struct {
 	MaxConcurrency *int   `json:"max_concurrency,omitempty"`
 	CPUCeilingPct  *int   `json:"cpu_ceiling_pct,omitempty"`
@@ -36,6 +40,7 @@ type DirectiveParams struct {
 	SuspendRunning bool   `json:"suspend_running,omitzero"`
 	Fallback       string `json:"fallback,omitempty"`
 	Scope          string `json:"scope,omitempty"`
+	Guardrails     string `json:"guardrails,omitempty"`
 }
 
 // Directive is one typed, timed, attributed policy entry.

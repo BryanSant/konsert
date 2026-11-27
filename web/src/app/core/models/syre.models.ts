@@ -76,6 +76,16 @@ export interface MachineFacts {
   is_mac_container: boolean;
   is_vm: boolean;
   virtualization?: string;
+  /** Guardrails (docs/design/guardrails.md). */
+  is_desktop?: boolean;
+  survival_reserve_mb?: number;
+  /** Effective mode: passthrough | adaptive | adaptive_strict. */
+  guardrail_mode?: string;
+  /** auto | config | hub */
+  guardrail_mode_source?: string;
+  guardrail_base_mode?: string;
+  /** systemd-scope | process-group | job-object */
+  guardrail_mechanism?: string;
   tools?: Record<string, string>;
   auth_ready?: Record<string, boolean>;
   /** Supported terminal shells detected on this machine. */
@@ -835,6 +845,8 @@ export interface DirectiveParams {
   fallback?: string;
   /** provider.disable: "agent" (a whole provider) or "account" (one account id). */
   scope?: 'agent' | 'account' | string;
+  /** machine.guardrails: passthrough | adaptive | adaptive_strict. */
+  guardrails?: string;
 }
 
 /**

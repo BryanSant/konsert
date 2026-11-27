@@ -416,7 +416,7 @@ func capDirectiveReason(s string) string {
 func (h *Hub) prepareDirective(ctx context.Context, in DirectiveInput) (store.Directive, error) {
 	kind := strings.TrimSpace(in.Kind)
 	switch kind {
-	case store.DirectiveProviderDisable, store.DirectiveMachinePause, store.DirectiveMachineThrottle, store.DirectiveMachineDrain, store.DirectiveAutopilotPause:
+	case store.DirectiveProviderDisable, store.DirectiveMachinePause, store.DirectiveMachineThrottle, store.DirectiveMachineDrain, store.DirectiveMachineGuardrails, store.DirectiveAutopilotPause:
 	default:
 		return store.Directive{}, fmt.Errorf("unknown directive kind %q", kind)
 	}
@@ -482,6 +482,12 @@ func normalizeDirectiveParams(kind string, p store.DirectiveParams) (store.Direc
 		return p, nil
 	case store.DirectiveMachinePause:
 		return store.DirectiveParams{SuspendRunning: p.SuspendRunning}, nil
+	case store.DirectiveMachineGuardrails:
+		m := strings.ToLower(strings.TrimSpace(p.Guardrails))
+		if guardrailStrictness(m) < 0 {
+			return store.DirectiveParams{}, errors.New("machine.guardrails requires guardrails: passthrough, adaptive or adaptive_strict")
+		}
+		return store.DirectiveParams{Guardrails: m}, nil
 	case store.DirectiveProviderDisable:
 		fb := strings.TrimSpace(p.Fallback)
 		if canon, ok := canonicalAgent(fb); ok {
@@ -500,6 +506,20 @@ func normalizeDirectiveParams(kind string, p store.DirectiveParams) (store.Direc
 	default:
 		return store.DirectiveParams{}, nil
 	}
+}
+
+// guardrailStrictness orders guardrail modes (passthrough < adaptive <
+// adaptive_strict); -1 for anything else.
+func guardrailStrictness(m string) int {
+	switch m {
+	case "passthrough":
+		return 0
+	case "adaptive":
+		return 1
+	case "adaptive_strict":
+		return 2
+	}
+	return -1
 }
 
 // resolveProjectID resolves a project id, sid or case-insensitive name.
@@ -699,6 +719,7 @@ func (h *Hub) pushWorkerDirectives(ctx context.Context, wc *workerConn) {
 				CPUCeilingPct:  d.Params.CPUCeilingPct,
 				HeavyOK:        d.Params.HeavyOK,
 				SuspendRunning: d.Params.SuspendRunning,
+				Guardrails:     d.Params.Guardrails,
 			},
 		})
 	}

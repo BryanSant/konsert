@@ -451,7 +451,9 @@ func (s *claudeSession) ensureProc(ctx context.Context) error {
 		return err
 	}
 
-	proc, err := s.eng.launch(ctx, s.eng.spec(s.acct, cwd, args...))
+	spec := s.eng.spec(s.acct, cwd, args...)
+	spec.Guard = chatGuard(s.opts)
+	proc, err := s.eng.launch(ctx, spec)
 	if err != nil {
 		return &claudeStartError{notFound: IsNotInstalled(err) || strings.Contains(err.Error(), "executable file not found"), err: err}
 	}

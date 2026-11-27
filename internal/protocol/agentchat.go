@@ -319,6 +319,11 @@ const (
 	ErrKindCanceled    = "canceled"     // task was canceled
 	ErrKindLost        = "lost"         // worker disappeared; the attempt was requeued or failed
 	ErrKindConflict    = "conflict"     // git merge conflict while stacking blocker branches
+	// ErrKindMemoryPressureShed: the machine's guardrails shed the session to keep the
+	// host alive (docs/design/guardrails.md). Not a failure of the work: the hub
+	// requeues it without spending a retry. Distinct from oom, which is the job itself
+	// running out of memory.
+	ErrKindMemoryPressureShed = "memory_pressure_shed"
 )
 
 // AgentChatError explains why a turn or session failed, with what the user can do.
@@ -333,6 +338,22 @@ type AgentChatError struct {
 	Relogin *AgentRelogin `json:"relogin,omitzero"`
 	// Retryable means sending the message again may succeed (transient errors).
 	Retryable bool `json:"retryable,omitzero"`
+	// Shed is set with ErrKindMemoryPressureShed.
+	Shed *ShedEvidence `json:"shed,omitzero"`
+}
+
+// ShedEvidence describes a session the guardrails shed under memory pressure.
+type ShedEvidence struct {
+	// Session is what was shed: "chat" (the agent engine) or "verify".
+	Session string `json:"session"`
+	// Reason: host_memory_below_reserve, kernel_memory_pressure_critical or
+	// worker_pool_memory_stall.
+	Reason      string `json:"reason"`
+	RSSMB       uint64 `json:"rss_mb,omitzero"`
+	HostAvailMB uint64 `json:"host_avail_mb,omitzero"`
+	ReserveMB   uint64 `json:"reserve_mb,omitzero"`
+	// ActiveSessions counts the managed sessions running at the shed, this one included.
+	ActiveSessions int `json:"active_sessions,omitzero"`
 }
 
 // AgentRelogin tells the user how to re-authenticate an account on its host.

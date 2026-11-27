@@ -478,6 +478,9 @@ func attemptStatusLabel(a store.Attempt) string {
 	if a.Status == "" {
 		return "-"
 	}
+	if a.FailureCategory == protocol.ErrKindMemoryPressureShed {
+		return "requeued/" + a.FailureCategory
+	}
 	if a.FailureCategory != "" {
 		return a.Status + "/" + a.FailureCategory
 	}

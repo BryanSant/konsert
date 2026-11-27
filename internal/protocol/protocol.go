@@ -257,7 +257,22 @@ type MachineFacts struct {
 	// StartMode (Windows) is how syred was started: "service", "background_task" (an
 	// S4U task: runs whether or not anyone is signed in) or "user_session" (a logon task:
 	// only runs while the user is signed in); "" elsewhere or when unknown.
-	StartMode   string    `json:"start_mode,omitempty"`
+	StartMode string `json:"start_mode,omitempty"`
+
+	// Guardrails (docs/design/guardrails.md). IsDesktop picks the reserve cap.
+	IsDesktop         bool   `json:"is_desktop,omitzero"`
+	SurvivalReserveMB uint64 `json:"survival_reserve_mb,omitzero"`
+	// GuardrailMode is the effective mode (passthrough | adaptive | adaptive_strict)
+	// and GuardrailModeSource where it came from (auto | config | hub).
+	GuardrailMode       string `json:"guardrail_mode,omitempty"`
+	GuardrailModeSource string `json:"guardrail_mode_source,omitempty"`
+	// GuardrailBaseMode is the mode without hub directives (config or auto): what a
+	// machine.guardrails directive tightens or loosens against.
+	GuardrailBaseMode string `json:"guardrail_base_mode,omitempty"`
+	// GuardrailMechanism is how sessions are contained: systemd-scope,
+	// process-group or job-object.
+	GuardrailMechanism string `json:"guardrail_mechanism,omitempty"`
+
 	CollectedAt time.Time `json:"collected_at"`
 }
 
@@ -595,16 +610,22 @@ const (
 	DirectiveKindMachineDrain    = "machine.drain"
 	DirectiveKindAutopilotPause  = "autopilot.pause"
 	DirectiveKindProviderDisable = "provider.disable"
+	// DirectiveKindMachineGuardrails sets a machine's guardrail mode
+	// (docs/design/guardrails.md). The newest active one wins.
+	DirectiveKindMachineGuardrails = "machine.guardrails"
 )
 
 // WorkerDirectiveParams is the machine-facing copy of a directive's params.
-// cpu_ceiling_pct and heavy_ok are forwarded; syred enforces pause, drain and
-// the concurrency cap only.
+// syred enforces pause, drain, the concurrency cap, the guardrail mode, and
+// throttle CPU priority / cpu_ceiling_pct through its guardrails; heavy_ok is
+// forwarded only.
 type WorkerDirectiveParams struct {
 	MaxConcurrency *int  `json:"max_concurrency,omitempty"`
 	CPUCeilingPct  *int  `json:"cpu_ceiling_pct,omitempty"`
 	HeavyOK        *bool `json:"heavy_ok,omitempty"`
 	SuspendRunning bool  `json:"suspend_running,omitzero"`
+	// Guardrails is machine.guardrails' mode: passthrough, adaptive or adaptive_strict.
+	Guardrails string `json:"guardrails,omitempty"`
 }
 
 // WorkerDirective is one active directive for the machine that receives it.

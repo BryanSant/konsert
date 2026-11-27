@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"strings"
 	"time"
 
@@ -54,7 +55,8 @@ func mapChatErrorCategory(e *protocol.AgentChatError) string {
 		protocol.ErrKindCanceled,
 		protocol.ErrKindLost,
 		protocol.ErrKindModel,
-		protocol.ErrKindAgentError:
+		protocol.ErrKindAgentError,
+		protocol.ErrKindMemoryPressureShed:
 		return e.Kind
 	case protocol.ErrKindNotFound:
 		return protocol.ErrKindMissingTool
@@ -81,6 +83,38 @@ func appendTurnToolOutput(b *strings.Builder, s string) {
 // buildTurnDigestLocked builds a compact RunDigest for ticket-backed chat events.
 // c.mu must be held.
 func (m *Manager) buildTurnDigestLocked(c *chatState, ev protocol.AgentChatEvent, gitByRepo map[string]*protocol.GitSummary, vr *VerifyResult) *protocol.RunDigest {
+	d := m.buildTurnDigestBaseLocked(c, ev, gitByRepo, vr)
+	if d != nil && (ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError) {
+		annotateTermination(d, c.id, ev)
+	}
+	return d
+}
+
+// annotateTermination adds the resource fields: why the run ended when it was not
+// normal, the engine's peak memory, and the host's free memory at a shed.
+func annotateTermination(d *protocol.RunDigest, chatID string, ev protocol.AgentChatEvent) {
+	d.PeakRSSMB = guard.Default().OwnerPeak(chatID) / mib
+	switch {
+	case ev.Kind == protocol.EventTurnEnd && ev.StopReason == "cancelled":
+		d.TerminationReason = protocol.TerminationUserStop
+	case ev.Kind == protocol.EventError && ev.Error != nil:
+		switch ev.Error.Kind {
+		case protocol.ErrKindMemoryPressureShed:
+			d.TerminationReason = protocol.TerminationMemoryPressureShed
+			if ev.Error.Shed != nil {
+				d.HostAvailRAMAtExitMB = ev.Error.Shed.HostAvailMB
+				d.PeakRSSMB = max(d.PeakRSSMB, ev.Error.Shed.RSSMB)
+			}
+		case protocol.ErrKindTimeout:
+			d.TerminationReason = protocol.TerminationTimeout
+		}
+		if d.Failure != nil && d.Failure.Category == protocol.ErrKindOOM {
+			d.TerminationReason = protocol.TerminationOOM
+		}
+	}
+}
+
+func (m *Manager) buildTurnDigestBaseLocked(c *chatState, ev protocol.AgentChatEvent, gitByRepo map[string]*protocol.GitSummary, vr *VerifyResult) *protocol.RunDigest {
 	ticketSID := strings.TrimSpace(c.opts.TicketSID)
 	if ticketSID == "" {
 		return nil

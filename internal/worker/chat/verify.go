@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"os"
 	"os/exec"
 	"runtime"
@@ -31,6 +32,9 @@ type VerifyResult struct {
 	Verify   *protocol.DigestVerify
 	Output   []byte
 	Tests    []string
+	// Shed is set when the guardrails shed the command under memory pressure; the
+	// result says nothing about the code then.
+	Shed *guard.Evidence
 }
 
 type verifyShellEnv struct {
@@ -83,7 +87,7 @@ func RunVerify(ctx context.Context, dir, cmdStr string, timeout time.Duration) V
 	defer cancel()
 
 	bin, args := verifyShellCommand(defaultVerifyShellEnv(), cmdStr)
-	cmd := exec.Command(bin, args...)
+	cmd, launch := guardedCommand(guardFrom(ctx), bin, args)
 	cmd.Dir = dir
 	cmd.Env = os.Environ()
 	setProcGroup(cmd)
@@ -100,6 +104,7 @@ func RunVerify(ctx context.Context, dir, cmdStr string, timeout time.Duration) V
 		}
 	}
 
+	gsess := attachGuard(launch, cmd)
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
@@ -124,6 +129,7 @@ func RunVerify(ctx context.Context, dir, cmdStr string, timeout time.Duration) V
 		}
 	}
 
+	usage := gsess.Release(cmd.ProcessState)
 	exitCode := 0
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()
@@ -159,6 +165,7 @@ func RunVerify(ctx context.Context, dir, cmdStr string, timeout time.Duration) V
 		Verify:   dv,
 		Output:   []byte(outStr),
 		Tests:    failingTests,
+		Shed:     usage.Shed,
 	}
 }
 
@@ -231,6 +238,9 @@ func RunVerifySteps(ctx context.Context, steps []VerifyStep, timeout time.Durati
 		}
 		if res.Canceled {
 			return VerifyResult{Canceled: true}
+		}
+		if res.Shed != nil {
+			return VerifyResult{Shed: res.Shed}
 		}
 		if res.Verify != nil {
 			passed += res.Verify.Passed

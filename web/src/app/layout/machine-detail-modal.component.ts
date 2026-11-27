@@ -10,7 +10,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { activeMachineDirectives, directiveBadgeText, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
+import { activeMachineDirectives, directiveBadgeText, guardrailLabel, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 @Component({
@@ -194,8 +194,19 @@ import { MachineCredentialComponent } from './machine-credential.component';
               <option value="machine.pause">Pause</option>
               <option value="machine.throttle">Throttle</option>
               <option value="machine.drain">Drain</option>
+              <option value="machine.guardrails">Guardrails</option>
             </select>
           </label>
+          @if (directiveKind() === 'machine.guardrails') {
+            <label class="flex flex-col gap-0.5 text-[#86888f]">
+              <span>Mode</span>
+              <select class="sy-field sy-field-sm" data-testid="directive-guardrails" [value]="directiveGuardrails()" (change)="directiveGuardrails.set($any($event.target).value)">
+                <option value="adaptive_strict">Strict</option>
+                <option value="adaptive">Adaptive</option>
+                <option value="passthrough">Passthrough</option>
+              </select>
+            </label>
+          }
           @if (directiveKind() === 'machine.pause') {
             <label class="flex items-center gap-1 text-[#c8cad0] pb-1">
               <input type="checkbox" data-testid="directive-suspend" [checked]="directiveSuspend()" (change)="directiveSuspend.set($any($event.target).checked)" />
@@ -386,6 +397,14 @@ import { MachineCredentialComponent } from './machine-credential.component';
                 <span class="font-mono-ide text-[#d4d4d8]">{{ formatMB(f.ram_total_mb) }} / {{ formatMB(f.swap_total_mb) }}</span>
               </div>
             }
+            @if (f.guardrail_mode) {
+              <div class="truncate" data-testid="machine-guardrails" title="Agent work may use RAM down to the survival reserve; the newest session is shed if the machine drops below it.">
+                <span class="text-[#86888f]">Guardrails: </span>
+                <span class="text-[#d4d4d8]">{{ guardrailLabel(f.guardrail_mode) }}</span>
+                <span class="text-[#86888f]"> ({{ f.guardrail_mode_source }}, {{ f.guardrail_mechanism }}) · reserve </span>
+                <span class="font-mono-ide text-[#d4d4d8]">{{ formatMB(f.survival_reserve_mb || 0) }}</span>
+              </div>
+            }
           </div>
           @if (toolEntries().length > 0) {
             <div class="flex flex-wrap gap-1 pt-1">
@@ -561,6 +580,8 @@ export class MachineDetailModalComponent {
   readonly directiveKind = signal('machine.pause');
   readonly directiveSuspend = signal(false);
   readonly directiveMax = signal('1');
+  readonly directiveGuardrails = signal('adaptive_strict');
+  readonly guardrailLabel = guardrailLabel;
   readonly directiveUntil = signal('');
   readonly directiveReason = signal('');
   readonly directiveBusy = signal(false);
@@ -600,6 +621,7 @@ export class MachineDetailModalComponent {
     const kind = this.directiveKind();
     const params: DirectiveParams = {};
     if (kind === 'machine.pause') params.suspend_running = this.directiveSuspend();
+    if (kind === 'machine.guardrails') params.guardrails = this.directiveGuardrails();
     if (kind === 'machine.throttle') {
       const n = Number(this.directiveMax());
       if (!Number.isFinite(n) || n < 0) {

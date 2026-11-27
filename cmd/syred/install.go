@@ -480,6 +480,8 @@ func buildInstallConfig(fs *pflag.FlagSet) (config.WorkerConfig, []string, error
 			cfg.MaxConcurrent, err = fs.GetInt(f.Name)
 		case "enable-mock-driver":
 			cfg.EnableMockDriver, err = fs.GetBool(f.Name)
+		case "guardrails":
+			cfg.Guardrails, err = fs.GetString(f.Name)
 		case "tag":
 			var tags []string
 			tags, err = fs.GetStringSlice(f.Name)

@@ -733,7 +733,7 @@ CREATE INDEX idx_override_requests_status ON override_requests(status, expires_a
 CREATE TABLE directives (
     id          TEXT PRIMARY KEY,
     sid         TEXT NOT NULL UNIQUE, -- dr-…
-    kind        TEXT NOT NULL, -- machine.pause | machine.throttle | machine.drain | autopilot.pause | provider.disable
+    kind        TEXT NOT NULL, -- machine.pause | machine.throttle | machine.drain | machine.guardrails | autopilot.pause | provider.disable
     target      TEXT NOT NULL, -- worker id (machine.*) or project id (autopilot.pause)
     params_json TEXT NOT NULL DEFAULT '{}',
     until       TEXT, -- expiry; NULL means until someone ends it

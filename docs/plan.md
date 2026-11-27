@@ -590,23 +590,24 @@ Built alongside 5a (open requests are questions with an action attached).
 
 - Extensible capability probes: built-in list plus probes declared in daemon config (command + version regex, or path exists), GPU detection (NVIDIA `nvidia-smi`, Apple Silicon GPU cores and unified memory, AMD), architecture in the selector, operator labels per machine, machine role (`dedicated` / `interactive` / `control-only`).
 - `work_key` on tickets/tasks (derived from project, epic/ticket, repo, kind; overridable by the dispatcher) and requirement fields on dispatch.
-- Extend `attempts` and the daemon failure classifier (introduced in Phase A3) with resource peaks from Phase 6 and kernel OOM / Windows job memory limit evidence.
+- Extend `attempts` and the daemon failure classifier (introduced in Phase A3) with resource peaks from Phase 6 and kernel OOM evidence. (Guardrail sheds are already tagged at the source as `memory_pressure_shed`, with peak and host memory in the digest: [design/guardrails.md](design/guardrails.md).)
 - `work_profiles` maintained from attempts per `(work_key, machine class)`.
 - Exit: profiles fill in after a few runs; `inspect` returns them.
 
 ### Phase 8: Policy and enforcement
 
 - Machine policy (hub-owned, pushed to the daemon): max managed sessions, max load average, min free RAM, reserved CPU/RAM, quiet hours, allowed work classes, role. Hub admission check plus daemon-side refusal.
-- Resource envelopes per OS: Linux systemd user scopes (cgroup v2) with rlimit fallback; Windows Job Object limits on the existing job; macOS priority plus monitored kill. Envelope size from the work profile or a default class.
-- Optional rootless Podman tier for Linux work (`isolation: container` per project): image, mounts for repo and agent login state, envelope via Podman flags.
+- Resource guardrails, not envelopes: done in the guardrails epic (SYR-E6DZ9, [design/guardrails.md](design/guardrails.md)). Survival reserve, one shared worker pool, soft kernel watermarks, a pressure watchdog that sheds the newest session, requeue without spending a retry. No hard per-session caps on any OS.
+- Machine policy's user RAM reservation raises the guardrails' floor above the survival reserve.
+- Optional rootless Podman tier for Linux work (`hermetic_container` per project): image, mounts for repo and agent login state, soft limits via Podman flags (`--memory-reservation`, swap cap, CPU shares), shed as one session.
 - Policy directives over MCP follow the tighten vs loosen rule from Phase A6 (`commander_policy_writes`); full policy edits remain in UI/CLI and are audited.
 - Break glass: `request_override` (rules, scope, duration, justification) with user approval by default (approval card in the commander chat + notification), optional commander self-approval, automatic expiry. `policy_events` log of every block and override with the stated intent; a report of how often rules blocked work and whether overrides followed.
 - Container awareness: detect Podman/Docker; per-project opt-in container execution; never required for resource protection.
-- Exit: a memory-hungry test job is capped on Linux and Windows and killed (classified OOM) when it exceeds its envelope; an interactive machine with an active user receives no new heavy work.
+- Exit: an interactive machine with an active user receives no new heavy work; policy blocks and overrides are reported. (The anti-lockup exit — a memory runaway on bare metal is shed and requeued while ssh stays responsive — belongs to the guardrails epic.)
 
 ### Phase 9: Placement
 
-- Capacity model: headroom = capacity − reservations − running envelopes − observed other load.
+- Capacity model: headroom = available RAM − survival reserve − policy reservation − expected peaks of running sessions (estimates, never caps) − observed other load; recent sheds down-weight a machine.
 - Scorer: hard filters (requirements, policy, logins) then a weighted score (headroom fit for the expected profile, locality, account quota, placement rules, spread). Unknown work rotates across eligible machines weighted by headroom.
 - Repo locality: daemons report checkouts (repo remote URL + path + branch + last fetch) found under configured roots; `checkouts` table (many machines per repo).
 - Subscription-aware choice of machine and account pair; spread across same-vendor accounts.
@@ -616,7 +617,7 @@ Built alongside 5a (open requests are questions with an action attached).
 
 ### Phase 10: Retry and migration
 
-- Retry policy by failure category (bigger machine for OOM/disk/timeout; another account for usage limit; never for auth).
+- Retry policy by failure category (bigger machine for OOM/disk/timeout; another account for usage limit; never for auth). `memory_pressure_shed` is requeued without spending a retry; only repeated sheds of a work key suggest a larger class.
 - Migration: stop on A; transfer via push to the shared remote when available, otherwise a `git bundle` sent directly A → B over the fleet transfer channel (Phase 10a), falling back to a hub relay; start on B with a handoff note (previous summary, failure, files changed).
 - Learned rules: a migration that succeeds after a classified failure writes a `learned` placement rule for the work key with the evidence.
 - Exit: an ML-style job that OOMs on a small machine is migrated to a larger one, succeeds, and the next dispatch of that work key goes straight to the larger class.

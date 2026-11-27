@@ -12,13 +12,15 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/UserExistsError/conpty"
 	"golang.org/x/sys/windows"
 )
 
 type windowsPtyProcess struct {
 	cpty     *conpty.ConPty
-	job      windows.Handle
+	guard    *guard.Session
+	job      windows.Handle // own job when unguarded
 	waitOnce sync.Once
 	exitCode int
 	waitErr  error
@@ -26,7 +28,8 @@ type windowsPtyProcess struct {
 }
 
 func startPlatformPty(_ context.Context, opts PtyStartOptions) (PtyProcess, error) {
-	cmdLine := buildWindowsCommandLine(opts.Binary, opts.Args)
+	bin, args, launch := preparePty(opts)
+	cmdLine := buildWindowsCommandLine(bin, args)
 	env := os.Environ()
 	env = append(env, "TERM=xterm-256color")
 	env = append(env, opts.Env...)
@@ -44,13 +47,16 @@ func startPlatformPty(_ context.Context, opts PtyStartOptions) (PtyProcess, erro
 		return nil, fmt.Errorf("start windows conpty for %s: %w", opts.Binary, err)
 	}
 
-	// Best-effort attach to a Windows Job Object with KILL_ON_JOB_CLOSE so child trees never leak.
-	job := attachProcessToJobObject(uint32(c.Pid()))
-
-	return &windowsPtyProcess{
-		cpty: c,
-		job:  job,
-	}, nil
+	p := &windowsPtyProcess{cpty: c}
+	if launch != nil {
+		// The guard's per-session Job Object (KILL_ON_JOB_CLOSE, CPU weight).
+		p.guard = launch.Attach(c.Pid())
+	}
+	if p.guard.Job() == 0 {
+		// Best-effort own Job Object with KILL_ON_JOB_CLOSE so child trees never leak.
+		p.job = attachProcessToJobObject(uint32(c.Pid()))
+	}
+	return p, nil
 }
 
 func buildWindowsCommandLine(binary string, args []string) string {
@@ -93,6 +99,8 @@ func attachProcessToJobObject(pid uint32) windows.Handle {
 	return job
 }
 
+func (p *windowsPtyProcess) Guard() *guard.Session { return p.guard }
+
 func (p *windowsPtyProcess) Pid() int {
 	return p.cpty.Pid()
 }
@@ -129,7 +137,7 @@ func (p *windowsPtyProcess) TerminateWithGrace(grace time.Duration) error {
 }
 
 func (p *windowsPtyProcess) kill() error {
-	if p.job != 0 {
+	if !p.guard.Kill() && p.job != 0 {
 		_ = windows.TerminateJobObject(p.job, 1)
 	}
 	return p.Close()
@@ -148,6 +156,7 @@ func (p *windowsPtyProcess) Close() error {
 	var err error
 	p.closed.Do(func() {
 		err = p.cpty.Close()
+		p.guard.Release(nil) // closes the guard's job: KILL_ON_JOB_CLOSE
 		if p.job != 0 {
 			_ = windows.CloseHandle(p.job)
 			p.job = 0

@@ -46,7 +46,14 @@ export function directiveBadgeText(d: PolicyDirective): string {
     const n = d.params?.max_concurrency;
     return (n == null ? 'throttled' : `throttled max ${n}`) + tail;
   }
+  if (d.kind === 'machine.guardrails') return `guardrails ${guardrailLabel(d.params?.guardrails)}${tail}`;
   return d.kind;
+}
+
+/** "strict", "adaptive", "passthrough" for a guardrail mode. */
+export function guardrailLabel(mode: string | undefined): string {
+  if (mode === 'adaptive_strict') return 'strict';
+  return mode || 'auto';
 }
 
 /** Active machine.* directives for one worker. A past `until` no longer applies. */

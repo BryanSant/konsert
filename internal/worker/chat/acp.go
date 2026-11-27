@@ -76,9 +76,9 @@ func (e *acpEngine) binary(acct Account) string {
 }
 
 // start launches the agent and runs initialize. handler receives agent→client traffic.
-func (e *acpEngine) start(ctx context.Context, acct Account, cwd string, l acpLaunch, handler rpcHandler) (*acpConn, error) {
+func (e *acpEngine) start(ctx context.Context, acct Account, cwd string, l acpLaunch, gs *GuardSpec, handler rpcHandler) (*acpConn, error) {
 	argv := append(append([]string{}, acct.ArgsPrefix...), e.ad.argv(l)...)
-	proc, err := StartProc(ProcSpec{Binary: e.binary(acct), Args: argv, Dir: cwd, Env: acct.Env})
+	proc, err := StartProc(ProcSpec{Binary: e.binary(acct), Args: argv, Dir: cwd, Env: acct.Env, Guard: gs})
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (s *acpSession) connect(ctx context.Context, resumeID string) *acpOpenError
 		s.mu.Unlock()
 	}()
 
-	conn, err := s.eng.start(ctx, s.acct, s.opts.Cwd, launch, s.handle)
+	conn, err := s.eng.start(ctx, s.acct, s.opts.Cwd, launch, chatGuard(s.opts), s.handle)
 	if err != nil {
 		if conn == nil {
 			return &acpOpenError{s.ecFor(nil, "launch").classify(err)}

@@ -1,0 +1,101 @@
+package chat
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+
+	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/guard"
+)
+
+// GuardSpec marks a launch as a managed session for the machine's guardrails
+// (internal/worker/guard): contained, deprioritised and sheddable under memory
+// pressure. Probes and quick commands launch without one.
+type GuardSpec struct {
+	// Owner is the chat id ("verify:<chat id>" for verify commands).
+	Owner    string
+	Kind     string // "chat" or "verify"
+	Priority guard.Priority
+	Headless bool
+}
+
+// chatGuard is the guard spec for a chat's engine: ticket runs are shed before a
+// person's own chat.
+func chatGuard(opts protocol.AgentChatOpen) *GuardSpec {
+	g := &GuardSpec{Owner: opts.ChatID, Kind: "chat", Priority: guard.PriorityInteractive}
+	if opts.TicketSID != "" {
+		g.Priority, g.Headless = guard.PriorityTicket, true
+	}
+	return g
+}
+
+// guardedCommand builds the command for binary/args, prepared by the guard when gs is
+// set (on Linux that may wrap it in a systemd scope). Call attach after Start.
+func guardedCommand(gs *GuardSpec, binary string, args []string) (*exec.Cmd, *guard.Launch) {
+	if gs == nil {
+		return exec.Command(binary, args...), nil
+	}
+	l := guard.Default().Prepare(guard.LaunchSpec{
+		Binary: binary, Args: args, Owner: gs.Owner, Kind: gs.Kind, Priority: gs.Priority, Headless: gs.Headless,
+	})
+	return exec.Command(l.Binary, l.Args...), l
+}
+
+func attachGuard(l *guard.Launch, cmd *exec.Cmd) *guard.Session {
+	if l == nil || cmd.Process == nil {
+		return nil
+	}
+	return l.Attach(cmd.Process.Pid)
+}
+
+type guardCtxKey struct{}
+
+// withGuard attaches a guard spec for commands started under ctx (verify steps).
+func withGuard(ctx context.Context, gs *GuardSpec) context.Context {
+	return context.WithValue(ctx, guardCtxKey{}, gs)
+}
+
+func guardFrom(ctx context.Context) *GuardSpec {
+	gs, _ := ctx.Value(guardCtxKey{}).(*GuardSpec)
+	return gs
+}
+
+func verifyOwner(chatID string) string { return "verify:" + chatID }
+
+const mib = 1 << 20
+
+// ShedEvidence converts the guard's evidence for the protocol.
+func ShedEvidence(ev guard.Evidence) *protocol.ShedEvidence {
+	return &protocol.ShedEvidence{
+		Session:        ev.Kind,
+		Reason:         ev.Reason,
+		RSSMB:          ev.RSS / mib,
+		HostAvailMB:    ev.HostAvail / mib,
+		ReserveMB:      ev.Reserve / mib,
+		ActiveSessions: ev.ActiveSessions,
+	}
+}
+
+// ShedMessage is the one-line explanation the Commander and the user see.
+func ShedMessage(ev guard.Evidence) string {
+	what := "the agent"
+	if ev.Kind == "verify" {
+		what = "the verification command"
+	}
+	msg := fmt.Sprintf("Shed by host memory pressure: the machine dropped below its %d MiB survival reserve", ev.Reserve/mib)
+	switch ev.Reason {
+	case guard.ReasonCritical:
+		msg = "Shed by host memory pressure: the kernel reported critical memory pressure"
+	case guard.ReasonPoolStall:
+		msg = "Shed by host memory pressure: agent work stalled at the machine's memory ceiling"
+	case guard.ReasonSwapGrowth:
+		msg = "Shed by host memory pressure: the machine was paging agent work out to disk"
+	}
+	if ev.RSS > 0 {
+		msg += fmt.Sprintf(", so Syre stopped %s at %.1f GiB", what, float64(ev.RSS)/float64(1<<30))
+	} else {
+		msg += ", so Syre stopped " + what
+	}
+	return msg + ". Not a code error; the work can run again."
+}

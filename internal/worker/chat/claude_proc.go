@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"io"
 	"os"
 	"os/exec"
@@ -25,6 +26,8 @@ type ccSpec struct {
 	Args   []string
 	Env    []string // full environment (KEY=VALUE)
 	Dir    string
+	// Guard makes the launch a managed session (engines set it; probes don't).
+	Guard *GuardSpec
 }
 
 // ccProcess is a running engine process. Tests substitute an in-memory fake.
@@ -51,6 +54,7 @@ type ccExecProcess struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
 	tail   *ccTail
+	guard  *guard.Session
 
 	waitOnce sync.Once
 	exitCode int
@@ -58,7 +62,7 @@ type ccExecProcess struct {
 }
 
 func ccExecLaunch(_ context.Context, spec ccSpec) (ccProcess, error) {
-	cmd := exec.Command(spec.Binary, spec.Args...)
+	cmd, launch := guardedCommand(spec.Guard, spec.Binary, spec.Args)
 	cmd.Env = spec.Env
 	cmd.Dir = spec.Dir
 	ccSetProcGroup(cmd)
@@ -75,7 +79,7 @@ func ccExecLaunch(_ context.Context, spec ccSpec) (ccProcess, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	p := &ccExecProcess{cmd: cmd, stdin: stdin, stdout: stdout, tail: tail, done: make(chan struct{})}
+	p := &ccExecProcess{cmd: cmd, stdin: stdin, stdout: stdout, tail: tail, guard: attachGuard(launch, cmd), done: make(chan struct{})}
 	go p.wait()
 	return p, nil
 }
@@ -92,6 +96,7 @@ func (p *ccExecProcess) wait() {
 				p.exitCode = -1
 			}
 		}
+		p.guard.Release(p.cmd.ProcessState)
 		close(p.done)
 	})
 }
@@ -151,6 +156,7 @@ func (p *ccExecProcess) Kill() {
 	case <-p.done:
 	case <-time.After(3 * time.Second):
 		ccSignalGroup(p.cmd, true)
+		p.guard.Kill()
 		<-p.done
 	}
 }

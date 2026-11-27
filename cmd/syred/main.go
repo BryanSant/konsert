@@ -21,6 +21,7 @@ import (
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker"
 	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -77,6 +78,7 @@ type runOptions struct {
 	tags             []string
 	maxConcurrent    int
 	enableMockDriver bool
+	guardrails       string
 	logFile          string
 }
 
@@ -94,6 +96,7 @@ func (o *runOptions) bind(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.tags, "tag", nil, "Worker tags in key=value format (repeatable)")
 	fs.IntVar(&o.maxConcurrent, "max-concurrent", 2, "Maximum concurrent tasks on this worker")
 	fs.BoolVar(&o.enableMockDriver, "enable-mock-driver", false, "Expose the built-in deterministic mock driver")
+	fs.StringVar(&o.guardrails, "guardrails", "", "Guardrail mode: auto (default: from the environment), passthrough, adaptive or adaptive_strict")
 	fs.StringVar(&o.logFile, "log-file", "", "Append logs to this file instead of stderr (used by the Windows logon task and service)")
 }
 
@@ -132,6 +135,12 @@ func (o *runOptions) resolve(fs *pflag.FlagSet) (config.WorkerConfig, error) {
 	}
 	if fs.Changed("enable-mock-driver") {
 		cfg.EnableMockDriver = o.enableMockDriver
+	}
+	if fs.Changed("guardrails") {
+		cfg.Guardrails = o.guardrails
+	}
+	if _, err := guard.ParseMode(cfg.Guardrails); err != nil {
+		return cfg, err
 	}
 	for _, kv := range o.tags {
 		k, v, ok := strings.Cut(kv, "=")
@@ -188,6 +197,20 @@ func runWorker(cmd *cobra.Command, o *runOptions, cfg config.WorkerConfig) error
 		}
 	}
 	daemon := worker.NewDaemon(cfg, drivers.DefaultRegistry, logger)
+	gcfg, err := worker.MachineGuardConfig(cmd.Context(), cfg.Guardrails, logger)
+	if err != nil {
+		return err
+	}
+	g := guard.New(gcfg)
+	daemon.SetGuard(g)
+	{
+		st := g.Status()
+		logger.Info("guardrails", "mode", st.Mode, "source", st.ModeSource, "mechanism", st.Mechanism,
+			"reserve_mb", st.Reserve>>20, "total_mb", st.TotalRAM>>20, "desktop", st.Desktop)
+		for _, n := range st.ProtectNotes {
+			logger.Info("guardrails: " + n)
+		}
+	}
 	sandboxShell := o.sandboxShell
 	if !cmd.Flags().Changed("sandbox-allow-shell") {
 		sandboxShell = envBool("SYRED_SANDBOX_ALLOW_SHELL")
@@ -198,7 +221,7 @@ func runWorker(cmd *cobra.Command, o *runOptions, cfg config.WorkerConfig) error
 	daemon.SetAllowSandboxShell(sandboxShell)
 	daemon.SetVersion(version)
 
-	err := runDaemon(daemon.Run)
+	err = runDaemon(daemon.Run)
 	if err != nil && err != context.Canceled {
 		return err
 	}
@@ -281,6 +304,14 @@ func newDoctorCmd() *cobra.Command {
 			}
 			if len(cfg.CheckoutRoots) > 0 {
 				fmt.Printf("  Checkout Roots   : %s\n", strings.Join(cfg.CheckoutRoots, ", "))
+			}
+
+			if gcfg, gerr := worker.MachineGuardConfig(cmd.Context(), cfg.Guardrails, nil); gerr != nil {
+				fmt.Printf("  Guardrails       : invalid: %v\n", gerr)
+			} else {
+				st := guard.Describe(gcfg)
+				fmt.Printf("  Guardrails       : %s (%s), %s\n", st.Mode, st.ModeSource, st.Mechanism)
+				fmt.Printf("  Survival Reserve : %d MiB of %d MiB (%s)\n", st.Reserve>>20, st.TotalRAM>>20, map[bool]string{true: "desktop", false: "headless"}[st.Desktop])
 			}
 
 			fmt.Println("\nAgent Drivers:")

@@ -71,6 +71,10 @@ func TestMain(m *testing.M) {
 	// In-process daemons the tests remove uninstall themselves for real: give them a
 	// throwaway home (config dir, LaunchAgents, authorized_keys, ~/.claude) so nothing
 	// of the developer's is touched.
+	if err := os.MkdirAll(dir+"/home", 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create test home:", err)
+		os.Exit(1)
+	}
 	os.Setenv("HOME", dir+"/home")
 	os.Setenv("USERPROFILE", dir+"/home")
 	os.Unsetenv("XDG_CONFIG_HOME")

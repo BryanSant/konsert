@@ -20,6 +20,7 @@ import (
 	"github.com/BryanSant/syre/internal/worker/chat"
 	"github.com/BryanSant/syre/internal/worker/digest"
 	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/BryanSant/syre/internal/worker/proctree"
 	"github.com/BryanSant/syre/internal/worker/shellint"
 )
@@ -504,6 +505,10 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 	}
 
 	env := append(append([]string(nil), spec.Env...), ManagedTaskEnv+"="+req.TaskID)
+	gspec := &guard.LaunchSpec{Owner: req.TaskID, Kind: "task", Priority: guard.PriorityTask}
+	if req.TicketSID != "" {
+		gspec.Priority, gspec.Headless = guard.PriorityTicket, true
+	}
 	proc, err := StartPty(taskCtx, PtyStartOptions{
 		Binary: spec.Binary,
 		Args:   spec.Args,
@@ -511,6 +516,7 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		Env:    env,
 		Cols:   req.Cols,
 		Rows:   req.Rows,
+		Guard:  gspec,
 	})
 	if err != nil {
 		cancel()
@@ -705,11 +711,12 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	copy(eventsCopy, rt.events)
 	rt.mu.Unlock()
 
+	usage := rt.pty.Guard().Release(nil)
 	timedOut := errors.Is(context.Cause(ctx), errTaskTimeout)
 	finalStatus := protocol.TaskStatusCompleted
 	if wasCanceled {
 		finalStatus = protocol.TaskStatusCanceled
-	} else if timedOut {
+	} else if timedOut || usage.Shed != nil {
 		finalStatus = protocol.TaskStatusFailed
 	} else if waitErr != nil || exitCode != 0 {
 		finalStatus = protocol.TaskStatusFailed
@@ -724,6 +731,11 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	})
 	if timedOut {
 		summary = "task timed out; " + summary
+	}
+	failureCat := ""
+	if usage.Shed != nil && !wasCanceled {
+		summary = chat.ShedMessage(*usage.Shed)
+		failureCat = protocol.ErrKindMemoryPressureShed
 	}
 
 	var (
@@ -771,7 +783,22 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		Summary:    summary,
 		Output:     rt.ring.Snapshot(),
 		Git:        gitByRepo,
+
+		FailureCategory: failureCat,
 	})
+	runDigest.PeakRSSMB = usage.PeakRSS >> 20
+	switch {
+	case failureCat != "":
+		runDigest.TerminationReason = protocol.TerminationMemoryPressureShed
+		runDigest.HostAvailRAMAtExitMB = usage.Shed.HostAvail >> 20
+		runDigest.PeakRSSMB = max(runDigest.PeakRSSMB, usage.Shed.RSS>>20)
+	case wasCanceled:
+		runDigest.TerminationReason = protocol.TerminationUserStop
+	case timedOut:
+		runDigest.TerminationReason = protocol.TerminationTimeout
+	case runDigest.Failure != nil && runDigest.Failure.Category == protocol.ErrKindOOM:
+		runDigest.TerminationReason = protocol.TerminationOOM
+	}
 
 	if rt.shellTracker != nil {
 		rt.shellTracker.Close(exitCode)

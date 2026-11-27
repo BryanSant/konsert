@@ -9,6 +9,7 @@ import (
 
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/guard"
 )
 
 // lingeringPty models a PTY whose main process has exited while something (a background
@@ -34,6 +35,7 @@ func (p *lingeringPty) Terminate() error                         { return p.Clos
 func (p *lingeringPty) TerminateWithGrace(_ time.Duration) error { return p.Close() }
 func (p *lingeringPty) Wait() (int, error)                       { return p.exit, nil }
 func (p *lingeringPty) Pid() int                                 { return 0 }
+func (p *lingeringPty) Guard() *guard.Session                    { return nil }
 func (p *lingeringPty) Close() error {
 	p.once.Do(func() { close(p.closed) })
 	return nil

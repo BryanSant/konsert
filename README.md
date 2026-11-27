@@ -12,7 +12,7 @@ Syre cleanly decouples **LLM coordination** from **human observability** across 
 ## Architecture
 
 - **`syre` (Central Controller / Hub):** Serves the embedded Angular 22 PWA, REST API, Browser WebSocket (`/ws/client`), Worker WebSocket (`/ws/worker`), MCP Server (stdio & Streamable HTTP `/mcp`), and built-in Commander Chat (OpenAI-compatible, Anthropic, Gemini) backed by SQLite WAL (`modernc.org/sqlite` behind a swappable `store.Store` interface).
-- **`syred` (Cross-Platform Worker Daemon):** Runs on Linux, macOS, Windows (ConPTY + Job Objects), and Podman/Docker containers using **outbound-only** WebSockets. Supports pluggable `AgentDriver` plugins (`claude`, `agy`, `grok`, `mock`), 512 KB local PTY ring buffers (zero idle network traffic), git worktree isolation, and **Full-Access ("YOLO") execution by default** with opt-in sandboxing (`--sandbox`, `--allowed-roots`).
+- **`syred` (Cross-Platform Worker Daemon):** Runs on Linux, macOS, Windows (ConPTY + Job Objects), and Podman/Docker containers using **outbound-only** WebSockets. Supports pluggable `AgentDriver` plugins (`claude`, `agy`, `grok`, `mock`), 512 KB local PTY ring buffers (zero idle network traffic), git worktree isolation, and **Full-Access ("YOLO") execution by default** with opt-in sandboxing (`--sandbox`, `--allowed-roots`). Resource guardrails keep agent work from locking up a machine without hoarding RAM: sessions share the machine down to a small survival reserve, and the newest is shed and requeued if it runs short ([docs/design/guardrails.md](docs/design/guardrails.md)).
 
 ---
 
