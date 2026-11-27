@@ -264,8 +264,15 @@ func (s *Syncer) applyPulled(ctx context.Context, t *store.Tracker, it Item, cap
 		s.markSynced(ctx, t.ID, it, tk)
 		return tk, nil
 	}
-	dirty := s.isDirty(ctx, t.ID, existing)
-	merged, changed := MergePulled(existing, it, caps)
+	ref, linked := s.refFor(ctx, t.ID, existing.ID)
+	// The tracker hasn't changed since our last pull or push (typically the echo of our
+	// own push): nothing to apply.
+	if linked && it.Version != "" && it.Version == ref.Version {
+		return existing, nil
+	}
+	dirty := !linked || existing.UpdatedAt.After(ref.SyncedAt)
+	// Syre's unpushed change wins over the tracker's status; the push sends it.
+	merged, changed := mergePulled(existing, it, caps, dirty)
 	if !changed {
 		if !dirty {
 			s.markSynced(ctx, t.ID, it, existing)
@@ -297,12 +304,6 @@ func (s *Syncer) refFor(ctx context.Context, trackerID, ticketID string) (store.
 		}
 	}
 	return store.ExternalRef{}, false
-}
-
-// isDirty reports whether Syre changed tk since its last sync with trackerID.
-func (s *Syncer) isDirty(ctx context.Context, trackerID string, tk store.Ticket) bool {
-	ref, ok := s.refFor(ctx, trackerID, tk.ID)
-	return !ok || tk.UpdatedAt.After(ref.SyncedAt)
 }
 
 func (s *Syncer) markSynced(ctx context.Context, trackerID string, it Item, tk store.Ticket) {

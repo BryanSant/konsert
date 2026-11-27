@@ -11,6 +11,9 @@ import (
 // as the cursor, and every push recorded.
 type Fake struct {
 	Caps Caps
+	// EchoPushes makes pushed items show up in the next Pull (with the version the push
+	// returned), as real trackers like ka do.
+	EchoPushes bool
 
 	mu     sync.Mutex
 	items  map[string]Item
@@ -86,8 +89,12 @@ func (f *Fake) Push(_ context.Context, items []PushItem) ([]PushResult, error) {
 		f.clock++
 		it.Version = strconv.Itoa(f.clock)
 		f.items[id] = it
-		// A push is the tracker catching up with Syre, not a human change: don't echo it.
+		// A push is the tracker catching up with Syre, not a human change; real trackers
+		// still report it as changed (EchoPushes).
 		f.rev[id] = 0
+		if f.EchoPushes {
+			f.rev[id] = f.clock
+		}
 		out = append(out, PushResult{TicketID: p.TicketID, ExternalID: id, URL: "fake://" + id, Version: it.Version})
 	}
 	return out, nil
