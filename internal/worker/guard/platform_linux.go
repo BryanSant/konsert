@@ -303,10 +303,16 @@ func (p *linuxPlat) release(*Session) {}
 
 func (p *linuxPlat) sample() Signal {
 	sig := Signal{PoolStall: -1}
-	if raw, err := os.ReadFile("/proc/meminfo"); err == nil {
-		if v, ok := meminfoField(raw, "MemAvailable:"); ok {
-			sig.Avail, sig.AvailOK = v, true
-		}
+	meminfo, _ := os.ReadFile("/proc/meminfo")
+	if v, ok := meminfoField(meminfo, "MemAvailable:"); ok {
+		sig.Avail, sig.AvailOK = v, true
+	}
+	swapTotal, ok1 := meminfoField(meminfo, "SwapTotal:")
+	swapFree, ok2 := meminfoField(meminfo, "SwapFree:")
+	if sig.AvailOK && ok1 && ok2 && noSwapHeadroom(swapTotal, swapFree) {
+		// Nothing left to page out to: running out means an OOM kill at once, as at a
+		// container's limit, so no debounce (SYR-D39WN).
+		sig.AvailHard = true
 	}
 	if l, ok := p.workerLimit(); ok {
 		// A container's limit: its OOM killer fires there, whatever the host has free.
@@ -319,12 +325,8 @@ func (p *linuxPlat) sample() Signal {
 	p.mu.Unlock()
 	if slice == "" {
 		// No scope, so no MemorySwapMax: watch swap growth instead.
-		if raw, err := os.ReadFile("/proc/meminfo"); err == nil {
-			total, ok1 := meminfoField(raw, "SwapTotal:")
-			free, ok2 := meminfoField(raw, "SwapFree:")
-			if ok1 && ok2 && total > 0 {
-				sig.SwapUsed, sig.SwapOK = total-min(free, total), true
-			}
+		if ok1 && ok2 && swapTotal > 0 {
+			sig.SwapUsed, sig.SwapOK = swapTotal-min(swapFree, swapTotal), true
 		}
 	}
 	if slice != "" {

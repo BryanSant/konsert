@@ -83,3 +83,14 @@ func readUintFile(path string) (uint64, bool) {
 	v, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64)
 	return v, err == nil
 }
+
+// swapHeadroomMin: below this much free swap a host has, in effect, no swap left to
+// page out to.
+const swapHeadroomMin = 256 << 20
+
+// noSwapHeadroom reports a Linux host with no swap, or with its swap all but used up.
+// There the kernel has nothing to page out to, and running out of memory brings the OOM
+// killer at once: the watchdog then treats available memory as under a hard limit.
+func noSwapHeadroom(total, free uint64) bool {
+	return total == 0 || free < swapHeadroomMin
+}

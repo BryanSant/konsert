@@ -75,8 +75,9 @@ type Signal struct {
 	// Avail is available physical memory in bytes; AvailOK says it was read.
 	Avail   uint64
 	AvailOK bool
-	// AvailHard: Avail is headroom under a hard limit (a container's memory.max), where
-	// running out means an OOM kill at once, with no reclaim or swap to slow it.
+	// AvailHard: Avail is headroom under a hard limit (a container's memory.max, or a
+	// Linux host with no swap left), where running out means an OOM kill at once, with
+	// no swap to slow it.
 	AvailHard bool
 	Level     PressureLevel
 	// PoolStall is the worker pool's PSI "full" avg10 (Linux scope mode); < 0 unknown.

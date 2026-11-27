@@ -115,7 +115,15 @@ A container limit is a hard wall with no reclaim or swap to slow an allocator, s
 once, and so does a decline that would cross the reserve before the next poll. Live, in a
 1 GiB podman container, a hog growing 1.3 GB/s was shed at 827 MiB; without the trend it
 reached the limit inside the debounce and the container's OOM killer took it.
-The same walk applies a `MemoryMax` set on syred's own service. Workers get
+The same walk applies a `MemoryMax` set on syred's own service.
+
+A Linux host with no swap, or with under 256 MiB of it free, is the same hard wall: the
+kernel has nothing to page out to, so the immediate trip and the trend trip apply there
+too. Live in a 3 GiB VM without swap, a session filling memory at about 3 GB/s (an
+anonymous fill, then a tmpfs write) took available memory from 1632 to 128 MiB within
+half a second. Under the 500 ms debounce the kernel OOM killer took it every time. With
+the hard-limit rules it was shed in three runs out of three, as early as 1.1 s, with no
+OOM kill. Hosts with swap keep the debounce. Workers get
 `oom_score_adj +300` as anywhere else, so when the OOM killer does fire it prefers them.
 
 **Fallback** when there is no usable user manager (minimal WSL2, no session bus, cgroup v1):
@@ -215,7 +223,8 @@ Priorities apply in every mode except passthrough. `syred` logs which steps were
 It runs only while a managed session exists and the mode isn't passthrough, so an idle
 host pays nothing. It polls every 250 ms. It trips on:
 
-1. available memory < reserve for more than 500 ms (at once under a container's limit),
+1. available memory < reserve for more than 500 ms (at once under a hard limit: a
+   container's `memory.max`, or a Linux host with no swap or under 256 MiB of it free),
 2. kernel pressure level CRITICAL (macOS),
 3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes),
 4. commit headroom < reserve (Windows), at once, or

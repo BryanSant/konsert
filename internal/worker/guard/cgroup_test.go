@@ -45,3 +45,20 @@ func TestCgroupAvail(t *testing.T) {
 		t.Fatalf("avail %d over the limit, want 0", v)
 	}
 }
+
+func TestNoSwapHeadroom(t *testing.T) {
+	cases := []struct {
+		total, free uint64
+		want        bool
+	}{
+		{0, 0, true},                // no swap at all
+		{2 << 30, 100 << 20, true},  // all but used up
+		{2 << 30, 1 << 30, false},   // room to page out
+		{8 << 30, 256 << 20, false}, // exactly at the floor
+	}
+	for _, c := range cases {
+		if got := noSwapHeadroom(c.total, c.free); got != c.want {
+			t.Errorf("noSwapHeadroom(%d MiB, %d MiB free) = %v, want %v", c.total>>20, c.free>>20, got, c.want)
+		}
+	}
+}
