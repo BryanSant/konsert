@@ -324,6 +324,10 @@ const (
 	// requeues it without spending a retry. Distinct from oom, which is the job itself
 	// running out of memory.
 	ErrKindMemoryPressureShed = "memory_pressure_shed"
+	// FailureHostMemoryFull is the attempt category for a shed whose session held
+	// little of the memory in use (ShedEvidence.Bystander): the machine was full for
+	// other reasons. Requeued like any shed, but not counted toward escalation.
+	FailureHostMemoryFull = "host_memory_full"
 )
 
 // AgentChatError explains why a turn or session failed, with what the user can do.
@@ -347,13 +351,18 @@ type ShedEvidence struct {
 	// Session is what was shed: "chat" (the agent engine) or "verify".
 	Session string `json:"session"`
 	// Reason: host_memory_below_reserve, kernel_memory_pressure_critical or
-	// worker_pool_memory_stall.
+	// worker_pool_memory_stall or swap_growth.
 	Reason      string `json:"reason"`
 	RSSMB       uint64 `json:"rss_mb,omitzero"`
 	HostAvailMB uint64 `json:"host_avail_mb,omitzero"`
 	ReserveMB   uint64 `json:"reserve_mb,omitzero"`
 	// ActiveSessions counts the managed sessions running at the shed, this one included.
 	ActiveSessions int `json:"active_sessions,omitzero"`
+	// HostUsedMB is the host's memory in use at the shed.
+	HostUsedMB uint64 `json:"host_used_mb,omitzero"`
+	// Bystander: the shed session held little of the memory in use, so the machine
+	// was full for other reasons. The hub doesn't count it toward escalation.
+	Bystander bool `json:"bystander,omitzero"`
 }
 
 // AgentRelogin tells the user how to re-authenticate an account on its host.

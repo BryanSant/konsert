@@ -42,7 +42,7 @@ func TestRealShedKillsTree(t *testing.T) {
 		}
 		heard = append(heard, ev)
 	})()
-	g.shed(s, ReasonBelowReserve, Signal{Avail: 1, AvailOK: true}, g.baseline.Reserve, 1)
+	g.shed(s, ReasonBelowReserve, Signal{Avail: 1, AvailOK: true}, g.baseline.Reserve, g.baseline.TotalRAM, 1)
 
 	done := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(done) }()

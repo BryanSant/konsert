@@ -65,6 +65,9 @@ func (h *Hub) finishTicketAttempt(ctx context.Context, tk store.Ticket, cs store
 	if task == nil || task.ID == "" {
 		return
 	}
+	if cs.WorkerID != "" && (status == store.AttemptCompleted || status == store.AttemptReview) {
+		h.shedCooldown.clear(cs.WorkerID) // the machine ran work to the end: its shed streak is over
+	}
 	n := attemptN
 	if n < 1 {
 		// The ticket counter is the attempt identity. A follow-up turn in the same
@@ -478,7 +481,7 @@ func attemptStatusLabel(a store.Attempt) string {
 	if a.Status == "" {
 		return "-"
 	}
-	if a.FailureCategory == protocol.ErrKindMemoryPressureShed {
+	if a.FailureCategory == protocol.ErrKindMemoryPressureShed || a.FailureCategory == protocol.FailureHostMemoryFull {
 		return "requeued/" + a.FailureCategory
 	}
 	if a.FailureCategory != "" {

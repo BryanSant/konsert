@@ -74,6 +74,8 @@ func ShedEvidence(ev guard.Evidence) *protocol.ShedEvidence {
 		HostAvailMB:    ev.HostAvail / mib,
 		ReserveMB:      ev.Reserve / mib,
 		ActiveSessions: ev.ActiveSessions,
+		HostUsedMB:     ev.HostUsed / mib,
+		Bystander:      ev.Bystander,
 	}
 }
 
@@ -96,6 +98,10 @@ func ShedMessage(ev guard.Evidence) string {
 		msg += fmt.Sprintf(", so Syre stopped %s at %.1f GiB", what, float64(ev.RSS)/float64(1<<30))
 	} else {
 		msg += ", so Syre stopped " + what
+	}
+	if ev.Bystander {
+		msg += fmt.Sprintf(". Most of the %.1f GiB in use was elsewhere on the machine, so this says nothing about what the work needs",
+			float64(ev.HostUsed)/float64(1<<30))
 	}
 	return msg + ". Not a code error; the work can run again."
 }

@@ -78,8 +78,18 @@ type Evidence struct {
 	HostAvail      uint64 // host available memory at the trip
 	Reserve        uint64
 	ActiveSessions int // managed sessions running when the shed happened, the victim included
-	At             time.Time
+	// HostUsed is the host's memory in use at the trip (total − available; 0 unknown).
+	HostUsed uint64
+	// Bystander marks a victim that held little of the memory in use (under
+	// 1/culpritShare of it): the machine was full for other reasons, so the shed
+	// says nothing about how much memory this work needs.
+	Bystander bool
+	At        time.Time
 }
+
+// culpritShare: a shed victim holding at least 1/culpritShare of the host's used
+// memory is treated as the cause of the pressure; below that it is a bystander.
+const culpritShare = 4
 
 // LaunchSpec describes a session about to start.
 type LaunchSpec struct {
@@ -573,6 +583,7 @@ func (g *Guard) tick() {
 
 	g.mu.Lock()
 	reserve := g.baseline.Reserve
+	total := g.baseline.TotalRAM
 	throttled := g.throttle.on
 	sessions := slices.Clone(g.sessions)
 	reason := g.tripLocked(sig, reserve, now)
@@ -586,11 +597,11 @@ func (g *Guard) tick() {
 	if reason == "" {
 		return
 	}
-	victim := pickVictim(sessions)
+	victim := pickVictim(sessions, g.plat.rss)
 	if victim == nil {
 		return
 	}
-	g.shed(victim, reason, sig, reserve, len(sessions))
+	g.shed(victim, reason, sig, reserve, total, len(sessions))
 	g.mu.Lock()
 	g.settleUntil = now.Add(shedSettle)
 	g.lowSince, g.stallSince, g.swapSince = time.Time{}, time.Time{}, time.Time{}
@@ -665,10 +676,11 @@ func (g *Guard) applyBackground(sessions []*Session, on bool) {
 	}
 }
 
-// pickVictim chooses the lowest-priority, most recently started session that has not
-// been shed already.
-func pickVictim(sessions []*Session) *Session {
-	var best *Session
+// pickVictim chooses, among sessions not shed already, the lowest priority present
+// and within it the session using the most memory (the most recently started on a
+// tie), so a shed removes the pressure instead of an innocent small run.
+func pickVictim(sessions []*Session, rss func(*Session) uint64) *Session {
+	var cands []*Session
 	for _, s := range sessions {
 		s.mu.Lock()
 		gone := s.shed != nil || s.released
@@ -676,16 +688,33 @@ func pickVictim(sessions []*Session) *Session {
 		if gone {
 			continue
 		}
-		if best == nil || s.spec.Priority < best.spec.Priority ||
-			(s.spec.Priority == best.spec.Priority && s.started.After(best.started)) {
-			best = s
+		if len(cands) > 0 && s.spec.Priority > cands[0].spec.Priority {
+			continue
+		}
+		if len(cands) > 0 && s.spec.Priority < cands[0].spec.Priority {
+			cands = cands[:0]
+		}
+		cands = append(cands, s)
+	}
+	if len(cands) <= 1 {
+		if len(cands) == 0 {
+			return nil
+		}
+		return cands[0]
+	}
+	var best *Session
+	var bestRSS uint64
+	for _, s := range cands {
+		r := rss(s)
+		if best == nil || r > bestRSS || (r == bestRSS && s.started.After(best.started)) {
+			best, bestRSS = s, r
 		}
 	}
 	return best
 }
 
 // shed freezes the victim, records evidence, tells subscribers, then kills it.
-func (g *Guard) shed(s *Session, reason string, sig Signal, reserve uint64, active int) {
+func (g *Guard) shed(s *Session, reason string, sig Signal, reserve, total uint64, active int) {
 	if err := g.plat.freeze(s); err != nil {
 		g.logger.Debug("guardrails: freeze before shed failed", "pid", s.pid, "err", err)
 	}
@@ -700,6 +729,10 @@ func (g *Guard) shed(s *Session, reason string, sig Signal, reserve uint64, acti
 		ActiveSessions: active,
 		At:             g.now(),
 	}
+	if sig.AvailOK && sig.Avail < total {
+		ev.HostUsed = total - sig.Avail
+	}
+	ev.Bystander = ev.RSS > 0 && ev.HostUsed > 0 && ev.RSS*culpritShare < ev.HostUsed
 	s.mu.Lock()
 	s.shed = &ev
 	s.mu.Unlock()
@@ -711,5 +744,5 @@ func (g *Guard) shed(s *Session, reason string, sig Signal, reserve uint64, acti
 	g.logger.Warn("guardrails: shed session under memory pressure",
 		"pid", s.pid, "owner", s.spec.Owner, "kind", s.spec.Kind, "reason", reason,
 		"rss_mb", ev.RSS/mib, "host_avail_mb", ev.HostAvail/mib, "reserve_mb", reserve/mib,
-		"active_sessions", active)
+		"active_sessions", active, "bystander", ev.Bystander)
 }

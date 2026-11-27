@@ -14,6 +14,7 @@ type fakePlat struct {
 	bg      map[int]bool
 	order   []string
 	wrapped bool
+	rssBy   map[int]uint64 // per-pid RSS; 42 MiB when unset
 }
 
 func (f *fakePlat) mechanism(Mode) string                   { return "fake" }
@@ -23,9 +24,16 @@ func (f *fakePlat) wrap(l *Launch, m Mode) {
 		f.wrapped = true
 	}
 }
-func (f *fakePlat) attach(*Session, Mode)            {}
-func (f *fakePlat) release(*Session)                 {}
-func (f *fakePlat) rss(*Session) uint64              { return 42 * mib }
+func (f *fakePlat) attach(*Session, Mode) {}
+func (f *fakePlat) release(*Session)      {}
+func (f *fakePlat) rss(s *Session) uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.rssBy[s.pid]; ok {
+		return r
+	}
+	return 42 * mib
+}
 func (f *fakePlat) peak(*Session) uint64             { return 0 }
 func (f *fakePlat) throttle(*Session, throttleState) {}
 func (f *fakePlat) selfProtect() []string            { return nil }
@@ -192,6 +200,42 @@ func TestShedDebounceAndLIFO(t *testing.T) {
 	g.tick()
 	if len(p.killed) != 3 || p.killed[2] != 300 {
 		t.Fatalf("third victim = %v, want the interactive session", p.killed)
+	}
+}
+
+// TestShedTakesTheHogAndMarksBystanders: within a priority the session using the most
+// memory goes first, and a victim holding little of the used memory is a bystander.
+func TestShedTakesTheHogAndMarksBystanders(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto) // 8 GiB host
+	reserve := g.baseline.Reserve
+	p.rssBy = map[int]uint64{100: 6 << 30, 200: 300 * mib, 300: 1 << 30}
+	attach(g, clk, 100, PriorityTicket, "hog")
+	attach(g, clk, 200, PriorityTicket, "small")
+	attach(g, clk, 300, PriorityInteractive, "chat-user")
+
+	var got []Evidence
+	defer OnShed(func(ev Evidence) { got = append(got, ev) })()
+	p.set(Signal{Avail: reserve - 1, AvailOK: true})
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 1 || p.killed[0] != 100 {
+		t.Fatalf("killed = %v, want the 6 GiB ticket run (100), not the newer small one", p.killed)
+	}
+	if got[0].Bystander || got[0].HostUsed != g.baseline.TotalRAM-(reserve-1) {
+		t.Fatalf("hog evidence = %+v, want a culprit with host used memory", got[0])
+	}
+
+	// Pressure persists (from outside Syre): the small run goes next, as a bystander.
+	clk.add(3 * time.Second)
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 2 || p.killed[1] != 200 {
+		t.Fatalf("killed = %v, want the small run next", p.killed)
+	}
+	if !got[1].Bystander {
+		t.Fatalf("300 MiB of ~7.6 GiB used must be a bystander: %+v", got[1])
 	}
 }
 

@@ -184,10 +184,15 @@ host pays nothing. It polls every 250 ms. It trips on:
 2. kernel pressure level CRITICAL (macOS), or
 3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes).
 
-On a trip it picks the **lowest priority, then the most recently started** session:
-ticket runs first, then dispatched tasks, then a person's own chat, which goes only when
-nothing else is left. Long builds close to finishing survive. Observed (unmanaged)
-sessions are never shed.
+On a trip it picks the **lowest priority, then the largest** session: ticket runs
+first, then dispatched tasks, then a person's own chat, which goes only when nothing else
+is left. Within a priority the session using the most memory goes, so a shed removes the
+pressure instead of a small run that happened to start last; the most recently started
+breaks a tie. Observed (unmanaged) sessions are never shed.
+
+A victim holding under a quarter of the host's used memory is a **bystander**: the
+machine was full for other reasons (a browser, a person's own chat). The evidence and the
+summary say so.
 
 A shed **freezes** the tree first, so allocation stops at once. It then records evidence
 (the tree's RSS, the host's available memory, the reserve, how many sessions ran) and
@@ -206,13 +211,18 @@ means the host was full.
   don't count against the self-repair retry budget.
 - **Cooldown.** The machine gets no new ticket runs for 2 minutes, so it can recover
   first. Without it, a machine still short of memory sheds each new run within seconds
-  and uses up the ticket's sheds.
+  and uses up the ticket's sheds. Each further shed doubles the cooldown, up to an hour,
+  so a machine kept full by something outside Syre stops taking work instead of shedding
+  a ticket every few minutes. A run that finishes on the machine, or an hour past its
+  cooldown without a shed, ends the streak. Cooldowns live in the hub's memory: a
+  restart forgets them.
 - **Auto-throttle.** The hub files a `machine.throttle` directive for 30 minutes, capping
   the machine at one fewer session than it was running. It is attributed to the
   guardrails and can be undone like any directive. It is not filed when it wouldn't
   tighten anything.
 - **Escalation.** On the third shed of the same ticket, it goes to **needs you** instead:
-  it may need more memory than these machines have.
+  it may need more memory than these machines have. Only sheds the ticket caused count:
+  a bystander shed is recorded as `requeued/host_memory_full` and never escalates.
 - **Ad-hoc tasks** finish failed with category `memory_pressure_shed`. They are not
   requeued.
 
