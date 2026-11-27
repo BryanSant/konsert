@@ -95,7 +95,8 @@ At startup syred stops `syre-*.scope` units whose syred is gone. Scopes live out
 syred's service cgroup, so they would otherwise outlive a crash.
 
 **Fallback** when there is no usable user manager (minimal WSL2, no session bus, cgroup v1):
-plain process groups, plus the watchdog on `/proc/meminfo`. Throttle renices the group.
+process trees as on macOS (below), plus the watchdog on `/proc/meminfo`. Throttle renices
+the group.
 
 ### Windows
 
@@ -138,7 +139,16 @@ is also set on bare-metal hosts running Hyper-V/VBS.
 
 ### macOS
 
-No cgroups: sessions are process groups. The kernel's own pressure level,
+No cgroups, so syred tracks each session's **process tree**. A process group alone is
+not enough: Claude Code starts every shell command in a new process group (seen live), so
+a memory hog run from an agent's shell sat outside the session's group and a group kill
+missed it. The guard follows descendants by parent PID (about once a second while it
+watches, and always before a shed or kill), checking start times against PID reuse. It
+also remembers each process group a descendant starts, so a grandchild reparented to
+launchd when its parent exits is still caught through its group. Freeze, kill and RSS
+cover all of them.
+
+The kernel's own pressure level,
 `kern.memorystatus_vm_pressure_level`, is polled through sysctl. Syred builds with
 `CGO_ENABLED=0`, so `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` is not available.
 

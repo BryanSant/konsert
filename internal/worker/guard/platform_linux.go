@@ -64,6 +64,14 @@ type linuxSess struct {
 	cgroup string // absolute cgroupfs path of the session's scope ("" unknown)
 	peak   uint64 // highest memory.peak / memory.current seen
 	nice   int
+	tree   *procTree // descendants, for when there is no scope (tree_unix.go)
+}
+
+func (ls *linuxSess) procTree() *procTree {
+	if ls == nil {
+		return nil
+	}
+	return ls.tree
 }
 
 func nativePlatform() platform { return &linuxPlat{} }
@@ -221,7 +229,7 @@ func (p *linuxPlat) wrap(l *Launch, m Mode) {
 }
 
 func (p *linuxPlat) attach(s *Session, m Mode) {
-	ls := &linuxSess{nice: workerNice}
+	ls := &linuxSess{nice: workerNice, tree: newProcTree(s.pid)}
 	s.plat = ls
 	if m == ModePassthrough {
 		return
@@ -355,6 +363,9 @@ func (p *linuxPlat) freeze(s *Session) error {
 			return nil
 		}
 	}
+	if sessOf(s).procTree().signal(syscall.SIGSTOP) {
+		return nil
+	}
 	return signalGroup(s.pid, syscall.SIGSTOP)
 }
 
@@ -363,11 +374,16 @@ func (p *linuxPlat) kill(s *Session) error {
 	if cg := sessOf(s).path(); cg != "" {
 		cgErr = os.WriteFile(filepath.Join(cg, "cgroup.kill"), []byte("1"), 0)
 	}
-	pgErr := signalGroup(s.pid, syscall.SIGKILL)
-	if cgErr == nil || pgErr == nil {
+	if cgErr == nil {
+		_ = signalGroup(s.pid, syscall.SIGKILL)
 		return nil
 	}
-	return pgErr
+	// No cgroup: the tree covers shells an agent starts in their own process group.
+	treeOK := sessOf(s).procTree().signal(syscall.SIGKILL)
+	if pgErr := signalGroup(s.pid, syscall.SIGKILL); pgErr != nil && !treeOK {
+		return pgErr
+	}
+	return nil
 }
 
 func signalGroup(pid int, sig syscall.Signal) error {
@@ -397,7 +413,10 @@ func (p *linuxPlat) rss(s *Session) uint64 {
 			return v
 		}
 	}
-	return groupRSS(s.pid)
+	if pids := ls.procTree().members(true); len(pids) > 0 {
+		return pidsRSS(pids)
+	}
+	return 0
 }
 
 func (p *linuxPlat) peak(s *Session) uint64 {
@@ -411,6 +430,8 @@ func (p *linuxPlat) peak(s *Session) uint64 {
 		} else if v, ok := readUintFile(filepath.Join(cg, "memory.current")); ok {
 			ls.notePeak(v)
 		}
+	} else {
+		ls.tree.members(false) // keep descendants known before their parents exit
 	}
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
@@ -424,47 +445,6 @@ func (ls *linuxSess) notePeak(v uint64) {
 	ls.mu.Lock()
 	ls.peak = max(ls.peak, v)
 	ls.mu.Unlock()
-}
-
-// groupRSS sums resident memory of the processes in pgid (only used at shed time).
-func groupRSS(pgid int) uint64 {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return 0
-	}
-	page := uint64(os.Getpagesize())
-	var total uint64
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-		if err != nil {
-			continue
-		}
-		// pid (comm) state ppid pgrp ...: comm may contain spaces; cut after ')'.
-		i := bytes.LastIndexByte(stat, ')')
-		if i < 0 {
-			continue
-		}
-		f := strings.Fields(string(stat[i+1:]))
-		if len(f) < 3 || f[2] != strconv.Itoa(pgid) {
-			continue
-		}
-		statm, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
-		if err != nil {
-			continue
-		}
-		sf := strings.Fields(string(statm))
-		if len(sf) < 2 {
-			continue
-		}
-		if pages, err := strconv.ParseUint(sf[1], 10, 64); err == nil {
-			total += pages * page
-		}
-	}
-	return total
 }
 
 func (p *linuxPlat) background(*Session, bool) {}

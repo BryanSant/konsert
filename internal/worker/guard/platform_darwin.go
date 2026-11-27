@@ -45,11 +45,24 @@ func nativePlatform() platform {
 func (p *darwinPlat) mechanism(Mode) string                   { return "process-group" }
 func (p *darwinPlat) configure(Mode, Baseline, throttleState) {}
 func (p *darwinPlat) wrap(*Launch, Mode)                      {}
-func (p *darwinPlat) release(s *Session)                      { s.plat = nil } // no platform state
-func (p *darwinPlat) peak(*Session) uint64                    { return 0 }
+func (p *darwinPlat) release(s *Session)                      { s.plat = nil }
 func (p *darwinPlat) throttle(*Session, throttleState)        {} // background() covers it
 
+// treeOf is the session's process tree (tree_unix.go).
+func treeOf(s *Session) *procTree {
+	t, _ := s.plat.(*procTree)
+	return t
+}
+
+// peak keeps the process tree current on each watchdog tick (so descendants are known
+// before their parents exit); the peak itself comes from the root's rusage.
+func (p *darwinPlat) peak(s *Session) uint64 {
+	treeOf(s).members(false)
+	return 0
+}
+
 func (p *darwinPlat) attach(s *Session, m Mode) {
+	s.plat = newProcTree(s.pid)
 	if m == ModePassthrough {
 		return
 	}
@@ -125,25 +138,23 @@ func signalGroup(pid int, sig syscall.Signal) error {
 	return nil
 }
 
-func (p *darwinPlat) freeze(s *Session) error { return signalGroup(s.pid, syscall.SIGSTOP) }
-func (p *darwinPlat) kill(s *Session) error   { return signalGroup(s.pid, syscall.SIGKILL) }
-
-// groupPIDs lists the processes in pgid (kern.proc.pgrp).
-func groupPIDs(pgid int) []int {
-	procs, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
-	if err != nil {
+func (p *darwinPlat) freeze(s *Session) error {
+	if treeOf(s).signal(syscall.SIGSTOP) {
 		return nil
 	}
-	out := make([]int, 0, len(procs))
-	for _, kp := range procs {
-		out = append(out, int(kp.Proc.P_pid))
+	return signalGroup(s.pid, syscall.SIGSTOP)
+}
+
+func (p *darwinPlat) kill(s *Session) error {
+	if treeOf(s).signal(syscall.SIGKILL) {
+		return nil
 	}
-	return out
+	return signalGroup(s.pid, syscall.SIGKILL)
 }
 
 // rss sums the tree's resident memory with one ps call (only used at shed time).
 func (p *darwinPlat) rss(s *Session) uint64 {
-	pids := groupPIDs(s.pid)
+	pids := treeOf(s).members(true)
 	if len(pids) == 0 {
 		return 0
 	}
@@ -173,7 +184,7 @@ func (p *darwinPlat) background(s *Session, on bool) {
 	if on {
 		prio = prioDarwinBG
 	}
-	for _, pid := range groupPIDs(s.pid) {
+	for _, pid := range treeOf(s).members(true) {
 		_ = unix.Setpriority(prioDarwinProcess, pid, prio)
 	}
 }
