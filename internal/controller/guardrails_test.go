@@ -200,7 +200,12 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 	if dig.HostAvailRAMAtExitMB != 90 || dig.PeakRSSMB < 3072 || !strings.Contains(dig.Summary, "Shed by host memory pressure") {
 		t.Fatalf("shed digest = %+v", dig)
 	}
-	throttles, _ := cs.st.ListDirectives(ctx, store.DirectiveFilter{Target: "worker-ticket-e2e", Kind: store.DirectiveMachineThrottle, ActiveOnly: true, Limit: 10})
+	// The attempt row is written before the throttle is filed: wait for it.
+	var throttles []store.Directive
+	waitFor(t, 10*time.Second, "auto throttle filed", func() bool {
+		throttles, _ = cs.st.ListDirectives(ctx, store.DirectiveFilter{Target: "worker-ticket-e2e", Kind: store.DirectiveMachineThrottle, ActiveOnly: true, Limit: 10})
+		return len(throttles) > 0
+	})
 	if len(throttles) != 1 || *throttles[0].Params.MaxConcurrency != 1 {
 		t.Fatalf("auto throttle = %+v", throttles)
 	}
