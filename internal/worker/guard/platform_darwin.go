@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -154,29 +155,59 @@ func (p *darwinPlat) kill(s *Session) error {
 	return signalGroup(s.pid, syscall.SIGKILL)
 }
 
-// rss sums the tree's resident memory with one ps call (only used at shed time).
+// rss is the tree's memory footprint (only used at shed time and for victim choice).
+// Resident memory misleads here: macOS compresses and swaps a runaway, so a hog holding
+// 12 GiB showed 921 MiB of RSS live and was called a bystander. phys_footprint counts
+// compressed and swapped pages, as Activity Monitor's "Memory" column does. ps RSS
+// covers processes whose footprint can't be read.
 func (p *darwinPlat) rss(s *Session) uint64 {
 	pids := treeOf(s).members(true)
-	if len(pids) == 0 {
-		return 0
+	var sum uint64
+	var rest []string
+	for _, pid := range pids {
+		if v, ok := physFootprint(pid); ok {
+			sum += v
+		} else {
+			rest = append(rest, strconv.Itoa(pid))
+		}
 	}
-	list := make([]string, len(pids))
-	for i, pid := range pids {
-		list[i] = strconv.Itoa(pid)
+	if len(rest) == 0 {
+		return sum
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "rss=", "-p", strings.Join(list, ",")).Output()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "rss=", "-p", strings.Join(rest, ",")).Output()
 	if err != nil && len(out) == 0 {
-		return 0
+		return sum
 	}
-	var kb uint64
 	for f := range strings.FieldsSeq(string(out)) {
 		if v, err := strconv.ParseUint(f, 10, 64); err == nil {
-			kb += v
+			sum += v << 10
 		}
 	}
-	return kb << 10
+	return sum
+}
+
+const (
+	procInfoCallPIDRusage = 9 // PROC_INFO_CALL_PIDRUSAGE
+	rusageInfoV4          = 4 // RUSAGE_INFO_V4
+	// Offset of ri_phys_footprint in struct rusage_info_v4: a 16-byte uuid, then
+	// user_time, system_time, pkg_idle_wkups, interrupt_wkups, pageins, wired_size and
+	// resident_size (uint64 each).
+	footprintOffset = 16 + 7*8
+)
+
+// physFootprint is proc_pid_rusage(pid, RUSAGE_INFO_V4).ri_phys_footprint, called
+// through the proc_info syscall because syred builds without cgo.
+func physFootprint(pid int) (uint64, bool) {
+	var buf [512]byte // rusage_info_v4 is 296 bytes
+	//lint:ignore SA1019 x/sys has no proc_pid_rusage wrapper, and syred builds without cgo.
+	_, _, errno := unix.Syscall6(unix.SYS_PROC_INFO, procInfoCallPIDRusage, uintptr(pid), rusageInfoV4, 0,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if errno != 0 {
+		return 0, false
+	}
+	return binary.NativeEndian.Uint64(buf[footprintOffset:]), true
 }
 
 // background applies PRIO_DARWIN_BG (what `taskpolicy -b -p` does) to every process in

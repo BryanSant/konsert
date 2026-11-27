@@ -100,3 +100,10 @@ func TestReleaseOOMKilled(t *testing.T) {
 		t.Fatal("a shed reported as OOM")
 	}
 }
+
+// physFootprint reads this process's own footprint (macOS only; elsewhere a no-op).
+func TestPhysFootprintSelf(t *testing.T) {
+	if v, ok := selfFootprint(); ok && v == 0 {
+		t.Fatal("zero footprint for a running process")
+	}
+}

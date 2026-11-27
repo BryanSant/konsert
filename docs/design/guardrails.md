@@ -82,7 +82,10 @@ Limits live on the **slice**, never on a scope (`systemctl --user set-property -
 `MemoryHigh` is a ceiling on all workers together, not a reservation. Idle workers hold
 nothing. One job can use the whole pool when it is alone.
 
-A **pool stall** watch covers the case the ceiling creates. Workers can't push host
+A **pool stall** watch covers the case the ceiling creates. (Live on bocaminipc-wsl,
+forced strict, the below-reserve trip fired first: `MemoryHigh` is soft and the host's
+own ~1 GiB of non-worker memory puts workers at the ceiling below the reserve already.
+The stall trip only leads when almost nothing else uses memory.) Workers can't push host
 `MemAvailable` below the reserve, so a job that genuinely needs more than the ceiling
 would crawl in reclaim forever. The watchdog reads the slice's `memory.pressure`. When
 "full" avg10 stays ≥ 20% for 5 s, it sheds the newest session.
@@ -183,7 +186,10 @@ The kernel's own pressure level,
   WARN or near the reserve** (see Watchdog): shed.
 
 Available memory = total − (app + wired + compressed), the same as Activity Monitor. The
-peak comes from the root's `wait4` rusage.
+peak comes from the root's `wait4` rusage. A session's size (for victim choice and the
+bystander check) is the tree's `phys_footprint` (`proc_pid_rusage`), which counts
+compressed and swapped pages. Resident memory does not: live on bocamacmini, a hog
+holding 10 GiB showed 921 MiB of RSS and was wrongly called a bystander.
 
 ## Control-plane priority
 

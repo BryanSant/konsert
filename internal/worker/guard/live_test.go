@@ -28,15 +28,7 @@ func TestLiveShed(t *testing.T) {
 	if os.Getenv("SYRE_GUARD_LIVE") != "1" {
 		t.Skip("set SYRE_GUARD_LIVE=1 to run the live anti-lockup check")
 	}
-	total := hostTotalRAM()
-	virt := os.Getenv("SYRE_GUARD_VIRT")
-	if virt == "" {
-		virt = "bare_metal"
-	}
-	g := New(Config{
-		Baseline: NewBaseline(total, DetectDesktop(), virt),
-		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
-	})
+	g := liveGuard(t)
 	st := g.Status()
 	t.Logf("mode %s via %s, reserve %d MiB of %d MiB", st.Mode, st.Mechanism, st.Reserve>>20, st.TotalRAM>>20)
 	for _, n := range st.ProtectNotes {
@@ -90,6 +82,110 @@ loop:
 		time.Since(start).Round(time.Millisecond), u.Shed.Reason, u.Shed.RSS>>20, u.Shed.HostAvail>>20, u.PeakRSS>>20, worst.Round(time.Millisecond))
 	if worst > 5*time.Second {
 		t.Errorf("host unresponsive: a 100ms ticker was %s late", worst)
+	}
+}
+
+// liveGuard is the native guard for a live test: the host's auto mode, unless
+// SYRE_GUARD_MODE names one (adaptive_strict on a VM exercises the slice's MemoryHigh
+// and the pool-stall trip). SYRE_GUARD_VIRT overrides the virtualization class.
+func liveGuard(t *testing.T) *Guard {
+	t.Helper()
+	virt := os.Getenv("SYRE_GUARD_VIRT")
+	if virt == "" {
+		virt = "bare_metal"
+	}
+	mode, err := ParseMode(os.Getenv("SYRE_GUARD_MODE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(Config{
+		Baseline: NewBaseline(hostTotalRAM(), DetectDesktop(), virt),
+		Mode:     mode,
+		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	})
+}
+
+// liveSession starts this test binary as a managed session running hog kind
+// (SYRE_GUARD_HOG) under g.
+func liveSession(t *testing.T, g *Guard, test, kind, owner string, prio Priority) (*exec.Cmd, *Session) {
+	t.Helper()
+	exe, _ := os.Executable()
+	l := g.Prepare(LaunchSpec{Binary: exe, Args: []string{"-test.run", "^" + test + "$"}, Owner: owner, Kind: "task", Priority: prio, Headless: true})
+	cmd := exec.Command(l.Binary, l.Args...)
+	cmd.Env = append(os.Environ(), "SYRE_GUARD_HOG="+kind)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	setGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd, l.Attach(cmd.Process.Pid)
+}
+
+// TestLiveVictimChoice runs a growing hog (an older ticket run), a small ticket run
+// started after it, and a small interactive session, and expects the guard to shed the
+// hog: the largest session within the lowest priority, not the newest.
+//
+//	SYRE_GUARD_LIVE=1 go test -run TestLiveVictimChoice -v ./internal/worker/guard
+func TestLiveVictimChoice(t *testing.T) {
+	switch os.Getenv("SYRE_GUARD_HOG") {
+	case "1":
+		hog()
+		return
+	case "small":
+		smallHolder()
+		return
+	}
+	if os.Getenv("SYRE_GUARD_LIVE") != "1" {
+		t.Skip("set SYRE_GUARD_LIVE=1 to run the live victim-choice check")
+	}
+	g := liveGuard(t)
+	st := g.Status()
+	t.Logf("mode %s via %s, reserve %d MiB of %d MiB", st.Mode, st.Mechanism, st.Reserve>>20, st.TotalRAM>>20)
+	hogCmd, hogS := liveSession(t, g, "TestLiveVictimChoice", "1", "hog", PriorityTicket)
+	time.Sleep(500 * time.Millisecond)
+	smallCmd, smallS := liveSession(t, g, "TestLiveVictimChoice", "small", "small-ticket", PriorityTicket)
+	chatCmd, chatS := liveSession(t, g, "TestLiveVictimChoice", "small", "small-chat", PriorityInteractive)
+	defer func() {
+		for _, c := range []*exec.Cmd{smallCmd, chatCmd} {
+			_ = c.Process.Kill()
+			_ = c.Wait()
+		}
+		smallS.Release(smallCmd.ProcessState)
+		chatS.Release(chatCmd.ProcessState)
+	}()
+	done := make(chan struct{})
+	go func() { _ = hogCmd.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Minute):
+		_ = hogCmd.Process.Kill()
+		t.Fatal("hog not shed within 5 minutes")
+	}
+	u := hogS.Release(hogCmd.ProcessState)
+	if u.Shed == nil {
+		t.Fatalf("hog exited without a shed (%v)", hogCmd.ProcessState)
+	}
+	if smallS.Shed() != nil || chatS.Shed() != nil {
+		t.Fatalf("a small session was shed too: ticket %v chat %v", smallS.Shed(), chatS.Shed())
+	}
+	for name, c := range map[string]*exec.Cmd{"small ticket": smallCmd, "chat": chatCmd} {
+		if c.ProcessState != nil {
+			t.Fatalf("%s died: %v", name, c.ProcessState)
+		}
+	}
+	t.Logf("hog shed (%s, %d MiB, bystander %v, %d sessions); the newer small ticket run and the chat survived",
+		u.Shed.Reason, u.Shed.RSS>>20, u.Shed.Bystander, u.Shed.ActiveSessions)
+}
+
+// smallHolder touches 200 MiB and waits to be killed.
+func smallHolder() {
+	b := make([]byte, 200<<20)
+	for i := range b {
+		b[i] = byte(i)
+	}
+	for {
+		time.Sleep(time.Second)
+		runtime.KeepAlive(b)
 	}
 }
 
