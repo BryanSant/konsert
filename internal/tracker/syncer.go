@@ -306,12 +306,6 @@ func (s *Syncer) refFor(ctx context.Context, trackerID, ticketID string) (store.
 	return store.ExternalRef{}, false
 }
 
-// isDirty reports whether Syre changed tk since its last sync with trackerID.
-func (s *Syncer) isDirty(ctx context.Context, trackerID string, tk store.Ticket) bool {
-	ref, ok := s.refFor(ctx, trackerID, tk.ID)
-	return !ok || tk.UpdatedAt.After(ref.SyncedAt)
-}
-
 func (s *Syncer) markSynced(ctx context.Context, trackerID string, it Item, tk store.Ticket) {
 	s.putRef(ctx, trackerID, tk.ID, it, tk.UpdatedAt, false)
 }
