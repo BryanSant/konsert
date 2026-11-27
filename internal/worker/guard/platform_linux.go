@@ -279,6 +279,16 @@ func (p *linuxPlat) sample() Signal {
 	p.mu.Lock()
 	slice := p.slicePath
 	p.mu.Unlock()
+	if slice == "" {
+		// No scope, so no MemorySwapMax: watch swap growth instead.
+		if raw, err := os.ReadFile("/proc/meminfo"); err == nil {
+			total, ok1 := meminfoField(raw, "SwapTotal:")
+			free, ok2 := meminfoField(raw, "SwapFree:")
+			if ok1 && ok2 && total > 0 {
+				sig.SwapUsed, sig.SwapOK = total-min(free, total), true
+			}
+		}
+	}
 	if slice != "" {
 		if raw, err := os.ReadFile(filepath.Join(slice, "memory.pressure")); err == nil {
 			if v, ok := psiFullAvg10(raw); ok {

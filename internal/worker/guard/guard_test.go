@@ -307,3 +307,24 @@ func TestWatchdogStopsWhenIdle(t *testing.T) {
 	}
 	t.Fatal("watchdog kept polling with no sessions")
 }
+
+func TestSwapGrowthSheds(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto) // 8 GiB: budget 2 GiB
+	attach(g, clk, 21, PriorityTask, "pager")
+	avail := uint64(4 << 30) // "available" looks fine while the host pages out
+	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 3 << 30, SwapOK: true})
+	g.tick() // baseline: swap that predates the work does not count
+	clk.add(time.Second)
+	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 4 << 30, SwapOK: true})
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("shed within the swap budget")
+	}
+	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 5<<30 + 1, SwapOK: true})
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("swap growth past the budget did not shed")
+	}
+}

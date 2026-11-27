@@ -78,6 +78,10 @@ func (p *darwinPlat) sample() Signal {
 	if used, ok := p.memUsed(); ok && p.memTotal > 0 {
 		sig.Avail, sig.AvailOK = p.memTotal-min(used, p.memTotal), true
 	}
+	// struct xsw_usage { u_int64_t xsu_total, xsu_avail, xsu_used; ... }.
+	if raw, err := unix.SysctlRaw("vm.swapusage"); err == nil && len(raw) >= 24 {
+		sig.SwapUsed, sig.SwapOK = binary.NativeEndian.Uint64(raw[16:24]), true
+	}
 	return sig
 }
 

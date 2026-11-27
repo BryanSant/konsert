@@ -89,6 +89,8 @@ func ShedMessage(ev guard.Evidence) string {
 		msg = "Shed by host memory pressure: the kernel reported critical memory pressure"
 	case guard.ReasonPoolStall:
 		msg = "Shed by host memory pressure: agent work stalled at the machine's memory ceiling"
+	case guard.ReasonSwapGrowth:
+		msg = "Shed by host memory pressure: the machine was paging agent work out to disk"
 	}
 	if ev.RSS > 0 {
 		msg += fmt.Sprintf(", so Syre stopped %s at %.1f GiB", what, float64(ev.RSS)/float64(1<<30))

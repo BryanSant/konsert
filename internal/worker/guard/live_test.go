@@ -81,14 +81,18 @@ loop:
 	}
 }
 
-// hog allocates and touches 128 MiB every 100 ms until it is killed.
+// hog fills 128 MiB with incompressible data every 100 ms until it is killed. (Touching
+// one byte per page is not enough: macOS compresses near-zero pages to almost nothing.)
 func hog() {
-	var keep [][]byte
-	page := os.Getpagesize()
+	var keep [][]uint64
+	x := uint64(time.Now().UnixNano()) | 1
 	for {
-		b := make([]byte, 128<<20)
-		for i := 0; i < len(b); i += page {
-			b[i] = 1
+		b := make([]uint64, (128<<20)/8)
+		for i := range b {
+			x ^= x << 13
+			x ^= x >> 7
+			x ^= x << 17
+			b[i] = x
 		}
 		keep = append(keep, b)
 		runtime.KeepAlive(keep)

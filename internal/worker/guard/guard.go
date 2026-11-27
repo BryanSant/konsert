@@ -36,7 +36,13 @@ const (
 	ReasonBelowReserve = "host_memory_below_reserve"
 	ReasonCritical     = "kernel_memory_pressure_critical"
 	ReasonPoolStall    = "worker_pool_memory_stall"
+	ReasonSwapGrowth   = "swap_growth"
 )
+
+// swapBudget is how much swap agent work may add once it starts: min(25% RAM, 2 GiB),
+// the same cap the Linux slice's MemorySwapMax sets. Past it the host is paging work
+// out to disk (macOS keeps "available" memory looking healthy while it does).
+func swapBudget(total uint64) uint64 { return min(total/4, 2<<30) }
 
 // PressureLevel is the kernel's own pressure verdict where the OS has one (macOS).
 type PressureLevel int
@@ -56,6 +62,10 @@ type Signal struct {
 	Level   PressureLevel
 	// PoolStall is the worker pool's PSI "full" avg10 (Linux scope mode); < 0 unknown.
 	PoolStall float64
+	// SwapUsed is swap in use; SwapOK says the platform watches it (macOS, and Linux
+	// without scopes, where no MemorySwapMax caps the workers).
+	SwapUsed uint64
+	SwapOK   bool
 }
 
 // Evidence describes one shed, for the session's owner, the digest and logs.
@@ -157,7 +167,10 @@ type Guard struct {
 	// watchdog state (guarded by mu)
 	lowSince    time.Time
 	stallSince  time.Time
+	swapSince   time.Time
 	settleUntil time.Time
+	swapBase    uint64 // swap in use when the current busy period began
+	swapBaseOK  bool
 }
 
 // Config sets up a Guard.
@@ -539,7 +552,8 @@ func (g *Guard) loop() {
 		idle := len(g.sessions) == 0 || mode == ModePassthrough
 		if idle {
 			g.running = false
-			g.lowSince, g.stallSince = time.Time{}, time.Time{}
+			g.lowSince, g.stallSince, g.swapSince = time.Time{}, time.Time{}, time.Time{}
+			g.swapBaseOK = false
 			g.mu.Unlock()
 			return
 		}
@@ -579,7 +593,10 @@ func (g *Guard) tick() {
 	g.shed(victim, reason, sig, reserve, len(sessions))
 	g.mu.Lock()
 	g.settleUntil = now.Add(shedSettle)
-	g.lowSince, g.stallSince = time.Time{}, time.Time{}
+	g.lowSince, g.stallSince, g.swapSince = time.Time{}, time.Time{}, time.Time{}
+	if sig.SwapOK {
+		g.swapBase = max(g.swapBase, sig.SwapUsed) // the victim's pages leave swap slowly
+	}
 	g.mu.Unlock()
 }
 
@@ -601,6 +618,23 @@ func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 	} else {
 		g.stallSince = time.Time{}
 	}
+	swapping := false
+	if sig.SwapOK {
+		if !g.swapBaseOK {
+			g.swapBase, g.swapBaseOK = sig.SwapUsed, true
+		}
+		if sig.SwapUsed < g.swapBase {
+			g.swapBase = sig.SwapUsed
+		}
+		swapping = sig.SwapUsed-g.swapBase > swapBudget(g.baseline.TotalRAM)
+	}
+	if swapping {
+		if g.swapSince.IsZero() {
+			g.swapSince = now
+		}
+	} else {
+		g.swapSince = time.Time{}
+	}
 	if now.Before(g.settleUntil) {
 		return ""
 	}
@@ -611,6 +645,8 @@ func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 		return ReasonBelowReserve
 	case stall && now.Sub(g.stallSince) >= stallDebounce:
 		return ReasonPoolStall
+	case swapping && now.Sub(g.swapSince) >= lowDebounce:
+		return ReasonSwapGrowth
 	}
 	return ""
 }
