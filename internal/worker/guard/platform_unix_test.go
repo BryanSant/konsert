@@ -65,3 +65,38 @@ func TestRealShedKillsTree(t *testing.T) {
 		t.Fatal("Release lost the shed")
 	}
 }
+
+// A root killed by SIGKILL while the kernel's OOM count rose is reported OOM-killed;
+// the same death without an OOM kill, or a shed, is not.
+func TestReleaseOOMKilled(t *testing.T) {
+	run := func(t *testing.T, ooms bool, shed bool) Usage {
+		g, p, clk := testGuard(ModeAdaptive)
+		cmd := exec.Command("sleep", "60")
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		s := attach(g, clk, cmd.Process.Pid, PriorityTicket, "job")
+		if ooms {
+			p.mu.Lock()
+			p.ooms++
+			p.mu.Unlock()
+		}
+		if shed {
+			s.mu.Lock()
+			s.shed = &Evidence{Reason: ReasonBelowReserve}
+			s.mu.Unlock()
+		}
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return s.Release(cmd.ProcessState)
+	}
+	if u := run(t, true, false); !u.OOMKilled {
+		t.Fatal("SIGKILL with an OOM kill not reported")
+	}
+	if u := run(t, false, false); u.OOMKilled {
+		t.Fatal("SIGKILL without an OOM kill reported as OOM")
+	}
+	if u := run(t, true, true); u.OOMKilled {
+		t.Fatal("a shed reported as OOM")
+	}
+}

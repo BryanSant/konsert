@@ -357,6 +357,8 @@ func (winPlat) throttle(s *Session, t throttleState) {
 	}
 }
 
+func (winPlat) oomKills() (uint64, bool) { return 0, false }
+
 func (winPlat) selfProtect() []string {
 	if err := windows.SetPriorityClass(windows.CurrentProcess(), windows.ABOVE_NORMAL_PRIORITY_CLASS); err != nil {
 		return []string{fmt.Sprintf("syred above-normal priority refused: %v", err)}

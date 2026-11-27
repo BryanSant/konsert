@@ -147,6 +147,12 @@ func RunVerify(ctx context.Context, dir, cmdStr string, timeout time.Duration) V
 		}
 		outStr += fmt.Sprintf("verification command timed out after %s\n", timeout)
 	}
+	if usage.OOMKilled && usage.Shed == nil {
+		if outStr != "" && !strings.HasSuffix(outStr, "\n") {
+			outStr += "\n"
+		}
+		outStr += "verification command was killed by the out-of-memory killer\n"
+	}
 
 	dv := &protocol.DigestVerify{
 		Cmd:  cmdStr,

@@ -15,6 +15,7 @@ type fakePlat struct {
 	order   []string
 	wrapped bool
 	rssBy   map[int]uint64 // per-pid RSS; 42 MiB when unset
+	ooms    uint64
 }
 
 func (f *fakePlat) mechanism(Mode) string                   { return "fake" }
@@ -37,6 +38,11 @@ func (f *fakePlat) rss(s *Session) uint64 {
 func (f *fakePlat) peak(*Session) uint64             { return 0 }
 func (f *fakePlat) throttle(*Session, throttleState) {}
 func (f *fakePlat) selfProtect() []string            { return nil }
+func (f *fakePlat) oomKills() (uint64, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ooms, true
+}
 func (f *fakePlat) sample() Signal {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -110,7 +116,7 @@ func TestSurvivalReserve(t *testing.T) {
 
 func TestDefaultModeAndPrecedence(t *testing.T) {
 	for virt, want := range map[string]Mode{
-		"container": ModePassthrough, "mac_container": ModePassthrough,
+		"container": ModeAdaptive, "mac_container": ModeAdaptive,
 		"vm": ModeAdaptive, "wsl": ModeAdaptive, "unknown": ModeAdaptive,
 		"bare_metal": ModeAdaptiveStrict,
 	} {
@@ -427,5 +433,48 @@ func TestSwapRebasesAfterCalm(t *testing.T) {
 	g.tick()
 	if len(p.killed) != 1 {
 		t.Fatal("swap growth past the rebased budget under WARN did not shed")
+	}
+}
+
+// Under a hard limit (a container) there is no debounce: below the reserve sheds at
+// once, and so does a decline that would get there before the next poll.
+func TestHardLimitShedsWithoutDebounce(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	attach(g, clk, 31, PriorityTicket, "hog")
+	r := g.baseline.Reserve
+	p.set(Signal{Avail: r - 1, AvailOK: true, AvailHard: true})
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("below the reserve under a hard limit did not shed at once")
+	}
+
+	g, p, clk = testGuard(ModeAuto)
+	attach(g, clk, 32, PriorityTicket, "fast")
+	p.set(Signal{Avail: r + 2<<30, AvailOK: true, AvailHard: true})
+	g.tick()
+	clk.add(pollInterval)
+	p.set(Signal{Avail: r + 768<<20, AvailOK: true, AvailHard: true}) // 1.25 GiB per poll: the next one is too late
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("a decline that crosses the reserve before the next poll did not shed")
+	}
+
+	g, p, clk = testGuard(ModeAuto)
+	attach(g, clk, 33, PriorityTicket, "steady")
+	p.set(Signal{Avail: r + 2<<30, AvailOK: true, AvailHard: true})
+	g.tick()
+	clk.add(pollInterval)
+	p.set(Signal{Avail: r + 1536<<20, AvailOK: true, AvailHard: true}) // 512 MiB per poll, 1.5 GiB left
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("shed with headroom for several more polls")
+	}
+	// Without a hard limit the same dip is debounced.
+	g, p, clk = testGuard(ModeAuto)
+	attach(g, clk, 34, PriorityTicket, "host")
+	p.set(Signal{Avail: r - 1, AvailOK: true})
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("a host dip shed without the debounce")
 	}
 }

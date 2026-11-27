@@ -32,7 +32,8 @@ import (
 //	                 watermarks.
 //
 // Without a usable user manager (minimal WSL2, containers, no session bus) sessions
-// stay plain process groups and the /proc watchdog is the only guard. No rlimits:
+// stay plain process groups and the /proc watchdog is the only guard. Inside a
+// container the watchdog judges against the container's memory.max (cgroup_linux.go). No rlimits:
 // RLIMIT_AS caps address space, which kills healthy JVM/V8 processes.
 
 const (
@@ -57,6 +58,29 @@ type linuxPlat struct {
 
 	mu        sync.Mutex
 	slicePath string // absolute cgroupfs path of the worker slice, once discovered
+	limitFrom string // the cgroup path limit was looked up from
+	limit     cgLimit
+	limitOK   bool
+}
+
+// workerLimit is the tightest memory.max above the workers: from the worker slice once
+// known, else from syred's own cgroup (workers without scopes stay in it). The walk is
+// redone only when its starting point changes.
+func (p *linuxPlat) workerLimit() (cgLimit, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	from := ""
+	if p.slicePath != "" {
+		from, _ = filepath.Rel(cgroupRoot, p.slicePath)
+		from = "/" + from
+	} else {
+		from = selfCgroup()
+	}
+	if from != p.limitFrom || from == "" {
+		p.limitFrom = from
+		p.limit, p.limitOK = tightestLimit(cgroupRoot, from)
+	}
+	return p.limit, p.limitOK
 }
 
 type linuxSess struct {
@@ -284,6 +308,12 @@ func (p *linuxPlat) sample() Signal {
 			sig.Avail, sig.AvailOK = v, true
 		}
 	}
+	if l, ok := p.workerLimit(); ok {
+		// A container's limit: its OOM killer fires there, whatever the host has free.
+		if v, ok := l.avail(); ok && (!sig.AvailOK || v < sig.Avail) {
+			sig.Avail, sig.AvailOK, sig.AvailHard = v, true, true
+		}
+	}
 	p.mu.Lock()
 	slice := p.slicePath
 	p.mu.Unlock()
@@ -396,15 +426,6 @@ func signalGroup(pid int, sig syscall.Signal) error {
 	return nil
 }
 
-func readUintFile(path string) (uint64, bool) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0, false
-	}
-	v, err := strconv.ParseUint(strings.TrimSpace(string(raw)), 10, 64)
-	return v, err == nil
-}
-
 func (p *linuxPlat) rss(s *Session) uint64 {
 	ls := sessOf(s)
 	if cg := ls.path(); cg != "" {
@@ -475,5 +496,8 @@ func hostTotalRAM() uint64 {
 		return 0
 	}
 	v, _ := meminfoField(raw, "MemTotal:")
+	if l := CgroupMemoryLimit(); l > 0 && l < v {
+		return l
+	}
 	return v
 }

@@ -29,6 +29,10 @@ const (
 	stallDebounce  = 5 * time.Second
 	stallThreshold = 20.0 // % of time all worker tasks stalled on memory (PSI full avg10)
 	shedSettle     = 2 * time.Second
+	// hardLookahead: under a hard limit the watchdog sheds when, at the current rate of
+	// decline, available memory would cross the reserve before the next poll: by then a
+	// fast allocator may already have met the OOM killer.
+	hardLookahead = pollInterval
 )
 
 // Shed reasons recorded in Evidence.Reason.
@@ -70,7 +74,10 @@ type Signal struct {
 	// Avail is available physical memory in bytes; AvailOK says it was read.
 	Avail   uint64
 	AvailOK bool
-	Level   PressureLevel
+	// AvailHard: Avail is headroom under a hard limit (a container's memory.max), where
+	// running out means an OOM kill at once, with no reclaim or swap to slow it.
+	AvailHard bool
+	Level     PressureLevel
 	// PoolStall is the worker pool's PSI "full" avg10 (Linux scope mode); < 0 unknown.
 	PoolStall float64
 	// SwapUsed is swap in use; SwapOK says the platform watches it (macOS, and Linux
@@ -140,12 +147,17 @@ type Session struct {
 	released bool
 	usage    Usage
 	bg       bool
+	oomBase  uint64 // kernel OOM-kill count at attach
+	oomOK    bool
 }
 
 // Usage is what a released session reports.
 type Usage struct {
 	PeakRSS uint64
 	Shed    *Evidence
+	// OOMKilled: the root died of SIGKILL while the kernel's OOM killer fired (a
+	// container's or the host's), and the guard did not shed it.
+	OOMKilled bool
 }
 
 type throttleState struct {
@@ -181,6 +193,7 @@ type Guard struct {
 	throttle   throttleState
 	sessions   []*Session
 	lastPeak   map[string]uint64 // owner -> peak of its most recent released session
+	lastOOM    map[string]bool   // owner -> its most recent released session was OOM-killed
 	running    bool
 	wake       chan struct{}
 	notes      []string
@@ -193,6 +206,8 @@ type Guard struct {
 	swapBase    uint64 // swap in use when the current busy period (or calm) began
 	swapBaseOK  bool
 	calmSince   time.Time // when the host last turned calm (no pressure, memory healthy)
+	prevAvail   uint64    // the last sample's available memory, for the hard-limit trend
+	prevAt      time.Time
 }
 
 // Config sets up a Guard.
@@ -229,6 +244,7 @@ func newGuard(p platform, cfg Config) *Guard {
 		baseline:   cfg.Baseline,
 		configMode: mode,
 		lastPeak:   map[string]uint64{},
+		lastOOM:    map[string]bool{},
 		wake:       make(chan struct{}, 1),
 	}
 }
@@ -444,6 +460,7 @@ func (l *Launch) Attach(pid int) *Session {
 	}
 	g := l.g
 	s := &Session{g: g, pid: pid, spec: l.spec, started: g.now(), unit: l.unit}
+	s.oomBase, s.oomOK = g.plat.oomKills()
 	g.mu.Lock()
 	mode, _ := g.effectiveLocked()
 	t := g.throttle
@@ -520,21 +537,47 @@ func (s *Session) Release(ps *os.ProcessState) Usage {
 	if peak == 0 {
 		peak = rusagePeak(ps)
 	}
+	oom := false
+	if s.oomOK && killedBySIGKILL(ps) && s.Shed() == nil {
+		n, ok := s.g.plat.oomKills()
+		oom = ok && n > s.oomBase
+	}
 	s.g.plat.release(s)
 	g := s.g
 	g.mu.Lock()
 	g.sessions = slices.DeleteFunc(g.sessions, func(x *Session) bool { return x == s })
-	if s.spec.Owner != "" && peak > 0 {
+	if s.spec.Owner != "" {
 		if len(g.lastPeak) >= lastPeakCap {
 			clear(g.lastPeak)
 		}
-		g.lastPeak[s.spec.Owner] = peak
+		if len(g.lastOOM) >= lastPeakCap {
+			clear(g.lastOOM)
+		}
+		if peak > 0 {
+			g.lastPeak[s.spec.Owner] = peak
+		}
+		if oom {
+			g.lastOOM[s.spec.Owner] = true
+		} else {
+			delete(g.lastOOM, s.spec.Owner)
+		}
 	}
 	g.mu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.usage = Usage{PeakRSS: peak}
-	return Usage{PeakRSS: peak, Shed: s.shedCopyLocked()}
+	s.usage = Usage{PeakRSS: peak, OOMKilled: oom}
+	return Usage{PeakRSS: peak, Shed: s.shedCopyLocked(), OOMKilled: oom}
+}
+
+// OwnerOOMKilled reports whether owner's most recently released session was killed by
+// the kernel's OOM killer (Usage.OOMKilled).
+func (g *Guard) OwnerOOMKilled(owner string) bool {
+	if g == nil || owner == "" {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.lastOOM[owner]
 }
 
 func (s *Session) shedCopyLocked() *Evidence {
@@ -574,7 +617,7 @@ func (g *Guard) loop() {
 		idle := len(g.sessions) == 0 || mode == ModePassthrough
 		if idle {
 			g.running = false
-			g.lowSince, g.stallSince, g.swapSince, g.calmSince = time.Time{}, time.Time{}, time.Time{}, time.Time{}
+			g.lowSince, g.stallSince, g.swapSince, g.calmSince, g.prevAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.swapBaseOK = false
 			g.mu.Unlock()
 			return
@@ -626,6 +669,21 @@ func (g *Guard) tick() {
 // tripLocked applies the debounce rules and returns a shed reason, or "".
 func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 	low := sig.AvailOK && reserve > 0 && sig.Avail < reserve
+	hardLow := false
+	if sig.AvailOK && sig.AvailHard && reserve > 0 {
+		// No cushion under a hard limit: below the reserve sheds at once, and so does a
+		// decline that would get there before the next samples.
+		hardLow = low
+		if !g.prevAt.IsZero() && sig.Avail < g.prevAvail {
+			if dt := now.Sub(g.prevAt); dt > 0 && dt <= 4*pollInterval {
+				drop := float64(g.prevAvail-sig.Avail) * float64(hardLookahead) / float64(dt)
+				hardLow = hardLow || float64(sig.Avail) < float64(reserve)+drop
+			}
+		}
+	}
+	if sig.AvailOK {
+		g.prevAvail, g.prevAt = sig.Avail, now
+	}
 	if low {
 		if g.lowSince.IsZero() {
 			g.lowSince = now
@@ -675,7 +733,7 @@ func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 	switch {
 	case sig.Level == LevelCritical:
 		return ReasonCritical
-	case low && now.Sub(g.lowSince) >= lowDebounce:
+	case hardLow, low && now.Sub(g.lowSince) >= lowDebounce:
 		return ReasonBelowReserve
 	case stall && now.Sub(g.stallSince) >= stallDebounce:
 		return ReasonPoolStall

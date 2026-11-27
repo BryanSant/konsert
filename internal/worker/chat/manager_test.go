@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -529,4 +530,19 @@ func TestManagerShutdownClosesSessions(t *testing.T) {
 	}
 	// Operations after shutdown are ignored.
 	m.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t", Text: "x"})
+}
+
+// An engine the OOM killer took reports oom, not an ordinary exit, and still resumes.
+func TestManagerOOMKilledEngineReportsOOM(t *testing.T) {
+	prev := ownerOOMKilled
+	ownerOOMKilled = func(id string) bool { return id == "c1" }
+	t.Cleanup(func() { ownerOOMKilled = prev })
+	tm := newTestManager(t, nil)
+	tm.Open(protocol.AgentChatOpen{ChatID: "c1", Agent: MockAgent})
+	tm.Prompt(protocol.AgentChatPrompt{ChatID: "c1", TurnID: "t1", Text: "please crash"})
+	ev, _ := tm.col.waitFor(t, 0, "oom error", errKind(protocol.ErrKindOOM))
+	if !strings.HasPrefix(ev.Error.Message, "Killed by the out-of-memory killer") {
+		t.Fatalf("oom error = %+v", ev.Error)
+	}
+	waitUntil(t, "session marked closed", func() bool { c := tm.chatInfo("c1"); return !c.Open && !c.TurnActive })
 }

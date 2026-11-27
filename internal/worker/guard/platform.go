@@ -28,6 +28,8 @@ type platform interface {
 	background(s *Session, on bool)
 	// throttle applies machine.throttle to a running session.
 	throttle(s *Session, t throttleState)
+	// oomKills is the kernel's OOM-kill count since boot, where it keeps one (Linux).
+	oomKills() (uint64, bool)
 	// selfProtect raises syred's own standing where the OS allows it unprivileged and
 	// returns notes for doctor (applied and refused steps).
 	selfProtect() []string

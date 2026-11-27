@@ -24,3 +24,12 @@ func rusagePeak(ps *os.ProcessState) uint64 {
 	}
 	return uint64(ru.Maxrss) << 10
 }
+
+// killedBySIGKILL reports whether the root died of SIGKILL (what the OOM killer sends).
+func killedBySIGKILL(ps *os.ProcessState) bool {
+	if ps == nil {
+		return false
+	}
+	ws, ok := ps.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled() && ws.Signal() == syscall.SIGKILL
+}

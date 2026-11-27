@@ -82,6 +82,37 @@ loop:
 	}
 }
 
+// TestLiveOOMLabel lets the kernel's OOM killer take a hog (the guard in passthrough, so
+// it doesn't shed) and expects the session to be reported OOM-killed. Run it in a
+// memory-limited container so the host is not at risk.
+//
+//	SYRE_GUARD_LIVE=1 go test -run TestLiveOOMLabel -v ./internal/worker/guard
+func TestLiveOOMLabel(t *testing.T) {
+	if os.Getenv("SYRE_GUARD_HOG") == "1" {
+		hog()
+		return
+	}
+	if os.Getenv("SYRE_GUARD_LIVE") != "1" || runtime.GOOS != "linux" {
+		t.Skip("set SYRE_GUARD_LIVE=1 on Linux (in a memory-limited container) to run the live OOM label check")
+	}
+	g := New(Config{Baseline: NewBaseline(hostTotalRAM(), false, "container"), Mode: ModePassthrough})
+	exe, _ := os.Executable()
+	l := g.Prepare(LaunchSpec{Binary: exe, Args: []string{"-test.run", "^TestLiveOOMLabel$"}, Owner: "hog", Kind: "task", Priority: PriorityTicket, Headless: true})
+	cmd := exec.Command(l.Binary, l.Args...)
+	cmd.Env = append(os.Environ(), "SYRE_GUARD_HOG=1")
+	setGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	s := l.Attach(cmd.Process.Pid)
+	_ = cmd.Wait()
+	u := s.Release(cmd.ProcessState)
+	if !u.OOMKilled || !g.OwnerOOMKilled("hog") {
+		t.Fatalf("hog ended (%v) without an OOM label: %+v", cmd.ProcessState, u)
+	}
+	t.Logf("hog OOM-killed and labeled (%v)", cmd.ProcessState)
+}
+
 // TestLiveHighCommit runs a job that commits far more memory than it touches (a JVM
 // with a large -Xms, Node with big untouched ArrayBuffers) under the native guard and
 // expects it to finish untouched: the guard must judge physical memory, not commit.

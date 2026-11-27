@@ -22,11 +22,11 @@ const (
 	// ModeAuto resolves from the machine's environment (DefaultMode).
 	ModeAuto Mode = "auto"
 	// ModePassthrough tracks sessions (process group / Job Object) and cleans up
-	// orphans only: no watchdog, no nested limits. The default inside containers,
-	// whose runtime already enforces limits.
+	// orphans only: no watchdog, no nested limits. Opt-in (config or directive).
 	ModePassthrough Mode = "passthrough"
 	// ModeAdaptive adds the pressure watchdog and worker deprioritisation, with no
-	// kernel watermarks. The default in VMs, which have an out-of-band reboot.
+	// kernel watermarks. The default in VMs, which have an out-of-band reboot, and in
+	// containers, where it judges against the container's own memory limit.
 	ModeAdaptive Mode = "adaptive"
 	// ModeAdaptiveStrict adds soft kernel watermarks (Linux slice MemoryHigh and swap
 	// cap). The default on bare metal, where a lockup needs a power cycle.
@@ -64,11 +64,12 @@ func Strictness(m Mode) int {
 // DefaultMode is the mode for a MachineFacts.Virtualization class.
 func DefaultMode(virtualization string) Mode {
 	switch virtualization {
-	case "container", "mac_container":
-		return ModePassthrough
 	case "bare_metal":
 		return ModeAdaptiveStrict
-	default: // vm, wsl (the Windows host owns physical memory), unknown
+	default:
+		// vm, wsl (the Windows host owns physical memory), unknown, and containers: the
+		// container OOM killer fires at the container's limit and picks the biggest
+		// process, which may be the agent, so the guard sheds first (against that limit).
 		return ModeAdaptive
 	}
 }

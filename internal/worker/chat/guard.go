@@ -63,6 +63,10 @@ func guardFrom(ctx context.Context) *GuardSpec {
 
 func verifyOwner(chatID string) string { return "verify:" + chatID }
 
+// ownerOOMKilled reports whether the chat's engine was last ended by the OOM killer
+// (a variable so tests can stand in for the kernel).
+var ownerOOMKilled = func(chatID string) bool { return guard.Default().OwnerOOMKilled(chatID) }
+
 const mib = 1 << 20
 
 // ShedEvidence converts the guard's evidence for the protocol.

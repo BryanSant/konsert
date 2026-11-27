@@ -1215,6 +1215,15 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		c.shed = nil
 		verifyRes = nil
 	}
+	engineDied := ev.Kind == protocol.EventError && ev.Error != nil && ev.Error.Kind == protocol.ErrKindExit
+	if engineDied && ownerOOMKilled(c.id) {
+		// The kernel's (or the container's) OOM killer took the engine: the job ran out
+		// of memory, which is not an ordinary crash.
+		e := *ev.Error
+		e.Kind = protocol.ErrKindOOM
+		e.Message = "Killed by the out-of-memory killer: " + e.Message
+		ev.Error = &e
+	}
 	var dead Session
 	var failure *protocol.AgentChatError
 	switch ev.Kind {
@@ -1273,7 +1282,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		if ev.Error != nil {
 			e := *ev.Error
 			failure = &e
-			if e.Kind == protocol.ErrKindExit || (e.Kind == protocol.ErrKindMemoryPressureShed && e.Shed != nil && e.Shed.Session == "chat") {
+			if engineDied || (e.Kind == protocol.ErrKindMemoryPressureShed && e.Shed != nil && e.Shed.Session == "chat") {
 				// The engine died: drop it; the next prompt resumes the agent session.
 				dead = c.sess
 				c.sess = nil

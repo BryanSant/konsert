@@ -736,6 +736,8 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	if usage.Shed != nil && !wasCanceled {
 		summary = chat.ShedMessage(*usage.Shed)
 		failureCat = protocol.ErrKindMemoryPressureShed
+	} else if usage.OOMKilled && !wasCanceled && finalStatus == protocol.TaskStatusFailed {
+		failureCat = protocol.ErrKindOOM
 	}
 
 	var (
@@ -788,7 +790,7 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 	})
 	runDigest.PeakRSSMB = usage.PeakRSS >> 20
 	switch {
-	case failureCat != "":
+	case failureCat == protocol.ErrKindMemoryPressureShed:
 		runDigest.TerminationReason = protocol.TerminationMemoryPressureShed
 		runDigest.HostAvailRAMAtExitMB = usage.Shed.HostAvail >> 20
 		runDigest.PeakRSSMB = max(runDigest.PeakRSSMB, usage.Shed.RSS>>20)

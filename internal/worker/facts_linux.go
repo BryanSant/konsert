@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/guard"
 )
 
 func collectPlatformFacts(ctx context.Context, f *protocol.MachineFacts) {
@@ -89,6 +90,10 @@ func collectPlatformFacts(ctx context.Context, f *protocol.MachineFacts) {
 			}
 		}
 		f.RAMTotalMB = memTotalKB / 1024
+		// Inside a container the workers get its memory limit, not the host's RAM.
+		if l := guard.CgroupMemoryLimit() >> 20; l > 0 && l < f.RAMTotalMB {
+			f.RAMTotalMB = l
+		}
 		f.SwapTotalMB = swapTotalKB / 1024
 		if swapTotalKB >= swapFreeKB {
 			f.SwapUsedMB = (swapTotalKB - swapFreeKB) / 1024

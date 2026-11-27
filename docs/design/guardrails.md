@@ -46,8 +46,8 @@ nothing is sliced per session.
 
 | Mode | What it does | Default for |
 |---|---|---|
-| `passthrough` | Track sessions (process group / Job Object) and clean up orphans. No watchdog, no nested limits. | containers (the runtime already enforces limits) |
-| `adaptive` | Plus the pressure watchdog and worker deprioritisation. No kernel watermarks. | VMs and WSL2 (they have an out-of-band reboot) |
+| `passthrough` | Track sessions (process group / Job Object) and clean up orphans. No watchdog, no nested limits. | nothing (opt-in) |
+| `adaptive` | Plus the pressure watchdog and worker deprioritisation. No kernel watermarks. | VMs, WSL2 (they have an out-of-band reboot) and containers |
 | `adaptive_strict` | Plus soft kernel watermarks (the Linux slice's `MemoryHigh` and swap cap). | bare metal (a lockup needs a power cycle) |
 
 Precedence: the newest active `machine.guardrails` directive (hub) > syred config
@@ -93,6 +93,22 @@ the scope's `memory.peak`, sampled while it runs, because a collected scope lose
 
 At startup syred stops `syre-*.scope` units whose syred is gone. Scopes live outside
 syred's service cgroup, so they would otherwise outlive a crash.
+
+**Containers.** The runtime's limit is a cgroup `memory.max`, and its OOM killer fires
+there, whatever the host has free. It picks the biggest process, which may be the agent,
+and the run then dies as an ordinary failure instead of a requeued shed. So the guard
+runs `adaptive` in containers and judges against the tightest numeric `memory.max` on the
+path from the workers' cgroup (the worker slice, else syred's own) up to the root: the
+total is that limit (machine facts report it as the RAM total), and available memory is
+the limit minus the cgroup's working set (`memory.current` less `inactive_file`, which the
+kernel reclaims before it OOM-kills), or the host's `MemAvailable` if that is lower.
+A container limit is a hard wall with no reclaim or swap to slow an allocator, so the
+500 ms debounce does not apply under it: available memory below the reserve sheds at
+once, and so does a decline that would cross the reserve before the next poll. Live, in a
+1 GiB podman container, a hog growing 1.3 GB/s was shed at 827 MiB; without the trend it
+reached the limit inside the debounce and the container's OOM killer took it.
+The same walk applies a `MemoryMax` set on syred's own service. Workers get
+`oom_score_adj +300` as anywhere else, so when the OOM killer does fire it prefers them.
 
 **Fallback** when there is no usable user manager (minimal WSL2, no session bus, cgroup v1):
 process trees as on macOS (below), plus the watchdog on `/proc/meminfo`. Throttle renices
@@ -209,7 +225,11 @@ it considers another shed.
 
 ## Outcome: requeue, not failure
 
-A shed ends the run with `memory_pressure_shed`. That is a new error kind and failure
+A shed ends the run with `memory_pressure_shed`. A session whose root dies of SIGKILL
+while the kernel's OOM-kill count (`/proc/vmstat oom_kill`, which counts a container's
+OOM killer too) rose, and that the guard did not shed, is labeled `oom`: the chat error
+kind and the digest's failure category and termination reason say so, and a verify
+command's output says it was killed by the out-of-memory killer. That is a new error kind and failure
 category, distinct from `oom`: `oom` is the job itself running out of memory, while a shed
 means the host was full.
 
