@@ -460,7 +460,7 @@ func (s *Session) Shed() *Evidence {
 }
 
 // PeakRSS is the session's peak memory so far, where the platform tracks it
-// (cgroup memory.peak, Job Object peak); 0 when unknown.
+// (cgroup memory.peak, sampled job working sets); 0 when unknown.
 func (s *Session) PeakRSS() uint64 {
 	if s == nil {
 		return 0

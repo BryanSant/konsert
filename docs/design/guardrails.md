@@ -112,8 +112,12 @@ One **Job Object per managed session**, in every mode, including chat engines an
 - **Never** a job or process memory limit.
 
 The watchdog reads `GlobalMemoryStatusEx` (available physical memory). It freezes with
-`NtSuspendProcess` over the tree and kills with `TerminateJobObject`. Peak memory is the
-job's `PeakJobMemoryUsed` (committed), which the job tracks without any limit set.
+`NtSuspendProcess` over the tree and kills with `TerminateJobObject`. Peak memory is
+resident memory, like on Linux and macOS. Windows keeps no peak working set for a job
+(`PeakJobMemoryUsed` is committed memory, which would report a JVM with a large `-Xms` at
+its full reservation), so syred samples the job's summed working sets on each watchdog
+tick, and also takes any one process's own peak working set and the root's peak working
+set, which stays readable after it exits because syred keeps a handle to it.
 
 A process is assigned to its job right after it starts. A child spawned in the first
 microseconds could escape; agent CLIs take far longer than that to start tools.

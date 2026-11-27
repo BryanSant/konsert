@@ -82,9 +82,10 @@ type winPlat struct{}
 type winSess struct {
 	mu    sync.Mutex
 	job   windows.Handle
-	flags uint32 // current basic LimitFlags
+	root  windows.Handle // kept open so the root's counters stay readable after it exits
+	flags uint32         // current basic LimitFlags
 	bg    bool
-	peak  uint64
+	peak  uint64 // highest resident memory seen (see peak)
 }
 
 func nativePlatform() platform { return winPlat{} }
@@ -157,6 +158,9 @@ func (winPlat) attach(s *Session, m Mode) {
 		return
 	}
 	ws.job = job
+	if root, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(s.pid)); err == nil {
+		ws.root = root
+	}
 }
 
 func winOf(s *Session) *winSess {
@@ -180,11 +184,14 @@ func (winPlat) release(s *Session) {
 		return
 	}
 	ws.mu.Lock()
-	job := ws.job
-	ws.job = 0
+	job, root := ws.job, ws.root
+	ws.job, ws.root = 0, 0
 	ws.mu.Unlock()
 	if job != 0 {
 		_ = windows.CloseHandle(job)
+	}
+	if root != 0 {
+		_ = windows.CloseHandle(root)
 	}
 }
 
@@ -224,44 +231,67 @@ func jobPIDs(job windows.Handle) []uint32 {
 	return out
 }
 
-// rss sums the working sets of the job's processes (only used at shed time).
+// memCounters reads a process's PROCESS_MEMORY_COUNTERS (works on an exited process
+// while a handle to it is open).
+func memCounters(h windows.Handle) (processMemoryCounters, bool) {
+	pmc := processMemoryCounters{CB: uint32(unsafe.Sizeof(processMemoryCounters{}))}
+	r, _, _ := procK32GetProcessMemoryInfo.Call(uintptr(h), uintptr(unsafe.Pointer(&pmc)), uintptr(pmc.CB))
+	return pmc, r != 0
+}
+
+// jobWorkingSet sums the working sets of the job's processes now, and returns the
+// largest single-process peak working set among them.
+func jobWorkingSet(job windows.Handle) (sum, maxPeak uint64) {
+	for _, pid := range jobPIDs(job) {
+		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+		if err != nil {
+			continue
+		}
+		if pmc, ok := memCounters(h); ok {
+			sum += uint64(pmc.WorkingSetSize)
+			maxPeak = max(maxPeak, uint64(pmc.PeakWorkingSetSize))
+		}
+		_ = windows.CloseHandle(h)
+	}
+	return sum, maxPeak
+}
+
+// rss sums the working sets of the job's processes.
 func (winPlat) rss(s *Session) uint64 {
 	job := winOf(s).handle()
 	if job == 0 {
 		return 0
 	}
-	var total uint64
-	for _, pid := range jobPIDs(job) {
-		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_VM_READ, false, pid)
-		if err != nil {
-			continue
-		}
-		pmc := processMemoryCounters{CB: uint32(unsafe.Sizeof(processMemoryCounters{}))}
-		if r, _, _ := procK32GetProcessMemoryInfo.Call(uintptr(h), uintptr(unsafe.Pointer(&pmc)), uintptr(pmc.CB)); r != 0 {
-			total += uint64(pmc.WorkingSetSize)
-		}
-		_ = windows.CloseHandle(h)
-	}
-	return total
+	sum, _ := jobWorkingSet(job)
+	return sum
 }
 
-// peak is the job's peak committed memory (tracked by the job even with no limit set).
+// peak is the tree's peak resident memory. Windows keeps no peak working set for a
+// job (PeakJobMemoryUsed is committed memory, which overstates a JVM or Node that
+// reserves far more than it touches), so it is the highest of: the job's summed
+// working sets at each watchdog sample, any one process's own peak working set, and
+// the root's peak working set (readable after exit through the handle kept open).
 func (winPlat) peak(s *Session) uint64 {
 	ws := winOf(s)
 	if ws == nil {
 		return 0
 	}
-	if job := ws.handle(); job != 0 {
-		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-		if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
-			uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err == nil {
-			ws.mu.Lock()
-			ws.peak = max(ws.peak, uint64(info.PeakJobMemoryUsed))
-			ws.mu.Unlock()
+	ws.mu.Lock()
+	job, root := ws.job, ws.root
+	ws.mu.Unlock()
+	var v uint64
+	if job != 0 {
+		sum, maxPeak := jobWorkingSet(job)
+		v = max(sum, maxPeak)
+	}
+	if root != 0 {
+		if pmc, ok := memCounters(root); ok {
+			v = max(v, uint64(pmc.PeakWorkingSetSize))
 		}
 	}
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
+	ws.peak = max(ws.peak, v)
 	return ws.peak
 }
 
