@@ -31,9 +31,24 @@ type Session struct {
 	// session again only when either changed.
 	Size    int64
 	ModTime time.Time
-	// PID is the agent process, when the source can tell (0 unknown).
-	PID int
+	// PID is the agent process, when the source can tell (0 unknown). Ancestors are
+	// its parent chain, nearest first, when the source read the process table: a session
+	// under a process Syre manages is managed.
+	PID       int
+	Ancestors []int
+	// Status is the session's live state as the agent itself publishes it (claude's
+	// sessions/<pid>.json): a protocol.ChatStatus* value, "" when the agent publishes
+	// none (status then comes from the records) and ChatStatusDone once the process that
+	// published it is gone, or when the agent publishes status but no process does for
+	// this session. Waiting says what a needs_you session waits for
+	// ("approve Bash"). A change of either is reported even when the transcript did not
+	// grow.
+	Status  string
+	Waiting string
 }
+
+// Live reports whether the session has a running agent process publishing its status.
+func (s Session) Live() bool { return s.Status != "" && s.Status != protocol.ChatStatusDone }
 
 // Key identifies a session across sources and restarts.
 func (s Session) Key() string { return s.Agent + "/" + s.Account + "/" + s.ID }

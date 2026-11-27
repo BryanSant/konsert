@@ -387,15 +387,21 @@ type ExternalSessionPayload struct {
 	Model        string   `json:"model,omitempty"`
 	Cwd          string   `json:"cwd"`
 	Branch       string   `json:"branch,omitempty"`
-	Status       string   `json:"status"` // "working" | "needs_you" | "done" | "fail"
+	Status       string   `json:"status"` // "working" | "idle" | "needs_you" | "done" | "fail"
 	Summary      string   `json:"summary,omitempty"`
 	ChangedFiles []string `json:"changed_files,omitempty"`
-	Source       string   `json:"source"` // "hook" | "passive"
+	Source       string   `json:"source"` // "hook" | "passive" | "transcript"
+	// Account is the agent account whose session store holds a transcript-observed
+	// session ("claude2"); "" when unknown.
+	Account string `json:"account,omitempty"`
 	// Tool is the tool the agent is running (a PreToolUse hook), "" when unknown or
 	// finished (PostToolUse); with Status "working" it gives the coarse activity.
 	Tool string `json:"tool,omitempty"`
 	// Event is the raw hook event (PreToolUse, PostToolUse, Notification, Stop, ...).
 	Event string `json:"event,omitempty"`
+	// Waiting says what a needs_you session waits for ("approve Bash"), when the agent
+	// tells.
+	Waiting string `json:"waiting,omitempty"`
 }
 
 type UsageBucket struct {

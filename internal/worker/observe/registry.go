@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/BryanSant/syre/internal/protocol"
 )
 
 // Registry defaults.
@@ -55,8 +57,10 @@ type tracked struct {
 	offset    int64
 	readSize  int64 // the size and mtime when last read
 	readMod   time.Time
-	reported  bool
-	managed   bool
+	// status and waiting are the live status last reported.
+	status, waiting string
+	reported        bool
+	managed         bool
 }
 
 // New returns a registry; offsets persisted by an earlier run are loaded.
@@ -135,13 +139,13 @@ func (r *Registry) Poll(ctx context.Context) {
 	r.offsets.flush()
 }
 
-// prune forgets sessions whose transcript hasn't changed within the lookback: they are
-// history now. Their offsets stay, so one that resumes continues where it was.
+// prune forgets sessions whose transcript hasn't changed within the lookback and that
+// have no live agent process: they are history now. Their offsets stay, so one that resumes continues where it was.
 func (r *Registry) prune(now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k, t := range r.sessions {
-		if !t.s.ModTime.IsZero() && now.Sub(t.s.ModTime) > r.cfg.Lookback {
+		if !t.s.Live() && !t.s.ModTime.IsZero() && now.Sub(t.s.ModTime) > r.cfg.Lookback {
 			delete(r.sessions, k)
 		}
 	}
@@ -183,27 +187,35 @@ func (r *Registry) step(ctx context.Context, t *tracked, now time.Time) {
 	if now.Sub(t.firstSeen) < r.cfg.Grace {
 		return // give the managed markers time to arrive
 	}
-	if t.reported && s.Size == t.readSize && s.ModTime.Equal(t.readMod) {
+	statusChanged := s.Status != t.status || s.Waiting != t.waiting
+	fileChanged := s.Size != t.readSize || !s.ModTime.Equal(t.readMod)
+	if t.reported && !fileChanged && !statusChanged {
 		return // unchanged since the last read
 	}
-	if s.Size < t.offset {
-		t.offset = 0
+	var evs []protocol.AgentChatEvent
+	if !t.reported || fileChanged {
+		if s.Size < t.offset {
+			t.offset = 0
+		}
+		var next int64
+		var err error
+		evs, next, err = r.source(s.Agent).Read(ctx, s, t.offset)
+		if err != nil {
+			r.cfg.Logger.Debug("observe: read failed", "session", s.Key(), "err", err)
+			return
+		}
+		// Only a read that reached the end counts as caught up; a capped read goes again.
+		if next >= s.Size {
+			t.readSize, t.readMod = s.Size, s.ModTime
+		}
+		if next != t.offset {
+			t.offset = next
+			r.offsets.set(s.Key(), offsetRec{Path: s.Path, Offset: next})
+		}
 	}
-	evs, next, err := r.source(s.Agent).Read(ctx, s, t.offset)
-	if err != nil {
-		r.cfg.Logger.Debug("observe: read failed", "session", s.Key(), "err", err)
-		return
-	}
-	// Only a read that reached the end counts as caught up; a capped read goes again.
-	if next >= s.Size {
-		t.readSize, t.readMod = s.Size, s.ModTime
-	}
-	if next != t.offset {
-		t.offset = next
-		r.offsets.set(s.Key(), offsetRec{Path: s.Path, Offset: next})
-	}
-	if len(evs) > 0 || !t.reported {
+	if len(evs) > 0 || !t.reported || statusChanged {
 		t.reported = true
+		t.status, t.waiting = s.Status, s.Waiting
 		r.emit(Update{Kind: UpdateEvents, Session: s, Events: evs})
 	}
 }

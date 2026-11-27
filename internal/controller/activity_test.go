@@ -121,6 +121,7 @@ func TestExternalActivityIsCoarse(t *testing.T) {
 		{protocol.ExternalSessionPayload{Status: "working", Source: "hook", Event: "PostToolUse"}, protocol.ActivityThinking, ""},
 		{protocol.ExternalSessionPayload{Status: "working", Source: "passive"}, protocol.ActivityWorking, ""},
 		{protocol.ExternalSessionPayload{Status: "needs_you", Source: "hook", Summary: "Claude needs your permission"}, protocol.ActivityAsking, ""},
+		{protocol.ExternalSessionPayload{Status: "needs_you", Source: "transcript", Summary: "Fix the build", Waiting: "approve Bash"}, protocol.ActivityAsking, ""},
 		{protocol.ExternalSessionPayload{Status: "idle", Source: "hook"}, protocol.ActivityDone, ""},
 		{protocol.ExternalSessionPayload{Status: "fail", Source: "hook"}, protocol.ActivityError, ""},
 	}
@@ -128,6 +129,9 @@ func TestExternalActivityIsCoarse(t *testing.T) {
 		a, ok := externalActivity("t1", "w1", c.p)
 		if !ok || a.State != c.state || a.Tool != c.tool || !a.Coarse {
 			t.Errorf("%+v -> %+v (ok=%v), want %s/%s coarse", c.p, a, ok, c.state, c.tool)
+		}
+		if c.p.Waiting != "" && a.Label != c.p.Waiting {
+			t.Errorf("label %q, want what the session waits for (%q)", a.Label, c.p.Waiting)
 		}
 		if c.p.Source == "hook" && a.Source != protocol.ActivitySourceHook {
 			t.Errorf("source %s, want hook", a.Source)

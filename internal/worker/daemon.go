@@ -27,6 +27,7 @@ import (
 	"github.com/BryanSant/syre/internal/worker/chat"
 	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/BryanSant/syre/internal/worker/guard"
+	"github.com/BryanSant/syre/internal/worker/observe"
 	"github.com/BryanSant/syre/internal/worker/shells"
 	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
@@ -261,6 +262,18 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 	})
 
 	d.initChat()
+
+	if d.discovery != nil {
+		// Sessions in the agents' own stores (claude's transcripts), whoever started them.
+		self := os.Getpid()
+		d.discovery.observed = newObservedSessions(observedConfig{
+			ClaudeDirs:  func() []observe.ClaudeDir { return observedClaudeDirs(d.accounts) },
+			Procs:       osProcTable(),
+			IsManaged:   func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) },
+			OffsetsPath: filepath.Join(d.stateDir(), "observed-offsets.json"),
+			Logger:      logger,
+		}, d.discovery.emitIfChanged)
+	}
 
 	return d
 }

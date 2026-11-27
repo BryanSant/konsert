@@ -161,6 +161,11 @@ const (
 	// chat manager keeps it out of the transcript.
 	EventSubagent = "subagent"
 	EventError    = "error" // classified failure (Error)
+	// EventUserMessage is a prompt the user typed (Text, MessageID), and EventTitle the
+	// session title the agent derived (Text). Only observed sessions carry them: a
+	// managed chat's prompts come from the hub, and its title is the chat's.
+	EventUserMessage = "user_message"
+	EventTitle       = "title"
 )
 
 // Chat statuses (the chat window's "working / needs you / done / failed" pill).

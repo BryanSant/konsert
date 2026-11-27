@@ -108,6 +108,11 @@ Per-model flags: `supportsAdaptiveThinking`, `supportsFastMode`, `supportsAutoMo
 - Message types: `system` (subtypes `init`, `hook_started`, `hook_response`, `commands_changed`), `assistant`, `user`, `stream_event` (partials), `rate_limit_event`, `result` (`is_error`, `result`, `usage`, `total_cost_usd`, `terminal_reason`), `control_request`/`control_response`.
 - Note: `--bare` ignores OAuth and Keychain (API key only), so **do not use `--bare`** in subscription mode.
 
+**Session store (2.1.33x, used by observed sessions).**
+- `<config dir>/projects/<cwd with every non-alphanumeric as '-'>/<session id>.jsonl` is the transcript, one record per line. `user` records hold prompts (a string or text blocks) and tool results. `assistant` records hold one content block each (`thinking`, `text`, `tool_use`), and every block of a message repeats its `message.id`, `model`, `usage` and `stop_reason` (`tool_use`, `end_turn`, …). `system` has `turn_duration`, `stop_hook_summary`, `compact_boundary` and `local_command`. `ai-title` carries the session title. Noise types include `attachment`, `api-request*`, `data-flow-records` and `file-history-snapshot`. Slash commands are `user` records starting `<command-name>` or `<local-command-…>`, with an `isMeta` caveat before them. An interruption is a user text `[Request interrupted by user…`. Sub-agents write under `<session id>/subagents/`.
+- `<config dir>/sessions/<pid>.json` is written by every running claude, interactive or `-p`: `pid`, `sessionId`, `cwd`, `startedAt` (ms), `kind`, `entrypoint` (`cli`, `sdk-cli`), `status` (`busy`, `shell`, `idle`, `waiting`) and `waitingFor` (`input needed`, `dialog open`, `approve <tool>`, …). A permission prompt writes no transcript record, so this file is the only place that state shows. A crashed process can leave its file behind: check that the PID is alive and started before `startedAt`.
+- Present on macOS, Linux and Windows. The Windows `claude2.cmd` wrapper sets `CLAUDE_CONFIG_DIR=%USERPROFILE%\.claude2` like the bash one.
+
 ## 2. claude2 (second Claude subscription)
 
 `~/.local/bin/claude2` is a bash script (3300 bytes):

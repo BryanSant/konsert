@@ -164,6 +164,12 @@ func (d *Daemon) onChatRateLimit(accountID string, rl protocol.AgentRateLimit) {
 // sendChatEvent spools a chat event (daemon_spool.go): it reaches the hub in order after
 // a disconnect, a hub sleep or a daemon restart.
 func (d *Daemon) sendChatEvent(ev protocol.AgentChatEvent) {
+	if ev.Kind == protocol.EventSessionReady && ev.AgentSessionID != "" && d.discovery != nil && d.discovery.observed != nil {
+		// The chat's own session in the agent's store is managed, not observed.
+		// The event doesn't name the agent, and asking the chat manager here could
+		// re-enter it: mark the id for any agent.
+		d.discovery.observed.MarkManaged("", ev.AgentSessionID)
+	}
 	d.sendJSON(protocol.MsgAgentChatEvent, ev)
 }
 

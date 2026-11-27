@@ -35,6 +35,10 @@ type SessionDiscovery struct {
 	activeExternal map[string]protocol.ExternalSessionPayload // externalID -> last emitted state
 	cwdCache       map[int]cachedCwd                          // pid -> resolved cwd (passive scan)
 
+	// observed reads agents' own session stores (claude's transcripts and live status
+	// files); nil when not set up.
+	observed *observedSessions
+
 	// resolveCwd and cwdTimeout are per-instance so tests can simulate a slow lsof.
 	resolveCwd func(ctx context.Context, pid int) string
 	cwdTimeout time.Duration
@@ -80,6 +84,7 @@ func (s *SessionDiscovery) Run(ctx context.Context) {
 	// Pick up hook events written while disconnected, then scan processes right away so
 	// already-open local sessions appear as idle/working.
 	s.PollHookEvents(ctx)
+	s.PollObserved(ctx)
 	s.ScanPassiveProcesses(ctx)
 
 	hookTicker := time.NewTicker(2 * time.Second)
@@ -93,6 +98,7 @@ func (s *SessionDiscovery) Run(ctx context.Context) {
 			return
 		case <-hookTicker.C:
 			s.PollHookEvents(ctx)
+			s.PollObserved(ctx)
 		case <-procTicker.C:
 			s.ScanPassiveProcesses(ctx)
 		}
@@ -119,6 +125,16 @@ func (s *SessionDiscovery) Resync() {
 	for _, p := range live {
 		s.emit(p)
 	}
+}
+
+// PollObserved reads the agents' session stores once (see observedSessions).
+func (s *SessionDiscovery) PollObserved(ctx context.Context) {
+	if s.observed == nil || agentDiscoveryDisabled() {
+		return
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	s.observed.Poll(ctx)
 }
 
 // maxHookRead bounds how much of the hook inbox is read per poll.
@@ -177,6 +193,11 @@ func (s *SessionDiscovery) PollHookEvents(ctx context.Context) {
 
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
+		if s.observed != nil {
+			if agent, sid := managedHookSession(sc.Bytes()); sid != "" {
+				s.observed.MarkManaged(agent, sid)
+			}
+		}
 		payload, ok := ParseHookEventLine(sc.Text())
 		if !ok {
 			continue
@@ -193,6 +214,19 @@ func (s *SessionDiscovery) PollHookEvents(ctx context.Context) {
 // completeLinesLen returns the length of b up to and including its last '\n' (0 if none).
 func completeLinesLen(b []byte) int {
 	return bytes.LastIndexByte(b, '\n') + 1
+}
+
+// managedHookSession returns the agent and session id of a hook event fired inside a
+// syred-managed task ("" otherwise): that session's transcript is not observed either.
+func managedHookSession(line []byte) (agent, sessionID string) {
+	if !bytes.Contains(line, []byte(`"task_id"`)) {
+		return "", ""
+	}
+	var ev HookEvent
+	if json.Unmarshal(line, &ev, protocol.JSONOptions) != nil || ev.TaskID == "" {
+		return "", ""
+	}
+	return strings.ToLower(strings.TrimSpace(ev.Agent)), ev.SessionID
 }
 
 // ParseHookEventLine normalizes a JSONL HookEvent line into an ExternalSessionPayload.
@@ -334,11 +368,12 @@ func (s *SessionDiscovery) scanProcessList(ctx context.Context, procs []psEntry)
 	if agentDiscoveryDisabled() {
 		return
 	}
-	// Snapshot active hook-tracked (agent, cwd) pairs so passive discovery never duplicates them.
+	// Snapshot active hook- and transcript-tracked (agent, cwd) pairs so passive discovery
+	// never duplicates them.
 	s.mu.Lock()
 	hookCovered := make(map[string]bool)
 	for _, prev := range s.activeExternal {
-		if prev.Source == "hook" && prev.Status != "done" && prev.Cwd != "" {
+		if (prev.Source == "hook" || prev.Source == "transcript") && prev.Status != "done" && prev.Cwd != "" {
 			hookCovered[prev.Agent+"|"+filepath.Clean(prev.Cwd)] = true
 		}
 	}
@@ -444,7 +479,7 @@ func (s *SessionDiscovery) cachedProcessCwd(ctx context.Context, p psEntry) stri
 func (s *SessionDiscovery) emitIfChanged(p protocol.ExternalSessionPayload) {
 	s.mu.Lock()
 	prev, exists := s.activeExternal[p.ExternalID]
-	changed := !exists || prev.Status != p.Status || prev.Tool != p.Tool || prev.Event != p.Event || prev.Cwd != p.Cwd || prev.Branch != p.Branch || len(p.ChangedFiles) > 0 || (p.Summary != "" && p.Summary != prev.Summary)
+	changed := !exists || prev.Status != p.Status || prev.Tool != p.Tool || prev.Event != p.Event || prev.Cwd != p.Cwd || prev.Branch != p.Branch || prev.Model != p.Model || prev.Waiting != p.Waiting || len(p.ChangedFiles) > 0 || (p.Summary != "" && p.Summary != prev.Summary)
 	if changed {
 		s.activeExternal[p.ExternalID] = p
 	}

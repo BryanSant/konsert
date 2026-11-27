@@ -15,7 +15,8 @@ type ManagedSet struct {
 // (the set is cleared), and those sessions are idle and pruned by then.
 const maxManaged = 8192
 
-// Mark records agent's session id as managed.
+// Mark records agent's session id as managed; agent "" marks it for any agent (agent
+// session ids are UUIDs, unique across agents).
 func (ms *ManagedSet) Mark(agent, sessionID string) {
 	if sessionID == "" {
 		return
@@ -33,5 +34,8 @@ func (ms *ManagedSet) Has(s Session) bool {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	_, ok := ms.m[s.Agent+"/"+s.ID]
+	if !ok {
+		_, ok = ms.m["/"+s.ID]
+	}
 	return ok
 }

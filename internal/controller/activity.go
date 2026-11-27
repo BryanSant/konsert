@@ -229,6 +229,9 @@ func externalActivity(taskID, workerID string, p protocol.ExternalSessionPayload
 		}
 	case "needs_you", "waiting_input":
 		a.State, a.Label = protocol.ActivityAsking, p.Summary
+		if p.Waiting != "" {
+			a.Label = p.Waiting
+		}
 	case "idle", "done", "completed":
 		a.State = protocol.ActivityDone
 	case "fail", "failed":
