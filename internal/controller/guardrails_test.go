@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -269,4 +270,50 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 		cur, _ := cs.st.GetTicket(ctx, tk.ID)
 		return cur.Status == store.TicketStatusNeedsYou && cur.Lease == nil
 	})
+}
+
+// A hub restart rebuilds shed cooldowns from the attempts table: a machine that shed
+// twice still backs off, one that finished a run after its shed does not.
+func TestShedCooldownsSurviveRestart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "hub.db")
+	th := newTestHubAt(t, dbPath)
+	ctx := context.Background()
+	upsertBox(t, th.st, "w1", "box1")
+	upsertBox(t, th.st, "w2", "box2")
+	upsertBox(t, th.st, "w3", "box3")
+	tk, err := th.st.CreateTicket(ctx, store.Ticket{Title: "Shed", ProjectID: store.DefaultProjectID, Status: store.TicketStatusReady})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	n := 0
+	add := func(worker, status, category string, ago time.Duration) {
+		t.Helper()
+		n++
+		taskID := fmt.Sprintf("task-%d", n)
+		if err := th.st.CreateTask(ctx, store.Task{ID: taskID, WorkerID: worker, Agent: "claude", Workdir: "/w", Prompt: "go", Status: protocol.TaskStatusFailed, TicketID: tk.ID}); err != nil {
+			t.Fatal(err)
+		}
+		ended := now.Add(-ago)
+		if _, err := th.st.UpsertAttempt(ctx, store.Attempt{TicketID: tk.ID, TaskID: taskID, Attempt: n, WorkerID: worker, Status: status, FailureCategory: category, EndedAt: &ended}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("w1", store.AttemptFailed, protocol.ErrKindMemoryPressureShed, 5*time.Minute) // 2 min cooldown, over
+	add("w1", store.AttemptFailed, protocol.FailureHostMemoryFull, time.Minute)       // 4 min: until +3 min
+	add("w2", store.AttemptFailed, protocol.ErrKindMemoryPressureShed, time.Minute)
+	add("w2", store.AttemptCompleted, "", 30*time.Second)                           // a clean finish ends w2's streak
+	add("w3", store.AttemptFailed, protocol.ErrKindMemoryPressureShed, 3*time.Hour) // too old to matter
+
+	h := th.h // a fresh hub has nothing in memory; restore from the table
+	h.restoreShedCooldowns(ctx)
+	if !h.shedCooldown.active("w1", now) || !h.shedCooldown.active("w1", now.Add(2*time.Minute)) || h.shedCooldown.active("w1", now.Add(4*time.Minute)) {
+		t.Fatal("w1's second shed in a streak should cool down 4 min from its end")
+	}
+	if h.shedCooldown.active("w2", now) {
+		t.Fatal("w2 finished a run after its shed: no cooldown")
+	}
+	if h.shedCooldown.active("w3", now) {
+		t.Fatal("a shed hours ago restored a cooldown")
+	}
 }

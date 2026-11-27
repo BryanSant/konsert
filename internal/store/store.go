@@ -566,6 +566,9 @@ type Store interface {
 	// ListAttempts returns attempts for ticketID when it is set, otherwise for taskID,
 	// ordered by attempt number. One of the two ids is required.
 	ListAttempts(ctx context.Context, ticketID, taskID string) ([]Attempt, error)
+	// ListAttemptsEndedSince returns attempts on any ticket or task that ended at or
+	// after since, oldest end first.
+	ListAttemptsEndedSince(ctx context.Context, since time.Time) ([]Attempt, error)
 
 	// Computed rollups (done/total, blocked, running) for initiative/epic containers; never stored.
 	GetTicketRollup(ctx context.Context, id string) (TicketRollup, error)

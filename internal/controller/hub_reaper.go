@@ -28,6 +28,8 @@ func (h *Hub) RunReaper(ctx context.Context) {
 
 	// Decided delegations wait out their grace period across restarts.
 	h.resumeDelegations(ctx)
+	// Shed cooldowns live in memory; rebuild them from recent attempts (guardrails.go).
+	h.restoreShedCooldowns(ctx)
 	// Hub wake detection: a grace for links to re-attach after a sleep (hub_wake.go).
 	wakeWG.Go(func() { h.wakeLoop(ctx) })
 

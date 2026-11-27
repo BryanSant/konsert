@@ -251,8 +251,10 @@ means the host was full.
   and uses up the ticket's sheds. Each further shed doubles the cooldown, up to an hour,
   so a machine kept full by something outside Syre stops taking work instead of shedding
   a ticket every few minutes. A run that finishes on the machine, or an hour past its
-  cooldown without a shed, ends the streak. Cooldowns live in the hub's memory: a
-  restart forgets them.
+  cooldown without a shed, ends the streak. Cooldowns live in the hub's memory and
+  are rebuilt at startup by replaying the last two hours of attempts (sheds extend a
+  streak at their end time, a completed run ends it), so a restart doesn't hand a
+  still-short machine new work.
 - **Auto-throttle.** The hub files a `machine.throttle` directive for 30 minutes, capping
   the machine at one fewer session than it was running. It is attributed to the
   guardrails and can be undone like any directive. It is not filed when it wouldn't

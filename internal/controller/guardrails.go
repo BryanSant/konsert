@@ -85,11 +85,52 @@ func (c *shedCooldowns) active(workerID string, now time.Time) bool {
 	return st != nil && now.Before(st.until)
 }
 
+// latest is the end of the last cooldown still running at now.
+func (c *shedCooldowns) latest(now time.Time) (time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var last time.Time
+	for _, st := range c.m {
+		if st.until.After(now) && st.until.After(last) {
+			last = st.until
+		}
+	}
+	return last, !last.IsZero()
+}
+
 // clear ends the machine's shed streak: a run finished on it without a shed.
 func (c *shedCooldowns) clear(workerID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.m, workerID)
+}
+
+// restoreShedCooldowns rebuilds the cooldowns a restart forgot by replaying recent
+// attempts in the order they ended: a shed (memory_pressure_shed or host_memory_full)
+// extends the machine's streak at its end time, a completed run or one sent to review
+// ends it, as they do live. Only attempts recent enough to still matter are read: the
+// longest cooldown plus the quiet time that ends a streak.
+func (h *Hub) restoreShedCooldowns(ctx context.Context) {
+	now := time.Now()
+	rows, err := h.store.ListAttemptsEndedSince(ctx, now.Add(-(maxShedCooldown + shedStreakQuiet)))
+	if err != nil {
+		h.logger.Warn("guardrails: restoring shed cooldowns failed", "err", err)
+		return
+	}
+	for _, a := range rows {
+		if a.WorkerID == "" || a.EndedAt == nil {
+			continue
+		}
+		switch {
+		case a.FailureCategory == protocol.ErrKindMemoryPressureShed || a.FailureCategory == protocol.FailureHostMemoryFull:
+			h.shedCooldown.start(a.WorkerID, *a.EndedAt)
+		case a.Status == store.AttemptCompleted || a.Status == store.AttemptReview:
+			h.shedCooldown.clear(a.WorkerID)
+		}
+	}
+	if until, ok := h.shedCooldown.latest(now); ok {
+		time.AfterFunc(time.Until(until)+time.Second, h.kickScheduler)
+	}
 }
 
 var causeGuardrails = store.Cause{Actor: store.ActorSystem, Source: "guardrails", Confidence: store.ConfidenceCertain}

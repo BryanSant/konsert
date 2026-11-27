@@ -299,6 +299,25 @@ func (s *SQLiteStore) ListAttempts(ctx context.Context, ticketID, taskID string)
 	return out, rows.Err()
 }
 
+// ListAttemptsEndedSince returns attempts that ended at or after since, oldest end
+// first (ended_at is fixed-width UTC text, so it compares as a string).
+func (s *SQLiteStore) ListAttemptsEndedSince(ctx context.Context, since time.Time) ([]store.Attempt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+attemptSelect+` FROM attempts WHERE ended_at >= ? ORDER BY ended_at ASC, id ASC`, formatTime(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []store.Attempt{}
+	for rows.Next() {
+		a, err := scanAttempt(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 type attemptScanner interface {
 	Scan(dest ...any) error
 }
