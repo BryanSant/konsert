@@ -156,7 +156,8 @@ The kernel's own pressure level,
 - **WARN, or an active `machine.throttle`**: every process in the tree gets
   `PRIO_DARWIN_BG` (what `taskpolicy -b` does: E-cores, throttled I/O). It is re-applied
   every tick so new children follow, and restored when pressure clears.
-- **CRITICAL, or available memory below the reserve**: shed.
+- **CRITICAL, available memory below the reserve, or swap growth past its budget while
+  WARN or near the reserve** (see Watchdog): shed.
 
 Available memory = total − (app + wired + compressed), the same as Activity Monitor. The
 peak comes from the root's `wait4` rusage.
@@ -182,7 +183,14 @@ host pays nothing. It polls every 250 ms. It trips on:
 
 1. available memory < reserve for more than 500 ms,
 2. kernel pressure level CRITICAL (macOS), or
-3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes).
+3. worker-pool PSI full avg10 ≥ 20% for 5 s (Linux scopes), or
+4. swap growth past `min(25% RAM, 2 GiB)` since work began, for more than 500 ms, while
+   the host is also short: pressure WARN or worse, or available memory under twice the
+   reserve (macOS, and Linux without scopes, where no `MemorySwapMax` caps the workers).
+   macOS pages a runaway out and keeps "available" high, so this is what catches it there.
+   Growth alone is not enough: macOS rarely gives swap back, so a person's own apps can
+   add gigabytes over a long session. After 2 minutes of calm (normal pressure, memory
+   healthy) the baseline moves up to the swap in use then.
 
 On a trip it picks the **lowest priority, then the largest** session: ticket runs
 first, then dispatched tasks, then a person's own chat, which goes only when nothing else

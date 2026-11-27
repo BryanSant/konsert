@@ -356,19 +356,76 @@ func TestSwapGrowthSheds(t *testing.T) {
 	g, p, clk := testGuard(ModeAuto) // 8 GiB: budget 2 GiB
 	attach(g, clk, 21, PriorityTask, "pager")
 	avail := uint64(4 << 30) // "available" looks fine while the host pages out
-	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 3 << 30, SwapOK: true})
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelWarn, SwapUsed: 3 << 30, SwapOK: true})
 	g.tick() // baseline: swap that predates the work does not count
 	clk.add(time.Second)
-	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 4 << 30, SwapOK: true})
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelWarn, SwapUsed: 4 << 30, SwapOK: true})
 	g.tick()
 	if len(p.killed) != 0 {
 		t.Fatal("shed within the swap budget")
 	}
-	p.set(Signal{Avail: avail, AvailOK: true, SwapUsed: 5<<30 + 1, SwapOK: true})
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelWarn, SwapUsed: 5<<30 + 1, SwapOK: true})
 	g.tick()
 	clk.add(600 * time.Millisecond)
 	g.tick()
 	if len(p.killed) != 1 {
 		t.Fatal("swap growth past the budget did not shed")
+	}
+}
+
+func TestSwapGrowthNearReserveSheds(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	attach(g, clk, 21, PriorityTask, "pager")
+	near := g.baseline.Reserve + g.baseline.Reserve/2 // above the reserve, within 2×
+	p.set(Signal{Avail: near, AvailOK: true, Level: LevelNormal, SwapUsed: 1 << 30, SwapOK: true})
+	g.tick()
+	p.set(Signal{Avail: near, AvailOK: true, Level: LevelNormal, SwapUsed: 4 << 30, SwapOK: true})
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("swap growth with memory near the reserve did not shed")
+	}
+}
+
+// A person's own apps grow swap while pressure is normal and memory healthy: no shed.
+func TestSwapGrowthAloneDoesNotShed(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	attach(g, clk, 21, PriorityTask, "bystander")
+	avail := uint64(4 << 30)
+	for swap := uint64(1 << 30); swap <= 9<<30; swap += 1 << 30 {
+		p.set(Signal{Avail: avail, AvailOK: true, Level: LevelNormal, SwapUsed: swap, SwapOK: true})
+		g.tick()
+		clk.add(time.Second)
+	}
+	if len(p.killed) != 0 {
+		t.Fatal("swap growth alone shed a session")
+	}
+}
+
+// Swap added before a calm spell is not blamed on work once pressure returns.
+func TestSwapRebasesAfterCalm(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	attach(g, clk, 21, PriorityTask, "later")
+	avail := uint64(4 << 30)
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelNormal, SwapUsed: 1 << 30, SwapOK: true})
+	g.tick()
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelNormal, SwapUsed: 6 << 30, SwapOK: true})
+	g.tick()
+	clk.add(swapRebase)
+	g.tick() // calm long enough: the baseline moves to 6 GiB
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelWarn, SwapUsed: 7 << 30, SwapOK: true})
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("shed for swap added before the calm")
+	}
+	p.set(Signal{Avail: avail, AvailOK: true, Level: LevelWarn, SwapUsed: 8<<30 + 1, SwapOK: true})
+	g.tick()
+	clk.add(600 * time.Millisecond)
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("swap growth past the rebased budget under WARN did not shed")
 	}
 }

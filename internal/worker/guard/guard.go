@@ -44,6 +44,17 @@ const (
 // out to disk (macOS keeps "available" memory looking healthy while it does).
 func swapBudget(total uint64) uint64 { return min(total/4, 2<<30) }
 
+// Swap growth alone doesn't say whose memory it is: macOS rarely gives swap back, so a
+// person's own apps can add gigabytes over a long session. It counts only while the host
+// is also short: kernel pressure WARN or worse, or available memory within
+// swapNearReserve × the reserve. After swapRebase of calm (normal pressure, available
+// memory healthy) the baseline moves up to the swap in use then, so growth from before
+// the calm is not blamed on later work.
+const (
+	swapNearReserve = 2
+	swapRebase      = 2 * time.Minute
+)
+
 // PressureLevel is the kernel's own pressure verdict where the OS has one (macOS).
 type PressureLevel int
 
@@ -179,8 +190,9 @@ type Guard struct {
 	stallSince  time.Time
 	swapSince   time.Time
 	settleUntil time.Time
-	swapBase    uint64 // swap in use when the current busy period began
+	swapBase    uint64 // swap in use when the current busy period (or calm) began
 	swapBaseOK  bool
+	calmSince   time.Time // when the host last turned calm (no pressure, memory healthy)
 }
 
 // Config sets up a Guard.
@@ -562,7 +574,7 @@ func (g *Guard) loop() {
 		idle := len(g.sessions) == 0 || mode == ModePassthrough
 		if idle {
 			g.running = false
-			g.lowSince, g.stallSince, g.swapSince = time.Time{}, time.Time{}, time.Time{}
+			g.lowSince, g.stallSince, g.swapSince, g.calmSince = time.Time{}, time.Time{}, time.Time{}, time.Time{}
 			g.swapBaseOK = false
 			g.mu.Unlock()
 			return
@@ -637,7 +649,18 @@ func (g *Guard) tripLocked(sig Signal, reserve uint64, now time.Time) string {
 		if sig.SwapUsed < g.swapBase {
 			g.swapBase = sig.SwapUsed
 		}
-		swapping = sig.SwapUsed-g.swapBase > swapBudget(g.baseline.TotalRAM)
+		short := sig.Level >= LevelWarn || (sig.AvailOK && reserve > 0 && sig.Avail < swapNearReserve*reserve)
+		if short {
+			g.calmSince = time.Time{}
+		} else {
+			if g.calmSince.IsZero() {
+				g.calmSince = now
+			}
+			if now.Sub(g.calmSince) >= swapRebase {
+				g.swapBase, g.calmSince = sig.SwapUsed, now
+			}
+		}
+		swapping = short && sig.SwapUsed-g.swapBase > swapBudget(g.baseline.TotalRAM)
 	}
 	if swapping {
 		if g.swapSince.IsZero() {
