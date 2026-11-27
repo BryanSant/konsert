@@ -941,7 +941,9 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 					exitCode = dig.Verify.Exit
 				}
 				h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, protocol.ErrKindVerify, &exitCode, currentAttempt)
-				if currentAttempt < retryLimit {
+				// Attempts the guardrails shed were not the work failing: they do not
+				// spend the retry budget.
+				if currentAttempt-h.ticketShedCount(ctx, tk.ID) < retryLimit {
 					tk.Attempt = currentAttempt + 1
 					if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 						h.broadcastFleetUpdate("ticket", updated)
@@ -1042,6 +1044,10 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 				_, _ = h.setTaskStatus(ctx, task.ID, protocol.TaskStatusWaitingInput, ev.Error.Message, "", &errCode, causeScheduler)
 			}
 			h.closeChat(ctx, cs.ID)
+			return
+		}
+		if ev.Error != nil && ev.Error.Kind == protocol.ErrKindMemoryPressureShed {
+			h.handleTicketShed(ctx, tk, cs, task, mergedDig, ev.Error)
 			return
 		}
 		errCode := 1

@@ -1,0 +1,313 @@
+//go:build windows
+
+package guard
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"unsafe"
+
+	"github.com/BryanSant/syre/internal/worker/proctree"
+	"golang.org/x/sys/windows"
+)
+
+// Windows: one Job Object per managed session, in every mode.
+//
+//   - JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: no orphaned grandchildren, ever.
+//   - CPU rate control, weight-based (5 normal, 1 throttled); a hard rate only for an
+//     explicit cpu_ceiling_pct.
+//   - Basic UI restrictions for headless ticket runs only (no logoff, display or
+//     system-parameter changes, no desktop switching). Clipboard and handles stay
+//     open so agents that drive a browser keep working.
+//
+// Never JOB_OBJECT_LIMIT_JOB_MEMORY or _PROCESS_MEMORY: they cap committed virtual
+// memory, which crashes JVM, .NET, V8/Node and Playwright while physical RAM is free.
+// Memory is guarded by the physical-RAM watchdog (GlobalMemoryStatusEx) instead.
+
+const (
+	cpuRateEnable     = 0x1
+	cpuRateWeight     = 0x2
+	cpuRateHardCap    = 0x4
+	cpuWeightNormal   = 5
+	cpuWeightThrottle = 1
+
+	// forbiddenMemoryLimits must never be set on a worker job (tested).
+	forbiddenMemoryLimits = windows.JOB_OBJECT_LIMIT_JOB_MEMORY | windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY
+
+	headlessUILimits = windows.JOB_OBJECT_UILIMIT_EXITWINDOWS | windows.JOB_OBJECT_UILIMIT_DISPLAYSETTINGS |
+		windows.JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS | windows.JOB_OBJECT_UILIMIT_DESKTOP
+)
+
+var (
+	modKernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	procGlobalMemoryStatusEx    = modKernel32.NewProc("GlobalMemoryStatusEx")
+	procK32GetProcessMemoryInfo = modKernel32.NewProc("K32GetProcessMemoryInfo")
+)
+
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
+
+// jobCPURate is JOBOBJECT_CPU_RATE_CONTROL_INFORMATION (the union read as one DWORD).
+type jobCPURate struct {
+	ControlFlags uint32
+	Value        uint32
+}
+
+// processMemoryCounters is PROCESS_MEMORY_COUNTERS.
+type processMemoryCounters struct {
+	CB                         uint32
+	PageFaultCount             uint32
+	PeakWorkingSetSize         uintptr
+	WorkingSetSize             uintptr
+	QuotaPeakPagedPoolUsage    uintptr
+	QuotaPagedPoolUsage        uintptr
+	QuotaPeakNonPagedPoolUsage uintptr
+	QuotaNonPagedPoolUsage     uintptr
+	PagefileUsage              uintptr
+	PeakPagefileUsage          uintptr
+}
+
+type winPlat struct{}
+
+type winSess struct {
+	mu    sync.Mutex
+	job   windows.Handle
+	flags uint32 // current basic LimitFlags
+	bg    bool
+	peak  uint64
+}
+
+func nativePlatform() platform { return winPlat{} }
+
+func (winPlat) mechanism(Mode) string                   { return "job-object" }
+func (winPlat) configure(Mode, Baseline, throttleState) {}
+func (winPlat) wrap(*Launch, Mode)                      {}
+
+// jobLimitFlags is the basic limit set for a worker job.
+func jobLimitFlags(background bool) uint32 {
+	f := uint32(windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+	if background {
+		f |= windows.JOB_OBJECT_LIMIT_PRIORITY_CLASS
+	}
+	return f &^ forbiddenMemoryLimits
+}
+
+func setJobLimits(job windows.Handle, flags uint32, background bool) error {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	info.BasicLimitInformation.LimitFlags = flags &^ forbiddenMemoryLimits
+	if background {
+		info.BasicLimitInformation.PriorityClass = windows.BELOW_NORMAL_PRIORITY_CLASS
+	}
+	_, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)))
+	return err
+}
+
+func setJobCPU(job windows.Handle, t throttleState) error {
+	rate := jobCPURate{ControlFlags: cpuRateEnable | cpuRateWeight, Value: cpuWeightNormal}
+	if t.on {
+		rate.Value = cpuWeightThrottle
+	}
+	if t.cpuPct > 0 {
+		rate = jobCPURate{ControlFlags: cpuRateEnable | cpuRateHardCap, Value: uint32(t.cpuPct * 100)}
+	}
+	_, err := windows.SetInformationJobObject(job, windows.JobObjectCpuRateControlInformation,
+		uintptr(unsafe.Pointer(&rate)), uint32(unsafe.Sizeof(rate)))
+	return err
+}
+
+func (winPlat) attach(s *Session, m Mode) {
+	ws := &winSess{}
+	s.plat = ws
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return
+	}
+	ws.flags = jobLimitFlags(false)
+	if err := setJobLimits(job, ws.flags, false); err != nil {
+		_ = windows.CloseHandle(job)
+		return
+	}
+	if m != ModePassthrough {
+		_ = setJobCPU(job, throttleState{})
+	}
+	if s.spec.Headless {
+		ui := windows.JOBOBJECT_BASIC_UI_RESTRICTIONS{UIRestrictionsClass: headlessUILimits}
+		_, _ = windows.SetInformationJobObject(job, windows.JobObjectBasicUIRestrictions,
+			uintptr(unsafe.Pointer(&ui)), uint32(unsafe.Sizeof(ui)))
+	}
+	proc, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(s.pid))
+	if err != nil {
+		_ = windows.CloseHandle(job)
+		return
+	}
+	defer windows.CloseHandle(proc)
+	if err := windows.AssignProcessToJobObject(job, proc); err != nil {
+		_ = windows.CloseHandle(job)
+		return
+	}
+	ws.job = job
+}
+
+func winOf(s *Session) *winSess {
+	ws, _ := s.plat.(*winSess)
+	return ws
+}
+
+func (ws *winSess) handle() windows.Handle {
+	if ws == nil {
+		return 0
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	return ws.job
+}
+
+// release closes the job: KILL_ON_JOB_CLOSE ends anything the root left behind.
+func (winPlat) release(s *Session) {
+	ws := winOf(s)
+	if ws == nil {
+		return
+	}
+	ws.mu.Lock()
+	job := ws.job
+	ws.job = 0
+	ws.mu.Unlock()
+	if job != 0 {
+		_ = windows.CloseHandle(job)
+	}
+}
+
+func (winPlat) sample() Signal {
+	sig := Signal{PoolStall: -1}
+	ms := memoryStatusEx{Length: uint32(unsafe.Sizeof(memoryStatusEx{}))}
+	if r, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&ms))); r != 0 {
+		sig.Avail, sig.AvailOK = ms.AvailPhys, true
+	}
+	return sig
+}
+
+func (winPlat) freeze(s *Session) error { return proctree.Suspend(s.pid) }
+
+func (winPlat) kill(s *Session) error {
+	job := winOf(s).handle()
+	if job == 0 {
+		return errors.New("no job object")
+	}
+	return windows.TerminateJobObject(job, 1)
+}
+
+// jobPIDs lists the processes in a job.
+func jobPIDs(job windows.Handle) []uint32 {
+	const maxIDs = 1024
+	buf := make([]byte, 8+maxIDs*unsafe.Sizeof(uintptr(0)))
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicProcessIdList,
+		uintptr(unsafe.Pointer(&buf[0])), uint32(len(buf)), nil); err != nil {
+		return nil
+	}
+	n := *(*uint32)(unsafe.Pointer(&buf[4]))
+	ids := unsafe.Slice((*uintptr)(unsafe.Pointer(&buf[8])), min(n, maxIDs))
+	out := make([]uint32, len(ids))
+	for i, id := range ids {
+		out[i] = uint32(id)
+	}
+	return out
+}
+
+// rss sums the working sets of the job's processes (only used at shed time).
+func (winPlat) rss(s *Session) uint64 {
+	job := winOf(s).handle()
+	if job == 0 {
+		return 0
+	}
+	var total uint64
+	for _, pid := range jobPIDs(job) {
+		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_VM_READ, false, pid)
+		if err != nil {
+			continue
+		}
+		pmc := processMemoryCounters{CB: uint32(unsafe.Sizeof(processMemoryCounters{}))}
+		if r, _, _ := procK32GetProcessMemoryInfo.Call(uintptr(h), uintptr(unsafe.Pointer(&pmc)), uintptr(pmc.CB)); r != 0 {
+			total += uint64(pmc.WorkingSetSize)
+		}
+		_ = windows.CloseHandle(h)
+	}
+	return total
+}
+
+// peak is the job's peak committed memory (tracked by the job even with no limit set).
+func (winPlat) peak(s *Session) uint64 {
+	ws := winOf(s)
+	if ws == nil {
+		return 0
+	}
+	if job := ws.handle(); job != 0 {
+		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+		if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+			uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err == nil {
+			ws.mu.Lock()
+			ws.peak = max(ws.peak, uint64(info.PeakJobMemoryUsed))
+			ws.mu.Unlock()
+		}
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	return ws.peak
+}
+
+// background sets the job's priority class to below normal (and back).
+func (winPlat) background(s *Session, on bool) {
+	ws := winOf(s)
+	if ws == nil {
+		return
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.job == 0 || ws.bg == on {
+		return
+	}
+	flags := jobLimitFlags(on)
+	if setJobLimits(ws.job, flags, on) == nil {
+		ws.flags, ws.bg = flags, on
+	}
+}
+
+func (winPlat) throttle(s *Session, t throttleState) {
+	if job := winOf(s).handle(); job != 0 {
+		_ = setJobCPU(job, t)
+	}
+}
+
+func (winPlat) selfProtect() []string {
+	if err := windows.SetPriorityClass(windows.CurrentProcess(), windows.ABOVE_NORMAL_PRIORITY_CLASS); err != nil {
+		return []string{fmt.Sprintf("syred above-normal priority refused: %v", err)}
+	}
+	return []string{"syred above-normal priority; worker jobs CPU weight 5 (1 throttled), below normal while throttled"}
+}
+
+// Job exposes a session's Job Object to callers that need the handle (ConPTY
+// teardown). 0 when none.
+func (s *Session) Job() windows.Handle {
+	if s == nil {
+		return 0
+	}
+	return winOf(s).handle()
+}
+
+func hostTotalRAM() uint64 {
+	ms := memoryStatusEx{Length: uint32(unsafe.Sizeof(memoryStatusEx{}))}
+	if r, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&ms))); r != 0 {
+		return ms.TotalPhys
+	}
+	return 0
+}

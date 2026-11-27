@@ -258,6 +258,8 @@ describe('fleet machine rows', () => {
     expect(directiveBadgeText(pause)).toBe(`paused until ${hh}:${mm}`);
     expect(directiveBadgeText(throttle)).toBe('throttled max 1');
     expect(directiveBadgeText({ ...other, kind: 'machine.drain' })).toBe('drained');
+    expect(directiveBadgeText({ ...other, kind: 'machine.guardrails', params: { guardrails: 'adaptive_strict' } })).toBe('guardrails strict');
+    expect(directiveBadgeText({ ...other, kind: 'machine.guardrails', params: { guardrails: 'passthrough' } })).toBe('guardrails passthrough');
     const workers = [worker('w1', 'desk')];
     const rows = machineRows({ workers, tasks: [], groups: [], items: {}, allItems: [], heat: {}, now: NOW, directives: [pause, throttle, past, ended, other] });
     expect(rows[0].directiveBadges.map((b) => b.text)).toEqual([`paused until ${hh}:${mm}`, 'throttled max 1']);

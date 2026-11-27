@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"time"
+
+	"github.com/BryanSant/syre/internal/worker/guard"
 )
 
 // PtyStartOptions defines parameters for starting a cross-platform PTY process.
@@ -13,6 +15,10 @@ type PtyStartOptions struct {
 	Env    []string
 	Cols   uint16
 	Rows   uint16
+	// Guard makes the process a managed session for the machine's guardrails (agent
+	// tasks). Binary and Args here are ignored; the PTY's own are used. Interactive
+	// shells start without one.
+	Guard *guard.LaunchSpec
 }
 
 // PtyProcess abstracts a pseudo-terminal child process across Unix (PTY) and Windows (ConPTY).
@@ -27,6 +33,19 @@ type PtyProcess interface {
 	Close() error
 	// Pid returns the OS process ID of the PTY's main child process.
 	Pid() int
+	// Guard is the guardrails session (nil when unguarded).
+	Guard() *guard.Session
+}
+
+// preparePty returns the launch for opts: guard-prepared when opts.Guard is set.
+func preparePty(opts PtyStartOptions) (binary string, args []string, launch *guard.Launch) {
+	if opts.Guard == nil {
+		return opts.Binary, opts.Args, nil
+	}
+	spec := *opts.Guard
+	spec.Binary, spec.Args = opts.Binary, opts.Args
+	l := guard.Default().Prepare(spec)
+	return l.Binary, l.Args, l
 }
 
 // StartPty spawns a command inside a platform-native PTY/ConPTY.

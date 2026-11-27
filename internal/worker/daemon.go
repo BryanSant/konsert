@@ -26,6 +26,7 @@ import (
 	"github.com/BryanSant/syre/internal/worker/activity"
 	"github.com/BryanSant/syre/internal/worker/chat"
 	"github.com/BryanSant/syre/internal/worker/drivers"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/BryanSant/syre/internal/worker/shells"
 	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
@@ -79,7 +80,9 @@ type Daemon struct {
 	helloAt time.Time
 
 	// directives is the hub's active policy for this machine (worker.directives).
-	dirMu      sync.Mutex
+	dirMu sync.Mutex
+	// guard is the machine guardrails (nil until SetGuard: tests run unguarded).
+	guard      *guard.Guard
 	directives []protocol.WorkerDirective
 
 	// discovery outlives connections so hook events written while disconnected are
@@ -1495,6 +1498,7 @@ func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
 			f.WorkdirRoot = root
 		}
 	}
+	d.annotateGuardFacts(&f)
 	d.factsMu.Lock()
 	d.lastFacts = &f
 	d.factsMu.Unlock()

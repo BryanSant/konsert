@@ -528,7 +528,9 @@ func (s *codexSession) ensureProc(ctx context.Context) error {
 	cwd := s.opts.Cwd
 	s.mu.Unlock()
 
-	proc, err := s.eng.launch(ctx, s.eng.spec(s.acct, cwd, "app-server"))
+	spec := s.eng.spec(s.acct, cwd, "app-server")
+	spec.Guard = chatGuard(s.opts)
+	proc, err := s.eng.launch(ctx, spec)
 	if err != nil {
 		return &codexStartError{&protocol.AgentChatError{Kind: protocol.ErrKindNotFound, Message: "codex is not installed or not runnable: " + err.Error()}}
 	}

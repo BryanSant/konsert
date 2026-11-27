@@ -277,7 +277,7 @@ var (
 		"type": "object",
 		"properties": map[string]any{
 			"target":      map[string]any{"type": "string"},
-			"directive":   map[string]any{"type": "string", "enum": []any{"machine.pause", "machine.throttle", "machine.drain", "provider.disable", "autopilot.pause", "end"}},
+			"directive":   map[string]any{"type": "string", "enum": []any{"machine.pause", "machine.throttle", "machine.drain", "machine.guardrails", "provider.disable", "autopilot.pause", "end"}},
 			"until":       map[string]any{"type": "string", "description": "RFC3339 expiry"},
 			"id":          map[string]any{"type": "string"},
 			"reason":      map[string]any{"type": "string"},
@@ -294,7 +294,7 @@ const (
 	controlDesc     = "Pause, resume, stop, drain, undrain, suspend, veto, or toggle autopilot at ticket, session, machine, project, or fleet scope. Resume/undrain require user confirmation."
 	replyDesc       = "Steer a running task/session or answer a delegated question (only via answer_question rules)."
 	memoryDesc      = "Save or recall concise fleet/project/session memory entries."
-	setPolicyDesc   = "Set a tightening policy directive (machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause). Loosening (directive=end or raising caps) requires request_override."
+	setPolicyDesc   = "Set a tightening policy directive (machine.pause, machine.throttle, machine.drain, machine.guardrails, provider.disable, autopilot.pause). Loosening (directive=end, raising caps, a less strict guardrail mode) requires request_override."
 )
 
 // --- FleetService implementation of SurfaceBackend ---

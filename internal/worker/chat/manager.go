@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -103,6 +104,8 @@ type Manager struct {
 	stop     chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
+
+	unsubShed func()
 }
 
 // chatState is one chat. Operations are serialized by the op queue; mu guards the fields
@@ -136,6 +139,9 @@ type chatState struct {
 	// suspended: the user froze this chat's engine process tree. No watchdog, idle close
 	// or new turns until Resume.
 	suspended bool
+	// shed is set when the guardrails shed this chat's engine or verify command; the
+	// next turn end or error is reported as memory_pressure_shed.
+	shed *guard.Evidence
 	// act derives the chat's live activity from the events it emits.
 	act *activity.Chat
 
@@ -203,9 +209,43 @@ func NewManager(opts ManagerOptions) *Manager {
 			m.engines[agent] = e
 		}
 	}
+	m.unsubShed = guard.OnShed(m.onShed)
 	m.wg.Add(1)
 	go m.sweepLoop()
 	return m
+}
+
+// onShed records a guardrails shed of one of this manager's chats. It runs before the
+// process is killed, so the exit that follows is reported as a shed, not a crash.
+func (m *Manager) onShed(ev guard.Evidence) {
+	id, ok := strings.CutPrefix(ev.Owner, "verify:")
+	if !ok {
+		id = ev.Owner
+	}
+	if id == "" {
+		return
+	}
+	c := m.chat(id, false)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.shed = &ev
+	c.mu.Unlock()
+}
+
+// shedChatEvent replaces a turn end or engine error with the shed outcome.
+func shedChatEvent(ev protocol.AgentChatEvent, shed guard.Evidence) protocol.AgentChatEvent {
+	return protocol.AgentChatEvent{
+		Kind:   protocol.EventError,
+		TurnID: ev.TurnID,
+		Error: &protocol.AgentChatError{
+			Kind:      protocol.ErrKindMemoryPressureShed,
+			Message:   ShedMessage(shed),
+			Shed:      ShedEvidence(shed),
+			Retryable: true,
+		},
+	}
 }
 
 // Register adds (or replaces) the engine for its Agent().
@@ -527,6 +567,9 @@ func (m *Manager) Shutdown(ctx context.Context) {
 		return
 	}
 	m.closed = true
+	if m.unsubShed != nil {
+		m.unsubShed()
+	}
 	chats := make([]*chatState, 0, len(m.chats))
 	for _, c := range m.chats {
 		chats = append(chats, c)
@@ -1141,7 +1184,9 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 			c.verifyCancel = vcancel
 			c.mu.Unlock()
 
-			res := RunVerifySteps(vctx, steps, timeout)
+			res := RunVerifySteps(withGuard(vctx, &GuardSpec{
+				Owner: verifyOwner(c.id), Kind: "verify", Priority: guard.PriorityTicket, Headless: true,
+			}), steps, timeout)
 			vcancel()
 
 			c.mu.Lock()
@@ -1164,6 +1209,11 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 	if c.gen != gen {
 		c.mu.Unlock()
 		return // a replaced or dead session
+	}
+	if (ev.Kind == protocol.EventTurnEnd || ev.Kind == protocol.EventError) && c.shed != nil {
+		ev = shedChatEvent(ev, *c.shed)
+		c.shed = nil
+		verifyRes = nil
 	}
 	var dead Session
 	var failure *protocol.AgentChatError
@@ -1223,7 +1273,7 @@ func (m *Manager) onEngineEvent(c *chatState, gen int, ev protocol.AgentChatEven
 		if ev.Error != nil {
 			e := *ev.Error
 			failure = &e
-			if e.Kind == protocol.ErrKindExit {
+			if e.Kind == protocol.ErrKindExit || (e.Kind == protocol.ErrKindMemoryPressureShed && e.Shed != nil && e.Shed.Session == "chat") {
 				// The engine died: drop it; the next prompt resumes the agent session.
 				dead = c.sess
 				c.sess = nil

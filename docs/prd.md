@@ -51,7 +51,7 @@ Autopilot is built first because it creates the attempt history that placement l
 ```
 
 - **Hub:** REST + WebSocket API, embedded PWA, MCP server, scheduler, policy, SQLite store, setup and daemon lifecycle (starts local and SSH-managed daemons; see §5.1).
-- **Daemon:** one per machine identity (host, container, VM). Runs agent sessions for the hub, observes sessions it didn't start, samples processes and machine load, enforces resource envelopes, reports facts.
+- **Daemon:** one per machine identity (host, container, VM). Runs agent sessions for the hub, observes sessions it didn't start, samples processes and machine load, enforces resource guardrails, reports facts.
 
 ## 5. Functional requirements
 
@@ -99,12 +99,12 @@ See [design/work.md](design/work.md) for the full schema and sync design.
 - **[gap]** *Work key*: a stable identity for "the same kind of work" across runs, derived from project + epic/ticket + repo + kind (e.g. `build`, `test`, `ml-train`, `review`). History, profiles and placement rules attach to work keys.
 - **[gap]** *Requirements* (hard): OS, architecture, tools and SDKs with versions, GPU, logins/accounts, minimum resources. Declared by the dispatcher or inherited from the work key's profile.
 - **[gap]** *Work profile* (learned): duration, peak memory, CPU-seconds, disk, success rate, common failure categories, per machine class. Starts unknown; updated from outcomes.
-- **[gap]** Outcome record per attempt (the attempts from [design/autopilot.md](design/autopilot.md)): machine, account, agent, model, queue wait, duration, exit, failure category (OOM, timeout, auth, usage limit, rate limit, disk full, missing tool, verify, agent error, canceled, lost), verify result, resource peaks, tokens and cost where known, git result.
+- **[gap]** Outcome record per attempt (the attempts from [design/autopilot.md](design/autopilot.md)): machine, account, agent, model, queue wait, duration, exit, failure category (OOM, memory pressure shed, timeout, auth, usage limit, rate limit, disk full, missing tool, verify, agent error, canceled, lost), verify result, resource peaks, tokens and cost where known, git result.
 
 ### 5.5 Scheduling and placement
 
 - **[have]** Eligibility filters (selector, agent installed, account logged in, sandbox posture) and ranking by slot utilization, free disk, recency. Queue with atomic claim; requeue on worker loss for tasks with `orphan_policy: requeue`.
-- **[gap]** Capacity model: each running session reserves resources (from its profile, or a default class: small/medium/large); a machine's headroom = capacity − policy reservations − agent reservations − observed other load. Slots remain as a simple cap.
+- **[gap]** Capacity model: headroom = available physical RAM − survival reserve − policy reservation for the user − expected remaining peaks of running sessions (estimates from their profiles; unknown = small class) − observed other load. Expected peaks guide placement only: they are never reservations or limits ([design/guardrails.md](design/guardrails.md)). Recent sheds down-weight a machine. Slots remain as a simple cap.
 - **[gap]** Subscription-aware placement: prefer machine/account pairs with remaining quota; avoid exhausted accounts until reset; spread across accounts of the same vendor.
 - **[gap]** Locality: know which machines have a checkout of each repo (path, branch, freshness) and prefer them; avoid cloning onto a new machine unless the preferred ones are saturated.
 - **[gap]** Placement rules: prefer/require/avoid a machine or machine class for a scope (project, repo, branch, work key), with provenance (user, commander, learned), evidence and optional expiry.
@@ -115,20 +115,17 @@ See [design/work.md](design/work.md) for the full schema and sync design.
 ### 5.6 Retry and migration
 
 - **[gap]** Attempts: a task can have several attempts; requeue creates a new attempt instead of overwriting history.
-- **[gap]** Failure-driven retry policy: on classified failures (OOM, disk full, timeout) the scheduler or commander may retry on a larger machine; on usage limits, on another account; on auth, never (ask the user).
+- **[gap]** Failure-driven retry policy: on classified failures (OOM, disk full, timeout) the scheduler or commander may retry on a larger machine; on usage limits, on another account; on auth, never (ask the user). A `memory_pressure_shed` is not a failure of the work: it is requeued without spending a retry (**[have]**, see §5.7), and only repeated sheds of one work key suggest a larger class.
 - **[gap]** Migration = stop on machine A, move the work, resume on machine B. Live process migration is out of scope. Work moves as: committed/pushed branch when both machines share a git remote; otherwise a git bundle sent directly A → B over SSH (fleet-managed keys, see §5.9) when B can reach A, else relayed through the hub; plus a handoff note (previous summary, failure, relevant context) given to the new session.
 - **[gap]** Learned pins: after a migration succeeds where the original failed, record a placement rule for that work key (provenance `learned`, with the evidence) so future work goes straight to the right machine class.
 
 ### 5.7 Policy and enforcement
 
 - **[partial]** Sandbox posture (refuses full-access modes), allowed workdir roots, per-task timeout, process-group / job-object cleanup.
-- **[gap]** Operator policy per machine (and per machine class): max concurrent managed sessions, max load average, minimum free RAM, CPU/RAM reserved for the user, quiet hours, allowed work classes, role (§5.1). Enforced twice: by the hub at admission and by the daemon at start (the daemon refuses work that violates its policy even if the hub is wrong or bypassed).
-- **[gap]** Resource envelopes for managed sessions, native per OS by default:
-  - **Linux:** systemd user scope (`systemd-run --user --scope`, cgroup v2) with `MemoryMax`, `CPUQuota`, `TasksMax`; plain rlimits where systemd isn't available.
-  - **Windows:** Job Object limits (job memory, CPU rate control, active process count) on the job syred already creates.
-  - **macOS:** no cgroups; scheduling priority (`taskpolicy`/nice) plus monitoring with enforced kill on sustained over-limit memory.
-  - **Optional container tier:** rootless Podman per session or per project, for Linux workloads that need hard isolation or reproducible toolchains. Requires mounting the agent's login state; not available for agents whose logins live in a macOS keychain.
-- **[gap]** Observed sessions can't be capped; they're counted against headroom instead.
+- **[have]** Resource guardrails for managed sessions ([design/guardrails.md](design/guardrails.md)): agent work may use the machine down to a survival reserve (5% of RAM, 96 MiB to 1.5 GiB); nothing is reserved or capped per session. Linux runs every session in a scope in one shared `syre-workers.slice` with a soft `MemoryHigh` (strict mode), swap cap and CPU weight; Windows gives every session a Job Object (kill-on-close, CPU weight, never a memory limit); macOS follows the kernel pressure level (background QoS on warn). A watchdog sheds the newest session (freeze, then kill) when memory runs short; the hub requeues the ticket without spending a retry and throttles the machine for 30 minutes. Mode per machine (`passthrough` in containers, `adaptive` in VMs, `adaptive_strict` on bare metal) is auto-detected, configurable, and settable with a `machine.guardrails` directive. Worker trees are deprioritised (nice, `oom_score_adj`, priority class) so syred and sshd stay responsive.
+- **[gap]** Operator policy per machine (and per machine class): max concurrent managed sessions, max load average, minimum free RAM and RAM reserved for the user (added on top of the survival reserve: they raise the guardrails' floor, never reserve cgroup memory), CPU reserved for the user, quiet hours, allowed work classes, role (§5.1). Enforced twice: by the hub at admission and by the daemon at start (the daemon refuses work that violates its policy even if the hub is wrong or bypassed).
+- **[gap]** Optional container tier (`hermetic_container`): rootless Podman per project for Linux workloads that need hard isolation or reproducible toolchains, with soft limits (memory reservation, swap cap, CPU shares) and shed as one session under pressure. Requires mounting the agent's login state; not available for agents whose logins live in a macOS keychain.
+- **[gap]** Observed sessions are never shed or capped; they're counted against headroom and as memory pressure instead.
 - **[gap]** Policy directives over MCP: the commander may apply tightening directives (pause, throttle, drain, disable a provider, timed) immediately by default, attributed with a receipt and one-click undo, configurable via `commander_policy_writes` (`tighten` | `confirm` | `none`). Loosening operator policy still requires `request_override` and approval. Policy edits remain available in the UI and CLI and are audited.
 - **[gap]** Break glass: `request_override` (rules, scope, duration, justification) → user approval by default (approval card + notification), or commander self-approval if the operator enabled it. Overrides expire automatically. Blocks and overrides are logged with intent and surfaced in a report ("rules that blocked work this week, and whether an override followed").
 - **[gap]** Container awareness: Syre detects Podman/Docker and can run a project's work in a container when configured, but basic resource protection never requires one.
@@ -192,7 +189,7 @@ See [design/autopilot.md](design/autopilot.md).
 - **[have]** Deep links using sids (`/<sid>` short links and `/<mode>/<sid>`).
 - **[gap]** Work board on tickets with Play/Pause, directive badges on machines, and ticket detail with attempts and digests.
 - **[gap]** Activity view of *all* sessions (managed and observed) per machine with their resource use, plus "other load".
-- **[gap]** Machine detail: capacity vs headroom, policy, envelopes, recent history.
+- **[gap]** Machine detail: capacity vs headroom, policy, guardrails (mode and reserve shown today), recent history.
 - **[gap]** Placement explanations on tasks; work-key profile and history pages; migration timeline.
 
 ## 6. Non-functional requirements

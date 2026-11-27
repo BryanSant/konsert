@@ -207,7 +207,7 @@ func (e *acpEngine) probeACP(ctx context.Context, acct Account) (*acpSessionResu
 
 	// Agent requests during a probe (none expected) are refused.
 	var self atomic.Pointer[acpConn]
-	conn, err := e.start(ctx, acct, dir, acpLaunch{}, func(method string, id jsontext.Value, _ jsontext.Value) {
+	conn, err := e.start(ctx, acct, dir, acpLaunch{}, nil, func(method string, id jsontext.Value, _ jsontext.Value) {
 		if c := self.Load(); c != nil && id != nil {
 			_ = c.rpc.ReplyError(id, rpcMethodNotFound, "Method not found: "+method)
 		}

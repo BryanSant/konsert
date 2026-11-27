@@ -57,7 +57,23 @@ type RunDigest struct {
 	Summary   string            `json:"summary,omitempty"`
 	Failure   *DigestFailure    `json:"failure,omitzero"`
 	Question  *DigestQuestion   `json:"question,omitzero"`
+	// TerminationReason is set when the run did not end normally: timeout, user_stop,
+	// memory_pressure_shed or oom.
+	TerminationReason string `json:"termination_reason,omitempty"`
+	// PeakRSSMB is the agent session's peak memory where the machine tracks it (Linux
+	// scope memory.peak, Windows job peak commit, macOS root rusage).
+	PeakRSSMB uint64 `json:"peak_rss_mb,omitzero"`
+	// HostAvailRAMAtExitMB is the host's available memory when a shed ended the run.
+	HostAvailRAMAtExitMB uint64 `json:"host_avail_ram_at_exit_mb,omitzero"`
 }
+
+// Termination reasons for RunDigest.TerminationReason.
+const (
+	TerminationTimeout            = "timeout"
+	TerminationUserStop           = "user_stop"
+	TerminationMemoryPressureShed = "memory_pressure_shed"
+	TerminationOOM                = "oom"
+)
 
 // EstimateTokens returns a simple ceiling chars/4 token approximation.
 func EstimateTokens(s string) int {
@@ -209,6 +225,15 @@ func (d RunDigest) renderText() string {
 	}
 	if d.DurationS > 0 {
 		writeLine("duration_s: " + strconv.FormatInt(d.DurationS, 10))
+	}
+	if d.TerminationReason != "" {
+		writeLine("termination_reason: " + d.TerminationReason)
+	}
+	if d.PeakRSSMB > 0 {
+		writeLine("peak_rss_mb: " + strconv.FormatUint(d.PeakRSSMB, 10))
+	}
+	if d.HostAvailRAMAtExitMB > 0 {
+		writeLine("host_avail_ram_at_exit_mb: " + strconv.FormatUint(d.HostAvailRAMAtExitMB, 10))
 	}
 	if len(d.Git) > 0 {
 		keys := make([]string, 0, len(d.Git))

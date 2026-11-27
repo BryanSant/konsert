@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"io"
 	"io/fs"
 	"os"
@@ -28,6 +29,8 @@ type ProcSpec struct {
 	Env map[string]string
 	// StderrTail is the number of stderr bytes kept for error reports (default 16 KiB).
 	StderrTail int
+	// Guard makes the launch a managed session (engines set it; probes don't).
+	Guard *GuardSpec
 }
 
 // Proc is a running engine process with piped stdin/stdout and a captured stderr tail.
@@ -40,6 +43,7 @@ type Proc struct {
 	Stderr *TailBuffer
 
 	secrets  []string
+	guard    *guard.Session
 	done     chan struct{}
 	waitErr  error
 	exitCode int
@@ -51,7 +55,7 @@ func StartProc(spec ProcSpec) (*Proc, error) {
 	if spec.Binary == "" {
 		return nil, &NotInstalledError{Binary: "(empty)"}
 	}
-	cmd := exec.Command(spec.Binary, spec.Args...)
+	cmd, launch := guardedCommand(spec.Guard, spec.Binary, spec.Args)
 	cmd.Dir = spec.Dir
 	cmd.Env = MergeEnv(os.Environ(), spec.Env)
 	setProcGroup(cmd)
@@ -75,12 +79,13 @@ func StartProc(spec ProcSpec) (*Proc, error) {
 		}
 		return nil, err
 	}
-	p := &Proc{Cmd: cmd, Stdin: stdin, Stdout: stdout, Stderr: tail, secrets: EnvSecrets(spec.Env), done: make(chan struct{}), exitCode: -1}
+	p := &Proc{Cmd: cmd, Stdin: stdin, Stdout: stdout, Stderr: tail, secrets: EnvSecrets(spec.Env), guard: attachGuard(launch, cmd), done: make(chan struct{}), exitCode: -1}
 	go func() {
 		p.waitErr = cmd.Wait()
 		if cmd.ProcessState != nil {
 			p.exitCode = cmd.ProcessState.ExitCode()
 		}
+		p.guard.Release(cmd.ProcessState)
 		close(p.done)
 	}()
 	return p, nil
@@ -142,6 +147,7 @@ func (p *Proc) Kill(grace time.Duration) {
 		case <-time.After(grace):
 		}
 		killGroup(p.Cmd, true)
+		p.guard.Kill()
 	})
 	<-p.done
 }

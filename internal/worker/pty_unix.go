@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 )
 
 type unixPtyProcess struct {
+	guard    *guard.Session
 	cmd      *exec.Cmd
 	ptmx     *os.File
 	pgid     int
@@ -27,7 +29,8 @@ type unixPtyProcess struct {
 }
 
 func startPlatformPty(_ context.Context, opts PtyStartOptions) (PtyProcess, error) {
-	cmd := exec.Command(opts.Binary, opts.Args...)
+	bin, args, launch := preparePty(opts)
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = opts.Dir
 	env := os.Environ()
 	env = append(env, "TERM=xterm-256color")
@@ -45,11 +48,15 @@ func startPlatformPty(_ context.Context, opts PtyStartOptions) (PtyProcess, erro
 		return nil, fmt.Errorf("start unix pty for %s: %w", opts.Binary, err)
 	}
 
-	return &unixPtyProcess{
+	p := &unixPtyProcess{
 		cmd:  cmd,
 		ptmx: pollablePtmx(ptmx),
 		pgid: cmd.Process.Pid,
-	}, nil
+	}
+	if launch != nil {
+		p.guard = launch.Attach(cmd.Process.Pid)
+	}
+	return p, nil
 }
 
 // pollablePtmx returns a non-blocking, runtime-poller-backed copy of the PTY master so a
@@ -74,6 +81,8 @@ func pollablePtmx(ptmx *os.File) *os.File {
 	_ = ptmx.Close()
 	return nf
 }
+
+func (p *unixPtyProcess) Guard() *guard.Session { return p.guard }
 
 func (p *unixPtyProcess) Pid() int {
 	if p.cmd == nil || p.cmd.Process == nil {
@@ -158,6 +167,7 @@ func (p *unixPtyProcess) TerminateWithGrace(grace time.Duration) error {
 func (p *unixPtyProcess) Wait() (int, error) {
 	p.waitOnce.Do(func() {
 		err := p.cmd.Wait()
+		p.guard.Release(p.cmd.ProcessState)
 		if err == nil {
 			p.exitCode = 0
 			return

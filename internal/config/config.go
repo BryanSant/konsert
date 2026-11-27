@@ -94,6 +94,9 @@ type WorkerConfig struct {
 	Tags             map[string]string `yaml:"tags"`
 	MaxConcurrent    int               `yaml:"max_concurrent"`
 	EnableMockDriver bool              `yaml:"enable_mock_driver"`
+	// Guardrails is the machine's guardrail mode: auto (default; from the environment),
+	// passthrough, adaptive or adaptive_strict. See docs/design/guardrails.md.
+	Guardrails string `yaml:"guardrails,omitempty"`
 	// Accounts are extra agent accounts (e.g. a second subscription of the same CLI) on
 	// top of each installed CLI's default account. See docs/design/agent-chat.md.
 	Accounts []AgentAccountConfig `yaml:"accounts"`

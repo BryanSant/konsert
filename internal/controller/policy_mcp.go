@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/ids"
+	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -33,17 +35,18 @@ type PolicyConstraints struct {
 	CPUCeilingPct  *int   `json:"cpu_ceiling_pct,omitempty" jsonschema:"machine.throttle CPU ceiling percent"`
 	HeavyOK        *bool  `json:"heavy_ok,omitempty" jsonschema:"machine.throttle: whether heavy work may still start"`
 	SuspendRunning bool   `json:"suspend_running,omitempty" jsonschema:"machine.pause: also suspend work that is already running"`
+	Guardrails     string `json:"guardrails,omitempty" jsonschema:"machine.guardrails mode: passthrough, adaptive or adaptive_strict (stricter applies at once; looser needs request_override)"`
 }
 
 // SetPolicyInput is set_policy(target, directive, until?, constraints?, reason).
 // directive "end" with id (or target) asks to end a directive.
 type SetPolicyInput struct {
 	Target      string             `json:"target" jsonschema:"Machine, project, agent name (codex) or account id the directive applies to"`
-	Directive   string             `json:"directive" jsonschema:"machine.pause, machine.throttle, machine.drain, provider.disable, autopilot.pause, or end"`
+	Directive   string             `json:"directive" jsonschema:"machine.pause, machine.throttle, machine.drain, machine.guardrails, provider.disable, autopilot.pause, or end"`
 	Until       string             `json:"until,omitempty" jsonschema:"RFC3339 time the directive lasts until. Omit to leave it open-ended"`
 	ID          string             `json:"id,omitempty" jsonschema:"Directive id or sid (dr-…) when directive is end"`
 	Reason      string             `json:"reason,omitempty" jsonschema:"Why this policy change"`
-	Constraints *PolicyConstraints `json:"constraints,omitempty" jsonschema:"Kind-specific fields: fallback, scope, max_concurrency, cpu_ceiling_pct, heavy_ok, suspend_running"`
+	Constraints *PolicyConstraints `json:"constraints,omitempty" jsonschema:"Kind-specific fields: fallback, scope, max_concurrency, cpu_ceiling_pct, heavy_ok, suspend_running, guardrails"`
 }
 
 // SetPolicyResult is a successful tool result. Loosens is true when the change
@@ -218,9 +221,12 @@ func (h *Hub) setPolicyEnd(ctx context.Context, in SetPolicyInput) (SetPolicyRes
 }
 
 // policyLoosens reports a throttle whose cap is higher than the machine's
-// effective cap. Creating pause, drain, provider.disable or autopilot.pause
-// only restricts.
+// effective cap, or a guardrail mode less strict than the machine's effective one.
+// Creating pause, drain, provider.disable or autopilot.pause only restricts.
 func (h *Hub) policyLoosens(ctx context.Context, d store.Directive) bool {
+	if d.Kind == store.DirectiveMachineGuardrails {
+		return guardrailStrictness(d.Params.Guardrails) < guardrailStrictness(h.effectiveGuardrails(ctx, d.Target))
+	}
 	if d.Kind != store.DirectiveMachineThrottle || d.Params.MaxConcurrency == nil {
 		return false
 	}
@@ -249,6 +255,26 @@ func (h *Hub) policyLoosens(ctx context.Context, d store.Directive) bool {
 	return *d.Params.MaxConcurrency > effective
 }
 
+// effectiveGuardrails is a machine's guardrail mode now: the newest active
+// machine.guardrails directive, else what the daemon reports without directives
+// (config or auto). Unknown (no facts yet) reads as adaptive_strict, so nothing
+// counts as tightening until the machine has reported.
+func (h *Hub) effectiveGuardrails(ctx context.Context, workerID string) string {
+	now := h.directiveClock()
+	if list, err := h.store.ListDirectives(ctx, store.DirectiveFilter{
+		Target: workerID, Kind: store.DirectiveMachineGuardrails, ActiveOnly: true, Now: now, Limit: 1,
+	}); err == nil && len(list) > 0 && list[0].ActiveAt(now) {
+		return list[0].Params.Guardrails
+	}
+	if w, err := h.store.GetWorker(ctx, workerID); err == nil && w.FactsJSON != "" {
+		var f protocol.MachineFacts
+		if json.Unmarshal([]byte(w.FactsJSON), &f) == nil && guardrailStrictness(f.GuardrailBaseMode) >= 0 {
+			return f.GuardrailBaseMode
+		}
+	}
+	return "adaptive_strict"
+}
+
 func constraintsParams(c *PolicyConstraints) store.DirectiveParams {
 	if c == nil {
 		return store.DirectiveParams{}
@@ -260,6 +286,7 @@ func constraintsParams(c *PolicyConstraints) store.DirectiveParams {
 		SuspendRunning: c.SuspendRunning,
 		Fallback:       c.Fallback,
 		Scope:          c.Scope,
+		Guardrails:     c.Guardrails,
 	}
 }
 

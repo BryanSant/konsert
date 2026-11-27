@@ -21,6 +21,7 @@ func (d *Daemon) setDirectives(list []protocol.WorkerDirective) {
 	d.dirMu.Lock()
 	d.directives = active
 	d.dirMu.Unlock()
+	d.applyGuardDirectives(active)
 }
 
 func (d *Daemon) directiveSnapshot() []protocol.WorkerDirective {
