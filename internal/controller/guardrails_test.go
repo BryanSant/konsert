@@ -120,6 +120,7 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 	initTestGitRepo(t, repoOrigin, "main")
 	daemon, stop := startTicketTestDaemon(t, cs, workdirRoot)
 	defer stop()
+	cs.h.shedCooldown.period = 2 * time.Second
 
 	if err := cs.st.CreateProject(ctx, store.Project{Name: "ShedE2E", Autopilot: true}); err != nil {
 		t.Fatal(err)
@@ -171,10 +172,16 @@ func TestTicketShedRequeuesEndToEnd(t *testing.T) {
 	}
 
 	shed(1)
-	waitFor(t, 10*time.Second, "ticket requeued to ready (or re-leased)", func() bool {
+	waitFor(t, 10*time.Second, "ticket requeued to ready", func() bool {
 		cur, _ := cs.st.GetTicket(ctx, tk.ID)
-		return cur.Status == store.TicketStatusReady || cur.Status == store.TicketStatusRunning
+		return cur.Status == store.TicketStatusReady
 	})
+	// The machine is cooling down: the ticket must not land on it again yet.
+	cs.h.SchedulePending(ctx)
+	time.Sleep(500 * time.Millisecond)
+	if cur, _ := cs.st.GetTicket(ctx, tk.ID); cur.Status != store.TicketStatusReady {
+		t.Fatalf("ticket re-leased during the shed cooldown: %s", cur.Status)
+	}
 	rows, _ := cs.st.ListAttempts(ctx, tk.ID, "")
 	if len(rows) == 0 || rows[0].FailureCategory != protocol.ErrKindMemoryPressureShed {
 		t.Fatalf("attempts: %+v", rows)

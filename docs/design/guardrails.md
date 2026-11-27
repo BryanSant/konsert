@@ -122,6 +122,16 @@ set, which stays readable after it exits because syred keeps a handle to it.
 A process is assigned to its job right after it starts. A child spawned in the first
 microseconds could escape; agent CLIs take far longer than that to start tools.
 
+Some children are created outside the job anyway. Seen live: the Microsoft Store build
+of PowerShell 7, which Claude Code uses as its shell on Windows, is inside the job, but
+every process it starts is not, so a memory hog run from an agent's shell survived
+`TerminateJobObject`. Their parent PID still names the process that started them, so
+the guard walks descendants of the session's processes (about once a second while it
+watches, and always before a shed, kill or release) and adopts any that escaped. It
+checks creation times, so a reused PID can't pull in an unrelated process. An adopted
+process goes into the job when Windows allows it. Otherwise syred holds a handle to it
+and counts, freezes and kills it with the job.
+
 Windows VMs are detected from the SMBIOS strings in
 `HKLM\HARDWARE\DESCRIPTION\System\BIOS`. The CPUID hypervisor bit is not used, because it
 is also set on bare-metal hosts running Hyper-V/VBS.
@@ -184,6 +194,9 @@ means the host was full.
   as `memory_pressure_shed`, with evidence. The hub records the attempt as
   `requeued/memory_pressure_shed` and releases the ticket to **ready**. Shed attempts
   don't count against the self-repair retry budget.
+- **Cooldown.** The machine gets no new ticket runs for 2 minutes, so it can recover
+  first. Without it, a machine still short of memory sheds each new run within seconds
+  and uses up the ticket's sheds.
 - **Auto-throttle.** The hub files a `machine.throttle` directive for 30 minutes, capping
   the machine at one fewer session than it was running. It is attributed to the
   guardrails and can be undone like any directive. It is not filed when it wouldn't

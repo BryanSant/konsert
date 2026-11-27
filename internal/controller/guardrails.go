@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
@@ -19,7 +20,44 @@ const (
 	shedEscalateAfter = 3
 	// shedThrottleFor is how long a machine stays throttled after shedding work.
 	shedThrottleFor = 30 * time.Minute
+	// defaultShedCooldown is how long a machine gets no new ticket runs after a shed,
+	// so it can recover before work lands on it again. Without it, a machine still
+	// short of memory sheds each new run within seconds and burns a ticket's sheds.
+	defaultShedCooldown = 2 * time.Minute
 )
+
+// shedCooldowns records, per machine, until when it gets no new ticket runs.
+type shedCooldowns struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+	// period overrides defaultShedCooldown (tests); 0 means the default.
+	period time.Duration
+}
+
+func (c *shedCooldowns) start(workerID string, now time.Time) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d := c.period
+	if d <= 0 {
+		d = defaultShedCooldown
+	}
+	if c.until == nil {
+		c.until = map[string]time.Time{}
+	}
+	c.until[workerID] = now.Add(d)
+	return d
+}
+
+func (c *shedCooldowns) active(workerID string, now time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	u, ok := c.until[workerID]
+	if ok && !now.Before(u) {
+		delete(c.until, workerID)
+		return false
+	}
+	return ok
+}
 
 var causeGuardrails = store.Cause{Actor: store.ActorSystem, Source: "guardrails", Confidence: store.ConfidenceCertain}
 
@@ -28,6 +66,10 @@ var causeGuardrails = store.Cause{Actor: store.ActorSystem, Source: "guardrails"
 func (h *Hub) handleTicketShed(ctx context.Context, tk store.Ticket, cs store.ChatSession, task *store.Task, dig *protocol.RunDigest, cerr *protocol.AgentChatError) {
 	h.finishTicketAttempt(ctx, tk, cs, task, dig, store.AttemptFailed, protocol.ErrKindMemoryPressureShed, nil, 0)
 	h.throttleAfterShed(ctx, cs.WorkerID, cerr.Shed)
+	if cs.WorkerID != "" {
+		wait := h.shedCooldown.start(cs.WorkerID, time.Now())
+		time.AfterFunc(wait+time.Second, h.kickScheduler)
+	}
 
 	sheds := h.ticketShedCount(ctx, tk.ID)
 	next := store.TicketStatusReady

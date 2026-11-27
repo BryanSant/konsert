@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/BryanSant/syre/internal/worker/proctree"
@@ -43,6 +44,7 @@ var (
 	modKernel32                 = windows.NewLazySystemDLL("kernel32.dll")
 	procGlobalMemoryStatusEx    = modKernel32.NewProc("GlobalMemoryStatusEx")
 	procK32GetProcessMemoryInfo = modKernel32.NewProc("K32GetProcessMemoryInfo")
+	procIsProcessInJob          = modKernel32.NewProc("IsProcessInJob")
 )
 
 type memoryStatusEx struct {
@@ -80,12 +82,17 @@ type processMemoryCounters struct {
 type winPlat struct{}
 
 type winSess struct {
-	mu    sync.Mutex
-	job   windows.Handle
-	root  windows.Handle // kept open so the root's counters stay readable after it exits
-	flags uint32         // current basic LimitFlags
-	bg    bool
-	peak  uint64 // highest resident memory seen (see peak)
+	mu     sync.Mutex
+	job    windows.Handle
+	root   windows.Handle // kept open so the root's counters stay readable after it exits
+	flags  uint32         // current basic LimitFlags
+	bg     bool
+	peak   uint64                    // highest resident memory seen (see peak)
+	extras map[uint32]windows.Handle // escaped descendants Windows would not put in the job (adopt_windows.go)
+
+	adoptMu   sync.Mutex        // serializes adopt; guards known
+	known     map[uint32]uint64 // every process seen in the session -> creation time
+	lastAdopt time.Time
 }
 
 func nativePlatform() platform { return winPlat{} }
@@ -128,7 +135,7 @@ func setJobCPU(job windows.Handle, t throttleState) error {
 }
 
 func (winPlat) attach(s *Session, m Mode) {
-	ws := &winSess{}
+	ws := &winSess{extras: map[uint32]windows.Handle{}, known: map[uint32]uint64{}}
 	s.plat = ws
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -183,15 +190,22 @@ func (winPlat) release(s *Session) {
 	if ws == nil {
 		return
 	}
+	// Closing the job ends what the root left behind in it; escaped processes the
+	// guard adopted go the same way.
+	ws.adopt(true)
+	ws.killExtras()
 	ws.mu.Lock()
-	job, root := ws.job, ws.root
-	ws.job, ws.root = 0, 0
+	job, root, extras := ws.job, ws.root, ws.extras
+	ws.job, ws.root, ws.extras = 0, 0, map[uint32]windows.Handle{}
 	ws.mu.Unlock()
 	if job != 0 {
 		_ = windows.CloseHandle(job)
 	}
 	if root != 0 {
 		_ = windows.CloseHandle(root)
+	}
+	for _, h := range extras {
+		_ = windows.CloseHandle(h)
 	}
 }
 
@@ -204,14 +218,29 @@ func (winPlat) sample() Signal {
 	return sig
 }
 
-func (winPlat) freeze(s *Session) error { return proctree.Suspend(s.pid) }
+func (winPlat) freeze(s *Session) error {
+	ws := winOf(s)
+	job := ws.handle()
+	if job == 0 {
+		return proctree.Suspend(s.pid)
+	}
+	ws.adopt(true)
+	if ws.suspendAll(job) == 0 {
+		return proctree.ErrNoProcess
+	}
+	return nil
+}
 
 func (winPlat) kill(s *Session) error {
-	job := winOf(s).handle()
+	ws := winOf(s)
+	job := ws.handle()
 	if job == 0 {
 		return errors.New("no job object")
 	}
-	return windows.TerminateJobObject(job, 1)
+	ws.adopt(true)
+	err := windows.TerminateJobObject(job, 1)
+	ws.killExtras()
+	return err
 }
 
 // jobPIDs lists the processes in a job.
@@ -239,30 +268,39 @@ func memCounters(h windows.Handle) (processMemoryCounters, bool) {
 	return pmc, r != 0
 }
 
-// jobWorkingSet sums the working sets of the job's processes now, and returns the
-// largest single-process peak working set among them.
-func jobWorkingSet(job windows.Handle) (sum, maxPeak uint64) {
-	for _, pid := range jobPIDs(job) {
-		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-		if err != nil {
-			continue
-		}
+// workingSet sums the working sets of the session's live processes (job members and
+// adopted ones) now, and returns the largest single-process peak working set among
+// them (adopted processes count even after they exit).
+func (ws *winSess) workingSet(job windows.Handle) (sum, maxPeak uint64) {
+	add := func(h windows.Handle, live bool) {
 		if pmc, ok := memCounters(h); ok {
-			sum += uint64(pmc.WorkingSetSize)
+			if live {
+				sum += uint64(pmc.WorkingSetSize)
+			}
 			maxPeak = max(maxPeak, uint64(pmc.PeakWorkingSetSize))
 		}
-		_ = windows.CloseHandle(h)
+	}
+	for _, pid := range jobPIDs(job) {
+		if h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid); err == nil {
+			add(h, true)
+			_ = windows.CloseHandle(h)
+		}
+	}
+	for _, h := range ws.extraHandles() {
+		add(h, alive(h))
 	}
 	return sum, maxPeak
 }
 
-// rss sums the working sets of the job's processes.
+// rss sums the working sets of the session's processes.
 func (winPlat) rss(s *Session) uint64 {
-	job := winOf(s).handle()
+	ws := winOf(s)
+	job := ws.handle()
 	if job == 0 {
 		return 0
 	}
-	sum, _ := jobWorkingSet(job)
+	ws.adopt(true)
+	sum, _ := ws.workingSet(job)
 	return sum
 }
 
@@ -281,7 +319,8 @@ func (winPlat) peak(s *Session) uint64 {
 	ws.mu.Unlock()
 	var v uint64
 	if job != 0 {
-		sum, maxPeak := jobWorkingSet(job)
+		ws.adopt(false)
+		sum, maxPeak := ws.workingSet(job)
 		v = max(sum, maxPeak)
 	}
 	if root != 0 {

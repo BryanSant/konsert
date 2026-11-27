@@ -362,6 +362,9 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		eligible := make([]store.Worker, 0, len(workers))
 		lifted := map[string]*store.Override{}
 		for _, w := range workers {
+			if h.shedCooldown.active(w.ID, time.Now()) {
+				continue // recovering from a guardrails shed
+			}
 			if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, text: holdText}); !held {
 				eligible = append(eligible, w)
 				lifted[w.ID] = ov
