@@ -9,6 +9,7 @@ import { ATTACHMENT_MARKER } from '../../core/state/chat-transcript';
 import { FleetStore } from '../../core/state/fleet.store';
 import { CommanderStore, isAgentChat } from '../../core/state/commander.store';
 import { IconComponent } from '../../shared/icon.component';
+import { ALL_MACHINES, MachineTarget, isAllMachines } from '../../shared/machines/machine-target';
 import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { causeLine } from '../../core/models/control.models';
@@ -244,6 +245,9 @@ export function chatTitleFrom(text: string): string {
             [mode]="isApiChat() ? 'api' : 'agent'"
             [busy]="busy()"
             [contextLocked]="!!active()"
+            [scopeMode]="isCommanderChat()"
+            [scope]="scope()"
+            (scopeChange)="onScopeChange($event)"
             [sessionId]="orch.activeSessionId()"
             [approvalNote]="active() ? 'Changes apply live when the agent supports it, otherwise from the next turn.' : ''"
             [blockedReason]="creating() ? 'Starting the chat…' : status() === 'suspended' ? 'Suspended: resume the chat to continue' : ''"
@@ -274,6 +278,8 @@ export class ChatViewComponent implements OnInit {
   readonly renameDraft = signal('');
   readonly creating = signal(false);
   readonly fleetTools = signal(true);
+  /** A new Commander chat's machines, saved once the chat exists. */
+  readonly pendingScope = signal<MachineTarget>(ALL_MACHINES);
   readonly selection = signal<ComposerSelection>(emptySelection());
   private draftSeeded = false;
 
@@ -286,6 +292,15 @@ export class ChatViewComponent implements OnInit {
   readonly active = computed(() => this.orch.sessions().find((s) => s.id === this.orch.activeSessionId()) ?? null);
   readonly isApiChat = computed(() => !!this.active() && !isAgentChat(this.active()));
   readonly isAgent = computed(() => !!this.active() && isAgentChat(this.active()));
+  /** A Commander chat (fleet tools on): its machine chip is where its work may go (SYR-FJA2T). */
+  readonly isCommanderChat = computed(() => {
+    const s = this.active();
+    return s ? isAgentChat(s) && !!s.fleet_tools : this.fleetTools();
+  });
+  readonly scope = computed<MachineTarget>(() => {
+    const s = this.active();
+    return s ? (this.agentChat.scopes()[s.id]?.scope ?? ALL_MACHINES) : this.pendingScope();
+  });
   /** "Suspended by you via the Syre UI" for user-caused states; empty otherwise. */
   readonly causeText = computed(() => {
     const s = this.active();
@@ -330,6 +345,11 @@ export class ChatViewComponent implements OnInit {
   readonly bannerError = computed(() => this.agentChat.error() || this.orch.error());
 
   constructor() {
+    // A Commander chat's machines (later changes arrive over the socket).
+    effect(() => {
+      const s = this.active();
+      if (s && isAgentChat(s) && s.fleet_tools) untracked(() => void this.agentChat.loadScope(s.id));
+    });
     // Existing agent chat: mirror its settings into the composer and load its events.
     effect(() => {
       const id = this.orch.activeSessionId();
@@ -446,11 +466,30 @@ export class ChatViewComponent implements OnInit {
         cwd: sel.cwd || '~',
         fleet_tools: this.fleetTools(),
       });
+      const scope = this.pendingScope();
+      if (this.fleetTools() && !isAllMachines(scope)) {
+        await this.agentChat.setScope(chat.id, scope);
+        this.pendingScope.set(ALL_MACHINES);
+      }
       if (this.agentChat.send(chat, msg.text, paths)) this.composer()?.clear();
     } catch (err) {
       this.agentChat.error.set(err instanceof Error ? `Could not start the chat: ${err.message}` : 'Could not start the chat');
     } finally {
       this.creating.set(false);
+    }
+  }
+
+  /** Where a Commander chat may send work: saved now for a chat, kept for a new one. */
+  async onScopeChange(t: MachineTarget): Promise<void> {
+    const s = this.active();
+    if (!s) {
+      this.pendingScope.set(t);
+      return;
+    }
+    try {
+      await this.agentChat.setScope(s.id, t);
+    } catch (err) {
+      this.agentChat.error.set(err instanceof Error ? `Could not change the chat's machines: ${err.message}` : "Could not change the chat's machines");
     }
   }
 

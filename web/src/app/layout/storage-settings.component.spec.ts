@@ -6,7 +6,8 @@ import { FleetStore } from '../core/state/fleet.store';
 import { CommanderStore } from '../core/state/commander.store';
 import { KeepToggleComponent } from '../features/control/keep-toggle.component';
 import { compactedNote } from '../features/chat/transcript/chat-transcript.component';
-import { StorageSettingsComponent, formatBytes } from './storage-settings.component';
+import { StorageSettingsComponent } from './storage-settings.component';
+import { formatBytes } from '../shared/machines/machine-specs';
 
 function storage(over: Partial<StorageResponse> = {}): StorageResponse {
   const days = { detail_days: 30, fleet_days: 90, fleet_summary_days: 365, usage_days: 30, usage_daily_days: 365, metrics_days: 2, metrics_hourly_days: 30 };

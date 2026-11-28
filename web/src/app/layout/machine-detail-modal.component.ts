@@ -14,11 +14,13 @@ import { MACHINE_ROLES, activeMachineDirectives, directiveBadgeText, guardrailLa
 import { MachineCredentialComponent } from './machine-credential.component';
 
 import { MachineResourcesComponent } from './machine-resources.component';
+import { diskText, formatMB, osText } from '../shared/machines/machine-specs';
+import { LabelChipsComponent } from '../shared/machines/label-chips.component';
 
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent, MachineResourcesComponent],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent, MachineResourcesComponent, LabelChipsComponent],
   template: `
     <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
@@ -52,6 +54,19 @@ import { MachineResourcesComponent } from './machine-resources.component';
             <div class="text-[11.5px] text-[#8e9098] font-mono-ide mt-0.5 truncate">
               {{ worker().os }}/{{ worker().arch }} · {{ worker().isolation }} · {{ worker().host_group }}
             </div>
+            <div class="mt-1.5" data-testid="machine-labels">
+              <sy-label-chips
+                [labels]="worker().labels ?? []"
+                [editable]="true"
+                [suggestions]="fleet.allLabels()"
+                [busy]="labelBusy()"
+                (add)="addLabel($event)"
+                (remove)="removeLabel($event)"
+              />
+            </div>
+            @if (labelError()) {
+              <div role="alert" class="text-[11px] text-[#f09595] mt-1">{{ labelError() }}</div>
+            }
           </div>
         </div>
 
@@ -400,7 +415,7 @@ import { MachineResourcesComponent } from './machine-resources.component';
             @if (f.os_name || f.os_version) {
               <div class="truncate">
                 <span class="text-[#86888f]">OS: </span>
-                <span class="text-[#d4d4d8]">{{ f.os_name }} {{ f.os_version }}</span>
+                <span class="text-[#d4d4d8]">{{ osText(worker()) }}</span>
               </div>
             }
             @if (f.cpu_model || f.cpu_cores) {
@@ -412,7 +427,7 @@ import { MachineResourcesComponent } from './machine-resources.component';
             @if (f.disk_total_gb) {
               <div>
                 <span class="text-[#86888f]">Disk: </span>
-                <span class="font-mono-ide text-[#d4d4d8]">{{ f.disk_free_gb }} GB free / {{ f.disk_total_gb }} GB ({{ f.storage_type || 'disk' }})</span>
+                <span class="font-mono-ide text-[#d4d4d8]">{{ diskText(worker()) }}</span>
               </div>
             }
             @if (f.ram_total_mb) {
@@ -804,10 +819,32 @@ export class MachineDetailModalComponent {
     void this.fleet.retryStart(this.worker().id);
   }
 
-  formatMB(mb: number): string {
-    if (!mb) return '0 MB';
-    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-    return `${mb} MB`;
+  readonly formatMB = formatMB;
+  readonly osText = osText;
+  readonly diskText = diskText;
+
+  // --- operator labels (SYR-FJA2T) -----------------------------------------------------
+  readonly labelBusy = signal(false);
+  readonly labelError = signal('');
+
+  async addLabel(label: string): Promise<void> {
+    await this.labelOp(() => this.fleet.addLabel(this.worker().id, label));
+  }
+
+  async removeLabel(label: string): Promise<void> {
+    await this.labelOp(() => this.fleet.removeLabel(this.worker().id, label));
+  }
+
+  private async labelOp(fn: () => Promise<void>): Promise<void> {
+    this.labelBusy.set(true);
+    this.labelError.set('');
+    try {
+      await fn();
+    } catch (err) {
+      this.labelError.set(err instanceof Error ? err.message : 'Could not change the label');
+    } finally {
+      this.labelBusy.set(false);
+    }
   }
 
   async copyWorkerId(): Promise<void> {

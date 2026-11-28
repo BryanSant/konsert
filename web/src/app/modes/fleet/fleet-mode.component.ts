@@ -100,7 +100,11 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
             {{ allAwake() ? 'All awake' : 'Keep all awake' }}
           </button>
         }
-        <button type="button" class="sy-btn sy-btn-sm sy-btn-soft ml-1" data-testid="fleet-add-machine" (click)="ui.addMachineOpen.set(true)">
+        <button type="button" class="sy-btn sy-btn-sm ml-1" data-testid="fleet-open-machines" (click)="ui.openMachines()" syTooltip="Every machine with its specs and labels; groups">
+          <app-icon name="server" [size]="12" />
+          Machines
+        </button>
+        <button type="button" class="sy-btn sy-btn-sm sy-btn-soft" data-testid="fleet-add-machine" (click)="ui.openMachines('add')">
           <app-icon name="plus" [size]="12" />
           Add machine
         </button>

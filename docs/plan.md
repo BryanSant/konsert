@@ -650,6 +650,7 @@ Built alongside 5a (open requests are questions with an action attached).
 - Subscription-aware choice of machine and account pair; spread across same-vendor accounts.
 - `placement_rules` (scope, prefer/require/avoid, target machine or class, provenance, evidence, expiry) and `placement_log` (candidates, rejections, scores, decision, decider).
 - MCP/REST: `explain_placement` (dry run), placement explanation on every task.
+- A Commander chat's machines (SYR-FJA2T): operator labels (on the hub, beside config tags), saved machine groups, and a per-chat scope (`MachineTarget`: all, a machine, a list, a group, or a label as a dynamic group). The scope is a hard filter for that chat's dispatches, fan-outs and queued work (rejections logged as "user scope (...)"); a dispatch pinned outside it is refused with the scope named. The user is never limited by it. Web and hub resolve targets with the same rules, checked by shared vectors (`web/src/app/shared/machines/machine-target.vectors.json`). The Machines dialog (browse, select, add) is one table component in every mode; the composer's chip is one picker in scope mode (Commander chats) or host mode (agent chats).
 - Exit: scenario tests: Windows-only work never lands elsewhere; repo work prefers machines with a checkout until they're saturated; exhausted account is avoided until reset; rules override scores but never policy.
 
 ### Phase 10: Retry and migration

@@ -1,3 +1,4 @@
+import type { ChatScopeView, MachineGroup } from '../../shared/machines/machine-target';
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
   AuditEvent,
@@ -280,6 +281,9 @@ export class SyreSocketService {
           policy_proposal?: PolicyProposal;
           ticket?: Ticket;
           ticket_edge?: TicketEdge;
+          labels?: string[];
+          machine_groups?: MachineGroup[];
+          chat_scope?: ChatScopeView;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -326,6 +330,12 @@ export class SyreSocketService {
           this.fleetStore.applyAutopilot(p.autopilot);
         } else if (p.kind === 'directive' && p.directive) {
           this.fleetStore.applyDirective(p.directive);
+        } else if (p.kind === 'machine_labels' && p.worker_id) {
+          this.fleetStore.applyMachineLabels(p.worker_id, p.labels ?? []);
+        } else if (p.kind === 'machine_groups') {
+          this.fleetStore.applyMachineGroups(p.machine_groups ?? []);
+        } else if (p.kind === 'chat_scope' && p.chat_scope) {
+          this.agentChat.applyScope(p.chat_scope);
         } else if (p.kind === 'policy_proposal' && p.policy_proposal) {
           this.controlStore.applyProposal(p.policy_proposal);
         } else if (p.kind === 'question' && p.question) {

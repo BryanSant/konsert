@@ -13,7 +13,7 @@ import { CommandTabsStore } from './command/command-tabs.store';
 import { ReloginDialogComponent } from '../features/chat/relogin-dialog.component';
 import { NeedsYouDialogComponent } from '../features/needs-you/needs-you-dialog.component';
 import { NeedsYouStore } from '../core/state/needs-you.store';
-import { AddMachineModalComponent } from '../layout/add-machine-modal.component';
+import { MachinesDialogComponent } from '../shared/machines/machines-dialog.component';
 import { HotkeyService } from '../layout/hotkey.service';
 import { MachineDetailModalComponent } from '../layout/machine-detail-modal.component';
 import { SessionDispatchModalComponent } from '../layout/session-dispatch-modal.component';
@@ -38,7 +38,7 @@ import { ModeUiStore } from './mode-ui.store';
     RouterOutlet,
     NeedsYouDialogComponent,
     ReloginDialogComponent,
-    AddMachineModalComponent,
+    MachinesDialogComponent,
     SettingsModalComponent,
     SessionDispatchModalComponent,
     MachineDetailModalComponent,
@@ -57,11 +57,12 @@ import { ModeUiStore } from './mode-ui.store';
     @if (needsYou.isOpen()) {
       <sy-needs-you-dialog />
     }
-    @if (ui.addMachineOpen()) {
-      <app-add-machine-modal
+    @if (ui.machinesDialog(); as md) {
+      <sy-machines-dialog
+        [state]="md"
         [firstRun]="setup.needsSetup()"
-        (close)="closeAddMachine()"
-        (inspectMachine)="closeAddMachine(); ui.inspectedWorkerId.set($event)"
+        (closed)="closeMachines($event.sawAdd)"
+        (inspectMachine)="closeMachines(false); ui.inspectedWorkerId.set($event)"
       />
     }
     @if (ui.settingsOpen()) {
@@ -167,9 +168,10 @@ export class WorkspaceRootComponent implements OnInit, OnDestroy {
     this.socket.disconnect();
   }
 
-  closeAddMachine(): void {
-    this.ui.addMachineOpen.set(false);
-    void this.setup.dismiss();
+  /** Closing after the add pane showed dismisses first run (a control-plane-only hub). */
+  closeMachines(sawAdd: boolean): void {
+    this.ui.machinesDialog.set(null);
+    if (sawAdd) void this.setup.dismiss();
   }
 
   onStarted(taskId: string): void {

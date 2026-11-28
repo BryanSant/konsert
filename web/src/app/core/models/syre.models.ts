@@ -1,3 +1,4 @@
+import type { MachineGroup } from '../../shared/machines/machine-target';
 import type { Device } from './device.models';
 import type { SessionActivity, WorkerHeat } from './activity.models';
 import { Cause, FleetPause } from './control.models';
@@ -215,6 +216,8 @@ export interface Worker {
   spool?: WorkerSpool;
   /** The hub just woke from sleep and waits for this machine to re-attach. */
   reconnecting_after_sleep?: boolean;
+  /** The user's operator labels ("Work", "Gaming hardware"), kept on the hub (SYR-FJA2T). */
+  labels?: string[];
   /** The machine policy the user set; absent when none. */
   policy?: MachinePolicy;
 }
@@ -1046,6 +1049,8 @@ export interface FleetSnapshotResponse {
   reviews?: Review[];
   /** Active policy directives (machine pause, throttle, drain, autopilot pause). */
   directives?: PolicyDirective[];
+  /** The user's saved machine groups (SYR-FJA2T). */
+  machine_groups?: MachineGroup[];
 }
 
 export interface DispatchTaskRequest {

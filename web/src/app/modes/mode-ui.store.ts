@@ -5,6 +5,7 @@ import { FleetStore } from '../core/state/fleet.store';
 import { WorkItem } from '../core/state/work-logic';
 import { SessionDispatchRequest } from '../layout/session-dispatch-modal.component';
 import type { DevicesView } from '../features/auth/devices-dialog.component';
+import type { MachinesDialogState, MachinesMode } from '../shared/machines/machines-dialog.component';
 
 /**
  * Page-level UI state shared by the modes: which global dialogs are open and whether the
@@ -22,7 +23,8 @@ export class ModeUiStore {
   readonly paletteOpen = signal(false);
   readonly settingsOpen = signal(false);
   readonly settingsSection = signal<'forges' | null>(null);
-  readonly addMachineOpen = signal(false);
+  /** The Machines dialog and the mode it shows (browse, select, add); null when closed. */
+  readonly machinesDialog = signal<MachinesDialogState | null>(null);
   readonly sessionRequest = signal<SessionDispatchRequest | null>(null);
   readonly inspectedWorkerId = signal<string | null>(null);
   readonly projectsOpen = signal(false);
@@ -44,6 +46,11 @@ export class ModeUiStore {
     void this.router.navigate(['/command', sid]);
   }
 
+  /** Opens the Machines dialog: browse by default, 'add' for every "Add machine" link. */
+  openMachines(mode: MachinesMode = 'browse', opts: Omit<MachinesDialogState, 'mode'> = {}): void {
+    this.machinesDialog.set({ mode, ...opts });
+  }
+
   openSettings(section: 'forges' | null = null): void {
     this.settingsSection.set(section);
     this.settingsOpen.set(true);
@@ -58,7 +65,7 @@ export class ModeUiStore {
     this.paletteOpen.set(false);
     this.settingsOpen.set(false);
     this.settingsSection.set(null);
-    this.addMachineOpen.set(false);
+    this.machinesDialog.set(null);
     this.sessionRequest.set(null);
     this.inspectedWorkerId.set(null);
     this.projectsOpen.set(false);

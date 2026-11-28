@@ -1,3 +1,4 @@
+import type { ChatScopeView, MachineTarget } from '../../shared/machines/machine-target';
 import { Injectable, inject, signal } from '@angular/core';
 import { AgentChatCreateRequest, AgentChatEvent, ChatStatus } from '../models/agent-chat.models';
 import { ChatSession } from '../models/syre.models';
@@ -39,6 +40,8 @@ export class AgentChatStore {
 
   readonly transcripts = signal<Record<string, TranscriptState>>({});
   readonly error = signal('');
+  /** Commander chats' machines (where work may go), by chat ID (SYR-FJA2T). */
+  readonly scopes = signal<Record<string, ChatScopeView>>({});
   private readonly loading = new Map<string, Promise<void>>();
 
   transcript(chatId: string): TranscriptState {
@@ -206,6 +209,24 @@ export class AgentChatStore {
 
   dismissError(chatId: string, key: string): void {
     this.update(chatId, (s) => dismissError(s, key));
+  }
+
+  applyScope(v: ChatScopeView): void {
+    this.scopes.update((m) => ({ ...m, [v.chat_id]: v }));
+  }
+
+  /** Loads a Commander chat's machines once (later changes arrive over the socket). */
+  async loadScope(chatId: string): Promise<void> {
+    if (!chatId || this.scopes()[chatId]) return;
+    try {
+      this.applyScope(await this.api.getChatScope(chatId));
+    } catch {
+      // Unknown or not reachable: the chip shows All machines.
+    }
+  }
+
+  async setScope(chatId: string, scope: MachineTarget): Promise<void> {
+    this.applyScope(await this.api.setChatScope(chatId, scope));
   }
 
   /** Creates an agent chat, adds it to the session list and selects it. */

@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalHostInfo, SetupStatus, Worker } from '../core/models/syre.models';
 import { FleetStore } from '../core/state/fleet.store';
-import { AddMachineModalComponent, localHostSummary } from './add-machine-modal.component';
+import { AddMachinePanelComponent, localHostSummary } from './add-machine-panel.component';
 
 function setupWith(local: Partial<LocalHostInfo>): SetupStatus {
   return {
@@ -56,7 +56,7 @@ function callTo(fetchMock: ReturnType<typeof vi.fn>, url: string, nth = 0): [str
   return calls[nth] as [string, RequestInit];
 }
 
-describe('AddMachineModalComponent SSH bootstrap', () => {
+describe('AddMachinePanelComponent SSH bootstrap', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -79,7 +79,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
   });
 
   async function create() {
-    const fixture = TestBed.createComponent(AddMachineModalComponent);
+    const fixture = TestBed.createComponent(AddMachinePanelComponent);
     fixture.detectChanges();
     await fixture.whenStable();
     return fixture;
@@ -185,7 +185,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
     );
   });
 
-  it('aborts an in-flight bootstrap when the modal is destroyed', async () => {
+  it('aborts an in-flight bootstrap when the panel is destroyed', async () => {
     const fixture = await create();
     const cmp = fixture.componentInstance;
     let signal: AbortSignal | undefined;
@@ -202,7 +202,7 @@ describe('AddMachineModalComponent SSH bootstrap', () => {
   });
 });
 
-describe('AddMachineModalComponent this machine', () => {
+describe('AddMachinePanelComponent this machine', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let setup: SetupStatus;
   let fleetWorkers: Worker[];
@@ -241,7 +241,7 @@ describe('AddMachineModalComponent this machine', () => {
   });
 
   async function create(firstRun = true) {
-    const fixture = TestBed.createComponent(AddMachineModalComponent);
+    const fixture = TestBed.createComponent(AddMachinePanelComponent);
     fixture.componentRef.setInput('firstRun', firstRun);
     fixture.detectChanges();
     const cmp = fixture.componentInstance;

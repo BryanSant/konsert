@@ -49,7 +49,7 @@ test.describe('Manual machine join', () => {
     await login(page, env);
     await page.goto(`${env.baseURL}/fleet`);
     await page.getByTestId('fleet-add-machine').click();
-    const modal = page.locator('app-add-machine-modal');
+    const modal = page.locator('sy-add-machine-panel');
     await modal.getByTestId('add-machine-tab-manual').click();
     const cmd = modal.getByTestId('join-command');
     await expect(cmd).toHaveText(/^syred join http:\/\/\S+ [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);

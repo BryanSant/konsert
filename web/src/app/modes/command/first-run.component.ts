@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, outpu
 import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore } from '../../core/state/fleet.store';
 import { SetupStore } from '../../core/state/setup.store';
-import { localHostSummary } from '../../layout/add-machine-modal.component';
+import { localHostSummary } from '../../layout/add-machine-panel.component';
 import { IconComponent } from '../../shared/icon.component';
 import { ModeUiStore } from '../mode-ui.store';
 
@@ -64,7 +64,7 @@ export const FIRST_RUN_SUGGESTIONS = [
             <p role="alert" class="m-0 text-[12.5px] text-[#f3a5a5]">{{ error() }}</p>
           }
           <p class="m-0 text-[12.5px] text-[var(--sy-text-muted)]">
-            or <button type="button" class="underline text-[var(--sy-blue)] hover:text-[#cfe2ff]" data-testid="first-run-ssh" (click)="ui.addMachineOpen.set(true)">add another machine over SSH</button>
+            or <button type="button" class="underline text-[var(--sy-blue)] hover:text-[#cfe2ff]" data-testid="first-run-ssh" (click)="ui.openMachines('add')">add another machine over SSH</button>
           </p>
         </section>
       }

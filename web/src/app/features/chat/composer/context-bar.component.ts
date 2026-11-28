@@ -4,6 +4,8 @@ import { IconComponent } from '../../../shared/icon.component';
 import { PopoverComponent, PopoverTriggerDirective } from '../../../shared/popover.component';
 import { RemoteDirPickerComponent } from '../../../shared/remote-dir-picker.component';
 import { TooltipDirective } from '../../../shared/tooltip.directive';
+import { MachineTargetPickerComponent } from '../../../shared/machines/machine-target-picker.component';
+import { ALL_MACHINES, MachineTarget } from '../../../shared/machines/machine-target';
 
 /** One place the chat can run: a repo checkout (worktree) or a Space on the machine. */
 export interface CheckoutOption {
@@ -21,19 +23,20 @@ export interface ContextChange {
   branch?: string;
 }
 
-/** Quiet line under the composer: machine · checkout · branch, each a picker. */
+/** Quiet line under the composer: machine (or a Commander chat's machines) · checkout · branch, each a picker. */
 @Component({
   selector: 'sy-context-bar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent],
+  imports: [PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent, MachineTargetPickerComponent],
   template: `
     @if (locked()) {
       <div class="flex flex-wrap items-center gap-3 px-3 pt-2 text-[11.5px] text-[var(--sy-text-muted)]" data-testid="context-locked">
-        <span class="inline-flex items-center gap-1.5" syTooltip="Machine (fixed for this chat)">
-          <app-icon name="server" [size]="12" />
-          <span class="max-w-[160px] truncate">{{ machineName() }}</span>
-        </span>
+        @if (scopeMode()) {
+          <sy-machine-target-picker mode="scope" [value]="scope()" (valueChange)="scopeChange.emit($event)" />
+        } @else {
+          <sy-machine-target-picker mode="host" [workerId]="workerId()" [locked]="true" />
+        }
         <span class="inline-flex items-center gap-1.5" [syTooltip]="cwd()">
           <app-icon name="folder" [size]="12" />
           <span class="max-w-[240px] truncate">{{ checkoutLabel() }}</span>
@@ -47,48 +50,20 @@ export interface ContextChange {
       </div>
     } @else {
     <div class="flex flex-wrap items-center gap-0.5 px-1 pt-1.5 text-[11.5px]">
-      <!-- Machine -->
-      <sy-popover label="Machine" placement="top-start" panelClass="w-[260px] max-h-[320px] overflow-y-auto" [(open)]="machineOpen">
-        <button
-          type="button"
-          syPopoverTrigger
-          class="sy-btn sy-btn-sm gap-1.5"
-          data-testid="context-machine"
-          [disabled]="locked()"
-          [attr.aria-label]="'Machine: ' + machineName()"
-          [syTooltip]="locked() ? 'Fixed for this chat' : 'Change machine'"
-        >
-          <app-icon name="server" [size]="12" />
-          <span class="max-w-[140px] truncate">{{ machineName() }}</span>
-        </button>
-        @for (w of workers(); track w.id) {
-          <button
-            type="button"
-            role="menuitemradio"
-            class="sy-menu-item items-center"
-            [attr.aria-checked]="w.id === workerId()"
-            (click)="changed.emit({ workerId: w.id, cwd: '~', branch: '' })"
-          >
-            <span
-              class="h-1.5 w-1.5 rounded-full shrink-0"
-              [class.bg-[var(--sy-green)]]="w.status === 'online'"
-              [class.bg-[#5e6068]]="w.status !== 'online'"
-              aria-hidden="true"
-            ></span>
-            <span class="flex-1 min-w-0">
-              <span class="sy-menu-label block truncate">{{ w.name }}</span>
-              <span class="sy-menu-desc block">{{ w.status === 'online' ? 'Online' : 'Offline' }} · {{ w.os }}</span>
-            </span>
-            @if (w.id === workerId()) {
-              <app-icon name="check" [size]="13" />
-            }
-          </button>
-        } @empty {
-          <div class="px-3 py-2 text-[12px] text-[var(--sy-text-muted)]">No machines connected</div>
-        }
-      </sy-popover>
+      <!-- Machine: where the agent runs, or for a Commander chat where its work may go -->
+      @if (scopeMode()) {
+        <sy-machine-target-picker mode="scope" [value]="scope()" (valueChange)="scopeChange.emit($event)" />
+      } @else {
+        <sy-machine-target-picker mode="host" [workerId]="workerId()" (workerChange)="changed.emit({ workerId: $event, cwd: '~', branch: '' })" />
+      }
 
       <!-- Checkout -->
+      @if (homeOnly()) {
+        <span class="inline-flex items-center gap-1.5 px-2 text-[var(--sy-text-muted)]" data-testid="context-checkout-home" syTooltip="Work on these machines starts in each one's home folder">
+          <app-icon name="folder" [size]="12" />
+          Home folder
+        </span>
+      } @else {
       <sy-popover label="Checkout" role="dialog" placement="top-start" panelClass="w-[340px]" [closeOnSelect]="false" [(open)]="checkoutOpen">
         <button
           type="button"
@@ -127,6 +102,7 @@ export interface ContextChange {
           </div>
         </div>
       </sy-popover>
+      }
 
       <!-- Branch -->
       @if (displayBranch() || branchOptions().length > 0) {
@@ -164,17 +140,19 @@ export class ContextBarComponent {
   readonly branch = input('');
   /** Existing chats keep their machine and folder. */
   readonly locked = input(false);
+  /** A Commander chat: the machine chip says where its work may go (SYR-FJA2T). */
+  readonly scopeMode = input(false);
+  readonly scope = input<MachineTarget>(ALL_MACHINES);
   readonly changed = output<ContextChange>();
+  readonly scopeChange = output<MachineTarget>();
 
   private readonly fleet = inject(FleetStore);
-  readonly machineOpen = signal(false);
   readonly checkoutOpen = signal(false);
   readonly branchOpen = signal(false);
   readonly draftPath = signal('');
 
-  readonly workers = computed(() =>
-    [...this.fleet.workers()].sort((a, b) => Number(b.status === 'online') - Number(a.status === 'online') || a.name.localeCompare(b.name)),
-  );
+  /** Several machines in scope: no one machine's folders to pick from (SYR-W3SVZ). */
+  readonly homeOnly = computed(() => this.scopeMode() && this.scope().kind !== 'machine');
   readonly machineName = computed(() => this.fleet.workersById()[this.workerId()]?.name || (this.workerId() ? this.workerId() : 'localhost'));
 
   // Per-machine checkouts are reported as daemon facts in A1c; until then users pick any folder path directly.

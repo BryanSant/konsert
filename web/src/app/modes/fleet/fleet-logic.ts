@@ -5,6 +5,7 @@ import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
 import { SessionActivity } from '../../core/models/activity.models';
 import { terminalState } from '../command/live-work-logic';
 import { SpinnerDetail, SpinnerState, activityPhrase, heatSolid, spinnerDetailOf, spinnerStateOf } from '../../shared/spinner-logic';
+import { loadText, machineSpec } from '../../shared/machines/machine-specs';
 
 /** Fleet mode (signed-off "machines first" design): pure helpers; see fleet-mode.component.ts. */
 
@@ -272,14 +273,6 @@ export function transportHint(w: Worker): string {
   }
 }
 
-export function machineSpec(w: Worker): string {
-  const os = w.facts?.os_name || (w.os === 'darwin' ? 'macOS' : w.os);
-  const cores = w.facts?.cpu_cores ? `${w.facts.cpu_cores}c` : '';
-  const ram = w.facts?.ram_total_mb ? `${Math.round(w.facts.ram_total_mb / 1024)}G` : '';
-  const size = [cores, ram].filter(Boolean).join(' / ');
-  const virt = w.facts?.is_wsl ? 'WSL' : w.facts?.is_container ? 'container' : w.facts?.is_vm ? 'VM' : '';
-  return [os, w.arch, size, virt].filter(Boolean).join(' · ');
-}
 
 /** "hot · cpu 88% · mem 71%" (the dominant cause first), or why there is none. */
 export function heatText(w: Worker, heat: WorkerHeat | undefined): string {
@@ -515,18 +508,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
   return inp.workers.map((w) => {
     const n = running.get(w.id) ?? 0;
     const heat = w.status === 'online' ? inp.heat[w.id] : undefined;
-    const m = w.metrics;
-    const load =
-      w.status === 'online' && m
-        ? [
-            `cpu ${Math.round(Math.min(100, m.cpu_percent))}%`,
-            m.mem_total_mb ? `mem ${Math.round((m.mem_used_mb / m.mem_total_mb) * 100)}%` : '',
-            m.gpu_percent != null ? `gpu ${Math.round(m.gpu_percent)}%` : '',
-            m.load_avg ? `load ${m.load_avg.toFixed(1)}` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : '';
+    const load = loadText(w);
     const takesWork = w.status === 'online' && !w.drained;
     return {
       w,

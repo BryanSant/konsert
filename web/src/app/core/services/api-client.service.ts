@@ -1,3 +1,4 @@
+import type { ChatScopeView, MachineGroup, MachineTarget } from '../../shared/machines/machine-target';
 import { Injectable } from '@angular/core';
 import {
   AppSettings,
@@ -355,6 +356,37 @@ export class ApiClientService {
   /** Replaces a machine's policy (an empty one clears it). */
   setWorkerPolicy(id: string, policy: MachinePolicy): Promise<{ ok: boolean; policy: MachinePolicy }> {
     return this.request(`/api/workers/${encodeURIComponent(id)}/policy`, { method: 'PUT', body: JSON.stringify(policy) });
+  }
+
+  // --- Operator labels, machine groups, Commander chat scope (SYR-FJA2T) ---
+
+  addMachineLabel(workerId: string, label: string): Promise<{ worker_id: string; labels: string[] }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/labels`, { method: 'POST', body: JSON.stringify({ label }) });
+  }
+
+  removeMachineLabel(workerId: string, label: string): Promise<{ worker_id: string; labels: string[] }> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' });
+  }
+
+  /** Creates a group, or with id renames it and replaces its machines. */
+  saveMachineGroup(group: { id?: string; name: string; worker_ids: string[] }): Promise<MachineGroup> {
+    const body = JSON.stringify({ name: group.name, worker_ids: group.worker_ids });
+    return group.id
+      ? this.request(`/api/machine-groups/${encodeURIComponent(group.id)}`, { method: 'PUT', body })
+      : this.request('/api/machine-groups', { method: 'POST', body });
+  }
+
+  deleteMachineGroup(id: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/machine-groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  getChatScope(chatId: string): Promise<ChatScopeView> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`);
+  }
+
+  /** Where a Commander chat may send work; applies to its next dispatch. */
+  setChatScope(chatId: string, scope: MachineTarget): Promise<ChatScopeView> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`, { method: 'PUT', body: JSON.stringify(scope) });
   }
 
   /** Settings → Policy report: how often rules blocked work and the overrides that followed. */

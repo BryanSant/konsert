@@ -1,3 +1,4 @@
+import { ALL_MACHINES, MachineTarget } from '../../../shared/machines/machine-target';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -224,7 +225,10 @@ export interface ComposerSubmit {
         [cwd]="selection().cwd"
         [branch]="selection().branch"
         [locked]="contextLocked()"
+        [scopeMode]="scopeMode()"
+        [scope]="scope()"
         (changed)="onContextChange($event)"
+        (scopeChange)="scopeChange.emit($event)"
       />
     }
   `,
@@ -236,6 +240,10 @@ export class ChatComposerComponent {
   /** A turn is running: the send button becomes Stop. */
   readonly busy = input(false);
   readonly contextLocked = input(false);
+  /** A Commander chat: the machine chip picks where its work may go (SYR-FJA2T). */
+  readonly scopeMode = input(false);
+  readonly scope = input<MachineTarget>(ALL_MACHINES);
+  readonly scopeChange = output<MachineTarget>();
   /** Shown under the approval list, e.g. "Applies from the next turn". */
   readonly approvalNote = input('');
   readonly sessionId = input('');

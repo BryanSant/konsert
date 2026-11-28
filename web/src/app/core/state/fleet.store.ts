@@ -12,6 +12,7 @@ import {
   Worker,
 } from '../models/syre.models';
 import { WorkerHeat } from '../models/activity.models';
+import { MachineGroup } from '../../shared/machines/machine-target';
 import { Review, reviewKey } from '../models/review.models';
 import { ApiClientService } from '../services/api-client.service';
 import { ActivityStore } from './activity.store';
@@ -54,6 +55,16 @@ export class FleetStore {
   readonly reviews = signal<Record<string, Review>>({});
   /** Active policy directives from GET /api/fleet and fleet.update kind "directive". */
   readonly directives = signal<PolicyDirective[]>([]);
+  /** The user's saved machine groups (SYR-FJA2T). */
+  readonly machineGroups = signal<MachineGroup[]>([]);
+  /** Operator labels by machine ID. */
+  readonly labelsById = computed<Record<string, string[]>>(() => Object.fromEntries(this.workers().map((w) => [w.id, w.labels ?? []])));
+  /** Every label in use, for type-ahead (first spelling wins, sorted). */
+  readonly allLabels = computed(() => {
+    const seen = new Map<string, string>();
+    for (const w of this.workers()) for (const l of w.labels ?? []) if (!seen.has(l.toLowerCase())) seen.set(l.toLowerCase(), l);
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  });
   /** Fleet-wide and per-project Autopilot Play/Pause state and ticket counts. */
   readonly autopilot = signal<AutopilotState>({
     global: false,
@@ -147,6 +158,7 @@ export class FleetStore {
         this.reviews.set(Object.fromEntries(snap.reviews.map((r) => [reviewKey(r), r])));
       }
       this.directives.set(snap.directives ?? []);
+      this.machineGroups.set(snap.machine_groups ?? []);
       for (const op of this.liveLog.slice(logStart)) op();
     } finally {
       this.refreshesInFlight--;
@@ -410,6 +422,37 @@ export class FleetStore {
         return next;
       });
     });
+  }
+
+  /** A machine's labels changed (fleet.update kind "machine_labels"). */
+  applyMachineLabels(workerId: string, labels: string[]): void {
+    this.live(() => this.workers.update((list) => list.map((w) => (w.id === workerId ? { ...w, labels } : w))));
+  }
+
+  applyMachineGroups(groups: MachineGroup[]): void {
+    this.live(() => this.machineGroups.set(groups));
+  }
+
+  async addLabel(workerId: string, label: string): Promise<void> {
+    const res = await this.api.addMachineLabel(workerId, label);
+    this.applyMachineLabels(res.worker_id, res.labels);
+  }
+
+  async removeLabel(workerId: string, label: string): Promise<void> {
+    const res = await this.api.removeMachineLabel(workerId, label);
+    this.applyMachineLabels(res.worker_id, res.labels);
+  }
+
+  /** Saves a group (new without id) and returns it as stored. */
+  async saveGroup(group: { id?: string; name: string; worker_ids: string[] }): Promise<MachineGroup> {
+    const g = await this.api.saveMachineGroup(group);
+    this.live(() => this.machineGroups.update((list) => [...list.filter((x) => x.id !== g.id), g].sort((a, b) => a.name.localeCompare(b.name))));
+    return g;
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    await this.api.deleteMachineGroup(id);
+    this.live(() => this.machineGroups.update((list) => list.filter((g) => g.id !== id)));
   }
 
   upsertTask(task: Task): void {

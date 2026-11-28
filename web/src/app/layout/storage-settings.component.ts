@@ -2,20 +2,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { CompactionRun, RetentionDays, StorageResponse } from '../core/models/syre.models';
 import { ApiClientService } from '../core/services/api-client.service';
 import { TooltipDirective } from '../shared/tooltip.directive';
+import { formatBytes } from '../shared/machines/machine-specs';
 
-/** Bytes as a short human size (1.2 MB). */
-export function formatBytes(n: number | undefined | null): string {
-  const v = Math.max(0, n ?? 0);
-  if (v < 1024) return `${v} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let x = v / 1024;
-  let i = 0;
-  while (x >= 1024 && i < units.length - 1) {
-    x /= 1024;
-    i++;
-  }
-  return `${x >= 100 ? x.toFixed(0) : x.toFixed(1)} ${units[i]}`;
-}
 
 /** Bar colors of the breakdown kinds (others fall back to grey). */
 const KIND_COLORS: Record<string, string> = {

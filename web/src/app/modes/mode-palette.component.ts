@@ -119,7 +119,8 @@ export class ModePaletteComponent {
       act('new-chat', 'New agent chat…', 'plus', () => this.ui.newSession('chat')),
       act('new-term', 'New terminal…', 'shell', () => this.ui.newSession('terminal')),
       act('questions', 'Open all questions', 'question', () => this.needsYou.open()),
-      act('add-machine', 'Add a machine…', 'server', () => this.ui.addMachineOpen.set(true)),
+      act('add-machine', 'Add a machine…', 'server', () => this.ui.openMachines('add')),
+      act('machines', 'Machines…', 'server', () => this.ui.openMachines()),
       act('settings', 'Settings', 'settings', () => this.ui.openSettings()),
       {
         id: 'forges',

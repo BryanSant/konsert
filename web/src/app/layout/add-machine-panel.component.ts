@@ -23,7 +23,6 @@ import { FleetStore } from '../core/state/fleet.store';
 import { SetupStore } from '../core/state/setup.store';
 import { IconComponent } from '../shared/icon.component';
 import { TooltipDirective } from '../shared/tooltip.directive';
-import { ModalDialogComponent } from '../shared/modal-dialog.component';
 import { ManualJoinComponent } from './manual-join.component';
 
 /** Matches an ~/.ssh/config host to a registered machine (by name, host group or hostname). */
@@ -59,15 +58,18 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
-/** Herdr-style Add Machine: SSH config discovery, one-click bootstrap, manual fallback. */
+/**
+ * Add a machine: this machine, hosts from ~/.ssh/config with one-click bootstrap, or a
+ * one-time join code. The Machines dialog's add pane (SYR-FJA2T).
+ */
 
 @Component({
-  selector: 'app-add-machine-modal',
+  selector: 'sy-add-machine-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TooltipDirective, FormsModule, IconComponent, ModalDialogComponent, ManualJoinComponent],
+  imports: [TooltipDirective, FormsModule, IconComponent, ManualJoinComponent],
   template: `
-    <app-modal-dialog labelledBy="add-machine-title" panelClass="w-full max-w-[540px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5" (close)="close.emit()">
+    <div class="space-y-5">
       <div class="flex items-start justify-between gap-3">
         <div>
           <h3 class="text-[15px] font-semibold text-[#ececed]" id="add-machine-title">
@@ -83,14 +85,6 @@ function isAbort(err: unknown): boolean {
             }
           </p>
         </div>
-        <button
-          type="button"
-          (click)="close.emit()"
-          aria-label="Esc: close dialog"
-          class="text-[11px] text-[#86888f] hover:text-[#ececed] transition cursor-pointer shrink-0 pt-0.5"
-        >
-          Esc
-        </button>
       </div>
 
       <div class="flex items-center gap-1 rounded-lg bg-[#151619] p-1 text-[12px]" role="tablist" aria-label="How to add the machine">
@@ -340,17 +334,16 @@ function isAbort(err: unknown): boolean {
         </label>
       </div>
       }
-    </app-modal-dialog>
+    </div>
   `,
 })
-export class AddMachineModalComponent implements OnInit, OnDestroy {
+export class AddMachinePanelComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
   readonly setup = inject(SetupStore);
 
   /** Opened automatically on a hub's first run. */
   readonly firstRun = input(false);
-  readonly close = output<void>();
   /** User asked to see an already-added machine. */
   readonly inspectMachine = output<string>();
 
@@ -390,7 +383,7 @@ export class AddMachineModalComponent implements OnInit, OnDestroy {
     return 'starting';
   });
 
-  /** Aborts an in-flight bootstrap stream when the modal closes. */
+  /** Aborts an in-flight bootstrap stream when the panel goes away. */
   private bootstrapAbort: AbortController | null = null;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private destroyed = false;

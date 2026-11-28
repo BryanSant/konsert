@@ -45,7 +45,7 @@ import { NeedsYouItemComponent } from '../../features/needs-you/needs-you-item.c
       @if (ui.firstRun()) {
         <div class="mt-4 rounded-[var(--sy-radius-lg)] bg-[var(--sy-surface-1)] p-4 text-[13.5px] leading-relaxed text-[var(--sy-text-secondary)]">
           Syre runs coding agents on your own machines. Add a machine to get started; whatever needs you lands here.
-          <button type="button" class="sy-btn sy-btn-primary w-full h-[44px] mt-3" (click)="ui.addMachineOpen.set(true)">Add a machine</button>
+          <button type="button" class="sy-btn sy-btn-primary w-full h-[44px] mt-3" (click)="ui.openMachines('add')">Add a machine</button>
         </div>
       }
 
