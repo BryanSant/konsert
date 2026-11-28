@@ -18,6 +18,7 @@ editable periods and **Compact now**).
 | `usage_events` | Per call for **30 days** (`retention_usage_days`), then folded into `usage_daily`. |
 | `usage_daily` | Daily totals per provider, model and account, kept **365 days** (`retention_usage_daily_days`). Usage views read both tables. |
 | `machine_vitals`, `machine_vitals_rollup` | Raw 15-second samples 12 hours, hourly roll-ups 30 days, daily roll-ups 365 days (SYR-WY5F2, `RollupVitals`). |
+| `metric_samples` | Per-session and agent/other load (SYR-PEEBE): 1-minute rows **2 days** (`retention_metrics_minute_days`, 1–14), hourly roll-ups **30 days** (`retention_metrics_hourly_days`, 7–365: at least the timeline's 1-week range). Rolled up and pruned hourly with the vitals (`RollupMetrics`). Tasks keep their peaks (`tasks.peak_rss_mb`, `peak_cpu_pct`). |
 | `audit_log` | 90 days, at most 100,000 rows (`AuditRetention`, pruned inline). |
 | `devices`, `pairing_codes`, `machine_join_codes` | Expired codes and revoked devices pruned after a day (`PruneAuth`, join-code creation). |
 | Everything else (questions, holds, requests, overrides, vetoes, reviews, settings, memory) | Small; kept until the related work or machine is deleted. |

@@ -1013,6 +1013,9 @@ export interface RetentionDays {
   fleet_summary_days: number;
   usage_days: number;
   usage_daily_days: number;
+  // Per-session and agent/other load history: per minute, then hourly.
+  metrics_days: number;
+  metrics_hourly_days: number;
 }
 
 export interface RetentionBound {

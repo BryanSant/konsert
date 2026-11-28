@@ -24,16 +24,18 @@ type StorageResponse struct {
 }
 
 type retentionBoundsDTO struct {
-	DetailDays       store.RetentionBound `json:"detail_days"`
-	FleetDays        store.RetentionBound `json:"fleet_days"`
-	FleetSummaryDays store.RetentionBound `json:"fleet_summary_days"`
-	UsageDays        store.RetentionBound `json:"usage_days"`
-	UsageDailyDays   store.RetentionBound `json:"usage_daily_days"`
+	DetailDays        store.RetentionBound `json:"detail_days"`
+	FleetDays         store.RetentionBound `json:"fleet_days"`
+	FleetSummaryDays  store.RetentionBound `json:"fleet_summary_days"`
+	UsageDays         store.RetentionBound `json:"usage_days"`
+	UsageDailyDays    store.RetentionBound `json:"usage_daily_days"`
+	MetricsDays       store.RetentionBound `json:"metrics_days"`
+	MetricsHourlyDays store.RetentionBound `json:"metrics_hourly_days"`
 }
 
 func retentionBounds() retentionBoundsDTO {
 	b := store.RetentionBounds
-	return retentionBoundsDTO{b.Detail, b.Fleet, b.FleetSummary, b.UsageRaw, b.UsageDaily}
+	return retentionBoundsDTO{b.Detail, b.Fleet, b.FleetSummary, b.UsageRaw, b.UsageDaily, b.MetricsMinute, b.MetricsHourly}
 }
 
 func (s *Server) storageResponse(r *http.Request, fresh bool) (StorageResponse, error) {
@@ -71,7 +73,10 @@ func (s *Server) handleGetCompaction(w http.ResponseWriter, r *http.Request) {
 
 // handlePutRetention serves PUT /api/storage/retention with a full RetentionDays.
 func (s *Server) handlePutRetention(w http.ResponseWriter, r *http.Request) {
-	var body RetentionDays
+	// Start from the saved policy: a client that predates a period (an older PWA)
+	// leaves it as it is instead of failing validation with a zero.
+	saved, _ := s.store.GetAllSettings(r.Context())
+	body := retentionFromSettings(saved)
 	if !decodeJSON(w, r, &body) {
 		return
 	}

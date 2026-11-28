@@ -115,6 +115,7 @@ func (h *Hub) vitalsLoop(ctx context.Context) {
 		return
 	}
 	h.rollupVitals(ctx, time.Now())
+	h.rollupMetrics(ctx, time.Now())
 	t := time.NewTicker(vitalsFlushEvery)
 	defer t.Stop()
 	lastHour := time.Now().Truncate(time.Hour)
@@ -124,9 +125,11 @@ func (h *Hub) vitalsLoop(ctx context.Context) {
 			return
 		case now := <-t.C:
 			h.flushVitals(ctx, false)
+			h.flushMetrics(ctx, false)
 			if hr := now.Truncate(time.Hour); hr.After(lastHour) {
 				lastHour = hr
 				h.rollupVitals(ctx, now)
+				h.rollupMetrics(ctx, now)
 			}
 		}
 	}

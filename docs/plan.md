@@ -593,7 +593,7 @@ Built alongside 5a (open requests are questions with an action attached).
   - Linux: logind IdleHint of the user's seat sessions. This is coarse: 0 until the desktop's own idle timeout passes. Servers with no seat report none.
 
   Idle is read at most every 30 s. All of it rides on `WorkerMetrics.Load`.
-- Store: `metric_samples` (machine and session, downsampled 1 min / 1 h, retention settings), session peaks on the task row.
+- Store (done, SYR-PEEBE). `metric_samples` keeps per-subject series: `task:`, `chat:`, `observed:<machine>/`, `agent:<machine>`, `other:<machine>`. The hub folds each heartbeat's `WorkerMetrics.Load` into 1-minute buckets, written each minute and at shutdown (a restart merges into the same rows), and rolls them up hourly. Retention is in Settings → Storage: minutes 2 days, hours 30 days (at least 7). Tasks keep their peaks (`peak_rss_mb`, `peak_cpu_pct`). Queries: `GET /api/metrics?subject=…|worker=…&range=1h|12h|24h|3d|1w` and MCP `fleet_status detail=history`. Machine rows in `fleet_status` carry the live load and the policy.
 - Exit: a build started by an agent is attributed to it; a build started by hand counts as other load; history survives hub restarts.
 
 ### Phase 7: Facts, work keys and outcomes

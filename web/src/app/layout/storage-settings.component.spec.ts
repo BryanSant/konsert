@@ -9,7 +9,7 @@ import { compactedNote } from '../features/chat/transcript/chat-transcript.compo
 import { StorageSettingsComponent, formatBytes } from './storage-settings.component';
 
 function storage(over: Partial<StorageResponse> = {}): StorageResponse {
-  const days = { detail_days: 30, fleet_days: 90, fleet_summary_days: 365, usage_days: 30, usage_daily_days: 365 };
+  const days = { detail_days: 30, fleet_days: 90, fleet_summary_days: 365, usage_days: 30, usage_daily_days: 365, metrics_days: 2, metrics_hourly_days: 30 };
   const b = { Min: 7, Max: 365 };
   return {
     stats: {
@@ -29,7 +29,7 @@ function storage(over: Partial<StorageResponse> = {}): StorageResponse {
     },
     retention: days,
     defaults: days,
-    bounds: { detail_days: b, fleet_days: b, fleet_summary_days: { Min: 30, Max: 3650 }, usage_days: b, usage_daily_days: { Min: 30, Max: 3650 } },
+    bounds: { detail_days: b, fleet_days: b, fleet_summary_days: { Min: 30, Max: 3650 }, usage_days: b, usage_daily_days: { Min: 30, Max: 3650 }, metrics_days: { Min: 1, Max: 14 }, metrics_hourly_days: { Min: 7, Max: 365 } },
     retention_text: ['Running work and work finished in the last 30 days keeps every detail.'],
     compaction: { running: false },
     ...over,

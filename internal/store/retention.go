@@ -24,17 +24,23 @@ type RetentionPolicy struct {
 	// are kept UsageDaily.
 	UsageRaw   time.Duration
 	UsageDaily time.Duration
+	// MetricsMinute and MetricsHourly: per-session and agent/other load history is
+	// kept in 1-minute rows this long, and in hourly rows MetricsHourly.
+	MetricsMinute time.Duration
+	MetricsHourly time.Duration
 }
 
 const day = 24 * time.Hour
 
 // DefaultRetention is the policy unless the user changed it in Settings → Storage.
 var DefaultRetention = RetentionPolicy{
-	Detail:       30 * day,
-	Fleet:        90 * day,
-	FleetSummary: 365 * day,
-	UsageRaw:     30 * day,
-	UsageDaily:   365 * day,
+	Detail:        30 * day,
+	Fleet:         90 * day,
+	FleetSummary:  365 * day,
+	UsageRaw:      30 * day,
+	UsageDaily:    365 * day,
+	MetricsMinute: 2 * day,
+	MetricsHourly: 30 * day,
 }
 
 // RetentionBound is the accepted range of one retention setting, in days.
@@ -42,13 +48,16 @@ type RetentionBound struct{ Min, Max int }
 
 // RetentionBounds are the sane limits of each period (Settings → Storage).
 var RetentionBounds = struct {
-	Detail, Fleet, FleetSummary, UsageRaw, UsageDaily RetentionBound
+	Detail, Fleet, FleetSummary, UsageRaw, UsageDaily, MetricsMinute, MetricsHourly RetentionBound
 }{
-	Detail:       RetentionBound{7, 365},
-	Fleet:        RetentionBound{14, 365},
-	FleetSummary: RetentionBound{30, 3650},
-	UsageRaw:     RetentionBound{7, 365},
-	UsageDaily:   RetentionBound{30, 3650},
+	Detail:        RetentionBound{7, 365},
+	Fleet:         RetentionBound{14, 365},
+	FleetSummary:  RetentionBound{30, 3650},
+	UsageRaw:      RetentionBound{7, 365},
+	UsageDaily:    RetentionBound{30, 3650},
+	MetricsMinute: RetentionBound{1, 14},
+	// At least a week of hourly history: the fleet timeline's longest range.
+	MetricsHourly: RetentionBound{7, 365},
 }
 
 // TaskEventKeepKinds are the task_events kinds compaction keeps: milestones, the

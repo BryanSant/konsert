@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -23,6 +24,11 @@ import (
 type FleetStatusInput struct {
 	Detail  string `json:"detail,omitempty"`
 	Machine string `json:"machine,omitempty"`
+	// Subject and Range pick a history series (detail=history): a session subject
+	// ("task:<id>", "chat:<id>"), or the machine's agent and other load when only
+	// Machine is set; Range is 1h, 12h (default), 24h, 3d or 1w.
+	Subject string `json:"subject,omitempty"`
+	Range   string `json:"range,omitempty"`
 }
 
 type FleetSummaryResult struct {
@@ -48,6 +54,38 @@ type MachineDetailRow struct {
 	MaxConcurrent int                    `json:"max_concurrent"`
 	Drained       bool                   `json:"drained,omitzero"`
 	Facts         *protocol.MachineFacts `json:"facts,omitzero"`
+	// Policy is the machine policy the user set (read-only here).
+	Policy *protocol.MachinePolicy `json:"policy,omitzero"`
+	// Load is the latest split of its processes: per session, agent vs other, the
+	// busiest other processes, how long the user has been idle.
+	Load *protocol.MachineLoad `json:"load,omitzero"`
+}
+
+// machineRow is a fleet_status machine row.
+func machineRow(w WorkerStatusView) MachineDetailRow {
+	r := MachineDetailRow{
+		WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status,
+		OS: w.OS, Arch: w.Arch, Agents: w.Agents, ActiveTasks: w.ActiveTasks,
+		MaxConcurrent: w.MaxConcurrent, Drained: w.Drained, Facts: w.Facts, Policy: w.Policy,
+	}
+	if w.Metrics != nil {
+		r.Load = w.Metrics.Load
+	}
+	return r
+}
+
+// historySubjects resolves fleet_status detail=history to subjects (or a worker).
+func historySubjects(in FleetStatusInput, workers []WorkerStatusView) (subjects []string, worker string, err error) {
+	if sub := strings.TrimSpace(in.Subject); sub != "" {
+		return []string{sub}, "", nil
+	}
+	machine := strings.TrimSpace(in.Machine)
+	for _, w := range workers {
+		if machine != "" && (w.ID == machine || w.SID == machine || strings.EqualFold(w.Name, machine)) {
+			return []string{agentSubject(w.ID), otherSubject(w.ID)}, "", nil
+		}
+	}
+	return nil, "", fmt.Errorf("detail=history needs a subject (task:<id>, chat:<id>) or a known machine")
 }
 
 type BacklogInput struct {
@@ -168,8 +206,10 @@ var (
 	fleetStatusSchema = map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"detail":  map[string]any{"type": "string", "enum": []any{"summary", "machines"}},
+			"detail":  map[string]any{"type": "string", "enum": []any{"summary", "machines", "history"}},
 			"machine": map[string]any{"type": "string", "description": "Machine id, sid or name"},
+			"subject": map[string]any{"type": "string", "description": "detail=history: task:<id> or chat:<id> (default: the machine's agent and other load)"},
+			"range":   map[string]any{"type": "string", "enum": []any{"1h", "12h", "24h", "3d", "1w"}},
 		},
 	}
 
@@ -288,7 +328,7 @@ var (
 )
 
 const (
-	fleetStatusDesc = "Fleet summary grouped by capability (default) with directives and holds, or per-machine facts when detail=machines or machine is set."
+	fleetStatusDesc = "Fleet summary grouped by capability (default) with directives and holds; per-machine facts, policy and current load (per session, agent vs other, user idle) when detail=machines or machine is set; load history of a session or machine with detail=history."
 	backlogDesc     = "Compact table of projects/repos, tickets (sid, title, status, lease, blockers), and ad-hoc tasks."
 	manageWorkDesc  = "Batch create/update/cancel/requeue tickets (incl. blocked_by, repos, hints), dispatch ad-hoc tasks, or create projects/repos."
 	controlDesc     = "Pause, resume, stop, drain, undrain, suspend, veto, or toggle autopilot at ticket, session, machine, project, or fleet scope. Resume/undrain require user confirmation."
@@ -379,21 +419,24 @@ func (s *FleetService) FleetStatusView(ctx context.Context, in FleetStatusInput)
 			if machine != "" && w.ID != machine && w.SID != machine && !strings.EqualFold(w.Name, machine) {
 				continue
 			}
-			out = append(out, MachineDetailRow{
-				WorkerID:      w.ID,
-				WorkerSID:     w.SID,
-				WorkerName:    w.Name,
-				Status:        w.Status,
-				OS:            w.OS,
-				Arch:          w.Arch,
-				Agents:        w.Agents,
-				ActiveTasks:   w.ActiveTasks,
-				MaxConcurrent: w.MaxConcurrent,
-				Drained:       w.Drained,
-				Facts:         w.Facts,
-			})
+			out = append(out, machineRow(w))
 		}
 		return map[string]any{"machines": out}, nil
+	case "history":
+		subjects, worker, err := historySubjects(in, fs.Workers)
+		if err != nil {
+			return nil, err
+		}
+		rng := cmp.Or(in.Range, "12h")
+		span, ok := metricRanges[rng]
+		if !ok || s.hub == nil {
+			return nil, fmt.Errorf("range must be 1h, 12h, 24h, 3d or 1w")
+		}
+		series, err := s.hub.MetricHistory(ctx, subjects, worker, span)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"range": rng, "series": series}, nil
 	case "summary":
 		counts := map[string]int{}
 		online := 0
@@ -1319,13 +1362,22 @@ func (c *RemoteFleetClient) FleetStatusView(ctx context.Context, in FleetStatusI
 			if machine != "" && w.ID != machine && w.SID != machine && !strings.EqualFold(w.Name, machine) {
 				continue
 			}
-			out = append(out, MachineDetailRow{
-				WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status,
-				OS: w.OS, Arch: w.Arch, Agents: w.Agents, ActiveTasks: w.ActiveTasks,
-				MaxConcurrent: w.MaxConcurrent, Drained: w.Drained, Facts: w.Facts,
-			})
+			out = append(out, machineRow(w))
 		}
 		return map[string]any{"machines": out}, nil
+	}
+	if detail == "history" {
+		subjects, worker, err := historySubjects(in, fs.Workers)
+		if err != nil {
+			return nil, err
+		}
+		q := url.Values{"subject": {strings.Join(subjects, ",")}, "range": {cmp.Or(in.Range, "12h")}}
+		if worker != "" {
+			q.Set("worker", worker)
+		}
+		var res map[string]any
+		err = c.doJSON(ctx, http.MethodGet, "/api/metrics?"+q.Encode(), nil, &res)
+		return res, err
 	}
 	counts := map[string]int{}
 	online := 0

@@ -216,6 +216,7 @@ type Hub struct {
 	// worker's smoothed load score (heat.go).
 	activity  activityState
 	heat      heatState
+	metrics   metricHistory
 	ports     portsCache
 	checkouts checkoutState
 	// retention is the history compaction state (retention.go). RetentionEvery is how
@@ -376,6 +377,7 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	h.stopAllDelegationTimers()
 	// Keep the in-progress history buckets across a restart.
 	h.flushVitals(ctx, true)
+	h.flushMetrics(ctx, true)
 	h.cancel()
 
 	h.mu.Lock()

@@ -833,7 +833,7 @@ const taskSelectColumns = `id, sid, external_id, worker_id, project_id, repo_id,
 		       orphan_policy, prompt, status, summary, git_summary_json, digest_json, followups_json, worktrees_json, worktrees_cleaned_at, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
-		       keep, compacted_at, created_at, started_at, completed_at`
+		       keep, compacted_at, created_at, started_at, completed_at, peak_rss_mb, peak_cpu_pct`
 
 func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	var (
@@ -858,7 +858,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &t.DigestJSON, &followupsJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
-		&keep, &compactedAt, &createdAt, &startedAt, &completedAt,
+		&keep, &compactedAt, &createdAt, &startedAt, &completedAt, &t.PeakRSSMB, &t.PeakCPUPct,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Task{}, store.ErrNotFound

@@ -508,6 +508,7 @@ func (h *Hub) onWorkerHeartbeat(ctx context.Context, wc *workerConn, env protoco
 		h.mu.Lock()
 		h.workerMetrics[wc.id] = p.Metrics
 		h.mu.Unlock()
+		h.foldLoad(wc.id, p.Metrics.Load, time.Now())
 	}
 
 	// Update-only: if the machine was just removed from the fleet, the heartbeat

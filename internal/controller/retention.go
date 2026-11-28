@@ -44,6 +44,8 @@ const (
 	settingRetentionFleetSummary = "retention_fleet_summary_days"
 	settingRetentionUsage        = "retention_usage_days"
 	settingRetentionUsageDaily   = "retention_usage_daily_days"
+	settingRetentionMetrics      = "retention_metrics_minute_days"
+	settingRetentionMetricsHour  = "retention_metrics_hourly_days"
 )
 
 // AuditStorageCompact and AuditStorageRetention are the audit actions of Compact now and
@@ -60,6 +62,9 @@ type RetentionDays struct {
 	FleetSummaryDays int `json:"fleet_summary_days"`
 	UsageDays        int `json:"usage_days"`
 	UsageDailyDays   int `json:"usage_daily_days"`
+	// Per-session and agent/other load history: minute rows, then hourly rows.
+	MetricsDays       int `json:"metrics_days"`
+	MetricsHourlyDays int `json:"metrics_hourly_days"`
 }
 
 func daysOf(d time.Duration) int { return int(d / (24 * time.Hour)) }
@@ -69,6 +74,7 @@ func (r RetentionDays) policy() store.RetentionPolicy {
 	return store.RetentionPolicy{
 		Detail: d(r.DetailDays), Fleet: d(r.FleetDays), FleetSummary: d(r.FleetSummaryDays),
 		UsageRaw: d(r.UsageDays), UsageDaily: d(r.UsageDailyDays),
+		MetricsMinute: d(r.MetricsDays), MetricsHourly: d(r.MetricsHourlyDays),
 	}
 }
 
@@ -77,6 +83,7 @@ func defaultRetentionDays() RetentionDays {
 	return RetentionDays{
 		DetailDays: daysOf(p.Detail), FleetDays: daysOf(p.Fleet), FleetSummaryDays: daysOf(p.FleetSummary),
 		UsageDays: daysOf(p.UsageRaw), UsageDailyDays: daysOf(p.UsageDaily),
+		MetricsDays: daysOf(p.MetricsMinute), MetricsHourlyDays: daysOf(p.MetricsHourly),
 	}
 }
 
@@ -97,6 +104,8 @@ func (r *RetentionDays) fields() []struct {
 		{settingRetentionFleetSummary, &r.FleetSummaryDays, b.FleetSummary},
 		{settingRetentionUsage, &r.UsageDays, b.UsageRaw},
 		{settingRetentionUsageDaily, &r.UsageDailyDays, b.UsageDaily},
+		{settingRetentionMetrics, &r.MetricsDays, b.MetricsMinute},
+		{settingRetentionMetricsHour, &r.MetricsHourlyDays, b.MetricsHourly},
 	}
 }
 
@@ -113,6 +122,9 @@ func (r RetentionDays) validate() error {
 	}
 	if r.UsageDailyDays < r.UsageDays {
 		return errors.New("daily usage totals must be kept at least as long as per-call usage")
+	}
+	if r.MetricsHourlyDays < r.MetricsDays {
+		return errors.New("hourly load history must be kept at least as long as the per-minute history")
 	}
 	return nil
 }
@@ -132,6 +144,9 @@ func retentionFromSettings(kv map[string]string) RetentionDays {
 	if r.UsageDailyDays < r.UsageDays {
 		r.UsageDailyDays = r.UsageDays
 	}
+	if r.MetricsHourlyDays < r.MetricsDays {
+		r.MetricsHourlyDays = r.MetricsDays
+	}
 	return r
 }
 
@@ -143,6 +158,7 @@ func (r RetentionDays) RetentionText() []string {
 		fmt.Sprintf("The fleet timeline keeps everything for %d days, then only your actions and failures until %d days, then nothing.", r.FleetDays, r.FleetSummaryDays),
 		fmt.Sprintf("Token usage is kept per call for %d days, then as daily totals for %d days.", r.UsageDays, r.UsageDailyDays),
 		VitalsRetentionText,
+		fmt.Sprintf("Load per session and agent vs other load are kept per minute for %d days, then hourly for %d days.", r.MetricsDays, r.MetricsHourlyDays),
 		"The audit log keeps 90 days. Sessions marked Keep are never compacted.",
 	}
 }

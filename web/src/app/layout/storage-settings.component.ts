@@ -156,7 +156,7 @@ export class StorageSettingsComponent implements OnInit {
 
   readonly data = signal<StorageResponse | null>(null);
   readonly run = signal<CompactionRun | null>(null);
-  readonly draft = signal<RetentionDays>({ detail_days: 30, fleet_days: 90, fleet_summary_days: 365, usage_days: 30, usage_daily_days: 365 });
+  readonly draft = signal<RetentionDays>({ detail_days: 30, fleet_days: 90, fleet_summary_days: 365, usage_days: 30, usage_daily_days: 365, metrics_days: 2, metrics_hourly_days: 30 });
   readonly error = signal('');
   readonly saving = signal(false);
   readonly savedNote = signal('');
@@ -168,6 +168,8 @@ export class StorageSettingsComponent implements OnInit {
     { key: 'fleet_summary_days', label: 'Your actions and failures kept for' },
     { key: 'usage_days', label: 'Per-call token usage kept for' },
     { key: 'usage_daily_days', label: 'Daily usage totals kept for' },
+    { key: 'metrics_days', label: 'Load per minute kept for' },
+    { key: 'metrics_hourly_days', label: 'Hourly load history kept for' },
   ];
 
   readonly running = computed(() => !!this.run()?.running);

@@ -203,6 +203,11 @@ type Task struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	StartedAt   *time.Time `json:"started_at,omitzero"`
 	CompletedAt *time.Time `json:"completed_at,omitzero"`
+
+	// PeakRSSMB and PeakCPUPct are the highest memory and CPU the task's processes
+	// reached in a minute of metric history (0: never sampled).
+	PeakRSSMB  uint64  `json:"peak_rss_mb,omitzero"`
+	PeakCPUPct float64 `json:"peak_cpu_pct,omitzero"`
 }
 
 // TaskStartSpec is the persisted placement and launch specification of a task:
@@ -643,6 +648,14 @@ type Store interface {
 	// Machine vitals and heat (SYR-WY5F2). UpsertVitals merges raw samples into stored
 	// buckets (sample-weighted means, max heat and its cause); samples of machines that
 	// no longer exist are dropped.
+	// Metric history (SYR-PEEBE): per-session and agent/other load series.
+	UpsertMetricSamples(ctx context.Context, samples []MetricSample) error
+	ListMetricSamples(ctx context.Context, f MetricFilter) ([]MetricSample, error)
+	// RollupMetrics recomputes the hourly rows of every complete hour the minute tier
+	// still covers and prunes each tier past its retention.
+	RollupMetrics(ctx context.Context, now time.Time, minuteKeep, hourlyKeep time.Duration) (MetricRollupResult, error)
+	// RaiseTaskPeaks raises a task's recorded peaks to at least rssMB and cpuPct.
+	RaiseTaskPeaks(ctx context.Context, taskID string, rssMB uint64, cpuPct float64) error
 	UpsertVitals(ctx context.Context, samples []VitalsSample) error
 	// ListVitals returns every machine's raw samples in [since, until), oldest first.
 	ListVitals(ctx context.Context, since, until time.Time) ([]VitalsSample, error)
@@ -812,4 +825,42 @@ type Store interface {
 	DeleteMemory(ctx context.Context, scope, key string) error
 
 	Close() error
+}
+
+// Metric periods (MetricSample.Period, seconds).
+const (
+	MetricMinute = 60
+	MetricHour   = 3600
+)
+
+// MetricSample is one subject's load over one period: a task's, chat's or observed
+// session's processes, or a machine's agent or other load. CPU is 100 per fully used
+// core; RSS is in MB. Averages are weighted by N, the heartbeats folded in.
+type MetricSample struct {
+	Subject  string    `json:"subject"`
+	WorkerID string    `json:"worker_id"`
+	Period   int       `json:"period"`
+	At       time.Time `json:"t"`
+	N        int       `json:"n"`
+	CPUAvg   float64   `json:"cpu_avg"`
+	CPUMax   float64   `json:"cpu_max"`
+	RSSAvg   float64   `json:"rss_avg_mb"`
+	RSSMax   float64   `json:"rss_max_mb"`
+	ProcsMax int       `json:"procs_max"`
+}
+
+// MetricFilter selects metric rows: one period, the subjects listed (or every
+// subject of WorkerID), from Since until Until (exclusive; zero = open).
+type MetricFilter struct {
+	Subjects     []string
+	WorkerID     string
+	Period       int
+	Since, Until time.Time
+	Limit        int
+}
+
+// MetricRollupResult counts what one RollupMetrics run did.
+type MetricRollupResult struct {
+	Hourly int64
+	Pruned int64
 }
