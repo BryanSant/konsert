@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/shells"
 )
 
 // A suspended task reports "suspended", its timeout stops counting, and resuming
@@ -63,6 +64,14 @@ func TestRunnerCancelSuspendedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectStatus(t, rec, protocol.TaskStatusRunning)
+	// Freeze it once sleep runs. Frozen mid-fork, dash has every signal blocked: the
+	// SIGINT after the thaw reaches dash (which catches it and waits for its child) but
+	// not the child, which then runs sleep until the grace ends. That is the shell, not
+	// the cancel path (SYR-TM8TM).
+	runner.mu.RLock()
+	root := runner.tasks[id].pty.Pid()
+	runner.mu.RUnlock()
+	waitForSleep(t, root)
 	if err := runner.SuspendTask(id); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +87,22 @@ func TestRunnerCancelSuspendedTask(t *testing.T) {
 	if took := time.Since(start); took > 4*time.Second {
 		t.Fatalf("cancel of a suspended task took %s (frozen tree ignored SIGINT until SIGKILL)", took)
 	}
+}
+
+// waitForSleep waits until root is sleep or has a sleep child.
+func waitForSleep(t *testing.T, root int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		list, _ := shells.OSSource().Snapshot()
+		for _, p := range list {
+			if p.Name == "sleep" && (p.PID == root || p.PPID == root) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("sleep never started under %d", root)
 }
 
 func expectStatus(t *testing.T, rec *statusRecorder, status string) {
