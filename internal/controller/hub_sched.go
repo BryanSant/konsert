@@ -188,7 +188,14 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				}
 				peak := h.expectedPeak(ctx, t.WorkKey, "")
 				scope := h.placementScopeOf(ctx, t.ProjectID, t.RepoID, t.Workdir, t.Branch, t.WorkKey)
-				w, pout, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode, h.placementOpts(ctx, scope, peak, t.ID, nil))
+				popts := h.placementOpts(ctx, scope, peak, t.ID, nil)
+				if payload.SessionKind != "terminal" {
+					popts = h.withAccounts(ctx, popts, payload.Agent, payload.AccountID, t.Cause == nil || isAutomatic(*t.Cause))
+				}
+				w, pout, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode, popts)
+				if ok && payload.AccountID == "" {
+					payload.AccountID = chosenAccount(pout, w.ID)
+				}
 				if !ok {
 					continue
 				}

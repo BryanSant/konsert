@@ -3,11 +3,13 @@ package controller
 import (
 	"cmp"
 	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/BryanSant/syre/internal/capacity"
 	"github.com/BryanSant/syre/internal/policy"
+	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
 )
 
@@ -127,4 +129,77 @@ func (h *Hub) expectedPeak(ctx context.Context, key, class string) uint64 {
 // headroomFn is workerHeadroom bound to ctx, for the placement scorer.
 func (h *Hub) headroomFn(ctx context.Context) func(store.Worker) *capacity.Headroom {
 	return func(w store.Worker) *capacity.Headroom { return h.workerHeadroom(ctx, w) }
+}
+
+// accountRemaining is an account's remaining share of its tightest usage window
+// (known false without usage reports).
+func accountRemaining(a protocol.AgentAccount) (float64, bool) {
+	if len(a.Usage) == 0 {
+		return 0, false
+	}
+	used := 0.0
+	for _, u := range a.Usage {
+		used = max(used, u.UsedPercent)
+	}
+	return max(0, 1-used/100), true
+}
+
+// placementAccount picks the agent account work would use on a machine (SYR-NCEHE):
+// the one asked for, else the signed-in account of the agent with the most quota left,
+// skipping exhausted ones until their reset. why says when every usable account there
+// is exhausted.
+func (h *Hub) placementAccount(ctx context.Context, w store.Worker, agent, accountID string, now time.Time) (string, float64, bool, string) {
+	if agent == "" || agent == "shell" {
+		return "", 0, false, ""
+	}
+	accts := h.workerAccounts(ctx, w.ID)
+	if accountID != "" {
+		a, ok := findAccount(accts, agent, accountID)
+		if !ok {
+			return accountID, 0, false, ""
+		}
+		if u, exhausted := exhaustedWindow(a, now); exhausted {
+			return "", 0, false, exhaustedReason(a, u)
+		}
+		q, known := accountRemaining(a)
+		return a.ID, q, known, ""
+	}
+	var best *protocol.AgentAccount
+	bestQ, bestKnown := -1.0, false
+	var spent []string
+	for i, a := range accts {
+		if !strings.EqualFold(a.Agent, agent) || a.Auth.State == protocol.AuthLoggedOut {
+			continue
+		}
+		if u, exhausted := exhaustedWindow(a, now); exhausted {
+			spent = append(spent, exhaustedReason(a, u))
+			continue
+		}
+		q, known := accountRemaining(a)
+		if !known {
+			q = 0.5
+		}
+		// Most quota left; the default account breaks a tie.
+		if best == nil || q > bestQ || q == bestQ && a.IsDefault && !best.IsDefault {
+			best, bestQ, bestKnown = &accts[i], q, known
+		}
+	}
+	if best == nil {
+		if len(spent) > 0 {
+			return "", 0, false, strings.Join(spent, "; ")
+		}
+		return "", 0, false, "" // no account reported: the worker decides
+	}
+	if !bestKnown {
+		bestQ = 0
+	}
+	return best.ID, bestQ, bestKnown, ""
+}
+
+func exhaustedReason(a protocol.AgentAccount, u protocol.AgentRateLimit) string {
+	msg := cmpOr(a.Label, a.ID) + " has used its " + u.Window + " window"
+	if u.ResetsAt != nil {
+		msg += " (resets " + u.ResetsAt.UTC().Format("15:04 MST") + ")"
+	}
+	return msg
 }

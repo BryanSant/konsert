@@ -21,6 +21,7 @@ const (
 	WeightFit      = 4.0
 	WeightLocality = 3.0
 	WeightSpread   = 1.0
+	WeightQuota    = 2.0
 )
 
 // Work is what is known about the work being placed.
@@ -47,6 +48,11 @@ type Candidate struct {
 	// RuleBonus is what placement rules add (prefer) or take away (avoid): enough to
 	// beat any score, never the fit penalty of a machine that can't hold the work.
 	RuleBonus float64
+	// Account is the agent account the work would use there and Quota its remaining
+	// share of the tightest usage window (0 … 1; with QuotaKnown false, unknown).
+	Account    string  `json:"account,omitempty"`
+	Quota      float64 `json:"quota,omitzero"`
+	QuotaKnown bool    `json:"quota_known,omitzero"`
 }
 
 // Scored is a candidate with its score and the parts of it.
@@ -63,7 +69,7 @@ type Scored struct {
 
 // RuleBonus is a prefer rule's bonus (an avoid rule's penalty): more than the whole
 // score can be.
-const RuleBonus = 2 * (WeightFit + WeightLocality + WeightSpread)
+const RuleBonus = 2 * (WeightFit + WeightLocality + WeightSpread + WeightQuota)
 
 // fitScore is how comfortably peak fits headroom: 1 with twice the peak to spare or
 // more, 0 just fitting; below 0 when it doesn't fit, toward -1 the less room there is.
@@ -98,6 +104,11 @@ func Rank(w Work, cands []Candidate) []Scored {
 			s.Spread = math.Max(0, 1-float64(c.Active)/float64(c.Slots))
 		}
 		s.Score = (WeightFit*s.Fit+WeightLocality*s.Locality+WeightSpread*s.Spread)*s.Weight + c.RuleBonus
+		if c.QuotaKnown {
+			s.Score += WeightQuota * c.Quota
+		} else if c.Account != "" {
+			s.Score += WeightQuota * 0.5 // unknown usage: neither preferred nor avoided
+		}
 		s.Rule = c.RuleBonus
 		if !s.Fits {
 			s.Score -= 100 // last resort: only where nothing fits

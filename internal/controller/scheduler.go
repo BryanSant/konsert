@@ -84,6 +84,10 @@ type PlacementOpts struct {
 	// machine's class for class targets.
 	Rules   []store.PlacementRule
 	ClassOf func(w store.Worker) string
+	// Account picks the agent account the work would use on a machine (SYR-NCEHE):
+	// "" when the agent has none there; why is set when every usable account is
+	// exhausted (the machine is ruled out until a reset).
+	Account func(w store.Worker) (accountID string, quota float64, known bool, why string)
 }
 
 // Rejection is a machine the hard filters or a require rule ruled out, and why.
@@ -185,6 +189,14 @@ func SelectWorkerScored(
 		}
 		if opts.Headroom != nil {
 			c.Headroom = opts.Headroom(w)
+		}
+		if opts.Account != nil {
+			acct, quota, known, why := opts.Account(w)
+			if why != "" {
+				reject(w, why)
+				continue
+			}
+			c.Account, c.Quota, c.QuotaKnown = acct, quota, known
 		}
 		byID[w.ID] = w
 		cands = append(cands, c)

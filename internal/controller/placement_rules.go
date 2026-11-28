@@ -374,3 +374,32 @@ func (s *Server) handleExplainPlacement(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, res)
 }
+
+// withAccounts makes the scorer pick, on each machine, the agent account the work would
+// use there (SYR-NCEHE). Shell work has none. Automatic placement (avoid) rules out a
+// machine whose usable accounts are all exhausted until a reset; work the user started
+// runs anyway, last, with the warning it already gets.
+func (h *Hub) withAccounts(ctx context.Context, opts PlacementOpts, agent, accountID string, avoid bool) PlacementOpts {
+	if agent == "" || agent == "shell" {
+		return opts
+	}
+	now := time.Now()
+	opts.Account = func(w store.Worker) (string, float64, bool, string) {
+		id, q, known, why := h.placementAccount(ctx, w, agent, accountID, now)
+		if why != "" && !avoid {
+			return accountID, -1, true, "" // exhausted: last resort
+		}
+		return id, q, known, why
+	}
+	return opts
+}
+
+// chosenAccount is the account the scorer picked for workerID ("" when none).
+func chosenAccount(out PlacementOutcome, workerID string) string {
+	for _, s := range out.Ranked {
+		if s.ID == workerID {
+			return s.Account
+		}
+	}
+	return ""
+}

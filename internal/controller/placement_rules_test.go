@@ -170,3 +170,80 @@ func TestExplainPlacementMatchesRealPlacement(t *testing.T) {
 		t.Fatalf("inspect: %+v %v", res, err)
 	}
 }
+
+// Subscription-aware placement (SYR-NCEHE): an exhausted account is avoided until its
+// reset; same-vendor accounts share the work by the quota they have left.
+func TestPlacementAvoidsExhaustedAccountsUntilReset(t *testing.T) {
+	th := newTestHub(t)
+	resets := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	acct := func(id string, def bool, used float64, exhausted bool) protocol.AgentAccount {
+		a := protocol.AgentAccount{ID: id, Agent: "claude", IsDefault: def, ChatSupported: true, Auth: protocol.AgentAuthStatus{State: protocol.AuthOK},
+			Usage: []protocol.AgentRateLimit{{Window: "five_hour", UsedPercent: used, State: "ok"}}}
+		if exhausted {
+			a.Usage[0].State, a.Usage[0].ResetsAt = "exhausted", &resets
+		}
+		return a
+	}
+	info := testWorkerInfo("w1", "box")
+	info.Agents = []string{"claude"}
+	fw := th.connectWorker(t, info, nil, "w1")
+	report := func(accts ...protocol.AgentAccount) {
+		fw.send(protocol.MsgAgentCapabilities, protocol.AgentCapabilitiesReport{Accounts: accts})
+		// Wait for this report, not just as many accounts as before.
+		waitFor(t, 3*time.Second, "accounts stored", func() bool {
+			got := th.h.workerAccounts(t.Context(), "w1")
+			if len(got) != len(accts) {
+				return false
+			}
+			for _, want := range accts {
+				a, ok := findAccount(got, "claude", want.ID)
+				if !ok || len(a.Usage) == 0 || a.Usage[0].State != want.Usage[0].State {
+					return false
+				}
+			}
+			return true
+		})
+	}
+	// claude (the default) is spent; claude2 has room: the Commander's task runs on claude2.
+	report(acct("claude", true, 100, true), acct("claude2", false, 30, false))
+	res, err := th.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{Agent: "claude", RepoPath: "/tmp", Prompt: "x"})
+	if err != nil || res.WorkerID != "w1" {
+		t.Fatalf("dispatch: %+v %v", res, err)
+	}
+	start, err := protocol.DecodePayload[protocol.TaskStartPayload](fw.expect(protocol.MsgTaskStart, 3*time.Second))
+	if err != nil || start.AccountID != "claude2" {
+		t.Fatalf("task.start account %q: %v", start.AccountID, err)
+	}
+
+	// Both spent: the Commander's next task waits for a reset instead of being rejected.
+	report(acct("claude", true, 100, true), acct("claude2", false, 100, true))
+	res, err = th.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{Agent: "claude", RepoPath: "/tmp", Prompt: "y"})
+	if err != nil || res.WorkerID != "" || res.Status != protocol.TaskStatusQueued {
+		t.Fatalf("both exhausted: %+v %v", res, err)
+	}
+}
+
+func TestPlacementSpreadsAcrossAccountsByQuotaLeft(t *testing.T) {
+	th := newTestHub(t)
+	acct := func(used float64) protocol.AgentAccount {
+		return protocol.AgentAccount{ID: "claude", Agent: "claude", IsDefault: true, ChatSupported: true,
+			Auth: protocol.AgentAuthStatus{State: protocol.AuthOK}, Usage: []protocol.AgentRateLimit{{Window: "five_hour", UsedPercent: used, State: "ok"}}}
+	}
+	// a sorts first and is seen last: every tie-break favours it.
+	b := testWorkerInfo("w-b", "b")
+	b.Agents = []string{"claude"}
+	fb := th.connectWorker(t, b, nil, "w-b")
+	time.Sleep(10 * time.Millisecond)
+	a := testWorkerInfo("w-a", "a")
+	a.Agents = []string{"claude"}
+	fa := th.connectWorker(t, a, nil, "w-a")
+	fa.send(protocol.MsgAgentCapabilities, protocol.AgentCapabilitiesReport{Accounts: []protocol.AgentAccount{acct(85)}})
+	fb.send(protocol.MsgAgentCapabilities, protocol.AgentCapabilitiesReport{Accounts: []protocol.AgentAccount{acct(10)}})
+	waitFor(t, 3*time.Second, "accounts stored", func() bool {
+		return len(th.h.workerAccounts(t.Context(), "w-a")) == 1 && len(th.h.workerAccounts(t.Context(), "w-b")) == 1
+	})
+	res, err := th.svc.DispatchTask(commanderCtx("orch"), DispatchRequest{Agent: "claude", RepoPath: "/tmp", Prompt: "z"})
+	if err != nil || res.WorkerID != "w-b" {
+		t.Fatalf("placed on %q (want w-b, its account has more left): %v", res.WorkerID, err)
+	}
+}

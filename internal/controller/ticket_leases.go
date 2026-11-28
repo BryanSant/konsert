@@ -401,7 +401,8 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		eligible = filterProviderWorkers(eligible, agent, idx)
 		ticketKey := h.workKeyFor(ctx, store.Attempt{TicketID: tk.ID}, store.Task{ProjectID: tk.ProjectID, RepoID: firstBinding.RepoID})
 		scope := h.placementScopeOf(ctx, tk.ProjectID, firstBinding.RepoID, "", cmpOr(firstBinding.TargetBranch, firstBinding.BaseBranch), ticketKey)
-		w, pout, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode, h.placementOpts(ctx, scope, peak, tk.ID, localityFn))
+		w, pout, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode,
+			h.withAccounts(ctx, h.placementOpts(ctx, scope, peak, tk.ID, localityFn), agent, "", true))
 		if !ok {
 			continue
 		}
@@ -467,6 +468,8 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 			Status:     protocol.ChatStatusStarting,
 			CreatedAt:  now,
 			UpdatedAt:  now,
+			// The account the scorer chose on this machine (most quota left; SYR-NCEHE).
+			AccountID: chosenAccount(pout, w.ID),
 		}
 		h.resolveChatTarget(ctx, &cs)
 		if h.ticketApprovalPolicy(ctx, tk.ID) != store.AutonomyApprovalAsk {

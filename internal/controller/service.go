@@ -597,7 +597,14 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	peak := s.hub.expectedPeak(ctx, workKey, "")
 	scope := s.hub.placementScopeOf(ctx, req.ProjectID, req.RepoID, req.RepoPath, req.Branch, workKey)
 	popts := s.hub.placementOpts(ctx, scope, peak, cmpOr(req.Seed, taskID), nil)
+	if sessionKind != "terminal" {
+		popts = s.hub.withAccounts(ctx, popts, req.Agent, req.AccountID, isAutomatic(cause))
+	}
 	selected, pout, ok := SelectWorkerScored(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode, popts)
+	// No account asked for: the one the scorer chose there (most quota left).
+	if ok && req.AccountID == "" {
+		req.AccountID = chosenAccount(pout, selected.ID)
+	}
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
 		// selector allows, otherwise refuse with the re-login hint.
@@ -610,6 +617,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 			}
 			if selected, pout, ok = SelectWorkerScored(eligible, counts, req.WorkerSelector, req.Agent, permMode, popts); !ok {
 				return DispatchResult{}, loggedOut
+			}
+			if requestedAccount == "" {
+				req.AccountID = chosenAccount(pout, selected.ID)
 			}
 		}
 	}
