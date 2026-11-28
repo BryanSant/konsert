@@ -35,10 +35,17 @@
 //     Windows PowerShell 5.1 decodes typed input through the console's legacy code page,
 //     so characters outside it (e.g. U+2713 on code page 437) never reach the shell; the
 //     reported command matches what the shell received. pwsh 7 has no such limit.
-//   - cmd.exe, sh, dash, fish and others: not integrated (no command events).
+//   - fish (3.x, 4.x): --init-command sources syre.fish after the user's config.fish; it
+//     hooks the fish_prompt, fish_preexec and fish_postexec events. fish 4 starts with
+//     --features no-mark-prompt, because its own OSC 133 marks come before the event
+//     handlers run (C would precede the trusted command line). fish 4 also queries the
+//     terminal at startup and waits up to 10 s for answers: a browser tab answers at
+//     once; a terminal nobody watches starts after that wait.
+//   - cmd.exe, sh, dash and others: not integrated (no command events).
 package shellint
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"embed"
@@ -46,8 +53,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 //go:embed all:scripts
@@ -74,7 +84,7 @@ func Kind(bin string) string {
 	base := strings.ToLower(filepath.Base(strings.ReplaceAll(bin, `\`, "/")))
 	base = strings.TrimSuffix(base, ".exe")
 	switch base {
-	case "zsh", "bash":
+	case "zsh", "bash", "fish":
 		return base
 	case "pwsh", "powershell":
 		return "pwsh"
@@ -170,6 +180,21 @@ func (in Integration) Command(bin, prompt string) (args, env []string, ok bool) 
 			return []string{"-l", "-c", prompt + "\nexec " + shQuote(bin) + " --init-file " + shQuote(rc) + " -i"}, env, true
 		}
 		return []string{"--init-file", rc, "-i"}, env, true
+	case "fish":
+		rc := filepath.Join(in.Dir, "syre.fish")
+		var features []string
+		if fishMajor(bin) >= 4 {
+			features = []string{"--features", "no-mark-prompt"}
+		}
+		shell := append(append([]string{}, features...), "-l", "-i", "--init-command", "source "+fishQuote(rc))
+		if hasPrompt {
+			then := "exec " + fishQuote(bin)
+			for _, a := range shell {
+				then += " " + fishQuote(a)
+			}
+			return append(append([]string{}, features...), "-l", "-c", prompt+"\n"+then), env, true
+		}
+		return shell, env, true
 	case "pwsh":
 		ps1 := filepath.Join(in.Dir, "syre.ps1")
 		// A script block is not subject to the execution policy, unlike a .ps1 file.
@@ -191,3 +216,41 @@ func isWindowsBinary(bin string) bool {
 func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func psQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// fishQuote quotes s for fish: inside single quotes only \ and ' are special.
+func fishQuote(s string) string {
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
+}
+
+var fishVersions sync.Map // binary path -> major version
+
+// fishMajor is the major version of a fish binary (0 when unknown), read once per path.
+func fishMajor(bin string) int {
+	if v, ok := fishVersions.Load(bin); ok {
+		return v.(int)
+	}
+	major := 0
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, bin, "--version").Output(); err == nil {
+		major = parseFishMajor(string(out))
+	}
+	fishVersions.Store(bin, major)
+	return major
+}
+
+// parseFishMajor reads "fish, version 4.9.3" (0 when it can't).
+func parseFishMajor(s string) int {
+	_, v, ok := strings.Cut(s, "version ")
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, r := range strings.TrimSpace(v) {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}

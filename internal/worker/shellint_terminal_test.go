@@ -481,3 +481,87 @@ func TestShellIntegrationGitBash(t *testing.T) {
 		t.Fatalf("~/.bashrc was modified: %q (err=%v)", string(gotBashrc), err)
 	}
 }
+
+// fish (SYR-0N110): commands, exit codes, cwd and multi-line commands are reported like
+// zsh and bash; the user's config.fish runs first and is not changed. Runs where fish is
+// installed, or with SYRE_TEST_FISH=/path/to/fish.
+func TestShellIntegrationFish(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fish on Unix")
+	}
+	bin := os.Getenv("SYRE_TEST_FISH")
+	if bin == "" {
+		p, err := exec.LookPath("fish")
+		if err != nil {
+			t.Skip("fish is not installed (set SYRE_TEST_FISH to a fish binary)")
+		}
+		bin = p
+	}
+	config := "set -gx SYRE_TEST_RC sourced\nfunction fish_prompt; echo -n '$ '; end\nfunction fish_greeting; end\n"
+	home := fakeHome(t, nil)
+	cfgDir := filepath.Join(home, ".config", "fish")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.fish"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("SHELL", bin)
+	workdir := t.TempDir()
+	sub := filepath.Join(workdir, "sub dir")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	h := startTerminal(t, workdir, "")
+	// fish 4 asks the terminal about itself at startup; a browser answers, so do we.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		answered := 0
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+			s, _ := h.snapshot()
+			for n := strings.Count(s, "\x1b[0c") + strings.Count(s, "\x1b[c"); answered < n; answered++ {
+				_ = h.runner.WriteStdin(h.taskID, []byte("\x1b[?62;22c"))
+			}
+		}
+	}()
+	h.waitPrompt(1)
+
+	start, end := h.run("true")
+	if start.Command != "true" || exitOf(t, end) != 0 || !sameDir(start.Cwd, workdir) {
+		t.Fatalf("true: %+v / %+v", start, end)
+	}
+	if _, end = h.run("false"); exitOf(t, end) != 1 {
+		t.Fatalf("false: %+v", end)
+	}
+	if start, end = h.run("sh -c 'exit 7'"); start.Command != "sh -c 'exit 7'" || exitOf(t, end) != 7 {
+		t.Fatalf("exit 7: %+v / %+v", start, end)
+	}
+	if _, end = h.run(`test "$SYRE_TEST_RC" = sourced; and test -z "$SYRE_SHELL_NONCE"`); exitOf(t, end) != 0 {
+		t.Fatalf("config.fish not sourced, or the nonce leaked into the environment: %+v", end)
+	}
+	if start, end = h.run(`cd "sub dir"`); exitOf(t, end) != 0 || !sameDir(start.Cwd, workdir) {
+		t.Fatalf("cd: %+v / %+v", start, end)
+	}
+	start, _ = h.run(`echo 'é ✓;\\' ; true`)
+	if !sameDir(start.Cwd, sub) || start.Command != `echo 'é ✓;\\' ; true` {
+		t.Fatalf("escaping or cwd: %+v", start)
+	}
+	if start, end = h.run("for i in 1 2\necho $i\nend"); !strings.Contains(start.Command, "for i in 1 2") || exitOf(t, end) != 0 {
+		t.Fatalf("multi-line: %+v / %+v", start, end)
+	}
+	// config.fish is untouched.
+	if b, _ := os.ReadFile(filepath.Join(cfgDir, "config.fish")); string(b) != config {
+		t.Fatalf("config.fish changed: %q", b)
+	}
+	if s, _ := h.snapshot(); strings.Contains(s, "633;") {
+		t.Fatalf("browser stream contains OSC 633: %q", tail(s, 800))
+	}
+}

@@ -63,12 +63,45 @@ func TestIntegrationCommand(t *testing.T) {
 	if _, _, ok := in.Command(`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, ""); !ok {
 		t.Fatal("powershell.exe should be supported")
 	}
-	for _, unsupported := range []string{"/bin/sh", "/usr/bin/fish", `C:\Windows\System32\cmd.exe`, "/bin/dash"} {
+	for _, unsupported := range []string{"/bin/sh", `C:\Windows\System32\cmd.exe`, "/bin/dash"} {
 		if _, _, ok := in.Command(unsupported, ""); ok {
 			t.Errorf("%s should not be integrated", unsupported)
 		}
 	}
 	if _, _, ok := (Integration{}).Command("/bin/zsh", ""); ok {
 		t.Error("an empty integration must not apply")
+	}
+}
+
+func TestFishCommand(t *testing.T) {
+	in := Integration{Dir: "/d", Nonce: "n"}
+	// fish 3 (or a version we can't read): no feature flags.
+	fishVersions.Store("/usr/bin/fish", 3)
+	args, env, ok := in.Command("/usr/bin/fish", "")
+	if !ok || !slices.Equal(args, []string{"-l", "-i", "--init-command", "source '/d/syre.fish'"}) || !slices.Contains(env, NonceEnv+"=n") {
+		t.Fatalf("fish 3: %q %v %v", args, env, ok)
+	}
+	// fish 4 marks prompts itself, before our hooks run: that is turned off.
+	fishVersions.Store("/opt/fish4/fish", 4)
+	args, _, _ = in.Command("/opt/fish4/fish", "")
+	if !slices.Equal(args, []string{"--features", "no-mark-prompt", "-l", "-i", "--init-command", "source '/d/syre.fish'"}) {
+		t.Fatalf("fish 4: %q", args)
+	}
+	// A prompt runs first, then the integrated shell.
+	args, _, _ = in.Command("/opt/fish4/fish", "codex login")
+	want := "codex login\nexec '/opt/fish4/fish' '--features' 'no-mark-prompt' '-l' '-i' '--init-command' 'source \\'/d/syre.fish\\''"
+	if len(args) != 5 || args[2] != "-l" || args[3] != "-c" || args[4] != want {
+		t.Fatalf("fish with prompt: %q", args)
+	}
+}
+
+func TestParseFishMajorAndQuote(t *testing.T) {
+	for in, want := range map[string]int{"fish, version 4.9.3\n": 4, "fish, version 3.7.1": 3, "fish, version 10.0b1": 10, "nonsense": 0} {
+		if got := parseFishMajor(in); got != want {
+			t.Errorf("%q: %d, want %d", in, got, want)
+		}
+	}
+	if got := fishQuote(`it's a \ path`); got != `'it\'s a \\ path'` {
+		t.Errorf("fishQuote = %s", got)
 	}
 }
