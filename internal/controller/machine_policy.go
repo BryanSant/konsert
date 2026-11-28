@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/BryanSant/syre/internal/policy"
 	"github.com/BryanSant/syre/internal/protocol"
@@ -235,4 +237,35 @@ func (c *RemoteFleetClient) SetWorkerPolicy(ctx context.Context, workerID string
 	}
 	err := c.doJSON(ctx, http.MethodPut, "/api/workers/"+url.PathEscape(workerID)+"/policy", p, &res)
 	return res.Policy, err
+}
+
+// PolicyRefusal is why a machine's policy refuses new work now.
+type PolicyRefusal struct {
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+// policyRefusal checks p for work a person starts now (the rules every piece of work
+// meets; an interactive machine's "in use" hold is for automatic work only, and the
+// guardrails' survival reserve is the floor under the RAM rule). nil: it takes work.
+func policyRefusal(p *protocol.MachinePolicy, hosted int, m *protocol.WorkerMetrics, f *protocol.MachineFacts, now time.Time) *PolicyRefusal {
+	if p == nil {
+		return nil
+	}
+	st := policy.State{Hosted: hosted, LoadAvg: -1, AvailRAMMB: -1, UserIdleS: -1, Now: now}
+	if m != nil {
+		st.LoadAvg = m.LoadAvg
+		if m.MemTotalMB > 0 {
+			st.AvailRAMMB = int(m.MemTotalMB) - int(m.MemUsedMB)
+		}
+	}
+	if f != nil {
+		st.CPUs = f.CPUCores
+		st.SurvivalReserveMB = int(f.SurvivalReserveMB)
+	}
+	v := policy.Check(p, st)
+	if v == nil {
+		return nil
+	}
+	return &PolicyRefusal{Rule: v.Rule, Message: strings.TrimPrefix(v.Message, "machine policy: ")}
 }

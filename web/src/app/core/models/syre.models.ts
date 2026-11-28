@@ -216,6 +216,8 @@ export interface Worker {
   spool?: WorkerSpool;
   /** The hub just woke from sleep and waits for this machine to re-attach. */
   reconnecting_after_sleep?: boolean;
+  /** Why the machine's policy refuses new work now; absent when it takes work (SYR-V4RER). */
+  policy_refusing?: { rule: string; message: string };
   /** The user's operator labels ("Work", "Gaming hardware"), kept on the hub (SYR-FJA2T). */
   labels?: string[];
   /** The machine policy the user set; absent when none. */

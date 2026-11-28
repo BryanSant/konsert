@@ -661,3 +661,22 @@ export function roleBadge(w: Pick<Worker, 'policy'>): string | null {
       return null;
   }
 }
+
+/** The badge for a policy refusal: what kind of rule holds new work (SYR-V4RER). */
+export function policyBadge(rule: string): string {
+  switch (rule) {
+    case 'role':
+      return 'CONTROL ONLY';
+    case 'quiet_hours':
+      return 'QUIET HOURS';
+    case 'min_free_ram':
+      return 'RAM FLOOR';
+    case 'max_sessions':
+      return 'AT MAX SESSIONS';
+    case 'max_load':
+    case 'reserve_cpu':
+      return 'BUSY';
+    default:
+      return 'POLICY';
+  }
+}

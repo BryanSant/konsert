@@ -41,6 +41,7 @@ import {
   transportIcon,
   transportLabel,
   roleBadge,
+  policyBadge,
   machineRole,
   MACHINE_ROLES,
 } from './fleet-logic';
@@ -160,6 +161,9 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
                       >
                       @if (versionMismatch(r.w); as note) {
                         <span class="sy-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [syTooltip]="note">VERSION</span>
+                      }
+                      @if (r.w.policy_refusing; as pr) {
+                        <span class="sy-badge" data-badge="POLICY" data-testid="policy-refusing-badge" [syTooltip]="'Policy refuses new work: ' + pr.message">{{ policyBadge(pr.rule) }}</span>
                       }
                       @if (roleBadge(r.w); as rb) {
                         <span class="sy-badge" data-badge="ROLE" data-testid="role-badge" [syTooltip]="roleHint(r.w)">{{ rb }}</span>
@@ -795,6 +799,7 @@ export class FleetModeComponent {
 
   readonly transportLabel = transportLabel;
   readonly roleBadge = roleBadge;
+  readonly policyBadge = policyBadge;
   roleHint(w: Worker): string {
     const r = machineRole(w);
     return MACHINE_ROLES.find((x) => x.id === r)?.hint ?? '';

@@ -418,6 +418,7 @@ export class FleetStore {
           launch_error: worker.launch_error,
           // Likewise its policy: absent means none (cleared).
           policy: worker.policy,
+          policy_refusing: worker.policy_refusing,
         };
         return next;
       });

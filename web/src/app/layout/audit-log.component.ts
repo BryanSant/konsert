@@ -1,3 +1,4 @@
+import { policyChangeLines } from '../features/policy/machine-policy';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -171,6 +172,11 @@ const BUILTIN_USERS = ['token', 'mcp', 'commander'];
                 </td>
                 <td class="px-1.5 py-2">
                   <div class="font-medium text-[#d9a043] truncate">{{ actionLabel(ev.action) }}</div>
+                  @if (ev.action === 'machine.policy') {
+                    @for (line of policyLines(ev.meta_json); track line) {
+                      <div class="text-[10px] text-[#c8cad0] break-words" data-testid="audit-policy-change">{{ line }}</div>
+                    }
+                  }
                   @if (ev.message) {
                     <div class="text-[10px] text-[#8e9098] break-words line-clamp-2" [syTooltip]="ev.message">{{ ev.message }}</div>
                   }
@@ -215,6 +221,9 @@ const BUILTIN_USERS = ['token', 'mcp', 'commander'];
   `,
 })
 export class AuditLogComponent implements OnInit {
+  /** What a machine.policy entry changed (SYR-V4RER). */
+  readonly policyLines = policyChangeLines;
+
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
   private readonly nav = inject(SessionNavService);

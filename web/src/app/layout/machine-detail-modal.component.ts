@@ -16,11 +16,12 @@ import { MachineCredentialComponent } from './machine-credential.component';
 import { MachineResourcesComponent } from './machine-resources.component';
 import { diskText, formatMB, osText } from '../shared/machines/machine-specs';
 import { LabelChipsComponent } from '../shared/machines/label-chips.component';
+import { MachinePolicyEditorComponent } from '../features/policy/machine-policy-editor.component';
 
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent, MachineResourcesComponent, LabelChipsComponent],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent, MachineResourcesComponent, LabelChipsComponent, MachinePolicyEditorComponent],
   template: `
     <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
@@ -268,6 +269,15 @@ import { LabelChipsComponent } from '../shared/machines/label-chips.component';
         @if (roleError()) {
           <div role="alert" class="text-[#f09595]" data-testid="machine-role-error">{{ roleError() }}</div>
         }
+        @if (worker().policy_refusing; as r) {
+          <div class="rounded-md bg-[var(--sy-amber-soft)] px-2.5 py-1.5 text-[#e6b763]" role="status" data-testid="machine-policy-refusing">Policy refuses new work: {{ r.message }}</div>
+        }
+        <details class="rounded-md bg-white/[0.02] px-2.5 py-2" data-testid="machine-policy-section">
+          <summary class="cursor-pointer text-[#c8cad0]">Policy: limits, quiet hours, allowed work</summary>
+          <div class="pt-2">
+            <sy-machine-policy-editor [worker]="worker()" />
+          </div>
+        </details>
         <sy-holds-requests [workerId]="worker().id" />
         <sy-your-actions [workerId]="worker().id" [limit]="8" />
       </section>

@@ -263,4 +263,53 @@ test.describe('Machines dialog and Commander scope', () => {
     await expect(chip).toHaveText(/~\/syre-e2e-other/);
     await api(page, 'PUT', '/api/settings', { workspace_folder: '' });
   });
+
+  test('the machine policy editor: quiet hours refuse work, the card says why, the audit says what changed (SYR-V4RER)', async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/fleet');
+    const row = page.locator(`[data-machine="${env.workerSid}"]`);
+    await expect(row).toBeVisible();
+    try {
+      await row.getByTestId(`machine-details-${env.workerSid}`).click();
+      const section = page.getByTestId('machine-policy-section');
+      await section.locator('summary').click();
+      const editor = section.getByTestId('machine-policy');
+
+      // The hub's own validation shows inline; the editor catches bad input first.
+      await editor.getByTestId('policy-max-sessions').fill('1.5');
+      await editor.getByTestId('policy-save').click();
+      await expect(editor.getByTestId('policy-error')).toContainText('whole number');
+      await editor.getByTestId('policy-max-sessions').fill('3');
+
+      // Quiet hours around now, in the browser's time zone (the default).
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const now = new Date();
+      const start = new Date(now.getTime() - 60 * 60_000);
+      const end = new Date(now.getTime() + 60 * 60_000);
+      await editor.getByTestId('quiet-add').click();
+      await editor.getByTestId('quiet-start-0').fill(`${pad(start.getHours())}:${pad(start.getMinutes())}`);
+      await editor.getByTestId('quiet-end-0').fill(`${pad(end.getHours())}:${pad(end.getMinutes())}`);
+      const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+      await expect(editor.getByTestId('policy-time-zone')).toHaveValue(zone);
+      await editor.getByTestId('policy-save').click();
+      await expect(editor.getByTestId('policy-saved')).toBeVisible();
+      const policy = await api<{ policy: { max_sessions?: number; time_zone?: string } }>(page, 'GET', `/api/workers/${env.workerId}/policy`);
+      expect(policy.policy.max_sessions).toBe(3);
+      expect(policy.policy.time_zone).toBe(zone);
+
+      await expect(page.getByTestId('machine-policy-refusing')).toContainText('quiet hours');
+      await page.keyboard.press('Escape');
+      await expect(row.getByTestId('policy-refusing-badge')).toHaveText('QUIET HOURS');
+
+      // The audit log lists what changed.
+      await page.goto(`${env.baseURL}/command`);
+      await page.getByTestId('open-audit').click();
+      await expect(page.getByTestId('audit-policy-change').filter({ hasText: 'Max sessions: no limit → 3' }).first()).toBeVisible();
+      await page.keyboard.press('Escape');
+    } finally {
+      await api(page, 'PUT', `/api/workers/${env.workerId}/policy`, {});
+    }
+    await page.goto(`${env.baseURL}/fleet`);
+    await expect(row.getByTestId('policy-refusing-badge')).toHaveCount(0);
+  });
 });

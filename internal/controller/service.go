@@ -87,6 +87,9 @@ type WorkerStatusView struct {
 	ReconnectingAfterSleep bool `json:"reconnecting_after_sleep,omitzero"`
 	// Policy is the machine policy the user set (nil: none). Read-only for MCP.
 	Policy *protocol.MachinePolicy `json:"policy,omitzero"`
+	// PolicyRefusing says why the machine's policy refuses new work right now (control-
+	// only, quiet hours, sessions, load, RAM floor); absent when it takes work (SYR-V4RER).
+	PolicyRefusing *PolicyRefusal `json:"policy_refusing,omitzero"`
 	// Headroom is the machine's estimated room for new work (online machines with a
 	// heartbeat; SYR-0AANJ).
 	Headroom *capacity.Headroom `json:"headroom,omitzero"`
@@ -95,8 +98,10 @@ type WorkerStatusView struct {
 // toWorkerView builds the API/WebSocket view of a worker row with its live
 // active-task count and latest metrics. Facts are decoded from the cached JSON.
 func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
+	facts := decodeWorkerFacts(w.FactsJSON)
 	return WorkerStatusView{
 		Policy:           workerPolicy(w),
+		PolicyRefusing:   policyRefusal(workerPolicy(w), active, metrics, facts, time.Now()),
 		ID:               w.ID,
 		SID:              w.SID,
 		Name:             w.Name,
@@ -112,7 +117,7 @@ func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) W
 		ActiveTasks:      active,
 		LastSeenAt:       w.LastSeenAt,
 		Metrics:          metrics,
-		Facts:            decodeWorkerFacts(w.FactsJSON),
+		Facts:            facts,
 		Version:          w.Version,
 		Launch:           w.Launch,
 		Transport:        transportFor(w.Launch),
