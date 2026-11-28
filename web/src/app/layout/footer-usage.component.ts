@@ -8,6 +8,9 @@ import {
   isExhausted,
   usedPercent,
   windowName,
+  usageAsOf,
+  windowDisplayName,
+  windowResetText,
 } from '../core/models/agent-usage';
 import { AgentAccountsStore } from '../core/state/agent-accounts.store';
 import { FleetStore } from '../core/state/fleet.store';
@@ -125,11 +128,11 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
                 <sy-usage-ring [percent]="r.percent" [tone]="r.health" [size]="16" />
               }
             </div>
-            @if (r.windows.length > 1) {
-              <div class="mt-1.5 ml-[22px] space-y-1">
+            @if (r.windows.length) {
+              <div class="mt-1.5 ml-[22px] space-y-1" data-testid="usage-windows">
                 @for (w of r.windows; track w.window) {
-                  <div class="flex items-center gap-2 text-[11px] text-[var(--sy-text-muted)]">
-                    <span class="w-[86px] shrink-0 truncate" [syTooltip]="w.label ?? ''">{{ w.label || windowLabel(w.window) }}</span>
+                  <div class="flex items-center gap-2 text-[11px] text-[var(--sy-text-muted)]" data-testid="usage-window" [attr.data-window]="w.window" [syTooltip]="resetText(w)">
+                    <span class="w-[110px] shrink-0 truncate">{{ displayName(w) }}</span>
                     <span class="h-1 flex-1 rounded-full bg-white/10 overflow-hidden">
                       <span
                         class="block h-full rounded-full"
@@ -141,6 +144,11 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
                     </span>
                     <span class="w-[92px] shrink-0 text-right font-mono-ide">{{ windowExhausted(w) ? 'out ' + countdown(w.resets_at) : windowPct(w) + '%' }}</span>
                   </div>
+                }
+                @if (asOf(r.account); as ao) {
+                  <div class="text-[10.5px] text-[var(--sy-text-muted)]" data-testid="usage-as-of">{{ ao }}{{ r.account.usage_note ? ' · ' + r.account.usage_note : '' }}</div>
+                } @else if (r.account.usage_note) {
+                  <div class="text-[10.5px] text-[var(--sy-text-muted)]" data-testid="usage-note">{{ r.account.usage_note }}</div>
                 }
               </div>
             }
@@ -222,6 +230,16 @@ export class FooterUsageComponent {
 
   planLabel(plan: string): string {
     return plan ? plan[0].toUpperCase() + plan.slice(1) : '';
+  }
+
+  displayName(w: AgentRateLimit): string {
+    return windowDisplayName(w);
+  }
+  resetText(w: AgentRateLimit): string {
+    return windowResetText(w);
+  }
+  asOf(a: AgentAccount): string {
+    return usageAsOf(a);
   }
 
   windowLabel(w: string): string {

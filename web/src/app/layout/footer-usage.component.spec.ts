@@ -25,7 +25,10 @@ describe('footer usage', () => {
         now,
       ),
     ).toMatch(/^Exhausted until Tue 3:40.* \(weekly\)$/);
-    expect(footerStateLine(cursorAccount(), now)).toBe('Not available: Cursor exposes usage only in its TUI');
+    expect(footerStateLine(cursorAccount({ usage: undefined, usage_note: 'Cursor keeps its sign-in in the macOS Keychain' }), now)).toBe(
+      'Not available: Cursor keeps its sign-in in the macOS Keychain',
+    );
+    expect(footerStateLine(cursorAccount(), now)).toMatch(/^82% of Other Models · resets /);
     expect(footerStateLine(codexLoggedOut(), now)).toBe('Signed out');
   });
 
@@ -44,7 +47,7 @@ describe('footer usage', () => {
     const { el } = await setup();
     const trigger = el.querySelector('[data-testid="footer-usage"]')!;
     const inline = Array.from(trigger.querySelectorAll('[data-usage-account]')).map((n) => n.getAttribute('data-usage-account'));
-    expect(inline).toEqual(['claude2', 'claude']);
+    expect(inline).toEqual(['claude2', 'cursor', 'claude']); // most used first: Cursor's Other Models is at 82%
     expect(trigger.querySelector('[data-usage-account="claude2"]')!.textContent).toContain('out');
     expect(trigger.querySelector('[data-usage-account="claude"]')!.textContent).toContain('42%');
     const alert = el.querySelector('[data-testid="footer-auth-alert"]')!;
@@ -64,7 +67,13 @@ describe('footer usage', () => {
     // Both windows are listed for Claude 2.
     expect(c2.textContent).toContain('5-hour');
     expect(c2.textContent).toContain('Weekly');
-    expect(el.querySelector('[data-account-row="cursor"]')!.textContent).toContain('Not available: Cursor exposes usage only in its TUI');
+    // Cursor lists each pool by its vendor name, with the billing-cycle reset as a date.
+    const cursor = el.querySelector('[data-account-row="cursor"]')!;
+    const pools = Array.from(cursor.querySelectorAll('[data-testid="usage-window"]')).map((w) => w.getAttribute('data-window'));
+    expect(pools).toEqual(['monthly', 'monthly_cursor_models', 'monthly_other_models']);
+    expect(cursor.textContent).toContain('Other Models');
+    expect(cursor.textContent).toContain('· Premium');
+    expect(cursor.textContent).toMatch(/as of /); // the fixture's numbers are old
     expect(el.querySelector('[data-account-row="codex"]')!.textContent).toContain('Signed out');
   });
 

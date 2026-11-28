@@ -127,8 +127,47 @@ export function cursorAccount(over: Partial<AgentAccount> = {}): AgentAccount {
       { id: 'force', label: 'Full access', description: 'Never asks', risk: 4, icon: 'shield-alert' },
     ],
     default_approval_mode: 'ask',
-    usage_note: 'Cursor exposes usage only in its TUI',
+    plan: 'premium',
+    usage: [
+      { window: 'monthly', label: 'Plan total', used_percent: 41.5, resets_at: '2026-12-01T00:00:00Z', state: 'ok' },
+      { window: 'monthly_cursor_models', label: 'Cursor Models', used_percent: 30, resets_at: '2026-12-01T00:00:00Z', state: 'ok' },
+      { window: 'monthly_other_models', label: 'Other Models', used_percent: 82, resets_at: '2026-12-01T00:00:00Z', state: 'warning' },
+    ],
     checked_at: '2026-11-23T20:00:00Z',
+    chat_supported: true,
+    ...over,
+  };
+}
+
+/** Antigravity: a weekly and a 5-hour bucket per model group; an untouched group has no reset. */
+export function agyAccount(over: Partial<AgentAccount> = {}): AgentAccount {
+  return {
+    id: 'agy',
+    agent: 'agy',
+    label: 'Antigravity',
+    is_default: true,
+    auth: { state: 'ok' },
+    usage: [
+      { window: 'seven_day_gemini', label: 'Gemini Models · weekly', used_percent: 13.7, resets_at: '2026-12-03T07:01:50Z', state: 'ok' },
+      { window: 'five_hour_gemini', label: 'Gemini Models · 5-hour', used_percent: 0, resets_at: '2026-11-28T10:16:56Z', state: 'ok' },
+      { window: 'seven_day_claude_gpt', label: 'Claude and GPT models · weekly', used_percent: 0, state: 'ok' },
+    ],
+    checked_at: '2026-11-28T05:00:00Z',
+    chat_supported: true,
+    ...over,
+  };
+}
+
+/** Copilot: the monthly chat quota from its plan cache. */
+export function copilotAccount(over: Partial<AgentAccount> = {}): AgentAccount {
+  return {
+    id: 'copilot',
+    agent: 'copilot',
+    label: 'Copilot',
+    is_default: true,
+    auth: { state: 'ok' },
+    usage: [{ window: 'monthly_chat', label: 'Copilot Chat', used_percent: 30.1, resets_at: '2026-12-01T00:00:00Z', state: 'ok' }],
+    checked_at: '2026-11-28T05:00:00Z',
     chat_supported: true,
     ...over,
   };

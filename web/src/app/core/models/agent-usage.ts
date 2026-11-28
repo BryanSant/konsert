@@ -129,3 +129,33 @@ function time(iso: string | undefined): number {
   const t = iso ? new Date(iso).getTime() : 0;
   return isNaN(t) ? 0 : t;
 }
+
+/** A window's display name: the vendor's bucket label, else the window's own name (capitalized). */
+export function windowDisplayName(w: AgentRateLimit): string {
+  if (w.label) return w.label;
+  const n = windowName(w.window);
+  return n ? n[0].toUpperCase() + n.slice(1) : w.window;
+}
+
+/** Whether a window runs over a billing cycle (monthly): its reset reads as a date, not a countdown. */
+export function isCycleWindow(w: AgentRateLimit): boolean {
+  return w.window === 'monthly' || w.window.startsWith('monthly_') || (w.window_minutes ?? 0) >= 40_000;
+}
+
+/** "resets Dec 1" for a billing-cycle window, else "resets in 2h 10m"; '' without a reset. */
+export function windowResetText(w: AgentRateLimit, now = new Date()): string {
+  if (!w.resets_at) return '';
+  const d = new Date(w.resets_at);
+  if (isNaN(d.getTime())) return '';
+  if (isCycleWindow(w)) return `resets ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  const c = formatCountdown(w.resets_at, now);
+  return c ? `resets ${c}` : '';
+}
+
+/** "as of 9:42 PM" when the account's numbers are older than 10 minutes, else ''. */
+export function usageAsOf(a: Pick<AgentAccount, 'checked_at' | 'usage'>, now = new Date()): string {
+  if (!a.usage?.length || !a.checked_at) return '';
+  const t = new Date(a.checked_at);
+  if (isNaN(t.getTime()) || now.getTime() - t.getTime() < 10 * 60_000) return '';
+  return `as of ${t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+}

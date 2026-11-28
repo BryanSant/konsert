@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claude2Account, claudeAccount, codexLoggedOut, cursorAccount } from '../../../testing/agent-chat.fixtures';
+import { claude2Account, claudeAccount, codexLoggedOut, cursorAccount, agyAccount, copilotAccount } from '../../../testing/agent-chat.fixtures';
 import {
   accountHealth,
   alternativeAccounts,
@@ -8,8 +8,7 @@ import {
   formatResetTime,
   outOfUsageText,
   usedPercent,
-  windowName,
-} from './agent-usage';
+  windowName, windowDisplayName, windowResetText, usageAsOf, isCycleWindow } from './agent-usage';
 
 describe('agent usage helpers', () => {
   it('names windows', () => {
@@ -35,7 +34,8 @@ describe('agent usage helpers', () => {
     expect(accountHealth(claudeAccount({ usage: [{ window: 'five_hour', used_percent: 85 }] }))).toBe('warning');
     expect(accountHealth(claudeAccount())).toBe('ok');
     expect(accountHealth(codexLoggedOut())).toBe('logged_out');
-    expect(usedPercent(cursorAccount())).toBeNull();
+    expect(usedPercent(cursorAccount({ usage: undefined, usage_note: 'Cursor keeps its sign-in in the macOS Keychain' }))).toBeNull();
+    expect(usedPercent(cursorAccount())).toBe(82); // its fullest pool
   });
 
   it('suggests other usable accounts of the same agent only', () => {
@@ -64,5 +64,27 @@ describe('agent usage helpers', () => {
     const tue = new Date(2026, 10, 24, 15, 40).toISOString();
     expect(outOfUsageText('seven_day', tue, now)).toMatch(/^Out of weekly usage until Tue 3:40/);
     expect(outOfUsageText('five_hour', undefined, now)).toBe('Out of 5-hour usage');
+  });
+
+  it('names vendor buckets, dates billing-cycle resets and marks stale numbers (SYR-AWKXV)', () => {
+    const now = new Date('2026-11-28T06:00:00Z');
+    const cursor = cursorAccount();
+    expect(cursor.usage!.map(windowDisplayName)).toEqual(['Plan total', 'Cursor Models', 'Other Models']);
+    expect(windowResetText(cursor.usage![0], now)).toMatch(/^resets (Dec 1|Nov 30)$/);
+    const agy = agyAccount();
+    expect(agy.usage!.map(windowDisplayName)).toEqual(['Gemini Models · weekly', 'Gemini Models · 5-hour', 'Claude and GPT models · weekly']);
+    expect(windowResetText(agy.usage![1], now)).toBe('resets in 4h 17m');
+    expect(windowResetText(agy.usage![2], now)).toBe(''); // untouched bucket: no reset
+    const copilot = copilotAccount();
+    expect(windowDisplayName(copilot.usage![0])).toBe('Copilot Chat');
+    expect(isCycleWindow(copilot.usage![0])).toBe(true);
+    // An unlabelled window falls back to its own name.
+    expect(windowDisplayName({ window: 'five_hour', used_percent: 10 })).toBe('5-hour');
+    // The binding window of Cursor's pools is the fullest one.
+    expect(bindingWindow(cursor.usage)?.label).toBe('Other Models');
+    // Numbers older than 10 minutes say when they are from.
+    expect(usageAsOf(copilot, new Date('2026-11-28T05:05:00Z'))).toBe('');
+    expect(usageAsOf(copilot, now)).toMatch(/^as of /);
+    expect(usageAsOf({ checked_at: '2026-11-28T05:00:00Z', usage: [] }, now)).toBe('');
   });
 });
