@@ -3,9 +3,10 @@ package chat
 // Cursor plan usage (SYR-621BR) from cursor.com's dashboard API, with the login
 // cursor-agent itself uses. The token is read per account: the file store
 // ($HOME/.cursor/auth.json, AGENT_CLI_CREDENTIAL_STORE=file), or the Linux keyring
-// (secret-tool). The macOS Keychain is not read: a read of another program's item can
-// pop an access dialog on the user's screen even from a background syred, so such
-// accounts get a note on switching to the file store instead.
+// (secret-tool), or on macOS the Keychain item cursor-agent writes. That item trusts
+// /usr/bin/security (checked 2026-11-28, like Claude Code's item, which the Claude probe
+// reads the same way), so the read needs no dialog. It is per macOS user, so only the
+// default account uses it.
 
 import (
 	"context"
@@ -41,6 +42,12 @@ var cursorToken = func(ctx context.Context, acct Account) (token, note string) {
 			return f.AccessToken, ""
 		}
 	}
+	// The keyrings below hold one login per OS user, not per account: use them only for
+	// an account on the default dirs and store, so a second account never shows the
+	// first one's usage.
+	if !cursorDefaultLogin(acct) {
+		return "", "This Cursor account has no auth.json in its own dir: set AGENT_CLI_CREDENTIAL_STORE=file for it to show usage"
+	}
 	switch runtime.GOOS {
 	case "linux":
 		out, code, err := RunQuick(ctx, "secret-tool", []string{"lookup", "service", "cursor-credentials", "account", "cursor-user"}, acct.Env, 5*time.Second)
@@ -54,9 +61,26 @@ var cursorToken = func(ctx context.Context, acct Account) (token, note string) {
 		}
 		return "", "Cursor's sign-in isn't readable here (keyring locked?)"
 	case "darwin":
-		return "", "Cursor keeps its sign-in in the macOS Keychain: set AGENT_CLI_CREDENTIAL_STORE=file for this account to show usage"
+		out, code, err := RunQuick(ctx, "security", []string{"find-generic-password", "-s", "cursor-access-token", "-a", "cursor-user", "-w"}, acct.Env, 10*time.Second)
+		if err == nil && code == 0 && strings.TrimSpace(out) != "" {
+			return strings.TrimSpace(out), ""
+		}
+		return "", "Cursor's sign-in isn't readable from the macOS Keychain: run cursor-agent login"
 	}
 	return "", "Cursor's sign-in isn't readable here"
+}
+
+// cursorDefaultLogin reports whether the account uses cursor-agent's default login: no
+// dir or HOME of its own and not the file store. Only that login lives in the OS keyring.
+func cursorDefaultLogin(acct Account) bool {
+	if strings.EqualFold(strings.TrimSpace(acct.Env["AGENT_CLI_CREDENTIAL_STORE"]), "file") {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	if h := strings.TrimSpace(acct.Env["HOME"]); h != "" && filepath.Clean(h) != filepath.Clean(home) {
+		return false
+	}
+	return filepath.Clean(accountDir(acct, "CURSOR_CONFIG_DIR", ".cursor")) == filepath.Join(home, ".cursor")
 }
 
 // cursorUsage fetches the account's plan usage.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -126,5 +127,36 @@ func TestCursorTokenPerAccountFile(t *testing.T) {
 	}
 	if tok, _ := cursorToken(t.Context(), Account{ID: "cursor2", Env: map[string]string{"CURSOR_CONFIG_DIR": b}}); tok != "tok-b" {
 		t.Fatalf("b: %q", tok)
+	}
+}
+
+// Only the default login may come from the OS keyring: it is one item per OS user.
+func TestCursorDefaultLogin(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	for _, c := range []struct {
+		name string
+		env  map[string]string
+		want bool
+	}{
+		{"no env", nil, true},
+		{"default dir spelled out", map[string]string{"CURSOR_CONFIG_DIR": filepath.Join(home, ".cursor")}, true},
+		{"tilde default dir", map[string]string{"CURSOR_CONFIG_DIR": "~/.cursor"}, true},
+		{"own dir", map[string]string{"CURSOR_CONFIG_DIR": filepath.Join(home, ".cursor2")}, false},
+		{"own HOME", map[string]string{"HOME": filepath.Join(home, "acct2")}, false},
+		{"file store", map[string]string{"AGENT_CLI_CREDENTIAL_STORE": "file"}, false},
+	} {
+		if got := cursorDefaultLogin(Account{ID: "cursor", Env: c.env}); got != c.want {
+			t.Errorf("%s: cursorDefaultLogin = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A second account with its own dir and no auth.json there gets a note, never the
+// keyring login of the default account.
+func TestCursorTokenSecondAccountSkipsKeyring(t *testing.T) {
+	dir := t.TempDir()
+	tok, note := cursorToken(t.Context(), Account{ID: "cursor2", Env: map[string]string{"CURSOR_CONFIG_DIR": dir}})
+	if tok != "" || !strings.Contains(note, "AGENT_CLI_CREDENTIAL_STORE=file") {
+		t.Fatalf("cursorToken = %q, %q; want no token and the file-store note", tok, note)
 	}
 }
