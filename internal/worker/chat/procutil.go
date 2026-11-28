@@ -299,7 +299,12 @@ func ScratchDir(prefix string) (string, error) {
 // RunQuick runs a short CLI command (status checks) with the account env and returns
 // combined stdout (stderr discarded). The process group is killed on timeout.
 func RunQuick(ctx context.Context, binary string, args []string, env map[string]string, timeout time.Duration) (string, int, error) {
-	p, err := StartProc(ProcSpec{Binary: binary, Args: args, Env: env, StderrTail: 4 << 10})
+	return RunQuickIn(ctx, "", binary, args, env, timeout)
+}
+
+// RunQuickIn is RunQuick in working directory dir ("" inherits syred's).
+func RunQuickIn(ctx context.Context, dir, binary string, args []string, env map[string]string, timeout time.Duration) (string, int, error) {
+	p, err := StartProc(ProcSpec{Binary: binary, Args: args, Env: env, Dir: dir, StderrTail: 4 << 10})
 	if err != nil {
 		return "", -1, err
 	}

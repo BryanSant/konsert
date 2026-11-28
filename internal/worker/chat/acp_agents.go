@@ -222,7 +222,7 @@ var agyAdapter = &acpAdapter{
 	},
 	relogin:     func(bin string, _ *acpInitResult) string { return bin + " acp --login" },
 	ReloginNote: "Or run `agy` and use /login. The Google login is a per-user Keychain item.",
-	UsageNote:   "Antigravity has no headless usage command.",
+	usage:       agyUsage,
 	sessionPaths: func(home string, _ map[string]string, id, _ string) []string {
 		base := filepath.Join(home, ".gemini", "antigravity-cli")
 		db := filepath.Join(base, "conversations", id+".db")
