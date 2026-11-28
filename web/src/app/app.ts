@@ -2,7 +2,7 @@ import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { NavigationError, Router, RouterOutlet } from '@angular/router';
 import { AppUpdateService } from './core/services/app-update.service';
 import { AuthService } from './core/services/auth.service';
-import { codeFromPath } from './features/auth/device-name';
+import { codeFromPath, isLauncherLink } from './features/auth/device-name';
 import { LoginViewComponent } from './features/auth/login-view.component';
 import { PairViewComponent } from './features/auth/pair-view.component';
 
@@ -17,7 +17,7 @@ import { PairViewComponent } from './features/auth/pair-view.component';
       </div>
     } @else if (!auth.authenticated()) {
       @if (pairCode(); as code) {
-        <app-pair-view [code]="code" (paired)="leavePairing()" (cancel)="leavePairing()" />
+        <app-pair-view [code]="code" [launch]="launchLink" (paired)="leavePairing()" (cancel)="leavePairing()" />
       } @else {
         <app-login-view (pairCode)="startPairing($event)" />
       }
@@ -58,6 +58,8 @@ export class App implements OnInit {
   readonly routeLoadFailed = signal(false);
   /** The pairing code of a /pair/{code} sign-in link this signed-out browser opened. */
   readonly pairCode = signal(typeof location === 'undefined' ? '' : codeFromPath(location.pathname, 'pair'));
+  /** The pairing link came from the local launcher: sign in without asking. */
+  readonly launchLink = typeof location !== 'undefined' && isLauncherLink(location.hostname, location.hash);
   private readonly router = inject(Router);
 
   constructor() {

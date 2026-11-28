@@ -1,4 +1,4 @@
-import { Component, inject, input, output, signal } from '@angular/core';
+import { Component, inject, input, OnInit, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { defaultDeviceName } from './device-name';
@@ -83,9 +83,11 @@ import { defaultDeviceName } from './device-name';
     </main>
   `,
 })
-export class PairViewComponent {
+export class PairViewComponent implements OnInit {
   readonly auth = inject(AuthService);
   readonly code = input.required<string>();
+  /** A local launcher link (`syre open`): sign in right away with the default name. */
+  readonly launch = input(false);
   readonly paired = output<void>();
   readonly cancel = output<void>();
 
@@ -94,6 +96,10 @@ export class PairViewComponent {
 
   constructor() {
     this.auth.error.set('');
+  }
+
+  ngOnInit(): void {
+    if (this.launch()) void this.submit();
   }
 
   async submit(): Promise<void> {

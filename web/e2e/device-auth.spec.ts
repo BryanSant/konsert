@@ -130,6 +130,37 @@ test.describe('Device sign-in (auth on)', () => {
     await other.context().close();
   });
 
+  test('a local launcher link (syre open) signs in with no click; opened again it just opens the app', async ({
+    page,
+  }) => {
+    const mint = async (): Promise<string> => {
+      const res = await fetch(`${hub.baseURL}/api/pairing-codes`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${recoveryKey(hub)}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ launcher: true }),
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { url: string }).url;
+    };
+    const link = await mint();
+    expect(link).toMatch(/\/pair\/[0-9A-Z]{4}-[0-9A-Z]{4}#launch$/);
+    await page.goto(link);
+    await expect(page.getByTestId('open-palette')).toBeVisible();
+    await expect(page).not.toHaveURL(/\/pair\//);
+
+    // Launched again while signed in: no second device, just the app.
+    await page.goto(await mint());
+    await expect(page.getByTestId('open-palette')).toBeVisible();
+    await expect(page).not.toHaveURL(/\/pair\//);
+    const list = await page.evaluate(
+      async () => (await (await fetch('/api/devices')).json()) as { devices: unknown[] },
+    );
+    expect(list.devices).toHaveLength(1);
+  });
+
   test('add a device from a signed-in browser, then revoke it: it is signed out at once', async ({
     page,
   }) => {

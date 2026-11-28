@@ -51,6 +51,17 @@ export function codeFromPath(path: string, prefix: 'pair' | 'approve'): string {
   return m ? normalizeCode(decodeURIComponent(m[1])) : '';
 }
 
+/**
+ * Whether a /pair link came from the local launcher (`syre open`): marked #launch and
+ * opened on a loopback hub. Such a page signs in without asking; the hub only redeems a
+ * launcher code from its own machine, so the mark grants nothing by itself.
+ */
+export function isLauncherLink(hostname: string, hash: string): boolean {
+  if (hash !== '#launch') return false;
+  const h = hostname.replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127\.\d+\.\d+\.\d+$/.test(h);
+}
+
 /** "4:59" for a countdown in milliseconds. */
 export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));

@@ -53,7 +53,10 @@ func TestOpenWithRunningHubOpensSignedInLink(t *testing.T) {
 		t.Fatalf("opened %v", *opened)
 	}
 	// The link signs the browser in once, from this machine.
-	code := strings.TrimPrefix((*opened)[0], base+"/pair/")
+	code, launch := strings.CutSuffix(strings.TrimPrefix((*opened)[0], base+"/pair/"), "#launch")
+	if !launch {
+		t.Fatalf("not marked as a launcher link: %s", (*opened)[0])
+	}
 	redeem := func() int {
 		res, err := http.Post(base+"/api/auth/pair", "application/json", strings.NewReader(`{"code":"`+code+`"}`))
 		if err != nil {

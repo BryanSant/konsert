@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Device, DevicesResponse } from '../../core/models/device.models';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { DevicesStore } from '../../core/state/devices.store';
-import { codeFromPath, defaultDeviceName, formatCountdown, normalizeCode } from './device-name';
+import {
+  codeFromPath,
+  defaultDeviceName,
+  formatCountdown,
+  isLauncherLink,
+  normalizeCode,
+} from './device-name';
 import { ago, claudeMcpCommand, expiresIn, mcpJsonSnippet, whereFrom } from './devices-logic';
 
 const dev = (over: Partial<Device>): Device => ({
@@ -32,6 +38,15 @@ describe('pairing codes and device names', () => {
     expect(codeFromPath('/approve/7KQ2-M9TX', 'pair')).toBe('');
     expect(codeFromPath('/pair/nope', 'pair')).toBe('');
     expect(codeFromPath('/command', 'pair')).toBe('');
+  });
+
+  it('signs in without asking only for a launcher link on a loopback hub', () => {
+    expect(isLauncherLink('127.0.0.1', '#launch')).toBe(true);
+    expect(isLauncherLink('localhost', '#launch')).toBe(true);
+    expect(isLauncherLink('[::1]', '#launch')).toBe(true);
+    expect(isLauncherLink('127.0.0.1', '')).toBe(false);
+    expect(isLauncherLink('192.168.1.5', '#launch')).toBe(false);
+    expect(isLauncherLink('hub.example.ts.net', '#launch')).toBe(false);
   });
 
   it('names this device from its user agent', () => {

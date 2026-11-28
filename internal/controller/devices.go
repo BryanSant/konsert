@@ -164,6 +164,7 @@ func (s *Server) mintCode(ctx context.Context, base, createdBy, ip, purpose stri
 	msg := "Created pairing code " + rec.SID
 	if purpose == store.PairingPurposeLaunch {
 		msg = "Created local launcher sign-in code " + rec.SID + " (syre open)"
+		link += "#launch" // the pairing page signs in without asking (see pair-view)
 	}
 	s.hub.recordAudit(withDefaultAuditActor(ctx, cmpOr(createdBy, "system"), auditSourceREST), store.AuditEvent{
 		Action:   AuditDevicePairCode,
