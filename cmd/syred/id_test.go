@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BryanSant/syre/internal/config"
+
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/worker"
 	"github.com/BryanSant/syre/internal/worker/drivers"
@@ -68,7 +70,9 @@ func TestIDMatchesRun(t *testing.T) {
 	if runID(t) != runID(t, "--name", host) || runID(t) == runID(t, "--name", "sidecar") {
 		t.Fatal("identity files do not follow the name the way install instances do")
 	}
-	matches, _ := filepath.Glob(filepath.Join(state, "worker-id-*-host"))
+	// Files end in the detected isolation: -host, or -container inside a container.
+	iso := config.DefaultWorkerConfig().Isolation
+	matches, _ := filepath.Glob(filepath.Join(state, "worker-id-*-"+iso))
 	if len(matches) != 2 { // the hostname's and sidecar's
 		t.Fatalf("syred id must create one identity file per name, got %v", matches)
 	}

@@ -110,6 +110,12 @@ func (a *sharedAccount) winService(instance, name string) string {
 }
 
 // identity writes name's identity file and returns its worker id.
+// testIDFile is name's identity file as this machine names it: worker-id-<name>-host,
+// or -container when the tests run in a container (a fleet box).
+func testIDFile(name string) string {
+	return workerIDFilename(name, config.DefaultWorkerConfig().Isolation)
+}
+
 func (a *sharedAccount) identity(name string) string {
 	a.t.Helper()
 	id := ids.UUID()
@@ -117,7 +123,9 @@ func (a *sharedAccount) identity(name string) string {
 	if err := os.MkdirAll(a.state, 0o700); err != nil {
 		a.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(a.state, workerIDFilename(name, "")), raw, 0o600); err != nil {
+	// Keyed by the detected isolation, as `syred run` and the uninstaller resolve it: a
+	// test running in a container (a fleet box) gets worker-id-<name>-container.
+	if err := os.WriteFile(filepath.Join(a.state, testIDFile(name)), raw, 0o600); err != nil {
 		a.t.Fatal(err)
 	}
 	return id

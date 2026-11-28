@@ -39,7 +39,9 @@ func TestSuspendResumeFreezesTree(t *testing.T) {
 	pid, stop := startTicker(t, path)
 	defer stop()
 
-	waitAdvance(t, path, waitAdvance(t, path, 0, 20*time.Second), 10*time.Second)
+	// Slow CI runners (Windows starting PowerShell) can stall for seconds: these waits
+	// only check that the tree runs, so they are generous; the frozen check is strict.
+	waitAdvance(t, path, waitAdvance(t, path, 0, 30*time.Second), 30*time.Second)
 	if err := Suspend(pid); err != nil {
 		t.Fatalf("suspend: %v", err)
 	}
@@ -52,7 +54,7 @@ func TestSuspendResumeFreezesTree(t *testing.T) {
 	if err := Resume(pid); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	waitAdvance(t, path, frozen, 10*time.Second)
+	waitAdvance(t, path, frozen, 30*time.Second)
 }
 
 func TestSuspendMissingProcess(t *testing.T) {

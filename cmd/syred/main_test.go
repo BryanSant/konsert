@@ -19,6 +19,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "create test state dir:", err)
 		os.Exit(1)
 	}
+	// Tests that fake HOME must not find the developer's XDG directories instead.
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+		os.Unsetenv(k)
+	}
 	os.Setenv("SYRE_STATE_DIR", dir)
 	os.Setenv("SYRE_ATTACHMENTS_DIR", dir+"/attachments")
 	os.Setenv("SYRE_DISABLE_AGENT_DISCOVERY", "1")

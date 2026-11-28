@@ -122,7 +122,7 @@ func TestRemoveIdentitySingleIdentityRemovesEverything(t *testing.T) {
 		cfgPath,
 		logPath,
 		logPath + ".1",
-		filepath.Join(stateDir, workerIDFilename("solo", "")),
+		filepath.Join(stateDir, testIDFile("solo")),
 		filepath.Join(stateDir, "hook-events.jsonl"),
 		filepath.Join(stateDir, "usage-cache.json"),
 		filepath.Join(stateDir, "shell-integration"),
@@ -226,7 +226,7 @@ func TestRemoveIdentitySharedHomeAndLastIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range append([]string{boxCfg, boxLog, filepath.Join(stateDir, workerIDFilename("bocabox-1", ""))}, boxFiles...) {
+	for _, p := range append([]string{boxCfg, boxLog, filepath.Join(stateDir, testIDFile("bocabox-1"))}, boxFiles...) {
 		if fileExists(p) {
 			t.Errorf("box1 leftover not removed: %s", p)
 		}
@@ -234,7 +234,7 @@ func TestRemoveIdentitySharedHomeAndLastIdentity(t *testing.T) {
 	mustStay := append([]string{
 		hostCfg,
 		hostLog,
-		filepath.Join(stateDir, workerIDFilename("bocabox", "")),
+		filepath.Join(stateDir, testIDFile("bocabox")),
 		managedBin,
 		filepath.Join(stateDir, "hook-events.jsonl"),
 		filepath.Join(stateDir, "usage-cache.json"),
