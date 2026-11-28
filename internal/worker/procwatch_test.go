@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,10 +61,11 @@ func TestKillProcessGuards(t *testing.T) {
 	t.Cleanup(func() { readProcTable = prev })
 	self := os.Getpid()
 	start := time.Unix(5000, 0)
-	alive := true
+	var alive atomic.Bool
+	alive.Store(true)
 	readProcTable = func() ([]procs.Proc, error) {
 		list := []procs.Proc{{PID: self, PPID: 77, Name: "syred"}, {PID: 77, PPID: 1, Name: "launcher"}}
-		if alive {
+		if alive.Load() {
 			list = append(list, procs.Proc{PID: 900, PPID: 1, Name: "nginx", Start: start})
 		}
 		return list, nil
@@ -87,7 +89,7 @@ func TestKillProcessGuards(t *testing.T) {
 		t.Fatalf("signalled despite a refusal: %v", k.terms)
 	}
 	// It stops after the polite signal.
-	go func() { time.Sleep(200 * time.Millisecond); alive = false }()
+	go func() { time.Sleep(200 * time.Millisecond); alive.Store(false) }()
 	if res := d.killProcess(protocol.ProcessKillPayload{PID: 900, StartedAt: start}, k); !res.Killed || res.Forced || res.Name != "nginx" {
 		t.Fatalf("kill: %+v", res)
 	}
