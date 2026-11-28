@@ -297,6 +297,12 @@ type AgentTokenUsage struct {
 }
 
 // AgentRateLimit is one subscription window as reported by the CLI or a usage probe.
+// AgentCredits is a prepaid credit balance on top of the usage windows.
+type AgentCredits struct {
+	Balance   string `json:"balance,omitempty"`
+	Unlimited bool   `json:"unlimited,omitzero"`
+}
+
 type AgentRateLimit struct {
 	Window      string     `json:"window"`                // five_hour, seven_day, seven_day_opus, monthly, daily, ...
 	UsedPercent float64    `json:"used_percent,omitzero"` // 0-100
@@ -409,6 +415,8 @@ type AgentAccount struct {
 	Approvals       []AgentApprovalMode `json:"approval_modes,omitempty"`
 	DefaultApproval string              `json:"default_approval_mode,omitempty"`
 	Usage           []AgentRateLimit    `json:"usage,omitempty"`
+	// Credits is the plan's prepaid balance, when it has one (codex: credits.balance).
+	Credits *AgentCredits `json:"credits,omitzero"`
 	// UsageNote explains missing usage (e.g. "Cursor exposes usage only in its TUI").
 	UsageNote string    `json:"usage_note,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`

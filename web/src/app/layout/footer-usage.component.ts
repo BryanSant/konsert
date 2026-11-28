@@ -99,6 +99,9 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
               <span class="flex-1 min-w-0">
                 <span class="block truncate text-[12.5px] font-medium text-[var(--sy-text)]">
                   {{ r.account.label }}
+                  @if (r.account.plan) {
+                    <span class="font-normal text-[var(--sy-text-muted)]" data-testid="usage-plan">· {{ planLabel(r.account.plan) }}</span>
+                  }
                   @if (multiHost()) {
                     <span class="font-normal text-[var(--sy-text-muted)]">· {{ r.host }}</span>
                   }
@@ -139,6 +142,11 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
                     <span class="w-[92px] shrink-0 text-right font-mono-ide">{{ windowExhausted(w) ? 'out ' + countdown(w.resets_at) : windowPct(w) + '%' }}</span>
                   </div>
                 }
+              </div>
+            }
+            @if (r.account.credits; as c) {
+              <div class="mt-1 ml-[22px] text-[11px] text-[var(--sy-text-muted)]" data-testid="usage-credits">
+                Credits: {{ c.unlimited ? 'unlimited' : (c.balance ?? '0') }}
               </div>
             }
           </div>
@@ -210,6 +218,10 @@ export class FooterUsageComponent {
   relogin(r: FooterAccountRow): void {
     this.open.set(false);
     this.reloginSvc.show({ workerId: r.workerId, accountId: r.account.id, label: r.account.label, relogin: r.account.auth?.relogin });
+  }
+
+  planLabel(plan: string): string {
+    return plan ? plan[0].toUpperCase() + plan.slice(1) : '';
   }
 
   windowLabel(w: string): string {

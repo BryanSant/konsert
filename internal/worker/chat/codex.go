@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -226,10 +227,82 @@ type codexRateWindow struct {
 }
 
 type codexRateSnapshot struct {
+	LimitID              string           `json:"limitId"`
+	LimitName            *string          `json:"limitName"`
 	Primary              *codexRateWindow `json:"primary"`
 	Secondary            *codexRateWindow `json:"secondary"`
 	PlanType             string           `json:"planType"`
 	RateLimitReachedType *string          `json:"rateLimitReachedType"`
+	Credits              *struct {
+		HasCredits bool   `json:"hasCredits"`
+		Unlimited  bool   `json:"unlimited"`
+		Balance    string `json:"balance"`
+	} `json:"credits"`
+}
+
+// codexRateRead is account/rateLimits/read's answer: the default limit and every
+// limit by id (per-model limits beside the default "codex" one).
+type codexRateRead struct {
+	RateLimits          *codexRateSnapshot           `json:"rateLimits"`
+	RateLimitsByLimitID map[string]codexRateSnapshot `json:"rateLimitsByLimitId"`
+}
+
+// usage is the windows of the default limit, then of every other limit as labelled
+// windows ("five_hour_<name>": the UI shows "5-hour Name").
+func (r codexRateRead) usage() []protocol.AgentRateLimit {
+	out := codexLimits(r.RateLimits)
+	base := "codex"
+	if r.RateLimits != nil && r.RateLimits.LimitID != "" {
+		base = r.RateLimits.LimitID
+	}
+	ids := make([]string, 0, len(r.RateLimitsByLimitID))
+	for id := range r.RateLimitsByLimitID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if id == base {
+			continue
+		}
+		snap := r.RateLimitsByLimitID[id]
+		label := id
+		if snap.LimitName != nil && strings.TrimSpace(*snap.LimitName) != "" {
+			label = *snap.LimitName
+		}
+		slug := codexLimitSlug(label)
+		for _, rl := range codexLimits(&snap) {
+			rl.Window += "_" + slug
+			out = append(out, rl)
+		}
+	}
+	return out
+}
+
+// credits is the plan's credit balance, when it has one.
+func (r codexRateRead) credits() *protocol.AgentCredits {
+	c := r.RateLimits
+	if c == nil || c.Credits == nil || !c.Credits.HasCredits && !c.Credits.Unlimited {
+		return nil
+	}
+	return &protocol.AgentCredits{Balance: c.Credits.Balance, Unlimited: c.Credits.Unlimited}
+}
+
+// codexLimitSlug makes a limit's name a window suffix: lower case, words joined by "_".
+func codexLimitSlug(s string) string {
+	var b strings.Builder
+	sep := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' {
+			if sep && b.Len() > 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r)
+			sep = false
+		} else {
+			sep = true
+		}
+	}
+	return b.String()
 }
 
 func codexWindowName(w *codexRateWindow, fallback string) string {
@@ -348,6 +421,11 @@ func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAcc
 			if ar.Account == nil && ar.RequiresOpenaiAuth {
 				out.Auth = protocol.AgentAuthStatus{State: protocol.AuthLoggedOut, Detail: "Not signed in.", Relogin: codexRelogin(acct)}
 			} else if ar.Account != nil {
+				if out.Auth.State == protocol.AuthUnknown {
+					// `codex login status` failed (timed out on a busy machine), but the
+					// app-server answers for a signed-in account: it is signed in.
+					out.Auth = protocol.AgentAuthStatus{State: protocol.AuthOK}
+				}
 				out.Plan = ar.Account.PlanType
 				out.Auth.Email = ar.Account.Email
 				switch ar.Account.Type {
@@ -373,11 +451,10 @@ func (e *codexEngine) Probe(ctx context.Context, acct Account) protocol.AgentAcc
 		out.UsageNote = "Usage unavailable: " + err.Error()
 		return out
 	}
-	var rr struct {
-		RateLimits *codexRateSnapshot `json:"rateLimits"`
-	}
+	var rr codexRateRead
 	if unmarshal(raw, &rr) == nil {
-		out.Usage = codexLimits(rr.RateLimits)
+		out.Usage = rr.usage()
+		out.Credits = rr.credits()
 		if out.Plan == "" && rr.RateLimits != nil {
 			out.Plan = rr.RateLimits.PlanType
 		}

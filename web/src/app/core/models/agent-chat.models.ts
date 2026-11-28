@@ -175,6 +175,8 @@ export interface AgentAccount {
   usage_note?: string;
   checked_at: string;
   chat_supported: boolean;
+  /** The plan's prepaid credit balance, when it has one (codex). */
+  credits?: { balance?: string; unlimited?: boolean };
 }
 
 export interface AgentAuthStatus {

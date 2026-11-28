@@ -345,6 +345,9 @@ func (c *Capabilities) account(ctx context.Context, e AccountEntry, force bool) 
 
 		res := c.probe(ctx, e)
 		c.mu.Lock()
+		if prev, ok := c.cache[e.ID]; ok {
+			res = keepLastUsage(res, prev, c.opts.Now())
+		}
 		c.cache[e.ID] = capEntry{acct: res, at: c.opts.Now()}
 		delete(c.probing, e.ID)
 		close(done)
@@ -505,4 +508,38 @@ func (c *Capabilities) ModeRisk(accountID, mode string) int {
 		}
 	}
 	return -1
+}
+
+// usageKeep is how old a last good usage reading may be to stand in for a probe that
+// came back without one.
+const usageKeep = 2 * time.Hour
+
+// keepLastUsage keeps the last good usage when a probe came back without any for an
+// account that isn't signed out (a timeout, an app-server that didn't answer on a busy
+// machine): the footer then shows the last reading, labelled, instead of nothing until
+// the next probe (SYR-BC18H).
+func keepLastUsage(res protocol.AgentAccount, prev capEntry, now time.Time) protocol.AgentAccount {
+	if len(res.Usage) > 0 || len(prev.acct.Usage) == 0 || res.Auth.State == protocol.AuthLoggedOut || now.Sub(prev.at) > usageKeep {
+		return res
+	}
+	res.Usage = prev.acct.Usage
+	if res.Credits == nil {
+		res.Credits = prev.acct.Credits
+	}
+	if res.Plan == "" {
+		res.Plan = prev.acct.Plan
+	}
+	why := cmpOrStr(res.UsageNote, res.Auth.Detail)
+	res.UsageNote = "Last reading from " + prev.at.Local().Format("15:04")
+	if why != "" {
+		res.UsageNote += " (" + why + ")"
+	}
+	return res
+}
+
+func cmpOrStr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
