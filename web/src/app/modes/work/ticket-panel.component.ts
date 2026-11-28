@@ -4,6 +4,8 @@ import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore } from '../../core/state/fleet.store';
 import { TicketStore } from '../../core/state/ticket.store';
 import { IconComponent } from '../../shared/icon.component';
+import { ALL_MACHINES, MachineTarget } from '../../shared/machines/machine-target';
+import { MachineTargetPickerComponent } from '../../shared/machines/machine-target-picker.component';
 import { compactDigest, isContainerKind } from './board-logic';
 import { Router } from '@angular/router';
 
@@ -21,7 +23,7 @@ function errText(err: unknown): string {
   selector: 'sy-ticket-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent],
+  imports: [IconComponent, MachineTargetPickerComponent],
   host: { class: 'flex flex-col min-h-0' },
   template: `
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 flex flex-col gap-3" data-testid="ticket-panel" [attr.data-ticket]="ticket().sid">
@@ -112,6 +114,14 @@ function errText(err: unknown): string {
           }
         </section>
       }
+
+      <section data-testid="ticket-run-on">
+        <h3 class="m-0 mb-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Run on</h3>
+        <sy-machine-target-picker mode="scope" hint="Where this ticket's work may run" [value]="runOn()" (valueChange)="setRunOn($event)" />
+        @if (runOnError()) {
+          <p class="m-0 mt-1 text-[12px] text-[#f3a5a5]" role="alert">{{ runOnError() }}</p>
+        }
+      </section>
 
       <section>
         <h3 class="m-0 mb-1 text-[11.5px] font-semibold uppercase tracking-wider text-[var(--sy-text-secondary)]">Hints</h3>
@@ -282,6 +292,30 @@ export class TicketPanelComponent {
     return this.fleet.repos().filter((r) => r.project_id === this.ticket().project_id && !bound.has(r.id));
   });
 
+  /** Where this ticket's work may run (SYR-0M4QQ). */
+  readonly runOn = signal<MachineTarget>(ALL_MACHINES);
+  readonly runOnError = signal('');
+
+  private async loadRunOn(id: string): Promise<void> {
+    try {
+      const v = await this.api.getTicketScope(id);
+      if (this.ticket().id === id) this.runOn.set(v.scope);
+    } catch {
+      // Keep All machines; the hub is the source of truth on the next open.
+    }
+  }
+
+  async setRunOn(t: MachineTarget): Promise<void> {
+    const id = this.ticket().id;
+    this.runOnError.set('');
+    try {
+      const v = await this.api.setTicketScope(id, t);
+      if (this.ticket().id === id) this.runOn.set(v.scope);
+    } catch (err) {
+      this.runOnError.set(errText(err));
+    }
+  }
+
   constructor() {
     effect(() => {
       const id = this.ticket().id;
@@ -294,6 +328,9 @@ export class TicketPanelComponent {
         this.hintAgent.set(t.hints?.agent ?? '');
         this.hintModel.set(t.hints?.model ?? '');
         this.hintMachine.set(t.hints?.machine ?? '');
+        this.runOn.set(ALL_MACHINES);
+        this.runOnError.set('');
+        void this.loadRunOn(id);
         this.error.set('');
         this.blockerError.set('');
         this.diffText.set('');

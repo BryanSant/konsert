@@ -553,17 +553,17 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		onlineWorkers = append(onlineWorkers, w)
 	}
 
-	// A Commander chat sends work only to its machines (SYR-FJA2T): a machine named
-	// outside them is refused, and unpinned work is placed inside them.
-	if sc := s.hub.chatScope(ctx); !sc.all() {
-		if err := scopeAllowsSelector(sc, workers, req.WorkerSelector); err != nil {
+	// A Commander chat sends work only to its machines (SYR-FJA2T), and a ticket's work
+	// only where its Run on allows (SYR-0M4QQ); from a chat about a ticket, both hold. A
+	// machine named outside them is refused, and unpinned work is placed inside them.
+	{
+		var dropped []Rejection
+		var err error
+		onlineWorkers, dropped, err = applyScopes(workers, onlineWorkers, req.WorkerSelector,
+			s.hub.chatScope(ctx), s.hub.ticketScope(ctx, cmpOr(strings.TrimSpace(req.TicketID), detectTicket(req.Title, req.Prompt))))
+		if err != nil {
 			return DispatchResult{}, err
 		}
-		if len(sc.ids) == 0 {
-			return DispatchResult{}, fmt.Errorf("this chat's machines (%s) name no machine right now; ask the user to change the chat's machines", sc.label)
-		}
-		var dropped []Rejection
-		onlineWorkers, dropped = filterScope(onlineWorkers, sc)
 		earlier = append(earlier, dropped...)
 	}
 

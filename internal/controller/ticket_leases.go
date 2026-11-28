@@ -393,6 +393,10 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 			return matched, matched == len(resolved), true
 		}
 
+		// The ticket's Run on limits where its work goes (SYR-0M4QQ).
+		var scopeRejected []Rejection
+		eligible, scopeRejected = filterScope(eligible, h.ticketScope(ctx, tk.ID))
+
 		dec, idx := h.applyProviderPlacement(ctx, agent, "", pinnedAgent, eligible)
 		if dec.Wait {
 			continue
@@ -403,6 +407,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		scope := h.placementScopeOf(ctx, tk.ProjectID, firstBinding.RepoID, "", cmpOr(firstBinding.TargetBranch, firstBinding.BaseBranch), ticketKey)
 		w, pout, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode,
 			h.withAccounts(ctx, h.placementOpts(ctx, scope, peak, tk.ID, localityFn), agent, "", true))
+		pout.Rejected = append(scopeRejected, pout.Rejected...)
 		if !ok {
 			continue
 		}

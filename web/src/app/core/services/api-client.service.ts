@@ -384,6 +384,15 @@ export class ApiClientService {
     return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`);
   }
 
+  /** A ticket's Run on: where its work may be placed (SYR-0M4QQ). */
+  getTicketScope(ticketId: string): Promise<{ ticket_id: string; scope: MachineTarget; label: string; machine_ids: string[] }> {
+    return this.request(`/api/tickets/${encodeURIComponent(ticketId)}/scope`);
+  }
+
+  setTicketScope(ticketId: string, scope: MachineTarget): Promise<{ ticket_id: string; scope: MachineTarget; label: string; machine_ids: string[] }> {
+    return this.request(`/api/tickets/${encodeURIComponent(ticketId)}/scope`, { method: 'PUT', body: JSON.stringify(scope) });
+  }
+
   /** Where a Commander chat may send work; applies to its next dispatch. */
   setChatScope(chatId: string, scope: MachineTarget): Promise<ChatScopeView> {
     return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`, { method: 'PUT', body: JSON.stringify(scope) });

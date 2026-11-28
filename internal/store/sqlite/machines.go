@@ -213,8 +213,27 @@ func (s *SQLiteStore) DeleteMachineGroup(ctx context.Context, id string) error {
 
 // GetChatScope implements store.Store.
 func (s *SQLiteStore) GetChatScope(ctx context.Context, chatID string) (store.MachineTarget, error) {
+	return s.getScope(ctx, `SELECT scope_json FROM chat_scopes WHERE chat_id = ?`, chatID)
+}
+
+// SetChatScope implements store.Store. All machines removes the stored scope.
+func (s *SQLiteStore) SetChatScope(ctx context.Context, chatID string, t store.MachineTarget) error {
+	return s.setScope(ctx, "chat_scopes", "chat_id", chatID, t)
+}
+
+// GetTicketScope implements store.Store.
+func (s *SQLiteStore) GetTicketScope(ctx context.Context, ticketID string) (store.MachineTarget, error) {
+	return s.getScope(ctx, `SELECT scope_json FROM ticket_scopes WHERE ticket_id = ?`, ticketID)
+}
+
+// SetTicketScope implements store.Store. All machines removes the stored Run on.
+func (s *SQLiteStore) SetTicketScope(ctx context.Context, ticketID string, t store.MachineTarget) error {
+	return s.setScope(ctx, "ticket_scopes", "ticket_id", ticketID, t)
+}
+
+func (s *SQLiteStore) getScope(ctx context.Context, q, id string) (store.MachineTarget, error) {
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT scope_json FROM chat_scopes WHERE chat_id = ?`, chatID).Scan(&raw)
+	err := s.db.QueryRowContext(ctx, q, id).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.MachineTarget{Kind: store.TargetAll}, nil
 	}
@@ -228,19 +247,19 @@ func (s *SQLiteStore) GetChatScope(ctx context.Context, chatID string) (store.Ma
 	return t, nil
 }
 
-// SetChatScope implements store.Store. All machines removes the stored scope.
-func (s *SQLiteStore) SetChatScope(ctx context.Context, chatID string, t store.MachineTarget) error {
+// setScope stores t for id in table (keyed by col); all machines deletes the row.
+func (s *SQLiteStore) setScope(ctx context.Context, table, col, id string, t store.MachineTarget) error {
 	if t.IsAll() {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM chat_scopes WHERE chat_id = ?`, chatID)
+		_, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE `+col+` = ?`, id)
 		return err
 	}
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO chat_scopes (chat_id, scope_json, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT(chat_id) DO UPDATE SET scope_json = excluded.scope_json, updated_at = excluded.updated_at`,
-		chatID, string(raw), formatTime(time.Now().UTC()))
+	_, err = s.db.ExecContext(ctx, `INSERT INTO `+table+` (`+col+`, scope_json, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(`+col+`) DO UPDATE SET scope_json = excluded.scope_json, updated_at = excluded.updated_at`,
+		id, string(raw), formatTime(time.Now().UTC()))
 	if err != nil && strings.Contains(err.Error(), "FOREIGN KEY") {
 		return store.ErrNotFound
 	}

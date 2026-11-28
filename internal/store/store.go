@@ -685,6 +685,9 @@ type Store interface {
 	// GetChatScope returns a chat's scope; all machines when none is stored.
 	GetChatScope(ctx context.Context, chatID string) (MachineTarget, error)
 	SetChatScope(ctx context.Context, chatID string, t MachineTarget) error
+	// GetTicketScope returns a ticket's Run on; all machines when none is stored (SYR-0M4QQ).
+	GetTicketScope(ctx context.Context, ticketID string) (MachineTarget, error)
+	SetTicketScope(ctx context.Context, ticketID string, t MachineTarget) error
 	// Placement rules and log (SYR-880CP).
 	CreatePlacementRule(ctx context.Context, r PlacementRule) (PlacementRule, error)
 	ListPlacementRules(ctx context.Context, activeAt time.Time) ([]PlacementRule, error)

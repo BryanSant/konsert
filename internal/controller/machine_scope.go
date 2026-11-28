@@ -19,14 +19,17 @@ import (
 // the scheduler holds to it for work the chat queued. Offline machines stay in a scope
 // and are skipped at dispatch like anywhere else.
 
-// errOutOfScope is a dispatch to a machine outside the calling chat's scope.
+// errOutOfScope is a dispatch to a machine outside a chat's scope or a ticket's Run on.
 type errOutOfScope struct {
 	machine string
-	scope   string
+	sc      machineScope
 }
 
 func (e *errOutOfScope) Error() string {
-	return fmt.Sprintf("%s is outside this chat's machines (%s); pick a machine in scope or ask the user to change the chat's machines", e.machine, e.scope)
+	if e.sc.ticket != "" {
+		return fmt.Sprintf("%s is outside ticket %s's Run on (%s); pick a machine it allows or ask the user to change the ticket's Run on", e.machine, e.sc.ticket, e.sc.label)
+	}
+	return fmt.Sprintf("%s is outside this chat's machines (%s); pick a machine in scope or ask the user to change the chat's machines", e.machine, e.sc.label)
 }
 
 // machineScope is a resolved target: the machine IDs it names now and how to say it.
@@ -34,6 +37,8 @@ type machineScope struct {
 	target store.MachineTarget
 	ids    map[string]bool
 	label  string
+	// ticket is the ticket's short id when this is a ticket's Run on (SYR-0M4QQ).
+	ticket string
 }
 
 func (m machineScope) all() bool { return m.target.IsAll() }
@@ -113,6 +118,68 @@ func (h *Hub) commanderScope(ctx context.Context, chatID string) machineScope {
 	return h.resolveScope(ctx, store.MachineTarget{Kind: store.TargetAll})
 }
 
+// ticketScope is a ticket's Run on, resolved (all machines when it has none).
+func (h *Hub) ticketScope(ctx context.Context, ticketID string) machineScope {
+	t := store.MachineTarget{Kind: store.TargetAll}
+	sid := ticketID
+	if ticketID != "" {
+		if st, err := h.store.GetTicketScope(ctx, ticketID); err == nil {
+			t = st
+		}
+		if tk, err := h.store.GetTicket(ctx, ticketID); err == nil && tk.SID != "" {
+			sid = tk.SID
+		}
+	}
+	sc := h.resolveScope(ctx, t)
+	sc.ticket = sid
+	return sc
+}
+
+// scopeOverlap reports whether a and b (both resolved) share a machine.
+func scopeOverlap(a, b machineScope) bool {
+	if a.all() || b.all() {
+		return true
+	}
+	for id := range a.ids {
+		if b.ids[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// applyScopes refuses a selector outside either scope or scopes that cannot both hold,
+// then drops machines outside them; the drops are returned as rejections.
+func applyScopes(workers, candidates []store.Worker, sel WorkerSelector, scopes ...machineScope) ([]store.Worker, []Rejection, error) {
+	var live []machineScope
+	for _, sc := range scopes {
+		if !sc.all() {
+			live = append(live, sc)
+		}
+	}
+	for _, sc := range live {
+		if err := scopeAllowsSelector(sc, workers, sel); err != nil {
+			return nil, nil, err
+		}
+		if len(sc.ids) == 0 {
+			if sc.ticket != "" {
+				return nil, nil, fmt.Errorf("ticket %s's Run on (%s) names no machine right now; ask the user to change it", sc.ticket, sc.label)
+			}
+			return nil, nil, fmt.Errorf("this chat's machines (%s) name no machine right now; ask the user to change the chat's machines", sc.label)
+		}
+	}
+	if len(live) == 2 && !scopeOverlap(live[0], live[1]) {
+		return nil, nil, fmt.Errorf("this chat's machines (%s) and ticket %s's Run on (%s) share no machine; ask the user to change one of them", live[0].label, live[1].ticket, live[1].label)
+	}
+	var rejected []Rejection
+	for _, sc := range live {
+		var dropped []Rejection
+		candidates, dropped = filterScope(candidates, sc)
+		rejected = append(rejected, dropped...)
+	}
+	return candidates, rejected, nil
+}
+
 // filterScope drops machines outside sc, recording each as a rejection.
 func filterScope(workers []store.Worker, sc machineScope) ([]store.Worker, []Rejection) {
 	if sc.all() {
@@ -125,7 +192,11 @@ func filterScope(workers []store.Worker, sc machineScope) ([]store.Worker, []Rej
 			kept = append(kept, w)
 			continue
 		}
-		rejected = append(rejected, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: "user scope (" + sc.label + ")"})
+		reason := "user scope (" + sc.label + ")"
+		if sc.ticket != "" {
+			reason = "user scope (ticket: " + sc.label + ")"
+		}
+		rejected = append(rejected, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: reason})
 	}
 	return kept, rejected
 }
@@ -135,7 +206,7 @@ func scopeAllowsSelector(sc machineScope, workers []store.Worker, sel WorkerSele
 	for _, w := range workers {
 		named := (sel.WorkerID != "" && w.ID == sel.WorkerID) || (sel.WorkerID == "" && sel.Name != "" && strings.EqualFold(w.Name, sel.Name))
 		if named && !sc.in(w.ID) {
-			return &errOutOfScope{machine: w.Name, scope: sc.label}
+			return &errOutOfScope{machine: w.Name, sc: sc}
 		}
 	}
 	return nil
@@ -330,6 +401,8 @@ func (s *Server) registerMachineScopeRoutes() {
 	s.mux.Handle("DELETE /api/machine-groups/{id}", s.requireBrowserAuth(s.handleDeleteMachineGroup))
 	s.mux.Handle("GET /api/chats/{id}/scope", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleGetChatScope)))
 	s.mux.Handle("PUT /api/chats/{id}/scope", s.requireBrowserAuth(s.byRef(ids.Chat, s.handleSetChatScope)))
+	s.mux.Handle("GET /api/tickets/{id}/scope", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleGetTicketScope)))
+	s.mux.Handle("PUT /api/tickets/{id}/scope", s.requireBrowserAuth(s.byRef(ids.Ticket, s.handleSetTicketScope)))
 }
 
 func (s *Server) handleListMachineLabels(w http.ResponseWriter, r *http.Request) {
@@ -475,5 +548,64 @@ func (s *Server) handleSetChatScope(w http.ResponseWriter, r *http.Request) {
 	}
 	v := s.hub.chatScopeView(ctx, id)
 	s.hub.broadcastFleetUpdate("chat_scope", v)
+	writeJSON(w, http.StatusOK, v)
+}
+
+// ticketScopeView is a ticket's Run on with what it names now (SYR-0M4QQ).
+type ticketScopeView struct {
+	TicketID   string              `json:"ticket_id"`
+	Scope      store.MachineTarget `json:"scope"`
+	Label      string              `json:"label"`
+	MachineIDs []string            `json:"machine_ids"`
+}
+
+func (h *Hub) ticketScopeView(ctx context.Context, ticketID string) ticketScopeView {
+	sc := h.ticketScope(ctx, ticketID)
+	v := ticketScopeView{TicketID: ticketID, Scope: sc.target, Label: sc.label, MachineIDs: []string{}}
+	if sc.all() {
+		return v
+	}
+	workers, _ := h.store.ListWorkers(ctx)
+	for _, w := range workers {
+		if sc.in(w.ID) {
+			v.MachineIDs = append(v.MachineIDs, w.ID)
+		}
+	}
+	return v
+}
+
+func (s *Server) handleGetTicketScope(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := s.store.GetTicket(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "ticket not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.hub.ticketScopeView(r.Context(), id))
+}
+
+func (s *Server) handleSetTicketScope(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if _, err := s.store.GetTicket(ctx, id); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "ticket not found"})
+		return
+	}
+	var body store.MachineTarget
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	t, err := s.hub.normalizeTarget(ctx, body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.store.SetTicketScope(ctx, id, t); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	v := s.hub.ticketScopeView(ctx, id)
+	s.hub.broadcastFleetUpdate("ticket_scope", v)
+	// A ticket that waited for a machine may fit one now.
+	s.hub.kickScheduler()
 	writeJSON(w, http.StatusOK, v)
 }

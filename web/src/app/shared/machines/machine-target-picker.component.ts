@@ -64,10 +64,10 @@ import {
           [attr.data-testid]="mode() === 'scope' ? 'context-scope' : 'context-machine'"
           [attr.aria-label]="
             mode() === 'scope'
-              ? 'Where the Commander may send work: ' + chipText()
+              ? hint() + ': ' + chipText()
               : 'Machine: ' + hostName()
           "
-          [syTooltip]="mode() === 'scope' ? 'Where the Commander may send work' : 'Change machine'"
+          [syTooltip]="mode() === 'scope' ? hint() : 'Change machine'"
         >
           <app-icon [name]="mode() === 'scope' ? 'globe' : 'server'" [size]="12" />
           <span class="max-w-[200px] truncate">{{
@@ -192,6 +192,8 @@ export class MachineTargetPickerComponent {
   readonly workerId = input('');
   /** Host mode: fixed for an existing chat. */
   readonly locked = input(false);
+  /** Scope mode: what the chip limits (tooltip and accessible name). */
+  readonly hint = input('Where the Commander may send work');
   readonly valueChange = output<MachineTarget>();
   readonly workerChange = output<string>();
 

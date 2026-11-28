@@ -180,14 +180,25 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 					}
 				}
 				// Work a Commander chat queued stays inside the chat's machines (SYR-FJA2T).
+				// Work for a ticket stays inside its Run on (SYR-0M4QQ).
 				var scopeRejected []Rejection
 				if t.ParentChatID != "" {
-					sc, seen := scopes[t.ParentChatID]
+					sc, seen := scopes["chat:"+t.ParentChatID]
 					if !seen {
 						sc = h.commanderScope(ctx, t.ParentChatID)
-						scopes[t.ParentChatID] = sc
+						scopes["chat:"+t.ParentChatID] = sc
 					}
 					eligible, scopeRejected = filterScope(eligible, sc)
+				}
+				if t.TicketID != "" {
+					sc, seen := scopes["ticket:"+t.TicketID]
+					if !seen {
+						sc = h.ticketScope(ctx, t.TicketID)
+						scopes["ticket:"+t.TicketID] = sc
+					}
+					var dropped []Rejection
+					eligible, dropped = filterScope(eligible, sc)
+					scopeRejected = append(scopeRejected, dropped...)
 				}
 				subNote := ""
 				if payload.Agent != "shell" && payload.SessionKind != "terminal" {

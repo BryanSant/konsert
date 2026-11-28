@@ -174,4 +174,34 @@ test.describe('Machines dialog and Commander scope', () => {
       .poll(async () => (await api<{ scope: { kind: string; id?: string } }>(page, 'GET', `/api/chats/${chatId}/scope`)).scope)
       .toEqual({ kind: 'machine', id: env.workerId });
   });
+
+  test("a ticket's Run on is set in the new-ticket form and changed in its panel (SYR-0M4QQ)", async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/work');
+    await api(page, 'POST', `/api/workers/${env.workerId}/labels`, { label: 'Work' });
+    const title = `Run on ${Date.now()}`;
+    await page.getByTestId('new-ticket').click();
+    const form = page.getByTestId('new-ticket-dialog');
+    await expect(form.getByTestId('nt-project').locator('option').first()).toBeAttached();
+    await form.getByTestId('nt-title').fill(title);
+    const chip = form.getByTestId('nt-run-on').getByTestId('context-scope');
+    await expect(chip).toHaveText(/All machines/);
+    await chip.click();
+    await page.getByTestId('scope-label-Work').click();
+    await expect(chip).toHaveText(/Work/);
+    await form.getByTestId('nt-submit').click();
+    await expect(form).toBeHidden();
+
+    const card = page.getByTestId('work-board').locator('[data-card]').filter({ hasText: title });
+    await expect(card).toBeVisible();
+    const sid = (await card.getAttribute('data-card'))!;
+    await expect.poll(async () => (await api<{ scope: unknown }>(page, 'GET', `/api/tickets/${sid}/scope`)).scope).toEqual({ kind: 'label', label: 'Work' });
+
+    await card.click();
+    const panelChip = page.locator('aside[aria-label="Review"]').getByTestId('ticket-run-on').getByTestId('context-scope');
+    await expect(panelChip).toHaveText(/Work/);
+    await panelChip.click();
+    await page.getByTestId('scope-all').click();
+    await expect.poll(async () => (await api<{ label: string }>(page, 'GET', `/api/tickets/${sid}/scope`)).label).toBe('All machines');
+  });
 });

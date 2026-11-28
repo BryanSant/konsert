@@ -464,7 +464,7 @@ func (h *Hub) broadcastFleetUpdate(kind string, item any) {
 		}
 	case "machine_groups":
 		p.MachineGroups = item
-	case "chat_scope":
+	case "chat_scope", "ticket_scope":
 		p.ChatScope = item
 	case "ticket_deleted", "space_deleted", "worker_deleted", "workspace_deleted", "project_deleted", "repo_deleted", "worktree_deleted", "chat_session_deleted", "device_revoked":
 		if id, ok := item.(string); ok {

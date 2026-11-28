@@ -112,3 +112,31 @@ func TestMachineLabelsGroupsAndChatScope(t *testing.T) {
 		t.Fatalf("scope after reset = %+v", sc)
 	}
 }
+
+func TestTicketScope(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	tk, err := st.CreateTicket(ctx, store.Ticket{ProjectID: store.DefaultProjectID, Kind: store.TicketKindFeature, Title: "x", Status: store.TicketStatusReady})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc, err := st.GetTicketScope(ctx, tk.ID); err != nil || !sc.IsAll() {
+		t.Fatalf("default Run on = %+v, %v", sc, err)
+	}
+	want := store.MachineTarget{Kind: store.TargetGroup, ID: "g-1"}
+	if err := st.SetTicketScope(ctx, tk.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if sc, _ := st.GetTicketScope(ctx, tk.ID); sc.Kind != want.Kind || sc.ID != want.ID {
+		t.Fatalf("Run on = %+v", sc)
+	}
+	if err := st.SetTicketScope(ctx, "tk-nope", want); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown ticket: %v", err)
+	}
+	if err := st.SetTicketScope(ctx, tk.ID, store.MachineTarget{Kind: store.TargetAll}); err != nil {
+		t.Fatal(err)
+	}
+	if sc, _ := st.GetTicketScope(ctx, tk.ID); !sc.IsAll() {
+		t.Fatalf("after reset = %+v", sc)
+	}
+}

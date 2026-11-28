@@ -734,7 +734,8 @@ type FleetUpdatePayload struct {
 	PolicyProposal any `json:"policy_proposal,omitzero"`
 	// Labels carries one machine's operator labels (WorkerID) when Kind is "machine_labels";
 	// MachineGroups every saved group when Kind is "machine_groups"; ChatScope a Commander
-	// chat's machines when Kind is "chat_scope" (SYR-FJA2T).
+	// chat's machines when Kind is "chat_scope" (SYR-FJA2T), or a ticket's Run on when Kind
+	// is "ticket_scope" (SYR-0M4QQ).
 	Labels        any `json:"labels,omitzero"`
 	MachineGroups any `json:"machine_groups,omitzero"`
 	ChatScope     any `json:"chat_scope,omitzero"`

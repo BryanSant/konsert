@@ -1,3 +1,5 @@
+import { ALL_MACHINES, MachineTarget, isAllMachines } from '../../shared/machines/machine-target';
+import { MachineTargetPickerComponent } from '../../shared/machines/machine-target-picker.component';
 import { ChangeDetectionStrategy, Component, computed, effect, inject, output, signal, untracked } from '@angular/core';
 import { Ticket, TicketKind, TicketPriority } from '../../core/models/syre.models';
 import { ApiClientService } from '../../core/services/api-client.service';
@@ -21,7 +23,7 @@ function errText(err: unknown): string {
   selector: 'sy-new-ticket-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalDialogComponent],
+  imports: [ModalDialogComponent, MachineTargetPickerComponent],
   template: `
     <app-modal-dialog labelledBy="sy-new-ticket-title" panelClass="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-4" align="top" (close)="closed.emit()">
       <h2 id="sy-new-ticket-title" class="m-0 text-[15px] font-semibold">New ticket</h2>
@@ -109,6 +111,10 @@ function errText(err: unknown): string {
             <input class="sy-field sy-field-sm w-full mt-0.5" data-testid="nt-hint-machine" [value]="hintMachine()" (input)="hintMachine.set($any($event.target).value)" />
           </label>
         </div>
+        <div class="flex items-center gap-2 text-[11px] text-[var(--sy-text-muted)]" data-testid="nt-run-on">
+          <span>Run on</span>
+          <sy-machine-target-picker mode="scope" hint="Where this ticket's work may run" [value]="runOn()" (valueChange)="runOn.set($event)" />
+        </div>
         @if (error()) {
           <p class="m-0 text-[12px] text-[#f3a5a5]" role="alert" data-testid="new-ticket-error">{{ error() }}</p>
         }
@@ -140,6 +146,8 @@ export class NewTicketDialogComponent {
   readonly hintAgent = signal('');
   readonly hintModel = signal('');
   readonly hintMachine = signal('');
+  /** Where the ticket's work may run (SYR-0M4QQ). */
+  readonly runOn = signal<MachineTarget>(ALL_MACHINES);
   readonly busy = signal(false);
   readonly error = signal('');
 
@@ -210,6 +218,8 @@ export class NewTicketDialogComponent {
       });
       this.tickets.upsert(ticket);
       try {
+        // Before it can be ready with repos, so it never runs outside its Run on.
+        if (!isAllMachines(this.runOn())) await this.api.setTicketScope(ticket.id, this.runOn());
         for (const repoId of repoIds) {
           await this.api.putTicketRepo(ticket.id, repoId);
         }
