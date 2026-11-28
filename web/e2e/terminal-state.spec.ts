@@ -120,6 +120,9 @@ test('closing an idle terminal ends its shell; a running command asks first', as
   const shellPid = await readPid(shellPidFile);
   expect(alive(shellPid)).toBe(true);
   await page.goto(`${env.baseURL}/command/${idle.sid}`);
+  // Close decides from the page's own view of the terminal (loaded, at its prompt), which
+  // can lag the shell: the echo above may still show as running (SYR-DPP7A).
+  await expect(page.locator(`[data-work-item="${idle.sid}"]`)).toHaveAttribute('data-state', 'idle', { timeout: 15_000 });
   await page.getByTestId(`close-tab-${idle.sid}`).click();
   await expect(page.getByTestId('close-terminal-command')).toHaveCount(0);
   await expect.poll(() => taskStatus(page, idle.id), { timeout: 15_000 }).toBe('canceled');
@@ -131,7 +134,7 @@ test('closing an idle terminal ends its shell; a running command asks first', as
   await api(page, 'POST', `/api/tasks/${busy.id}/steer`, { input_text: `sh -c 'echo $$ > ${jobPidFile}; exec sleep 120'` });
   const jobPid = await readPid(jobPidFile);
   await page.goto(`${env.baseURL}/command/${busy.sid}`);
-  await expect.poll(async () => (await api<{ activity?: Array<{ task_id?: string; state: string }> }>(page, 'GET', '/api/fleet')).activity?.find((a) => a.task_id === busy.id)?.state, { timeout: 15_000 }).toBe('working');
+  await expect(page.locator(`[data-work-item="${busy.sid}"]`)).toHaveAttribute('data-state', 'working', { timeout: 15_000 });
   await page.getByTestId(`close-tab-${busy.sid}`).click();
   await expect(page.getByTestId('close-terminal-command')).toContainText('sleep 120');
   await page.getByTestId('close-terminal-cancel').click();
