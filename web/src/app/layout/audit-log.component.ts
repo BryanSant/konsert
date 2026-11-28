@@ -1,3 +1,4 @@
+import { PeopleStore } from '../core/state/people.store';
 import { policyChangeLines } from '../features/policy/machine-policy';
 import { TooltipDirective } from '../shared/tooltip.directive';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
@@ -168,7 +169,7 @@ const BUILTIN_USERS = ['token', 'mcp', 'commander'];
                   <time [attr.datetime]="ev.created_at" [syTooltip]="fullTime(ev.created_at)">{{ shortTime(ev.created_at) }}</time>
                 </td>
                 <td class="px-1.5 py-2 text-[#d4d4d8] truncate" [syTooltip]="ev.user + (ev.source ? ' via ' + ev.source : '')">
-                  {{ ev.user }}
+                  {{ people.nameOf(ev.user) }}
                 </td>
                 <td class="px-1.5 py-2">
                   <div class="font-medium text-[#d9a043] truncate">{{ actionLabel(ev.action) }}</div>
@@ -221,6 +222,8 @@ const BUILTIN_USERS = ['token', 'mcp', 'commander'];
   `,
 })
 export class AuditLogComponent implements OnInit {
+  readonly people = inject(PeopleStore);
+
   /** What a machine.policy entry changed (SYR-V4RER). */
   readonly policyLines = policyChangeLines;
 

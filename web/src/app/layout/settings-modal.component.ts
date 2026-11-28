@@ -1,3 +1,4 @@
+import { PeopleStore } from '../core/state/people.store';
 import { WorkspaceFolderInputComponent } from '../shared/machines/workspace-folder-input.component';
 import { MachineTargetPickerComponent } from '../shared/machines/machine-target-picker.component';
 import { Component, ElementRef, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
@@ -209,6 +210,26 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </p>
         </div>
 
+        <!-- Your name (SYR-98VFV) -->
+        @if (ownerLogin()) {
+          <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2" data-testid="settings-your-name">
+            <label for="settings-display-name" class="block text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Your name</label>
+            <input
+              id="settings-display-name"
+              type="text"
+              maxlength="80"
+              class="sy-field w-full max-w-sm"
+              data-testid="settings-display-name"
+              [placeholder]="detectedName() || ownerLogin()"
+              [value]="myName()"
+              (input)="myName.set($any($event.target).value)"
+            />
+            <p class="text-[11.5px] text-[#8e9098] leading-relaxed">
+              Shown instead of your login ({{ ownerLogin() }}), which appears on hover. Empty uses {{ detectedName() ? '"' + detectedName() + '", found in your git config or account' : 'your login' }}.
+            </p>
+          </div>
+        }
+
         <!-- Fleet workspace folder (SYR-W3SVZ) -->
         <div id="settings-workspace" class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2" data-testid="settings-workspace-folder">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Fleet</div>
@@ -374,6 +395,13 @@ export class SettingsModalComponent implements OnInit {
   private readonly api = inject(ApiClientService);
   private readonly fleet = inject(FleetStore);
   private readonly auth = inject(AuthService);
+  private readonly people = inject(PeopleStore);
+  /** The name the user set (empty: the detected one); what detection found. */
+  readonly myName = signal('');
+  readonly detectedName = signal('');
+  /** The login of the account the hub runs as: whose name this is. */
+  readonly ownerLogin = signal('');
+  private savedMyName = '';
   private readonly notifications = inject(NotificationService);
   private readonly agentAccounts = inject(AgentAccountsStore);
 
@@ -442,7 +470,21 @@ export class SettingsModalComponent implements OnInit {
   readonly error = signal('');
   readonly savedNotice = signal(false);
 
+  private async loadMyName(): Promise<void> {
+    try {
+      const { people, owner } = await this.api.getPeople();
+      this.ownerLogin.set(owner ?? '');
+      const me = people.find((p) => p.login === owner);
+      this.savedMyName = me?.override ?? '';
+      this.myName.set(this.savedMyName);
+      this.detectedName.set(me && !me.override ? (me.display_name ?? '') : '');
+    } catch {
+      // Leave the field empty.
+    }
+  }
+
   async ngOnInit(): Promise<void> {
+    void this.loadMyName();
     try {
       const s = await this.api.getSettings();
       this.fleet.settings.set(s);
@@ -528,6 +570,11 @@ export class SettingsModalComponent implements OnInit {
         override_self_approve: this.overrideSelfApprove(),
       });
       this.fleet.settings.set(updated);
+      if (this.myName().trim() !== this.savedMyName) {
+        const me = await this.api.setMyName(this.myName().trim());
+        this.people.apply(me);
+        this.savedMyName = me.override ?? '';
+      }
       this.auth.provider.set(updated.llm_provider);
       this.auth.model.set(updated.llm_model);
       this.apiKeySet.set(updated.llm_api_key_set);

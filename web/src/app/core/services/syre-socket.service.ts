@@ -1,3 +1,4 @@
+import { PeopleStore, Person } from '../state/people.store';
 import type { ChatScopeView, MachineGroup } from '../../shared/machines/machine-target';
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import {
@@ -56,6 +57,7 @@ import { ObservedEventsPush, ObservedTranscriptStore } from '../state/observed-t
 @Injectable({ providedIn: 'root' })
 export class SyreSocketService {
   private readonly fleetStore = inject(FleetStore);
+  private readonly people = inject(PeopleStore);
   private readonly ticketStore = inject(TicketStore);
   private readonly commanderStore = inject(CommanderStore);
   private readonly auditStore = inject(AuditStore);
@@ -284,6 +286,7 @@ export class SyreSocketService {
           labels?: string[];
           machine_groups?: MachineGroup[];
           chat_scope?: ChatScopeView;
+          person?: Person;
         } | undefined;
         if (!p) return;
         if (p.kind === 'worker' && p.worker) {
@@ -332,6 +335,8 @@ export class SyreSocketService {
           this.fleetStore.applyDirective(p.directive);
         } else if (p.kind === 'machine_labels' && p.worker_id) {
           this.fleetStore.applyMachineLabels(p.worker_id, p.labels ?? []);
+        } else if (p.kind === 'person' && p.person) {
+          this.people.apply(p.person);
         } else if (p.kind === 'machine_groups') {
           this.fleetStore.applyMachineGroups(p.machine_groups ?? []);
         } else if (p.kind === 'chat_scope' && p.chat_scope) {

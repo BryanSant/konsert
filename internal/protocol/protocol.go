@@ -753,6 +753,8 @@ type FleetUpdatePayload struct {
 	Labels        any `json:"labels,omitzero"`
 	MachineGroups any `json:"machine_groups,omitzero"`
 	ChatScope     any `json:"chat_scope,omitzero"`
+	// Person carries a login's display name when Kind is "person" (SYR-98VFV).
+	Person any `json:"person,omitzero"`
 }
 
 // Policy directive kinds.

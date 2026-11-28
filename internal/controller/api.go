@@ -184,6 +184,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
 	s.registerMachineScopeRoutes()
 	s.registerWorkspaceFolderRoutes()
+	s.registerPeopleRoutes()
 	s.mux.Handle("GET /api/fleet/heat", s.requireBrowserAuth(s.handleFleetHeat))
 	s.mux.Handle("GET /api/metrics", s.requireBrowserAuth(s.handleMetrics))
 	s.mux.Handle("GET /api/policy/report", s.requireBrowserAuth(s.handlePolicyReport))
@@ -439,6 +440,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"authenticated": ok,
 		"auth_required": s.auth.AuthRequired(),
 		"user":          id.User,
+		"display_name":  s.hub.displayName(r.Context(), id.User),
 		"method":        id.Method,
 		"provider":      prov,
 		"model":         model,

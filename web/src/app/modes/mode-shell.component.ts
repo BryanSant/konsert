@@ -1,3 +1,4 @@
+import { PeopleStore } from '../core/state/people.store';
 import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -161,6 +162,7 @@ export class ModeShellComponent {
   private readonly work = inject(WorkStore);
   private readonly fleet = inject(FleetStore);
   private readonly auth = inject(AuthService);
+  private readonly people = inject(PeopleStore);
   private readonly socket = inject(SyreSocketService);
   private readonly router = inject(Router);
   readonly modes = MODES;
@@ -181,7 +183,7 @@ export class ModeShellComponent {
   readonly fleetState = computed(() => {
     const p = this.control.pause();
     if (p.paused) {
-      const by = p.paused_by ? ` by ${p.paused_by === this.auth.user() ? 'you' : p.paused_by}` : '';
+      const by = p.paused_by ? ` by ${p.paused_by === this.auth.user() ? 'you' : this.people.nameOf(p.paused_by)}` : '';
       const at = shortWhen(p.paused_at);
       return `FLEET: PAUSED${by}${at ? ` ${at}` : ''}`;
     }

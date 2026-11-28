@@ -47,6 +47,8 @@ export interface PairingCode {
 export interface PairResponse {
   authenticated: boolean;
   user: string;
+  /** The user's display name ("Bryan Sant"; '' when only the login is known; SYR-98VFV). */
+  display_name?: string;
   device?: Device;
 }
 

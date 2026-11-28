@@ -332,4 +332,23 @@ test.describe('Machines dialog and Commander scope', () => {
       await api(page, 'PATCH', `/api/projects/${p.id}`, { max_concurrent: 0 });
     }
   });
+
+  test('Settings → Your name names the hub owner; the login stays on hover (SYR-98VFV)', async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/command');
+    const people = await api<{ owner: string }>(page, 'GET', '/api/people');
+    test.skip(!people.owner, 'the hub account has no login');
+    try {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      const field = page.getByTestId('settings-display-name');
+      await expect(field).toBeVisible();
+      await field.fill('E2E Person');
+      await page.getByRole('button', { name: 'Save Settings' }).click();
+      await expect
+        .poll(async () => (await api<{ people: Array<{ login: string; display_name?: string }> }>(page, 'GET', '/api/people')).people.find((p) => p.login === people.owner)?.display_name)
+        .toBe('E2E Person');
+    } finally {
+      await api(page, 'PUT', '/api/people/me', { display_name: '' });
+    }
+  });
 });

@@ -4,6 +4,7 @@ import { ApiClientService } from '../../core/services/api-client.service';
 import { FleetStore } from '../../core/state/fleet.store';
 import { TicketStore } from '../../core/state/ticket.store';
 import { IconComponent } from '../../shared/icon.component';
+import { PersonComponent } from '../../shared/person.component';
 import { ALL_MACHINES, MachineTarget } from '../../shared/machines/machine-target';
 import { MachineTargetPickerComponent } from '../../shared/machines/machine-target-picker.component';
 import { compactDigest, isContainerKind } from './board-logic';
@@ -23,7 +24,7 @@ function errText(err: unknown): string {
   selector: 'sy-ticket-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, MachineTargetPickerComponent],
+  imports: [IconComponent, MachineTargetPickerComponent, PersonComponent],
   host: { class: 'flex flex-col min-h-0' },
   template: `
     <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 flex flex-col gap-3" data-testid="ticket-panel" [attr.data-ticket]="ticket().sid">
@@ -152,7 +153,7 @@ function errText(err: unknown): string {
         <ul class="m-0 p-0 list-none space-y-1.5" data-testid="ticket-comments">
           @for (c of comments(); track c.id) {
             <li class="text-[12.5px]">
-              <span class="text-[11px] text-[var(--sy-text-muted)]">{{ c.author }}</span>
+              <span class="text-[11px] text-[var(--sy-text-muted)]"><sy-person [login]="c.author" /></span>
               <span class="block whitespace-pre-wrap break-words">{{ c.body }}</span>
             </li>
           }

@@ -106,6 +106,8 @@ type Hub struct {
 	cross crossReviews
 	// shedCooldown keeps ticket runs off a machine that just shed one (guardrails.go).
 	shedCooldown shedCooldowns
+	// people caches detected display names by login (people.go).
+	people peopleNames
 	// estimates caches running sessions' work keys and expected peaks (capacity.go).
 	estimates estimateCache
 	// trackers syncs external trackers into the work model (tracker_api.go).

@@ -1,3 +1,4 @@
+import type { Person } from '../state/people.store';
 import type { WorkspaceFolders } from '../../shared/machines/workspace-folder';
 import type { ChatScopeView, MachineGroup, MachineTarget } from '../../shared/machines/machine-target';
 import { Injectable } from '@angular/core';
@@ -383,6 +384,16 @@ export class ApiClientService {
 
   getChatScope(chatId: string): Promise<ChatScopeView> {
     return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`);
+  }
+
+  /** People with a known display name (SYR-98VFV). */
+  getPeople(): Promise<{ people: Person[]; owner?: string }> {
+    return this.request('/api/people');
+  }
+
+  /** Sets (or with '' clears) the signed-in user's own display name. */
+  setMyName(displayName: string): Promise<Person> {
+    return this.request('/api/people/me', { method: 'PUT', body: JSON.stringify({ display_name: displayName }) });
   }
 
   /** Folders the machines' home surveys found, ranked (SYR-W3SVZ). */
