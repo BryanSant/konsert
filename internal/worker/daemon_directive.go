@@ -153,7 +153,8 @@ func (d *Daemon) admissionRefusal(work, chatID string) string {
 // policyState is this machine's state for a policy check: hosted sessions, then load
 // and memory from the last heartbeat's vitals (unknown before the first).
 func (d *Daemon) policyState(work string) policy.State {
-	st := policy.State{Work: work, Hosted: d.hostedSessions(), LoadAvg: -1, AvailRAMMB: -1, Now: time.Now()}
+	// Automatic stays false: only the hub knows who started the work.
+	st := policy.State{Work: work, Hosted: d.hostedSessions(), LoadAvg: -1, AvailRAMMB: -1, UserIdleS: -1, Now: time.Now()}
 	if m := d.lastMetrics.Load(); m != nil {
 		st.LoadAvg = m.LoadAvg
 		if m.MemTotalMB > 0 {

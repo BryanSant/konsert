@@ -40,6 +40,9 @@ import {
   transportHint,
   transportIcon,
   transportLabel,
+  roleBadge,
+  machineRole,
+  MACHINE_ROLES,
 } from './fleet-logic';
 import { SubagentActivity } from '../../core/models/activity.models';
 
@@ -153,6 +156,9 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
                       >
                       @if (versionMismatch(r.w); as note) {
                         <span class="sy-badge" data-badge="VERSION" role="img" data-testid="version-mismatch-badge" [attr.aria-label]="note" [syTooltip]="note">VERSION</span>
+                      }
+                      @if (roleBadge(r.w); as rb) {
+                        <span class="sy-badge" data-badge="ROLE" data-testid="role-badge" [syTooltip]="roleHint(r.w)">{{ rb }}</span>
                       }
                       @for (b of r.directiveBadges; track b.id) {
                         <span class="sy-badge" data-badge="DIRECTIVE" data-testid="directive-badge">{{ b.text }}</span>
@@ -569,6 +575,7 @@ const WAKE_REASON = 'Keep Awake from the Syre dashboard';
       background: var(--sy-amber);
     }
     .sy-badge[data-badge='DRAINING'],
+    .sy-badge[data-badge='ROLE'],
     .sy-badge[data-badge='DIRECTIVE'] {
       color: #9ec5ff;
       background: transparent;
@@ -783,6 +790,11 @@ export class FleetModeComponent {
   }
 
   readonly transportLabel = transportLabel;
+  readonly roleBadge = roleBadge;
+  roleHint(w: Worker): string {
+    const r = machineRole(w);
+    return MACHINE_ROLES.find((x) => x.id === r)?.hint ?? '';
+  }
   readonly transportHint = transportHint;
   readonly transportIcon = transportIcon;
 

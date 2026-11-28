@@ -404,6 +404,8 @@ export class FleetStore {
           // Every worker view carries its current launch state; absent means cleared.
           launch_state: worker.launch_state,
           launch_error: worker.launch_error,
+          // Likewise its policy: absent means none (cleared).
+          policy: worker.policy,
         };
         return next;
       });

@@ -129,3 +129,33 @@ func TestLiftedRules(t *testing.T) {
 		t.Fatalf("both lifted: %+v", v)
 	}
 }
+
+func TestInteractiveMachineHoldsAutomaticWorkWhileInUse(t *testing.T) {
+	p := &protocol.MachinePolicy{Role: protocol.MachineRoleInteractive}
+	base := State{LoadAvg: -1, AvailRAMMB: -1, Now: time.Now()}
+	st := base
+	st.Automatic, st.UserIdleS = true, 40
+	if v := Check(p, st); v == nil || v.Rule != RuleUserActive {
+		t.Fatalf("in use: %+v", v)
+	}
+	st.UserIdleS = InteractiveAwayS + 1
+	if v := Check(p, st); v != nil {
+		t.Fatalf("away: %+v", v)
+	}
+	st.UserIdleS, st.Automatic = 5, false // the user's own work
+	if v := Check(p, st); v != nil {
+		t.Fatalf("the user's own work: %+v", v)
+	}
+	st.Automatic, st.UserIdleS = true, -1 // idle time unknown (a server over SSH)
+	if v := Check(p, st); v != nil {
+		t.Fatalf("unknown idle: %+v", v)
+	}
+	st.UserIdleS = 5
+	st.Lifted = map[string]bool{RuleUserActive: true}
+	if v := Check(p, st); v != nil {
+		t.Fatalf("lifted by an override: %+v", v)
+	}
+	if v := Check(&protocol.MachinePolicy{Role: protocol.MachineRoleDedicated}, State{Automatic: true, UserIdleS: 5, LoadAvg: -1, AvailRAMMB: -1}); v != nil {
+		t.Fatalf("dedicated: %+v", v)
+	}
+}

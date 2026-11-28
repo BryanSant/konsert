@@ -43,7 +43,7 @@ import {
   TicketRollup,
   WakeLockStatus,
   Worker,
-  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult } from '../models/syre.models';
+  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult, MachinePolicy } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -319,6 +319,16 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ pid, started_at: startedAt ?? '0001-01-01T00:00:00Z' }),
     });
+  }
+
+  /** A machine's policy (empty when none). */
+  getWorkerPolicy(id: string): Promise<{ policy: MachinePolicy }> {
+    return this.request(`/api/workers/${encodeURIComponent(id)}/policy`);
+  }
+
+  /** Replaces a machine's policy (an empty one clears it). */
+  setWorkerPolicy(id: string, policy: MachinePolicy): Promise<{ ok: boolean; policy: MachinePolicy }> {
+    return this.request(`/api/workers/${encodeURIComponent(id)}/policy`, { method: 'PUT', body: JSON.stringify(policy) });
   }
 
   /** Settings → Policy report: how often rules blocked work and the overrides that followed. */

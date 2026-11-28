@@ -121,6 +121,7 @@ export interface ReportedCheckout {
 }
 
 export interface MachineFacts {
+  gpus?: MachineGPU[];
   os_name?: string;
   os_version?: string;
   kernel_version?: string;
@@ -214,6 +215,34 @@ export interface Worker {
   spool?: WorkerSpool;
   /** The hub just woke from sleep and waits for this machine to re-attach. */
   reconnecting_after_sleep?: boolean;
+  /** The machine policy the user set; absent when none. */
+  policy?: MachinePolicy;
+}
+
+/** A machine's role: dedicated runs any work; interactive holds automatic work while someone uses it; control_only runs none. */
+export type MachineRole = 'dedicated' | 'interactive' | 'control_only';
+
+/** The user's rules for what work a machine takes (internal/protocol MachinePolicy). */
+export interface MachinePolicy {
+  role?: MachineRole | '';
+  max_sessions?: number;
+  max_load?: number;
+  reserve_cpu?: number;
+  min_free_ram_mb?: number;
+  reserve_ram_mb?: number;
+  quiet_hours?: { start: string; end: string; days?: string[] }[];
+  time_zone?: string;
+  allowed_work?: string[];
+}
+
+/** One graphics processor (machine facts). */
+export interface MachineGPU {
+  vendor: 'nvidia' | 'amd' | 'intel' | 'apple' | string;
+  model?: string;
+  vram_mb?: number;
+  unified?: boolean;
+  integrated?: boolean;
+  cores?: number;
 }
 
 /**

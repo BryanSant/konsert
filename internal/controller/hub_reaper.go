@@ -77,7 +77,8 @@ func (h *Hub) reapStaleWorkers(ctx context.Context) {
 		h.mu.Unlock()
 
 		if w, err := h.store.GetWorker(ctx, wid); err == nil {
-			h.broadcastFleetUpdate("worker", w)
+			// The view, as every worker update: the UI reads an absent field as cleared.
+			h.broadcastFleetUpdate("worker", toWorkerView(w, 0, nil))
 		}
 		h.handleOrphanTasks(ctx, wid)
 	}

@@ -219,4 +219,46 @@ test.describe('Fleet machine row layout', () => {
       }
     }
   });
+  test('the machine role is shown and editable from the machine details (SYR-FSQP8)', async ({ page }) => {
+    const env = loadEnv();
+    await page.goto(`${env.baseURL}/fleet`);
+    await page.getByRole('button', { name: 'Use recovery key' }).click();
+    await page.locator('#token').fill(env.adminToken);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await expect(page.locator('#token')).toBeHidden();
+    const snap = await page.evaluate(async () => (await fetch('/api/fleet', { credentials: 'same-origin' })).json());
+    const worker = (snap.workers as Array<Record<string, unknown>>).find((w) => w['id'] === env.workerId)!;
+    const sid = worker['sid'] as string;
+    const row = page.locator(`[data-machine="${sid}"]`);
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId('role-badge')).toHaveCount(0);
+    const policyOf = () =>
+      page.evaluate(async (id) => (await (await fetch(`/api/workers/${id}/policy`, { credentials: 'same-origin' })).json()).policy, env.workerId);
+    try {
+      await row.getByTestId(`machine-details-${sid}`).click();
+      const control = page.getByTestId('machine-control');
+      const select = control.getByTestId('machine-role');
+      await expect(select).toHaveValue('dedicated');
+      await select.selectOption('interactive');
+      await expect(control.getByTestId('machine-role-hint')).toContainText('away 5 minutes');
+      await expect(row.getByTestId('role-badge')).toHaveText('INTERACTIVE');
+      expect((await policyOf()).role).toBe('interactive');
+      await select.selectOption('dedicated');
+      await expect(row.getByTestId('role-badge')).toHaveCount(0);
+      expect((await policyOf()).role ?? '').toBe('');
+    } finally {
+      await page
+        .evaluate(async (id) => {
+          const { policy } = await (await fetch(`/api/workers/${id}/policy`, { credentials: 'same-origin' })).json();
+          delete policy.role;
+          await fetch(`/api/workers/${id}/policy`, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-Syre-Request': '1' },
+            body: JSON.stringify(policy),
+          });
+        }, env.workerId)
+        .catch(() => undefined);
+    }
+  });
 });

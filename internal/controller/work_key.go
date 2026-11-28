@@ -30,11 +30,15 @@ type WorkRequirements struct {
 	Auth []string `json:"auth,omitempty"`
 	// Virtualization is bare_metal, wsl, container, mac_container or vm.
 	Virtualization string `json:"virtualization,omitempty"`
+	// GPU requires a GPU for compute work, of GPUVendor when set, with MinVRAMGB.
+	GPU       bool   `json:"gpu,omitzero"`
+	GPUVendor string `json:"gpu_vendor,omitempty"`
+	MinVRAMGB int    `json:"min_vram_gb,omitzero"`
 }
 
 func (r WorkRequirements) empty() bool {
 	return r.OS == "" && r.Arch == "" && r.MinRAMGB <= 0 && r.MinDiskFreeGB <= 0 && len(r.Tools) == 0 &&
-		len(r.Auth) == 0 && r.Virtualization == ""
+		len(r.Auth) == 0 && r.Virtualization == "" && !r.GPU && r.GPUVendor == "" && r.MinVRAMGB <= 0
 }
 
 // apply adds the requirements to sel; what the selector already names wins.
@@ -68,6 +72,13 @@ func (r WorkRequirements) apply(sel *WorkerSelector) {
 	}
 	if sel.Virtualization == "" {
 		sel.Virtualization = strings.TrimSpace(r.Virtualization)
+	}
+	sel.GPU = sel.GPU || r.GPU
+	if sel.GPUVendor == "" {
+		sel.GPUVendor = strings.ToLower(strings.TrimSpace(r.GPUVendor))
+	}
+	if sel.MinVRAMGB == 0 && r.MinVRAMGB > 0 {
+		sel.MinVRAMGB = r.MinVRAMGB
 	}
 }
 

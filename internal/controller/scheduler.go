@@ -24,6 +24,11 @@ type WorkerSelector struct {
 	MinDiskFreeGB  uint64            `json:"min_disk_free_gb,omitzero"`
 	TmpTmpfs       *bool             `json:"tmp_tmpfs,omitzero"`
 	Tags           map[string]string `json:"tags,omitempty"`
+	// GPU requires a GPU for compute work (not a small integrated one), of GPUVendor
+	// (nvidia, amd, intel, apple) when set, with at least MinVRAMGB of memory (SYR-FSQP8).
+	GPU       bool   `json:"gpu,omitzero"`
+	GPUVendor string `json:"gpu_vendor,omitempty"`
+	MinVRAMGB int    `json:"min_vram_gb,omitzero"`
 }
 
 func normalizeOSName(osName string) string {
@@ -187,7 +192,8 @@ func workerMatchesSelector(
 		len(selector.RequiredAuth) > 0 ||
 		selector.MinRAMMB > 0 ||
 		selector.MinDiskFreeGB > 0 ||
-		selector.TmpTmpfs != nil
+		selector.TmpTmpfs != nil ||
+		selector.wantsGPU()
 
 	if needsFacts {
 		facts := decodeWorkerFacts(w.FactsJSON)
@@ -201,7 +207,30 @@ func workerMatchesSelector(
 	return true
 }
 
+// wantsGPU reports a GPU requirement.
+func (sel WorkerSelector) wantsGPU() bool {
+	return sel.GPU || strings.TrimSpace(sel.GPUVendor) != "" || sel.MinVRAMGB > 0
+}
+
+// hasGPUFor reports a GPU in f that meets sel's GPU requirement.
+func hasGPUFor(f *protocol.MachineFacts, sel WorkerSelector) bool {
+	vendor := strings.ToLower(strings.TrimSpace(sel.GPUVendor))
+	for _, g := range f.GPUs {
+		if g.Integrated || vendor != "" && g.Vendor != vendor {
+			continue
+		}
+		if sel.MinVRAMGB > 0 && g.VRAMMB < uint64(sel.MinVRAMGB)*1024 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func factsMatchSelector(f *protocol.MachineFacts, sel WorkerSelector) bool {
+	if sel.wantsGPU() && !hasGPUFor(f, sel) {
+		return false
+	}
 	if sel.Virtualization != "" && !strings.EqualFold(f.Virtualization, sel.Virtualization) {
 		return false
 	}

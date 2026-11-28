@@ -1,5 +1,5 @@
 import { HeatHistory, HeatSample, ProjectGroup, ShellInfo, SubagentActivity, WorkerHeat } from '../../core/models/activity.models';
-import { PolicyDirective, Task, Worker } from '../../core/models/syre.models';
+import { MachineRole, PolicyDirective, Task, Worker } from '../../core/models/syre.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
 import { SessionActivity } from '../../core/models/activity.models';
@@ -649,4 +649,33 @@ export function queueReasons(tasks: readonly Task[], workers: readonly Worker[],
     out.push({ id: t.id, sid: t.sid, title: titleOf(t), reasons });
   }
   return out;
+}
+
+/** Machine roles as the UI offers them (SYR-FSQP8). */
+export const MACHINE_ROLES: readonly { id: MachineRole; label: string; hint: string }[] = [
+  { id: 'dedicated', label: 'Dedicated', hint: 'Runs any work.' },
+  {
+    id: 'interactive',
+    label: 'Interactive',
+    hint: 'Someone works here: automatic work waits while they use it, and starts once they have been away 5 minutes.',
+  },
+  { id: 'control_only', label: 'Control only', hint: 'Runs no work: a hub, a phone or a laptop on the go.' },
+];
+
+/** The machine's role ('dedicated' when its policy names none). */
+export function machineRole(w: Pick<Worker, 'policy'>): MachineRole {
+  const r = w.policy?.role;
+  return r === 'interactive' || r === 'control_only' ? r : 'dedicated';
+}
+
+/** The fleet row badge for a non-default role, or null. */
+export function roleBadge(w: Pick<Worker, 'policy'>): string | null {
+  switch (machineRole(w)) {
+    case 'interactive':
+      return 'INTERACTIVE';
+    case 'control_only':
+      return 'CONTROL ONLY';
+    default:
+      return null;
+  }
 }

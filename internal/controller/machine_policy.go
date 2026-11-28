@@ -41,9 +41,12 @@ func workerPolicy(w store.Worker) *protocol.MachinePolicy {
 // it counts there, load and memory come from the last heartbeat, cores and the
 // survival reserve from its facts.
 func (h *Hub) policyState(w store.Worker, work string, hosted int) policy.State {
-	st := policy.State{Work: work, Hosted: hosted, LoadAvg: -1, AvailRAMMB: -1, Now: h.directiveClock()}
+	st := policy.State{Work: work, Hosted: hosted, LoadAvg: -1, AvailRAMMB: -1, UserIdleS: -1, Now: h.directiveClock()}
 	if m := h.WorkerMetrics(w.ID); m != nil {
 		st.LoadAvg = m.LoadAvg
+		if m.Load != nil && m.Load.UserIdleS != nil {
+			st.UserIdleS = *m.Load.UserIdleS
+		}
 		if m.MemTotalMB > 0 {
 			st.AvailRAMMB = int(m.MemTotalMB) - int(m.MemUsedMB)
 		}
@@ -68,6 +71,8 @@ func (h *Hub) policyViolation(ctx context.Context, w store.Worker, work string, 
 		return nil, nil
 	}
 	st := h.policyState(w, work, hosted)
+	// Ticket runs are the scheduler's; other work is automatic unless a person started it.
+	st.Automatic = work == protocol.WorkTicket || isAutomatic(causeFrom(ctx))
 	v := policy.Check(p, st)
 	if v == nil {
 		return nil, nil

@@ -39,8 +39,7 @@ import {
   transportHint,
   transportIcon,
   transportLabel,
-  windowsStartText,
-} from './fleet/fleet-logic';
+  windowsStartText, machineRole, roleBadge } from './fleet/fleet-logic';
 
 const NOW = Date.parse('2026-11-23T15:00:00Z');
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -491,5 +490,16 @@ describe('windows start mode', () => {
     const down = win('user_session', { status: 'offline', restart: { state: 'down', attempt: 2, error: 'syred is not running here', since: iso(NOW) } });
     expect(offlineText(down, NOW)).toMatch(/^syred down: syred is not running here\. Windows: syred starts only when bryan signs in/);
     expect(offlineText(win('background_task', { status: 'offline' }), NOW)).toBe('offline: not reporting');
+  });
+});
+
+describe('machine roles (SYR-FSQP8)', () => {
+  it('defaults to dedicated and badges the others', () => {
+    expect(machineRole({})).toBe('dedicated');
+    expect(machineRole({ policy: { role: '' } })).toBe('dedicated');
+    expect(machineRole({ policy: { role: 'interactive' } })).toBe('interactive');
+    expect(roleBadge({ policy: { role: 'dedicated' } })).toBeNull();
+    expect(roleBadge({ policy: { role: 'interactive' } })).toBe('INTERACTIVE');
+    expect(roleBadge({ policy: { role: 'control_only' } })).toBe('CONTROL ONLY');
   });
 });

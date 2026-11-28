@@ -28,7 +28,16 @@ type State struct {
 	Now               time.Time
 	// Lifted are rules an approved break-glass override suspends for now.
 	Lifted map[string]bool
+	// Automatic marks work no person started now (the scheduler, the Commander, an
+	// agent); UserIdleS is how long since someone used the machine's keyboard or mouse
+	// (< 0 unknown). An interactive machine holds automatic work while it is in use.
+	Automatic bool
+	UserIdleS int64
 }
+
+// InteractiveAwayS is how long the user of an interactive machine must be away before
+// it takes automatic work again.
+const InteractiveAwayS = 5 * 60
 
 // Rules named in a Violation.
 const (
@@ -39,6 +48,7 @@ const (
 	RuleMaxLoad     = "max_load"
 	RuleReserveCPU  = "reserve_cpu"
 	RuleFreeRAM     = "min_free_ram"
+	RuleUserActive  = "user_active"
 )
 
 // Violation is a policy rule new work would break.
@@ -65,11 +75,17 @@ func Check(p *protocol.MachinePolicy, st State) *Violation {
 }
 
 // Rules lists every rule name Check can report (what an override may lift).
-var Rules = []string{RuleRole, RuleAllowedWork, RuleQuietHours, RuleMaxSessions, RuleMaxLoad, RuleReserveCPU, RuleFreeRAM}
+var Rules = []string{RuleRole, RuleAllowedWork, RuleQuietHours, RuleMaxSessions, RuleMaxLoad, RuleReserveCPU, RuleFreeRAM, RuleUserActive}
 
 func check(p *protocol.MachinePolicy, st State, v func(rule, format string, args ...any) *Violation) *Violation {
 	if p.Role == protocol.MachineRoleControlOnly {
 		if vi := v(RuleRole, "this machine is control-only and runs no work"); vi != nil {
+			return vi
+		}
+	}
+	if p.Role == protocol.MachineRoleInteractive && st.Automatic && st.UserIdleS >= 0 && st.UserIdleS < InteractiveAwayS {
+		if vi := v(RuleUserActive, "someone is using this machine (last input %ds ago): automatic work waits until they have been away %d minutes",
+			st.UserIdleS, InteractiveAwayS/60); vi != nil {
 			return vi
 		}
 	}

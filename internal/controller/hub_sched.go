@@ -166,7 +166,12 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				// automatic placement; the task waits until the user releases the hold.
 				eligible := make([]store.Worker, 0, len(workers))
 				lifted := map[string]*store.Override{}
-				admitted, lifts := h.applyMachinePolicy(ctx, workers, counts, taskWork(t.TicketID), taskSubject(t.ID))
+				// Checked as who dispatched it: a task the user queued is the user's work.
+				pctx := ctx
+				if t.Cause != nil {
+					pctx = withCause(ctx, *t.Cause)
+				}
+				admitted, lifts := h.applyMachinePolicy(pctx, workers, counts, taskWork(t.TicketID), taskSubject(t.ID))
 				for _, w := range admitted {
 					if _, held, ov := h.holdVerdict(ctx, holdCheck{workerID: w.ID, taskID: t.ID, chatID: t.ParentChatID, text: t.Prompt}); !held {
 						eligible = append(eligible, w)

@@ -266,7 +266,7 @@ var (
 						"default_branch": map[string]any{"type": "string"},
 						"delivery_mode":  map[string]any{"type": "string"},
 						"work_key":       map[string]any{"type": "string"},
-						"requirements":   map[string]any{"type": "object", "description": "dispatch: os, arch, min_ram_gb, min_disk_free_gb, tools{name:min_ver}, auth[], virtualization"},
+						"requirements":   map[string]any{"type": "object", "description": "dispatch: os, arch, gpu, gpu_vendor, min_vram_gb, min_ram_gb, tools{name:min_ver}, auth[]"},
 					},
 				},
 			},

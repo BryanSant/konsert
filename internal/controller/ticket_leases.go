@@ -251,6 +251,7 @@ func (h *Hub) ticketWorkerSelector(ctx context.Context, tk store.Ticket) WorkerS
 	if tk.Hints.MinRAMGB > 0 {
 		sel.MinRAMMB = uint64(tk.Hints.MinRAMGB) * 1024
 	}
+	sel.GPU = tk.Hints.GPU
 	if len(tk.Hints.Tools) > 0 {
 		sel.RequiredTools = make(map[string]string, len(tk.Hints.Tools))
 		for _, tool := range tk.Hints.Tools {

@@ -1,5 +1,5 @@
 import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
-import { DirectiveParams, ListeningPort, Worker } from '../core/models/syre.models';
+import { DirectiveParams, ListeningPort, MachinePolicy, MachineRole, Worker } from '../core/models/syre.models';
 import { isVersionMismatch } from '../core/models/version';
 import { sidUrl } from '../core/routing/sid-links';
 import { ApiClientService } from '../core/services/api-client.service';
@@ -10,7 +10,7 @@ import { TooltipDirective } from '../shared/tooltip.directive';
 import { ControlStore } from '../core/state/control.store';
 import { HoldsRequestsComponent } from '../features/control/holds-requests.component';
 import { YourActionsComponent } from '../features/control/your-actions.component';
-import { activeMachineDirectives, directiveBadgeText, guardrailLabel, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
+import { MACHINE_ROLES, activeMachineDirectives, directiveBadgeText, guardrailLabel, machineRole, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
 import { MachineResourcesComponent } from './machine-resources.component';
@@ -233,6 +233,25 @@ import { MachineResourcesComponent } from './machine-resources.component';
         </form>
         @if (directiveError()) {
           <div role="alert" class="text-[#f09595]">{{ directiveError() }}</div>
+        }
+        <div class="flex flex-wrap items-center gap-2" data-testid="machine-role-row">
+          <label class="flex items-center gap-1.5 text-[#86888f]" for="machine-role-select">Role</label>
+          <select
+            id="machine-role-select"
+            class="sy-field sy-field-sm"
+            data-testid="machine-role"
+            [value]="role()"
+            [disabled]="roleBusy()"
+            (change)="setRole($any($event.target).value)"
+          >
+            @for (r of roles; track r.id) {
+              <option [value]="r.id" [selected]="r.id === role()">{{ r.label }}</option>
+            }
+          </select>
+          <span class="text-[#86888f] min-w-0 flex-1" data-testid="machine-role-hint">{{ roleHint() }}</span>
+        </div>
+        @if (roleError()) {
+          <div role="alert" class="text-[#f09595]" data-testid="machine-role-error">{{ roleError() }}</div>
         }
         <sy-holds-requests [workerId]="worker().id" />
         <sy-your-actions [workerId]="worker().id" [limit]="8" />
@@ -571,6 +590,30 @@ export class MachineDetailModalComponent {
   readonly startTerminal = output<Worker>();
 
   private readonly api = inject(ApiClientService);
+
+  // --- role (SYR-FSQP8) ---------------------------------------------------------------
+  readonly roles = MACHINE_ROLES;
+  readonly role = computed(() => machineRole(this.worker()));
+  readonly roleHint = computed(() => MACHINE_ROLES.find((r) => r.id === this.role())?.hint ?? '');
+  readonly roleBusy = signal(false);
+  readonly roleError = signal('');
+
+  /** Sets the machine's role, keeping the rest of its policy. */
+  async setRole(role: MachineRole): Promise<void> {
+    if (role === this.role()) return;
+    this.roleBusy.set(true);
+    this.roleError.set('');
+    try {
+      const { policy } = await this.api.getWorkerPolicy(this.worker().id);
+      const next: MachinePolicy = { ...policy, role: role === 'dedicated' ? undefined : role };
+      if (!next.role) delete next.role;
+      await this.api.setWorkerPolicy(this.worker().id, next);
+    } catch (e) {
+      this.roleError.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.roleBusy.set(false);
+    }
+  }
   readonly fleet = inject(FleetStore);
   readonly control = inject(ControlStore);
 
