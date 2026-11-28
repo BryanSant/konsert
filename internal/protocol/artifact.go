@@ -20,6 +20,9 @@ const (
 	InspectKindResult     = "result"
 	InspectKindEvents     = "events"
 	InspectKindAudit      = "audit"
+	// InspectKindProfile returns the work profiles of a target's work key (or of the
+	// work key given as the target), per machine class.
+	InspectKindProfile = "profile"
 
 	// InspectDefaultMaxLines is the page size when the caller omits max_lines.
 	InspectDefaultMaxLines = 200

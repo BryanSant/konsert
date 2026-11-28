@@ -29,7 +29,7 @@ const (
 // InspectRequest is one page of a ticket/task artifact, task result, recent events, or audit log.
 type InspectRequest struct {
 	Target   string `json:"target,omitempty" jsonschema:"Ticket, task, or machine id/sid (optional for events/audit)"`
-	Kind     string `json:"kind" jsonschema:"digest, diff_stat, diff, stderr, log, transcript, file, result, events, or audit"`
+	Kind     string `json:"kind" jsonschema:"digest, diff_stat, diff, stderr, log, transcript, file, result, events, audit, or profile (work profiles of the target's work key, or of a work key given as target)"`
 	Repo     string `json:"repo,omitempty" jsonschema:"Repo name when ticket has multiple bindings"`
 	Path     string `json:"path,omitempty" jsonschema:"Relative path (required for file, optional for diff/diff_stat)"`
 	MaxLines int    `json:"max_lines,omitempty" jsonschema:"Lines per page (default 200, max 2000)"`
@@ -91,6 +91,9 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 	}
 	if req.Kind == protocol.InspectKindAudit {
 		return s.inspectAudit(ctx, req)
+	}
+	if req.Kind == protocol.InspectKindProfile {
+		return s.inspectProfile(ctx, req)
 	}
 	if req.Target == "" {
 		return InspectResult{}, &inspectFailure{Status: http.StatusBadRequest, Msg: "target is required"}
@@ -186,7 +189,7 @@ func validInspectKind(kind string) bool {
 	case protocol.InspectKindDigest, protocol.InspectKindDiffStat, protocol.InspectKindDiff,
 		protocol.InspectKindStderr, protocol.InspectKindLog, protocol.InspectKindTranscript,
 		protocol.InspectKindFile, protocol.InspectKindResult, protocol.InspectKindEvents,
-		protocol.InspectKindAudit:
+		protocol.InspectKindAudit, protocol.InspectKindProfile:
 		return true
 	default:
 		return false

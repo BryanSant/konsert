@@ -251,6 +251,12 @@ type Attempt struct {
 	// Substitution records that placement ran this attempt on a different agent
 	// than the one requested, because a provider.disable was in force.
 	Substitution string `json:"substitution,omitempty"`
+	// WorkKey, MachineClass and the resource use are stamped when the attempt ends
+	// (SetAttemptProfileFields), never by UpsertAttempt.
+	WorkKey      string  `json:"work_key,omitempty"`
+	MachineClass string  `json:"machine_class,omitempty"`
+	PeakRSSMB    uint64  `json:"peak_rss_mb,omitzero"`
+	CPUSeconds   float64 `json:"cpu_s,omitzero"`
 }
 
 // NormalizeAndValidateTicket fills default values for omitted fields and validates invariants.

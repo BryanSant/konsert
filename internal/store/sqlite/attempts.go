@@ -3,8 +3,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +17,8 @@ import (
 
 const attemptSelect = `id, ticket_id, task_id, chat_id, attempt, worker_id, account_id, agent, model,
 	queued_at, started_at, ended_at, queue_wait_s, duration_s, exit_code, status, failure_category,
-	verify_cmd, verify_exit, verify_passed, verify_failed, tokens_in, tokens_out, cost_usd, git_json, substitution`
+	verify_cmd, verify_exit, verify_passed, verify_failed, tokens_in, tokens_out, cost_usd, git_json, substitution,
+	work_key, machine_class, peak_rss_mb, cpu_s`
 
 // UpsertAttempt inserts or updates the row for (ticket, attempt) or, when the
 // attempt has no ticket, (task, attempt). A zero Attempt assigns the next number.
@@ -333,6 +336,7 @@ func scanAttempt(sc attemptScanner) (store.Attempt, error) {
 		&queued, &started, &ended, &queueWait, &duration, &exitCode, &a.Status, &a.FailureCategory,
 		&a.VerifyCmd, &verifyExit, &verifyPassed, &verifyFailed, &a.TokensIn, &a.TokensOut, &cost, &a.GitJSON,
 		&a.Substitution,
+		&a.WorkKey, &a.MachineClass, &a.PeakRSSMB, &a.CPUSeconds,
 	)
 	if err != nil {
 		return store.Attempt{}, err
@@ -408,4 +412,82 @@ func nullIntPtr(v sql.NullInt64) *int {
 	}
 	n := int(v.Int64)
 	return &n
+}
+
+// SetAttemptProfileFields stamps an ended attempt's work key, machine class and
+// resource use.
+func (s *SQLiteStore) SetAttemptProfileFields(ctx context.Context, attemptID, workKey, machineClass string, peakRSSMB uint64, cpuS float64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE attempts SET work_key = ?, machine_class = ?, peak_rss_mb = ?, cpu_s = ? WHERE id = ?`,
+		workKey, machineClass, peakRSSMB, cpuS, attemptID)
+	return err
+}
+
+// ListProfileAttempts returns the most recent ended attempts of a work key on a
+// machine class, newest first.
+func (s *SQLiteStore) ListProfileAttempts(ctx context.Context, workKey, machineClass string, limit int) ([]store.Attempt, error) {
+	if limit <= 0 {
+		limit = store.ProfileWindow
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+attemptSelect+` FROM attempts
+		WHERE work_key = ? AND machine_class = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC, id DESC LIMIT ?`,
+		workKey, machineClass, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.Attempt
+	for rows.Next() {
+		a, err := scanAttempt(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// UpsertWorkProfile stores a profile, replacing the one for its key and class.
+func (s *SQLiteStore) UpsertWorkProfile(ctx context.Context, p store.WorkProfile) error {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO work_profiles (work_key, machine_class, profile_json, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(work_key, machine_class) DO UPDATE SET profile_json = excluded.profile_json, updated_at = excluded.updated_at`,
+		p.WorkKey, p.MachineClass, string(b), formatTime(p.UpdatedAt))
+	return err
+}
+
+// ListWorkProfiles returns the profiles of a work key on every machine class (or every
+// profile when workKey is ""), most runs first.
+func (s *SQLiteStore) ListWorkProfiles(ctx context.Context, workKey string) ([]store.WorkProfile, error) {
+	q := `SELECT profile_json FROM work_profiles`
+	var args []any
+	if workKey != "" {
+		q += ` WHERE work_key = ?`
+		args = append(args, workKey)
+	}
+	rows, err := s.db.QueryContext(ctx, q+` LIMIT 1000`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.WorkProfile
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var p store.WorkProfile
+		if json.Unmarshal([]byte(raw), &p) == nil {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Runs != out[j].Runs {
+			return out[i].Runs > out[j].Runs
+		}
+		return out[i].WorkKey+out[i].MachineClass < out[j].WorkKey+out[j].MachineClass
+	})
+	return out, rows.Err()
 }

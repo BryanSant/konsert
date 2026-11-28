@@ -601,7 +601,12 @@ Built alongside 5a (open requests are questions with an action attached).
 - Extensible capability probes: built-in list plus probes declared in daemon config (command + version regex, or path exists), GPU detection (NVIDIA `nvidia-smi`, Apple Silicon GPU cores and unified memory, AMD), architecture in the selector, operator labels per machine, machine role (`dedicated` / `interactive` / `control-only`).
 - `work_key` on tickets/tasks (derived from project, epic/ticket, repo, kind; overridable by the dispatcher) and requirement fields on dispatch.
 - Extend `attempts` and the daemon failure classifier (introduced in Phase A3) with resource peaks from Phase 6 and kernel OOM evidence. (Guardrail sheds are already tagged at the source as `memory_pressure_shed`, with peak and host memory in the digest: [design/guardrails.md](design/guardrails.md).)
-- `work_profiles` maintained from attempts per `(work_key, machine class)`.
+- `work_profiles` maintained from attempts per `(work_key, machine class)` (done, SYR-VYFYX). When an attempt ends it is stamped with:
+  - its work key: project / epic, or the ticket when it has none, or `adhoc` / repo (SYR-2BE8M adds kind and overrides);
+  - its machine class: os / arch / RAM tier rounded to a power of two in GiB, plus the isolation when it isn't the bare host, e.g. `linux/amd64/8g/container`;
+  - its peak memory and CPU-seconds, from the metric history of its chat or task over the attempt.
+
+  The profile is then recomputed from the last 50 attempts: runs, success rate, duration avg/p50/p90 of successes, peak memory avg/max, CPU-seconds avg, the top 3 failure categories and the last attempt. Disk isn't measured yet. Read it with `inspect kind=profile` (target a ticket, task or work key) or `GET /api/work-profiles`.
 - Exit: profiles fill in after a few runs; `inspect` returns them.
 
 ### Phase 8: Policy and enforcement

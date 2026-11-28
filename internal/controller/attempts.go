@@ -147,6 +147,10 @@ func (h *Hub) finishTicketAttempt(ctx context.Context, tk store.Ticket, cs store
 	}
 	if _, err := h.store.UpsertAttempt(ctx, a); err != nil {
 		h.logger.Warn("record attempt failed", "ticket_id", tk.ID, "task_id", task.ID, "attempt", n, "err", err)
+		return
+	}
+	if attemptTerminal(status) {
+		h.attemptEnded(ctx, tk.ID, task.ID, n)
 	}
 }
 
@@ -240,7 +244,9 @@ func (h *Hub) recordAdHocAttempt(ctx context.Context, task store.Task, workerID 
 	}
 	if _, err := h.store.UpsertAttempt(ctx, a); err != nil {
 		h.logger.Warn("record attempt failed", "task_id", task.ID, "attempt", n, "err", err)
+		return
 	}
+	h.attemptEnded(ctx, "", task.ID, n)
 }
 
 // markAttemptLost records the in-flight attempt as failed/lost.
@@ -267,7 +273,9 @@ func (h *Hub) markAttemptLost(ctx context.Context, ticketID, taskID, workerID st
 		EndedAt:         &now,
 	}); err != nil {
 		h.logger.Warn("record lost attempt failed", "ticket_id", ticketID, "task_id", taskID, "attempt", n, "err", err)
+		return
 	}
+	h.attemptEnded(ctx, strings.TrimSpace(ticketID), taskID, n)
 }
 
 // markTaskLostAttempt records an ad-hoc task's open attempt as lost.

@@ -656,6 +656,11 @@ type Store interface {
 	RollupMetrics(ctx context.Context, now time.Time, minuteKeep, hourlyKeep time.Duration) (MetricRollupResult, error)
 	// RaiseTaskPeaks raises a task's recorded peaks to at least rssMB and cpuPct.
 	RaiseTaskPeaks(ctx context.Context, taskID string, rssMB uint64, cpuPct float64) error
+	// Work profiles (SYR-VYFYX).
+	SetAttemptProfileFields(ctx context.Context, attemptID, workKey, machineClass string, peakRSSMB uint64, cpuS float64) error
+	ListProfileAttempts(ctx context.Context, workKey, machineClass string, limit int) ([]Attempt, error)
+	UpsertWorkProfile(ctx context.Context, p WorkProfile) error
+	ListWorkProfiles(ctx context.Context, workKey string) ([]WorkProfile, error)
 	// Policy blocks (SYR-ADQZX): hourly counters of work a rule kept off a machine.
 	RecordPolicyBlocks(ctx context.Context, blocks []PolicyBlock) error
 	ListPolicyBlocks(ctx context.Context, since time.Time) ([]PolicyBlock, error)
