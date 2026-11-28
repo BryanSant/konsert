@@ -18,6 +18,7 @@ import (
 
 	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/shells"
 )
 
 // SessionDiscovery watches ~/.syre/hook-events.jsonl incrementally and performs
@@ -34,6 +35,9 @@ type SessionDiscovery struct {
 	hookOffset     int64
 	activeExternal map[string]protocol.ExternalSessionPayload // externalID -> last emitted state
 	cwdCache       map[int]cachedCwd                          // pid -> resolved cwd (passive scan)
+	cpuSeen        map[int]cpuMark                            // pid -> CPU time at the last scan
+	// procs is the process table the passive scan reads (nil: this machine's).
+	procs shells.Source
 
 	// observed reads agents' own session stores (claude's transcripts and live status
 	// files); nil when not set up.
@@ -62,6 +66,7 @@ func NewSessionDiscovery(homeDir string, isManaged func(pid int) bool, emit func
 		isManaged:      isManaged,
 		activeExternal: make(map[string]protocol.ExternalSessionPayload),
 		cwdCache:       make(map[int]cachedCwd),
+		cpuSeen:        make(map[int]cpuMark),
 		resolveCwd:     resolveProcessCwd,
 		cwdTimeout:     defaultCwdTimeout,
 	}
@@ -308,47 +313,103 @@ func normalizeHookStatus(ev string) string {
 	}
 }
 
+// passiveAgentBinaries maps an agent CLI's executable name to the agent.
 var passiveAgentBinaries = map[string]string{
-	"claude": "claude",
-	"agy":    "agy",
-	"codex":  "codex",
-	"grok":   "grok",
+	"claude":       "claude",
+	"agy":          "agy",
+	"codex":        "codex",
+	"grok":         "grok",
+	"copilot":      "copilot",
+	"cursor-agent": "cursor",
+}
+
+// passiveScriptAgents finds agents that run as a script of a JavaScript runtime, by a
+// marker in its first arguments: cursor-agent's launcher execs node with argv[0] set to
+// its own path and versions/<v>/index.js; an npm-installed copilot runs
+// node .../@github/copilot/index.js (not @github/copilot-language-server, an editor's).
+var passiveScriptAgents = []struct{ marker, agent string }{
+	{"/cursor-agent", "cursor"},
+	{"@github/copilot/", "copilot"},
+}
+
+// passiveAgent names the agent CLI a process runs, or "". argv is read only for a
+// JavaScript runtime. Executable names match exactly outside Windows, so a desktop app
+// ("Claude", "Cursor") is not taken for its CLI; on Windows they match case-insensitively
+// without .exe, and an installed desktop app's claude.exe is told apart by its path.
+func passiveAgent(name string, argv func() []string) string {
+	base := filepath.Base(filepath.ToSlash(name))
+	if i := strings.LastIndexAny(base, `\`); i >= 0 {
+		base = base[i+1:]
+	}
+	if runtime.GOOS == "windows" {
+		base = strings.TrimSuffix(strings.ToLower(base), ".exe")
+	}
+	if agent, ok := passiveAgentBinaries[base]; ok {
+		if runtime.GOOS == "windows" && agent == "claude" {
+			if a := argv(); len(a) > 0 && strings.Contains(strings.ToLower(a[0]), "anthropicclaude") {
+				return "" // the Claude desktop app
+			}
+		}
+		return agent
+	}
+	rt := strings.TrimSuffix(strings.ToLower(base), ".exe")
+	if versionName(rt) {
+		// A versioned executable behind a symlink (~/.local/bin/claude →
+		// ~/.local/share/claude/versions/2.1.332): the OS names the process by the file,
+		// argv[0] by the command the user typed.
+		if a := argv(); len(a) > 0 {
+			if agent, ok := passiveAgentBinaries[strings.TrimSuffix(strings.ToLower(filepath.Base(strings.ReplaceAll(a[0], `\`, "/"))), ".exe")]; ok {
+				return agent
+			}
+		}
+		return ""
+	}
+	// Recent node names its main thread, and so the process on Linux: "node-MainThread".
+	if rt != "node" && rt != "bun" && !strings.HasPrefix(rt, "node-") {
+		return ""
+	}
+	a := argv()
+	for i := 0; i < len(a) && i < 3; i++ {
+		arg := strings.ToLower(strings.ReplaceAll(a[i], `\`, "/"))
+		for _, m := range passiveScriptAgents {
+			if strings.Contains(arg, m.marker) {
+				return m.agent
+			}
+		}
+	}
+	return ""
+}
+
+// versionName reports a process name that is a version ("2.1.332"): digits and dots.
+func versionName(n string) bool {
+	if n == "" || n[0] < '0' || n[0] > '9' {
+		return false
+	}
+	return strings.Trim(n, "0123456789.") == "" && strings.Contains(n, ".")
 }
 
 // passiveActiveCPUThreshold is the %CPU threshold above which a passively discovered
-// coding agent process (without hook telemetry) is considered actively "working" vs "idle".
+// coding agent process is considered "working" rather than "idle". Only for agents with
+// no structured source (no session records Syre reads): the fallback.
 const passiveActiveCPUThreshold = 5.0
 
-// Per-step timeouts for the passive scan. Each step gets its own deadline so one slow
-// lsof (common on macOS) cannot starve the rest of the scan.
-const (
-	psTimeout         = 3 * time.Second
-	defaultCwdTimeout = 1500 * time.Millisecond
-)
+// defaultCwdTimeout bounds one process's cwd lookup, so one slow lsof (common on macOS)
+// cannot starve the rest of the scan.
+const defaultCwdTimeout = 1500 * time.Millisecond
 
 type psEntry struct {
 	pid, ppid int
 	pcpu      float64
 	comm      string
+	// agent is the agent the process runs, when the scan already matched it (by argv).
+	agent string
 }
 
-func parsePsOutput(out []byte) []psEntry {
-	var entries []psEntry
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 4 {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		ppid, _ := strconv.Atoi(fields[1])
-		pcpu, _ := strconv.ParseFloat(fields[2], 64)
-		entries = append(entries, psEntry{pid: pid, ppid: ppid, pcpu: pcpu, comm: strings.Join(fields[3:], " ")})
-	}
-	return entries
+// cpuMark is a process's CPU time at a scan, to turn the next one into a percentage.
+type cpuMark struct {
+	start time.Time
+	cpu   time.Duration
+	at    time.Time
 }
 
 // managedOrDescendant reports whether pid, or any of its ancestors, is a syred-managed
@@ -372,24 +433,62 @@ func (s *SessionDiscovery) managedOrDescendant(pid int, parent map[int]int) bool
 
 // ScanPassiveProcesses gently inspects running user agent processes not managed by syred.
 func (s *SessionDiscovery) ScanPassiveProcesses(ctx context.Context) {
-	if runtime.GOOS == "windows" || agentDiscoveryDisabled() {
+	if agentDiscoveryDisabled() {
 		return
 	}
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
-	psCtx, cancel := context.WithTimeout(ctx, psTimeout)
-	out, err := exec.CommandContext(psCtx, "ps", "-eo", "pid=,ppid=,pcpu=,comm=").Output()
-	cancel()
+	src := s.procs
+	if src == nil {
+		src = shells.OSSource()
+	}
+	list, err := src.Snapshot()
 	if err != nil {
 		// Without a process list we cannot tell who exited: keep the current roster.
 		return
 	}
-	s.scanProcessList(ctx, parsePsOutput(out))
+	now := time.Now()
+	var entries []psEntry
+	for _, p := range list {
+		if p.Zombie || p.PID <= 1 {
+			continue
+		}
+		e := psEntry{pid: p.PID, ppid: p.PPID, comm: p.Name}
+		if agent := passiveAgent(p.Name, func() []string { return src.Argv(p.PID) }); agent != "" {
+			// Only agent processes need their start and CPU (costly per process on Windows).
+			src.Details(&p)
+			e.agent = agent
+			e.pcpu = s.cpuPercent(p, now)
+		}
+		entries = append(entries, e)
+	}
+	s.scanProcessList(ctx, entries)
+}
+
+// cpuPercent is p's CPU use since the previous scan (0 on first sight or when unknown).
+func (s *SessionDiscovery) cpuPercent(p shells.Proc, now time.Time) float64 {
+	if !p.CPUKnown {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev, ok := s.cpuSeen[p.PID]
+	s.cpuSeen[p.PID] = cpuMark{start: p.Start, cpu: p.CPU, at: now}
+	if !ok || !prev.start.Equal(p.Start) || p.CPU < prev.cpu || !now.After(prev.at) {
+		return 0
+	}
+	return 100 * float64(p.CPU-prev.cpu) / float64(now.Sub(prev.at))
 }
 
 func (s *SessionDiscovery) scanProcessList(ctx context.Context, procs []psEntry) {
 	if agentDiscoveryDisabled() {
 		return
+	}
+	// Agents with a structured source (their own session records) are left to it: their
+	// status comes from the records, never from CPU (SYR-HBQ5G).
+	sourced := map[string]bool{}
+	if s.observed != nil {
+		sourced = s.observed.sourcedAgents()
 	}
 	// Snapshot active hook- and transcript-tracked (agent, cwd) pairs so passive discovery
 	// never duplicates them.
@@ -414,8 +513,11 @@ func (s *SessionDiscovery) scanProcessList(ctx context.Context, procs []psEntry)
 		if p.pid <= 1 || p.pid == selfPID {
 			continue
 		}
-		agent, ok := passiveAgentBinaries[strings.ToLower(filepath.Base(p.comm))]
-		if !ok {
+		agent := p.agent
+		if agent == "" {
+			agent = passiveAgent(p.comm, func() []string { return nil })
+		}
+		if agent == "" || sourced[agent] {
 			continue
 		}
 		if s.managedOrDescendant(p.pid, parent) {
@@ -462,6 +564,11 @@ func (s *SessionDiscovery) scanProcessList(ctx context.Context, procs []psEntry)
 	for pid := range s.cwdCache {
 		if !livePIDs[pid] {
 			delete(s.cwdCache, pid)
+		}
+	}
+	for pid := range s.cpuSeen {
+		if !livePIDs[pid] {
+			delete(s.cpuSeen, pid)
 		}
 	}
 	var finished []protocol.ExternalSessionPayload
@@ -518,6 +625,9 @@ func resolveProcessCwd(ctx context.Context, pid int) string {
 			return p
 		}
 		return ""
+	}
+	if runtime.GOOS == "windows" {
+		return processCwd(pid)
 	}
 	if runtime.GOOS == "darwin" {
 		out, err := exec.CommandContext(ctx, "lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()

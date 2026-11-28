@@ -487,7 +487,7 @@ type WorkerQuotasPayload struct {
 // (discovered via agent hooks or lightweight passive process/transcript inspection).
 type ExternalSessionPayload struct {
 	ExternalID   string   `json:"external_id"` // stable per-host session key (e.g. "pid-1234" or hook session id)
-	Agent        string   `json:"agent"`       // "claude" | "agy" | "codex" | "grok"
+	Agent        string   `json:"agent"`       // "claude" | "agy" | "codex" | "grok" | "copilot" | "cursor"
 	Model        string   `json:"model,omitempty"`
 	Cwd          string   `json:"cwd"`
 	Branch       string   `json:"branch,omitempty"`

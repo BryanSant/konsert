@@ -42,6 +42,9 @@ type observedSessions struct {
 	now     func() time.Time
 
 	sources []observe.Source
+	// claudeDirs lists claude's config dirs (sourcedAgents: claude has a source when any
+	// exists).
+	claudeDirs func() []observe.ClaudeDir
 
 	mu      sync.Mutex
 	st      map[string]*observedState  // by Session.Key
@@ -91,6 +94,7 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 		claude.ProcTTL, claude.ListEvery = -1, -1
 	}
 	o.sources = []observe.Source{claude}
+	o.claudeDirs = cfg.ClaudeDirs
 	o.reg = observe.New(observe.Config{
 		Sources: o.sources,
 		Managed: func(s observe.Session) bool {
@@ -115,6 +119,16 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 		Logger:      cfg.Logger,
 	})
 	return o
+}
+
+// sourcedAgents lists the agents whose sessions this machine reads from their own
+// records: the process scan leaves those agents alone.
+func (o *observedSessions) sourcedAgents() map[string]bool {
+	out := map[string]bool{}
+	if o.claudeDirs != nil && len(o.claudeDirs()) > 0 {
+		out["claude"] = true
+	}
+	return out
 }
 
 // MarkManaged records an agent session id Syre runs (a chat's session_ready, a hook
