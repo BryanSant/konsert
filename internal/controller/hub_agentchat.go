@@ -941,6 +941,20 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 		h.hubError(ctx, cs.ID, e)
 		return errors.New(e.Message)
 	}
+	// A chat that isn't running there yet is new work: the machine policy decides.
+	if !wc.isChatActive(cs.ID) {
+		if w, err := h.store.GetWorker(ctx, cs.WorkerID); err == nil {
+			work := protocol.WorkChat
+			if cs.TicketID != "" {
+				work = protocol.WorkTicket
+			}
+			if v := h.policyViolation(w, work, h.ActiveTaskCounts()[w.ID]); v != nil {
+				e := protocol.AgentChatError{Kind: protocol.ErrKindOther, Message: fmt.Sprintf("%s: %s", w.Name, v.Message), Retryable: true}
+				h.hubError(ctx, cs.ID, e)
+				return errors.New(e.Message)
+			}
+		}
+	}
 	var exhausted *protocol.AgentChatEvent
 	if a, ok := h.lookupAccount(ctx, cs.WorkerID, cs.Agent, cs.AccountID); ok {
 		if a.Auth.State == protocol.AuthLoggedOut {

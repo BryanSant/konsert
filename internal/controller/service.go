@@ -81,12 +81,15 @@ type WorkerStatusView struct {
 	// ReconnectingAfterSleep is set while the hub, just woken from sleep, waits for this
 	// machine to re-attach (hub_wake.go).
 	ReconnectingAfterSleep bool `json:"reconnecting_after_sleep,omitzero"`
+	// Policy is the machine policy the user set (nil: none). Read-only for MCP.
+	Policy *protocol.MachinePolicy `json:"policy,omitzero"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
 // active-task count and latest metrics. Facts are decoded from the cached JSON.
 func toWorkerView(w store.Worker, active int, metrics *protocol.WorkerMetrics) WorkerStatusView {
 	return WorkerStatusView{
+		Policy:           workerPolicy(w),
 		ID:               w.ID,
 		SID:              w.SID,
 		Name:             w.Name,
@@ -526,6 +529,18 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	// Directives then tighten: pause and drain drop the machine, throttle caps it.
 	onlineWorkers, slots := s.hub.applySlotOverrides(ctx, onlineWorkers)
 	onlineWorkers = s.hub.applyMachineDirectives(ctx, onlineWorkers)
+	// The machine policy refuses work it rules out; work pinned to such a machine
+	// says why instead of waiting.
+	if pinnedID != "" {
+		for _, w := range onlineWorkers {
+			if w.ID == pinnedID {
+				if v := s.hub.policyViolation(w, taskWork(req.TicketID), counts[w.ID]); v != nil {
+					return DispatchResult{}, &errPolicyRefused{machine: w.Name, v: v}
+				}
+			}
+		}
+	}
+	onlineWorkers = s.hub.applyMachinePolicy(onlineWorkers, counts, taskWork(req.TicketID))
 	req.AccountID = strings.TrimSpace(req.AccountID)
 	requestedAgent, requestedAccount := req.Agent, req.AccountID
 	var placement providerDecision

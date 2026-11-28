@@ -257,7 +257,11 @@ func (d *Daemon) handleChatMessage(env protocol.Envelope) bool {
 			d.logger.Warn("decode agent.chat.open failed", "err", err)
 			break
 		}
-		if msg := d.directiveRefusal(); msg != "" {
+		work := protocol.WorkChat
+		if p.TicketSID != "" {
+			work = protocol.WorkTicket
+		}
+		if msg := d.admissionRefusal(work, p.ChatID); msg != "" {
 			d.sendChatEvent(protocol.AgentChatEvent{
 				ChatID: p.ChatID,
 				Kind:   protocol.EventError,

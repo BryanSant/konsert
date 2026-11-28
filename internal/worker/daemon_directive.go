@@ -2,8 +2,10 @@ package worker
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 
+	"github.com/BryanSant/syre/internal/policy"
 	"github.com/BryanSant/syre/internal/protocol"
 )
 
@@ -85,4 +87,69 @@ func (d *Daemon) hostedSessions() int {
 		}
 	}
 	return n
+}
+
+// setPolicy installs the machine policy the hub pushed (nil clears it) and hands its
+// memory reservation to the guardrails, which then trip above the survival reserve.
+func (d *Daemon) setPolicy(p *protocol.MachinePolicy) {
+	d.dirMu.Lock()
+	d.policy = p
+	d.dirMu.Unlock()
+	if d.guard != nil {
+		d.guard.SetUserReserve(uint64(policy.ExtraReserveMB(p)) << 20)
+	}
+}
+
+func (d *Daemon) policySnapshot() *protocol.MachinePolicy {
+	d.dirMu.Lock()
+	defer d.dirMu.Unlock()
+	return d.policy
+}
+
+// admissionRefusal is why new work of the given class may not start here ("" when it
+// may): an active directive, or the machine policy. chatID names a chat being opened;
+// one already open here is a running session, not new work, and only directives apply.
+func (d *Daemon) admissionRefusal(work, chatID string) string {
+	if msg := d.directiveRefusal(); msg != "" {
+		return msg
+	}
+	p := d.policySnapshot()
+	if p == nil || (chatID != "" && d.chatOpen(chatID)) {
+		return ""
+	}
+	if v := policy.Check(p, d.policyState(work)); v != nil {
+		return v.Message
+	}
+	return ""
+}
+
+// policyState is this machine's state for a policy check: hosted sessions, then load
+// and memory from the last heartbeat's vitals (unknown before the first).
+func (d *Daemon) policyState(work string) policy.State {
+	st := policy.State{Work: work, Hosted: d.hostedSessions(), LoadAvg: -1, AvailRAMMB: -1, Now: time.Now()}
+	if m := d.lastMetrics.Load(); m != nil {
+		st.LoadAvg = m.LoadAvg
+		if m.MemTotalMB > 0 {
+			st.AvailRAMMB = int(m.MemTotalMB) - int(m.MemUsedMB)
+		}
+	}
+	if d.guard != nil {
+		gs := d.guard.Status()
+		st.SurvivalReserveMB = int(gs.Reserve >> 20)
+	}
+	st.CPUs = runtime.NumCPU()
+	return st
+}
+
+// chatOpen reports whether chatID already has an open engine here.
+func (d *Daemon) chatOpen(chatID string) bool {
+	if d.chat == nil {
+		return false
+	}
+	for _, c := range d.chat.Chats() {
+		if c.ChatID == chatID && (c.Open || c.TurnActive) {
+			return true
+		}
+	}
+	return false
 }

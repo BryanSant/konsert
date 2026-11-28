@@ -44,6 +44,7 @@ func main() {
 		newSteerCmd(),
 		newCancelCmd(),
 		newLogsCmd(),
+		newPolicyCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

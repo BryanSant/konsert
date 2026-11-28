@@ -298,6 +298,9 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 	if !ok {
 		return
 	}
+	if workers = h.applyMachinePolicy(workers, counts, protocol.WorkTicket); len(workers) == 0 {
+		return
+	}
 
 	saved, _ := h.store.GetAllSettings(ctx)
 	defaultAgent := strings.TrimSpace(saved["default_agent"])

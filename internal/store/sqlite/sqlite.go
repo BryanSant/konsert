@@ -305,9 +305,21 @@ func (s *SQLiteStore) SetWorkerAgentsUseGitBash(ctx context.Context, id string, 
 	return nil
 }
 
+// SetWorkerPolicy stores a machine's policy JSON ("" clears it).
+func (s *SQLiteStore) SetWorkerPolicy(ctx context.Context, id, policyJSON string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE workers SET policy_json = ? WHERE id = ?`, policyJSON, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 // workerColumns is the column list scanWorker reads, in order.
 const workerColumns = `id, sid, name, host_group, os, arch, isolation, permission_mode, agents_json, tags_json, max_concurrent, status, last_seen_at, facts_json, facts_updated_at, version,
-		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at, default_shell, agents_use_git_bash`
+		launch, ssh_target, launch_state, launch_error, launch_at, drained, drained_at, default_shell, agents_use_git_bash, policy_json`
 
 func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	var (
@@ -326,7 +338,7 @@ func scanWorker(scanner interface{ Scan(...any) error }) (store.Worker, error) {
 	if err := scanner.Scan(
 		&w.ID, &w.SID, &w.Name, &w.HostGroup, &w.OS, &w.Arch, &w.Isolation, &perm,
 		&agentsJSON, &tagsJSON, &w.MaxConcurrent, &w.Status, &lastSeen, &factsJSON, &factsUpdated, &w.Version,
-		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt, &w.DefaultShell, &agentsUseGitBash,
+		&w.Launch, &w.SSHTarget, &w.LaunchState, &w.LaunchError, &launchAt, &drained, &drainedAt, &w.DefaultShell, &agentsUseGitBash, &w.PolicyJSON,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Worker{}, store.ErrNotFound

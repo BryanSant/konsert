@@ -596,7 +596,15 @@ Built alongside 5a (open requests are questions with an action attached).
 
 ### Phase 8: Policy and enforcement
 
-- Machine policy (hub-owned, pushed to the daemon): max managed sessions, max load average, min free RAM, reserved CPU/RAM, quiet hours, allowed work classes, role. Hub admission check plus daemon-side refusal.
+- Machine policy (done, SYR-BJDY6). `protocol.MachinePolicy` is stored in `workers.policy_json` and pushed to the daemon in `worker.directives`. Fields:
+  - role: `dedicated`, `interactive`, or `control_only` (runs nothing);
+  - max sessions and max load average;
+  - CPU cores reserved for the user;
+  - min free RAM and RAM reserved for the user;
+  - quiet hours, in an explicit IANA zone;
+  - allowed work classes (`chat`, `task`, `ticket`).
+
+  One pure checker (`internal/policy`) runs twice. The hub runs it at admission (scheduler, ticket runs, pinned dispatch, and opening a chat that isn't already running) and caps slots at max sessions. The daemon runs it again before `task.start` and `agent.chat.open`, using its own hosted count and last vitals. The RAM rules add to the survival reserve, never replace it: admission needs survival reserve + min free + reserved, and the guardrails' watchdog trips at that sum (`Guard.SetUserReserve`; facts report `policy_reserve_mb`). Edits go only through `PUT /api/workers/{id}/policy` (the CLI's `syre policy`) and are audited (`machine.policy`, before and after). MCP credentials never reach REST, so the Commander can read the policy (on each machine in `fleet_status`) but only tightens through `set_policy` directives on top of it, which the user can end. The `interactive` role does nothing yet: it waits for the user-active signal (SYR-PSDFB). A policy editor in the UI is the remaining piece.
 - Resource guardrails, not envelopes: done in the guardrails epic (SYR-E6DZ9, [design/guardrails.md](design/guardrails.md)). Survival reserve, one shared worker pool, soft kernel watermarks, a pressure watchdog that sheds the newest session, requeue without spending a retry. No hard per-session caps on any OS.
 - Machine policy's user RAM reservation raises the guardrails' floor above the survival reserve.
 - Optional rootless Podman tier for Linux work (`hermetic_container` per project): image, mounts for repo and agent login state, soft limits via Podman flags (`--memory-reservation`, swap cap, CPU shares), shed as one session.

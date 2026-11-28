@@ -188,6 +188,8 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/workers/{id}/ports", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerPorts)))
 	s.mux.Handle("PUT /api/workers/{id}/default-shell", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerDefaultShell)))
 	s.mux.Handle("PUT /api/workers/{id}/agents-use-git-bash", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerAgentsUseGitBash)))
+	s.mux.Handle("GET /api/workers/{id}/policy", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerPolicy)))
+	s.mux.Handle("PUT /api/workers/{id}/policy", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleSetWorkerPolicy)))
 	s.mux.Handle("POST /api/workers/local", s.requireBrowserAuth(s.handleAddLocalWorker))
 	s.mux.Handle("POST /api/workers/{id}/start", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleStartWorker)))
 

@@ -31,6 +31,7 @@ func (d *Daemon) SetGuard(g *guard.Guard) {
 	d.guard = g
 	guard.SetDefault(g)
 	d.applyGuardDirectives(d.directiveSnapshot())
+	d.setPolicy(d.policySnapshot())
 }
 
 // applyGuardDirectives maps active directives onto the guard: the newest
@@ -75,6 +76,7 @@ func (d *Daemon) annotateGuardFacts(f *protocol.MachineFacts) {
 	st := g.Status()
 	f.IsDesktop = st.Desktop
 	f.SurvivalReserveMB = st.Reserve >> 20
+	f.PolicyReserveMB = st.UserReserve >> 20
 	f.GuardrailMode = string(st.Mode)
 	f.GuardrailModeSource = st.ModeSource
 	f.GuardrailBaseMode = string(st.BaseMode)

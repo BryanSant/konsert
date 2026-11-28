@@ -85,6 +85,11 @@ type Daemon struct {
 	// guard is the machine guardrails (nil until SetGuard: tests run unguarded).
 	guard      *guard.Guard
 	directives []protocol.WorkerDirective
+	// policy is the machine policy the hub pushed with the directives (nil: none).
+	policy *protocol.MachinePolicy
+	// lastMetrics are the vitals of the last heartbeat: load and free memory for the
+	// policy check at admission.
+	lastMetrics atomic.Pointer[protocol.WorkerMetrics]
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
@@ -809,6 +814,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 		if ctx.Err() != nil {
 			return
 		}
+		d.lastMetrics.Store(m)
 		d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
 			ActiveTaskIDs: ids,
 			ActiveChatIDs: chatIDs,
@@ -886,6 +892,7 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			return
 		}
 		d.setDirectives(p.Directives)
+		d.setPolicy(p.Policy)
 
 	case protocol.MsgTaskStart:
 		p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)
@@ -893,7 +900,11 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 			d.logger.Warn("decode task.start failed", "err", err)
 			return
 		}
-		if msg := d.directiveRefusal(); msg != "" {
+		work := protocol.WorkTask
+		if p.TicketSID != "" {
+			work = protocol.WorkTicket
+		}
+		if msg := d.admissionRefusal(work, ""); msg != "" {
 			d.runner.failTask(p.TaskID, "", msg)
 			return
 		}

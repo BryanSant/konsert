@@ -723,6 +723,9 @@ func (h *Hub) pushWorkerDirectives(ctx context.Context, wc *workerConn) {
 			},
 		})
 	}
+	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
+		payload.Policy = workerPolicy(w)
+	}
 	h.sendWorkerJSON(wc, protocol.MsgWorkerDirectives, payload)
 }
 

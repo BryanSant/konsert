@@ -262,6 +262,9 @@ type MachineFacts struct {
 	// Guardrails (docs/design/guardrails.md). IsDesktop picks the reserve cap.
 	IsDesktop         bool   `json:"is_desktop,omitzero"`
 	SurvivalReserveMB uint64 `json:"survival_reserve_mb,omitzero"`
+	// PolicyReserveMB is what the machine policy keeps free on top of it (min free RAM
+	// plus the user's reservation): the guardrails trip at the sum.
+	PolicyReserveMB uint64 `json:"policy_reserve_mb,omitzero"`
 	// GuardrailMode is the effective mode (passthrough | adaptive | adaptive_strict)
 	// and GuardrailModeSource where it came from (auto | config | hub).
 	GuardrailMode       string `json:"guardrail_mode,omitempty"`
@@ -643,9 +646,61 @@ type WorkerDirective struct {
 	Params WorkerDirectiveParams `json:"params"`
 }
 
-// WorkerDirectivesPayload replaces the daemon's directive set (empty clears it).
+// WorkerDirectivesPayload replaces the daemon's directive set (empty clears it) and
+// its machine policy (nil clears it).
 type WorkerDirectivesPayload struct {
 	Directives []WorkerDirective `json:"directives"`
+	Policy     *MachinePolicy    `json:"policy,omitzero"`
+}
+
+// Machine roles (MachinePolicy.Role).
+const (
+	MachineRoleDedicated   = "dedicated"    // runs any work (the default)
+	MachineRoleInteractive = "interactive"  // someone works here: the user-active signal will gate heavy work (SYR-PSDFB)
+	MachineRoleControlOnly = "control_only" // runs no work: hub, phone, laptop on the go
+)
+
+// Work classes (MachinePolicy.AllowedWork).
+const (
+	WorkChat   = "chat"   // an agent chat
+	WorkTask   = "task"   // a dispatched task or terminal
+	WorkTicket = "ticket" // a ticket run (task or chat working a ticket)
+)
+
+// MachinePolicy is a machine's standing rules for new work, set by the user in the UI
+// or CLI (audited) and enforced twice: the hub admits no work that breaks it, and the
+// daemon refuses such work even if the hub is wrong. MCP reads it but cannot change
+// it; set_policy tightens through timed directives on top (docs/plan.md, Phase 8).
+// Zero values mean no rule.
+type MachinePolicy struct {
+	Role string `json:"role,omitempty"`
+	// MaxSessions caps the managed sessions hosted at once.
+	MaxSessions int `json:"max_sessions,omitempty"`
+	// MaxLoad refuses new work while the 1-minute load average is above it (Linux,
+	// macOS; Windows has no load average).
+	MaxLoad float64 `json:"max_load,omitempty"`
+	// ReserveCPU keeps cores for the user: new work waits while the load average is
+	// above the core count minus ReserveCPU.
+	ReserveCPU float64 `json:"reserve_cpu,omitempty"`
+	// MinFreeRAMMB and ReserveRAMMB are kept free on top of the guardrails' survival
+	// reserve, never instead of it: new work waits while available memory is below
+	// survival reserve + both, and the guardrails' watchdog trips at that floor too.
+	MinFreeRAMMB int `json:"min_free_ram_mb,omitempty"`
+	ReserveRAMMB int `json:"reserve_ram_mb,omitempty"`
+	// QuietHours are windows when the machine accepts no new work, in TimeZone (an IANA
+	// name, required with quiet hours).
+	QuietHours []QuietWindow `json:"quiet_hours,omitempty"`
+	TimeZone   string        `json:"time_zone,omitempty"`
+	// AllowedWork limits the work classes the machine runs (empty: all).
+	AllowedWork []string `json:"allowed_work,omitempty"`
+}
+
+// QuietWindow is a daily window, "22:00" to "07:00" (an end before the start runs past
+// midnight). Days, when set, are the days the window starts on ("mon" … "sun").
+type QuietWindow struct {
+	Start string   `json:"start"`
+	End   string   `json:"end"`
+	Days  []string `json:"days,omitempty"`
 }
 
 type GitChangedFile struct {

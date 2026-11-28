@@ -183,6 +183,7 @@ type Status struct {
 	BaseMode     Mode   // the mode without hub directives (config or auto)
 	BaseSource   string
 	Reserve      uint64
+	UserReserve  uint64 // the machine policy's addition; the trip floor is Reserve + UserReserve
 	TotalRAM     uint64
 	Desktop      bool
 	Mechanism    string
@@ -197,17 +198,20 @@ type Guard struct {
 	logger *slog.Logger
 	now    func() time.Time
 
-	mu         sync.Mutex
-	baseline   Baseline
-	configMode Mode
-	hubMode    Mode
-	throttle   throttleState
-	sessions   []*Session
-	lastPeak   map[string]uint64 // owner -> peak of its most recent released session
-	lastOOM    map[string]bool   // owner -> its most recent released session was OOM-killed
-	running    bool
-	wake       chan struct{}
-	notes      []string
+	mu       sync.Mutex
+	baseline Baseline
+	// userReserve is memory the machine policy keeps free on top of the survival
+	// reserve (SetUserReserve): the watchdog trips at Reserve + userReserve.
+	userReserve uint64
+	configMode  Mode
+	hubMode     Mode
+	throttle    throttleState
+	sessions    []*Session
+	lastPeak    map[string]uint64 // owner -> peak of its most recent released session
+	lastOOM     map[string]bool   // owner -> its most recent released session was OOM-killed
+	running     bool
+	wake        chan struct{}
+	notes       []string
 
 	// watchdog state (guarded by mu)
 	lowSince    time.Time
@@ -328,6 +332,20 @@ func Describe(cfg Config) Status {
 	return newGuard(nativePlatform(), cfg).Status()
 }
 
+// SetUserReserve sets the memory the machine policy keeps free for the user on top of
+// the survival reserve (never instead of it): the watchdog sheds when available memory
+// falls below Reserve + bytes. It is not a cgroup or job reservation: the worker pool's
+// soft limits keep their size.
+func (g *Guard) SetUserReserve(bytes uint64) {
+	g.mu.Lock()
+	changed := g.userReserve != bytes
+	g.userReserve = bytes
+	g.mu.Unlock()
+	if changed {
+		g.kick()
+	}
+}
+
 // SetHubMode applies the mode from the newest active machine.guardrails directive
 // ("" or auto clears it).
 func (g *Guard) SetHubMode(m Mode) {
@@ -383,6 +401,7 @@ func (g *Guard) Status() Status {
 		BaseMode:     bm,
 		BaseSource:   bsrc,
 		Reserve:      g.baseline.Reserve,
+		UserReserve:  g.userReserve,
 		TotalRAM:     g.baseline.TotalRAM,
 		Desktop:      g.baseline.Desktop,
 		Mechanism:    g.plat.mechanism(m),
@@ -648,7 +667,7 @@ func (g *Guard) tick() {
 	now := g.now()
 
 	g.mu.Lock()
-	reserve := g.baseline.Reserve
+	reserve := g.baseline.Reserve + g.userReserve
 	total := g.baseline.TotalRAM
 	throttled := g.throttle.on
 	sessions := slices.Clone(g.sessions)

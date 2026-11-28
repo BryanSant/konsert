@@ -65,6 +65,9 @@ type Worker struct {
 	// AgentsUseGitBash, on Windows machines with Git Bash installed, asks supported
 	// agent drivers to point their shell tool at Git Bash (default true).
 	AgentsUseGitBash bool `json:"agents_use_git_bash"`
+
+	// PolicyJSON is the machine policy (protocol.MachinePolicy) the user set; "" = none.
+	PolicyJSON string `json:"policy_json,omitempty"`
 }
 
 // MachineCredential is one syred credential (SYR-RK9YD). The secret itself is never
@@ -697,6 +700,7 @@ type Store interface {
 	SetWorkerDrained(ctx context.Context, id string, drained bool, at time.Time) error
 	SetWorkerDefaultShell(ctx context.Context, id, shell string) error
 	SetWorkerAgentsUseGitBash(ctx context.Context, id string, enabled bool) error
+	SetWorkerPolicy(ctx context.Context, id, policyJSON string) error
 	AppendFleetEvent(ctx context.Context, e FleetEvent) (int64, error)
 	ListFleetEvents(ctx context.Context, f FleetEventFilter) ([]FleetEvent, error)
 	MaxFleetEventID(ctx context.Context) (int64, error)

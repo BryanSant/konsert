@@ -509,3 +509,24 @@ func TestCommitLowShedsLargestCommit(t *testing.T) {
 		t.Fatalf("evidence = %+v", ev)
 	}
 }
+
+// A machine policy's user reservation raises the trip floor above the survival
+// reserve: memory the survival reserve alone would tolerate now sheds.
+func TestUserReserveRaisesTripFloor(t *testing.T) {
+	g, p, clk := testGuard(ModeAuto)
+	attach(g, clk, 51, PriorityTicket, "hog")
+	r := g.baseline.Reserve
+	p.set(Signal{Avail: r + 1<<30, AvailOK: true, AvailHard: true})
+	g.tick()
+	if len(p.killed) != 0 {
+		t.Fatal("shed above the survival reserve with no user reserve")
+	}
+	g.SetUserReserve(2 << 30)
+	if st := g.Status(); st.UserReserve != 2<<30 || st.Reserve != r {
+		t.Fatalf("status = reserve %d, user %d", st.Reserve, st.UserReserve)
+	}
+	g.tick()
+	if len(p.killed) != 1 {
+		t.Fatal("1 GiB above the survival reserve, under a 2 GiB user reserve: not shed")
+	}
+}
