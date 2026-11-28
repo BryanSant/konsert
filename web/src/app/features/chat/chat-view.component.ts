@@ -9,6 +9,7 @@ import { ATTACHMENT_MARKER } from '../../core/state/chat-transcript';
 import { FleetStore } from '../../core/state/fleet.store';
 import { CommanderStore, isAgentChat } from '../../core/state/commander.store';
 import { IconComponent } from '../../shared/icon.component';
+import { ModeUiStore } from '../../modes/mode-ui.store';
 import { ALL_MACHINES, MachineTarget, isAllMachines } from '../../shared/machines/machine-target';
 import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
@@ -142,6 +143,18 @@ export function chatTitleFrom(text: string): string {
             @if (causeText()) {
               <span class="hidden lg:inline truncate text-[11px] text-[var(--sy-text-muted)]" data-testid="header-cause">{{ causeText() }}</span>
             }
+            @if (commanderHostName(); as host) {
+              <button
+                type="button"
+                class="hidden md:inline-flex items-center gap-1 truncate text-[11px] text-[var(--sy-text-muted)] hover:text-[var(--sy-text)]"
+                data-testid="commander-host"
+                syTooltip="The machine this Commander runs on. Change it in Settings → Commander"
+                (click)="ui.openSettings('commander')"
+              >
+                <app-icon name="server" [size]="11" />
+                Commander on {{ host }}
+              </button>
+            }
           }
         }
 
@@ -224,6 +237,14 @@ export function chatTitleFrom(text: string): string {
         </div>
       }
 
+      @if (hostBanner(); as b) {
+        <div class="max-w-3xl w-full mx-auto px-4">
+          <div role="status" class="flex items-center gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-amber-soft)] px-3 py-2 text-[12px] text-[#e6b763]" data-testid="commander-host-banner">
+            <app-icon name="alert" [size]="13" />
+            <span class="flex-1">{{ b }}</span>
+          </div>
+        </div>
+      }
       @if (bannerError()) {
         <div class="max-w-3xl w-full mx-auto px-4">
           <div role="alert" class="flex items-center gap-2 rounded-[var(--sy-radius-md)] bg-[var(--sy-red-soft)] px-3 py-2 text-[12px] text-[#f6c0c0]">
@@ -292,6 +313,37 @@ export class ChatViewComponent implements OnInit {
   readonly active = computed(() => this.orch.sessions().find((s) => s.id === this.orch.activeSessionId()) ?? null);
   readonly isApiChat = computed(() => !!this.active() && !isAgentChat(this.active()));
   readonly isAgent = computed(() => !!this.active() && isAgentChat(this.active()));
+  readonly ui = inject(ModeUiStore);
+
+  /** The machine an open Commander chat runs on (read-only; set in Settings, SYR-CNMDK). */
+  readonly commanderHostName = computed(() => {
+    const s = this.active();
+    if (!s || !isAgentChat(s) || !s.fleet_tools) return '';
+    return this.fleet.workersById()[s.worker_id ?? '']?.name || s.worker_id || '';
+  });
+
+  /** The Commander's machine is offline, or the chosen one was and this chat fell back. */
+  readonly hostBanner = computed(() => {
+    const s = this.active();
+    if (!s || !isAgentChat(s) || !s.fleet_tools) return '';
+    const byId = this.fleet.workersById();
+    const host = byId[s.worker_id ?? ''];
+    if (host && host.status !== 'online') return `${host.name} is offline: the Commander can't run until it is back.`;
+    const chosen = this.fleet.settings().commander_worker_id;
+    const want = chosen ? byId[chosen] : undefined;
+    if (want && host && want.id !== host.id && want.status !== 'online') {
+      return `${want.name} (Settings → Commander) is offline, so this chat runs on ${host.name}.`;
+    }
+    return '';
+  });
+
+  /** Where a new Commander chat will run: the chosen machine while it is online. */
+  private readonly commanderDraftHost = computed(() => {
+    if (!this.fleetTools()) return '';
+    const chosen = this.fleet.settings().commander_worker_id;
+    return chosen && this.fleet.workersById()[chosen]?.status === 'online' ? chosen : '';
+  });
+
   /** A Commander chat (fleet tools on): its machine chip is where its work may go (SYR-FJA2T). */
   readonly isCommanderChat = computed(() => {
     const s = this.active();
@@ -374,6 +426,7 @@ export class ChatViewComponent implements OnInit {
       const loaded = this.accounts.loaded();
       const byWorker = this.accounts.byWorker();
       this.fleet.workers();
+      this.commanderDraftHost();
       if (s) {
         this.draftSeeded = false;
         return;
@@ -390,10 +443,12 @@ export class ChatViewComponent implements OnInit {
     const cur = this.selection();
     const curAccounts = this.accounts.accountsFor(cur.workerId);
     // Keep a valid user choice; re-seed when nothing is chosen or it vanished.
-    if (this.draftSeeded && cur.accountId && curAccounts.some((a) => a.id === cur.accountId)) return;
+    const host = this.commanderDraftHost();
+    if (this.draftSeeded && cur.accountId && curAccounts.some((a) => a.id === cur.accountId) && (!host || cur.workerId === host)) return;
     const last = loadLastSelection();
     const settings = this.fleet.settings();
-    let workerId = cur.workerId || last.workerId || this.fleet.resolveSessionDefaults().machine_id || '';
+    // A new Commander chat runs where Settings → Commander says (SYR-CNMDK).
+    let workerId = (host && this.accounts.accountsFor(host).length ? host : '') || cur.workerId || last.workerId || this.fleet.resolveSessionDefaults().machine_id || '';
     if (haveAccounts && this.accounts.accountsFor(workerId).length === 0) {
       workerId = this.accounts.all()[0]?.workerId ?? workerId;
     }

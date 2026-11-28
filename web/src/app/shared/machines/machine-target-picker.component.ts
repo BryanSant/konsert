@@ -192,6 +192,8 @@ export class MachineTargetPickerComponent {
   readonly workerId = input('');
   /** Host mode: fixed for an existing chat. */
   readonly locked = input(false);
+  /** Host mode: what no machine means (the hub's own machine for the Commander's host). */
+  readonly emptyLabel = input('localhost');
   /** Scope mode: what the chip limits (tooltip and accessible name). */
   readonly hint = input('Where the Commander may send work');
   readonly valueChange = output<MachineTarget>();
@@ -211,7 +213,7 @@ export class MachineTargetPickerComponent {
   readonly hostName = computed(
     () =>
       this.fleet.workersById()[this.workerId()]?.name ||
-      (this.workerId() ? this.workerId() : 'localhost'),
+      (this.workerId() ? this.workerId() : this.emptyLabel()),
   );
   readonly isAll = computed(() => isAllMachines(this.value()));
 

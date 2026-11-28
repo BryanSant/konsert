@@ -60,6 +60,9 @@ type SettingsUpdate struct {
 	// set over REST only: settingsUpdateFromMap (the MCP path) does not know it, so an
 	// agent cannot turn on its own approvals.
 	OverrideSelfApprove *bool `json:"override_self_approve"`
+	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own
+	// machine; SYR-CNMDK).
+	CommanderWorkerID *string `json:"commander_worker_id"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -115,6 +118,15 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 
 	if u.DefaultAgent != nil {
 		updates["default_agent"] = strings.TrimSpace(*u.DefaultAgent)
+	}
+	if u.CommanderWorkerID != nil {
+		id := s.hub.resolveMachine(ctx, strings.TrimSpace(*u.CommanderWorkerID))
+		if id != "" {
+			if _, err := s.store.GetWorker(ctx, id); err != nil {
+				return errInvalidSettings{errors.New("unknown machine " + *u.CommanderWorkerID)}
+			}
+		}
+		updates[commanderWorkerSetting] = id
 	}
 	if u.DefaultModel != nil {
 		updates["default_model"] = strings.TrimSpace(*u.DefaultModel)

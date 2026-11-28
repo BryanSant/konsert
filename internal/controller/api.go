@@ -797,6 +797,8 @@ type settingsResponse struct {
 	PulseDebounceSeconds int `json:"pulse_debounce_seconds"`
 	// AutopilotGlobal enables Autopilot Play across all projects unless explicitly paused.
 	AutopilotGlobal bool `json:"autopilot_global"`
+	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own).
+	CommanderWorkerID string `json:"commander_worker_id"`
 	// CommanderPolicyWrites is tighten (default), confirm, or none.
 	CommanderPolicyWrites string `json:"commander_policy_writes"`
 	// OverrideSelfApprove lets the commander approve its own override requests (default
@@ -834,6 +836,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		LLMAPIKeySet:          orch.APIKey != "",
 		DefaultAgent:          saved["default_agent"],
 		DefaultModel:          saved["default_model"],
+		CommanderWorkerID:     saved[commanderWorkerSetting],
 		LastUsedMachine:       saved["last_used_machine"],
 		LastUsedAgent:         saved["last_used_agent"],
 		LastUsedModel:         saved["last_used_model"],

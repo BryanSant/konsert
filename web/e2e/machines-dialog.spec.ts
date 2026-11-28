@@ -204,4 +204,29 @@ test.describe('Machines dialog and Commander scope', () => {
     await page.getByTestId('scope-all').click();
     await expect.poll(async () => (await api<{ label: string }>(page, 'GET', `/api/tickets/${sid}/scope`)).label).toBe('All machines');
   });
+
+  test('Settings → Commander → Runs on picks the machine; a Commander chat says where it runs (SYR-CNMDK)', async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/command');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const section = page.getByTestId('settings-commander-host');
+    const chip = section.getByTestId('context-machine');
+    await expect(chip).toHaveText(/The hub's machine|e2e-box/);
+    await chip.click();
+    await page.getByTestId(`pick-machine-${env.workerSid}`).click();
+    await expect(chip).toHaveText(new RegExp(env.workerName));
+    await page.getByRole('button', { name: 'Save Settings' }).click();
+    await expect.poll(async () => (await api<{ commander_worker_id: string }>(page, 'GET', '/api/settings')).commander_worker_id).toBe(env.workerId);
+    await page.keyboard.press('Escape');
+
+    // A new Commander chat starts there and says so; the line opens the setting.
+    const chat = await api<{ id: string; sid: string; worker_id: string }>(page, 'POST', '/api/chats', { title: 'Host check', agent: 'mock', fleet_tools: true });
+    expect(chat.worker_id).toBe(env.workerId);
+    await page.goto(`${env.baseURL}/command/${chat.sid}`);
+    const line = page.getByTestId('commander-host').first();
+    await expect(line).toHaveText(new RegExp(`Commander on ${env.workerName}`));
+    await line.click();
+    await expect(page.getByTestId('settings-commander-host')).toBeInViewport();
+    await api(page, 'PUT', '/api/settings', { commander_worker_id: '' });
+  });
 });

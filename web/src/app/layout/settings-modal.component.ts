@@ -1,3 +1,4 @@
+import { MachineTargetPickerComponent } from '../shared/machines/machine-target-picker.component';
 import { Component, ElementRef, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
 import type { DevicesView } from '../features/auth/devices-dialog.component';
 import { FormsModule } from '@angular/forms';
@@ -20,7 +21,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent, PolicyReportComponent],
+  imports: [FormsModule, ModalDialogComponent, MachineTargetPickerComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent, PolicyReportComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -192,6 +193,21 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
         </div>
 
+        <!-- Where the Commander runs (SYR-CNMDK) -->
+        <div id="settings-commander" class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2" data-testid="settings-commander-host">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Commander</div>
+          <div class="flex flex-wrap items-center gap-2 text-[12px] text-[#d4d4d8]">
+            <span>Runs on</span>
+            <sy-machine-target-picker mode="host" emptyLabel="The hub's machine" [workerId]="commanderHost()" (workerChange)="commanderHost.set($event)" />
+            @if (commanderHost()) {
+              <button type="button" class="text-[11.5px] text-[var(--sy-blue)] hover:underline" data-testid="commander-host-default" (click)="commanderHost.set('')">Use the hub's machine</button>
+            }
+          </div>
+          <p class="text-[11.5px] text-[#8e9098] leading-relaxed">
+            The machine the Commander's own agent runs on, not where it sends work (each chat picks that under its composer). Applies to new Commander chats; open ones keep their machine. If it is offline, new chats start on the hub's machine.
+          </p>
+        </div>
+
         <!-- Commander policy writes (SYR-P3H92) -->
         <div class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2">
           <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Commander policy</div>
@@ -337,7 +353,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
   `,
 })
 export class SettingsModalComponent implements OnInit {
-  readonly focusSection = input<'forges' | null>(null);
+  readonly focusSection = input<'forges' | 'commander' | null>(null);
   readonly close = output<void>();
   /** Opens Settings → Devices on a view. */
   readonly openDevices = output<DevicesView>();
@@ -352,9 +368,10 @@ export class SettingsModalComponent implements OnInit {
 
   constructor() {
     effect(() => {
-      if (this.focusSection() === 'forges') {
+      const section = this.focusSection();
+      if (section) {
         queueMicrotask(() => {
-          this.hostEl.nativeElement.querySelector('#settings-forges')?.scrollIntoView({ block: 'start' });
+          this.hostEl.nativeElement.querySelector(`#settings-${section}`)?.scrollIntoView({ block: 'start' });
         });
       }
     });
@@ -402,6 +419,8 @@ export class SettingsModalComponent implements OnInit {
   readonly defaultDeliveryMode = signal<DeliveryMode>('');
   readonly defaultMergeStyle = signal<MergeStyle>('squash');
   readonly commanderPolicyWrites = signal('tighten');
+  /** The machine new Commander chats run on ('' = the hub's own). */
+  readonly commanderHost = signal('');
   readonly overrideSelfApprove = signal(false);
   readonly deliveryModeOptions = DELIVERY_MODE_OPTIONS;
   readonly mergeStyleOptions = MERGE_STYLE_OPTIONS;
@@ -430,6 +449,7 @@ export class SettingsModalComponent implements OnInit {
       this.defaultDeliveryMode.set(s.default_delivery_mode || '');
       this.defaultMergeStyle.set(s.default_merge_style || 'squash');
       this.commanderPolicyWrites.set(s.commander_policy_writes || 'tighten');
+      this.commanderHost.set(s.commander_worker_id || '');
       this.overrideSelfApprove.set(!!s.override_self_approve);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
@@ -489,6 +509,7 @@ export class SettingsModalComponent implements OnInit {
         default_delivery_mode: this.defaultDeliveryMode(),
         default_merge_style: this.defaultMergeStyle(),
         commander_policy_writes: this.commanderPolicyWrites(),
+        commander_worker_id: this.commanderHost(),
         override_self_approve: this.overrideSelfApprove(),
       });
       this.fleet.settings.set(updated);

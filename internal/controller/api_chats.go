@@ -74,6 +74,15 @@ func (s *Server) createChat(ctx context.Context, body createChatRequest) (store.
 		cs.TaskID = resolveRef(ctx, s.store, ids.Task, strings.TrimSpace(body.TaskID))
 		cs.TicketID = resolveRef(ctx, s.store, ids.Ticket, strings.TrimSpace(body.TicketID))
 		cs.Status = "idle"
+		// A Commander chat runs where Settings → Commander says (SYR-CNMDK).
+		if cs.FleetTools {
+			if host, _ := s.hub.commanderHost(ctx); host != "" && host != cs.WorkerID {
+				if _, ok := s.hub.lookupAccount(ctx, host, cs.Agent, cs.AccountID); !ok {
+					cs.AccountID = "" // not on that machine: its best account for the agent
+				}
+				cs.WorkerID = host
+			}
+		}
 		if cs.WorkerID != "" {
 			if _, err := s.store.GetWorker(ctx, cs.WorkerID); err != nil {
 				return cs, errInvalidSettings{errors.New("unknown worker_id " + cs.WorkerID)}

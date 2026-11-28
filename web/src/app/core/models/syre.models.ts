@@ -714,6 +714,8 @@ export interface AppSettings {
   autopilot_global?: boolean;
   /** Commander set_policy: tighten (default), confirm (approval card), or none (read-only). */
   commander_policy_writes?: 'tighten' | 'confirm' | 'none' | string;
+  /** The machine new Commander chats run on ('' = the hub's own machine; SYR-CNMDK). */
+  commander_worker_id?: string;
   /** The Commander may approve its own break-glass override requests (default off). */
   override_self_approve?: boolean;
 }

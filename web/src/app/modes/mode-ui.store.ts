@@ -22,7 +22,7 @@ export class ModeUiStore {
   readonly workLoaded = computed(() => this.fleetLoaded() && this.chatsLoaded());
   readonly paletteOpen = signal(false);
   readonly settingsOpen = signal(false);
-  readonly settingsSection = signal<'forges' | null>(null);
+  readonly settingsSection = signal<'forges' | 'commander' | null>(null);
   /** The Machines dialog and the mode it shows (browse, select, add); null when closed. */
   readonly machinesDialog = signal<MachinesDialogState | null>(null);
   readonly sessionRequest = signal<SessionDispatchRequest | null>(null);
@@ -51,7 +51,7 @@ export class ModeUiStore {
     this.machinesDialog.set({ mode, ...opts });
   }
 
-  openSettings(section: 'forges' | null = null): void {
+  openSettings(section: 'forges' | 'commander' | null = null): void {
     this.settingsSection.set(section);
     this.settingsOpen.set(true);
   }
