@@ -312,4 +312,24 @@ test.describe('Machines dialog and Commander scope', () => {
     await page.goto(`${env.baseURL}/fleet`);
     await expect(row.getByTestId('policy-refusing-badge')).toHaveCount(0);
   });
+
+  test("a project's At once cap is set in Projects and repos (SYR-WZGZ6)", async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/work');
+    const projects = await api<Array<{ id: string; sid: string; name: string }> | { projects: Array<{ id: string; sid: string }> }>(page, 'GET', '/api/projects');
+    const list = Array.isArray(projects) ? projects : projects.projects;
+    const p = list[0];
+    await page.getByTestId('open-projects').click();
+    const field = page.getByTestId(`project-max-concurrent-${p.sid}`);
+    try {
+      await field.fill('2');
+      await field.press('Tab');
+      await expect.poll(async () => {
+        const again = await api<Array<{ id: string; max_concurrent?: number }> | { projects: Array<{ id: string; max_concurrent?: number }> }>(page, 'GET', '/api/projects');
+        return (Array.isArray(again) ? again : again.projects).find((x) => x.id === p.id)?.max_concurrent;
+      }).toBe(2);
+    } finally {
+      await api(page, 'PATCH', `/api/projects/${p.id}`, { max_concurrent: 0 });
+    }
+  });
 });

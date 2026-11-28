@@ -131,9 +131,20 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		Autopilot    *bool                 `json:"autopilot"`
 		DeliveryMode *string               `json:"delivery_mode"`
 		MergeStyle   *string               `json:"merge_style"`
+		// MaxConcurrent caps the project's work at once (0 = no cap; SYR-WZGZ6).
+		MaxConcurrent *int `json:"max_concurrent"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
+	}
+	capRaised := false
+	if body.MaxConcurrent != nil {
+		if *body.MaxConcurrent < 0 || *body.MaxConcurrent > 1000 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "max_concurrent must be 0 (no cap) to 1000"})
+			return
+		}
+		capRaised = *body.MaxConcurrent == 0 || (proj.MaxConcurrent > 0 && *body.MaxConcurrent > proj.MaxConcurrent)
+		proj.MaxConcurrent = *body.MaxConcurrent
 	}
 	if body.Name != nil {
 		proj.Name = strings.TrimSpace(*body.Name)
@@ -191,7 +202,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.broadcastFleetUpdate("project", proj)
 	s.hub.broadcastAutopilotUpdate(r.Context())
-	if autopilotTurnedOn && !s.hub.fleetPaused(r.Context()) {
+	if (autopilotTurnedOn || capRaised) && !s.hub.fleetPaused(r.Context()) {
 		s.hub.kickScheduler()
 	}
 	writeJSON(w, http.StatusOK, proj)

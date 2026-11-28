@@ -1083,6 +1083,7 @@ export class ApiClientService {
       autonomy?: AutonomyPolicy;
       delivery_mode?: string;
       merge_style?: string;
+      max_concurrent?: number;
     },
   ): Promise<Project> {
     return this.request(`/api/projects/${encodeURIComponent(id)}`, {

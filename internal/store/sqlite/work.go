@@ -64,7 +64,7 @@ func unmarshalAutonomy(raw string) store.AutonomyPolicy {
 	return a
 }
 
-const projectColumns = `id, sid, name, is_default, headline, headline_at, verify_cmd, autonomy_json, autopilot, autopilot_paused, delivery_mode, merge_style, created_at`
+const projectColumns = `id, sid, name, is_default, headline, headline_at, verify_cmd, autonomy_json, autopilot, autopilot_paused, delivery_mode, merge_style, max_concurrent, created_at`
 
 func scanProject(scanner interface{ Scan(...any) error }) (store.Project, error) {
 	var (
@@ -78,7 +78,7 @@ func scanProject(scanner interface{ Scan(...any) error }) (store.Project, error)
 	)
 	if err := scanner.Scan(
 		&p.ID, &p.SID, &p.Name, &isDef, &p.Headline, &headlineAt,
-		&p.VerifyCmd, &autonomyJSON, &autopilot, &autopilotPaused, &p.DeliveryMode, &p.MergeStyle, &createdAt,
+		&p.VerifyCmd, &autonomyJSON, &autopilot, &autopilotPaused, &p.DeliveryMode, &p.MergeStyle, &p.MaxConcurrent, &createdAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Project{}, store.ErrNotFound
@@ -110,9 +110,9 @@ func (s *SQLiteStore) CreateProject(ctx context.Context, p store.Project) error 
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO projects (id, sid, name, is_default, verify_cmd, autonomy_json, autopilot, autopilot_paused, delivery_mode, merge_style, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, p.ID, p.SID, p.Name, boolToInt(p.IsDefault), p.VerifyCmd, autonomyJSON, boolToInt(p.Autopilot), boolToInt(p.AutopilotPaused), p.DeliveryMode, p.MergeStyle, formatTime(p.CreatedAt))
+		INSERT INTO projects (id, sid, name, is_default, verify_cmd, autonomy_json, autopilot, autopilot_paused, delivery_mode, merge_style, max_concurrent, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, p.ID, p.SID, p.Name, boolToInt(p.IsDefault), p.VerifyCmd, autonomyJSON, boolToInt(p.Autopilot), boolToInt(p.AutopilotPaused), p.DeliveryMode, p.MergeStyle, p.MaxConcurrent, formatTime(p.CreatedAt))
 	return err
 }
 
@@ -132,9 +132,9 @@ func (s *SQLiteStore) UpdateProject(ctx context.Context, p store.Project) error 
 	}
 	return s.execOne(ctx, `
 		UPDATE projects
-		SET name = ?, verify_cmd = ?, autonomy_json = ?, autopilot = ?, autopilot_paused = ?, delivery_mode = ?, merge_style = ?
+		SET name = ?, verify_cmd = ?, autonomy_json = ?, autopilot = ?, autopilot_paused = ?, delivery_mode = ?, merge_style = ?, max_concurrent = ?
 		WHERE id = ?
-	`, p.Name, p.VerifyCmd, autonomyJSON, boolToInt(p.Autopilot), boolToInt(p.AutopilotPaused), p.DeliveryMode, p.MergeStyle, p.ID)
+	`, p.Name, p.VerifyCmd, autonomyJSON, boolToInt(p.Autopilot), boolToInt(p.AutopilotPaused), p.DeliveryMode, p.MergeStyle, p.MaxConcurrent, p.ID)
 }
 
 // SetProjectHeadline sets (or clears) a project's headline.

@@ -69,6 +69,20 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
                   <option [value]="opt.value">{{ opt.label }}</option>
                 }
               </select>
+              <label class="inline-flex items-center gap-1" title="At most this many of the project's tasks and ticket runs at once; more wait in the queue. Empty: no limit.">
+                <span>At once:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1000"
+                  class="sy-field sy-field-sm text-[11px] py-0.5 w-16"
+                  placeholder="any"
+                  [attr.aria-label]="'Most at once for project ' + p.name"
+                  [attr.data-testid]="'project-max-concurrent-' + p.sid"
+                  [value]="p.max_concurrent || ''"
+                  (change)="updateProjectCap(p, $any($event.target).value)"
+                />
+              </label>
             </div>
             @if (form() === 'repo' && parentId() === p.id) {
               <form class="mt-2 grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-2 rounded-[var(--sy-radius-md)] bg-black/20 p-3" (ngSubmit)="submit()">
@@ -199,6 +213,15 @@ export class ProjectsDialogComponent {
   async updateProjectDelivery(p: Project, delivery_mode: string, merge_style: string): Promise<void> {
     await this.run(async () => {
       this.fleet.upsertProject(await this.api.updateProject(p.id, { delivery_mode, merge_style }));
+    });
+  }
+
+  /** At most this many of the project's work at once; empty or 0 lifts the cap (SYR-WZGZ6). */
+  async updateProjectCap(p: Project, raw: string): Promise<void> {
+    const n = raw.trim() === '' ? 0 : Number(raw);
+    if (!Number.isInteger(n) || n < 0) return;
+    await this.run(async () => {
+      this.fleet.upsertProject(await this.api.updateProject(p.id, { max_concurrent: n }));
     });
   }
 

@@ -662,6 +662,13 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 			selected = store.Worker{}
 		}
 	}
+	// Automatic work of a project at its concurrency cap waits in the queue (SYR-WZGZ6).
+	var capNote string
+	if ok && isAutomatic(cause) {
+		if why, full := s.hub.projectFull(ctx, req.ProjectID); full {
+			ok, selected, capNote = false, store.Worker{}, why
+		}
+	}
 	if !ok {
 		// Leave the preference on the queued task. A later pass substitutes.
 		req.Agent = requestedAgent
@@ -679,6 +686,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	if inherited {
 		warnings = append(warnings, "requirements inherited from work key "+workKey)
+	}
+	if capNote != "" {
+		warnings = append(warnings, capNote+": queued")
 	}
 	pout.Rejected = append(earlier, pout.Rejected...)
 	if req.DryRun {

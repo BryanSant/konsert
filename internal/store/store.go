@@ -141,7 +141,9 @@ type Project struct {
 	AutopilotPaused bool           `json:"autopilot_paused"`
 	DeliveryMode    string         `json:"delivery_mode,omitempty"`
 	MergeStyle      string         `json:"merge_style,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
+	// MaxConcurrent caps the project's tasks and ticket runs at once (0 = no cap; SYR-WZGZ6).
+	MaxConcurrent int       `json:"max_concurrent,omitzero"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // Repo is a per-project repository registry entry keyed by RemoteURL (docs/design/work.md).

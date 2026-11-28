@@ -321,11 +321,16 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		}
 	}
 
+	caps := h.loadProjectCaps(ctx)
 	for _, tk := range tickets {
 		if ctx.Err() != nil || h.fleetPaused(ctx) {
 			return
 		}
 		if _, ok := autopilotProjects[tk.ProjectID]; !ok {
+			continue
+		}
+		// The project is at its concurrency cap: the ticket waits its turn (SYR-WZGZ6).
+		if _, full := caps.full(tk.ProjectID); full {
 			continue
 		}
 		bindings, err := h.store.ListTicketRepoBindings(ctx, tk.ID)
@@ -568,6 +573,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		h.placed(ctx, slots, w.ID, counts[w.ID])
 		h.liftUsed(ctx, ticketLifts, w.ID)
 		counts[w.ID]++
+		caps.started(tk.ProjectID)
 		if updatedTask, err := h.store.GetTask(ctx, taskID); err == nil {
 			h.recordTaskTransition(ctx, updatedTask, "", causeScheduler, "placed ticket "+claimedTk.SID+" on "+w.Name)
 			h.broadcastFleetUpdate("task", updatedTask)

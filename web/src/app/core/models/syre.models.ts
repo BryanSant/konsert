@@ -430,6 +430,8 @@ export interface Project {
   autopilot_paused?: boolean;
   delivery_mode?: DeliveryMode;
   merge_style?: MergeStyle;
+  /** At most this many of the project's tasks and ticket runs at once (0/absent = no cap; SYR-WZGZ6). */
+  max_concurrent?: number;
   created_at: string;
 }
 

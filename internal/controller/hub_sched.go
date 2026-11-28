@@ -152,6 +152,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	if len(tasks) > 0 {
 		if workers, counts, slots, ok := h.schedulableWorkers(ctx); ok {
 			scopes := map[string]machineScope{}
+			caps := h.loadProjectCaps(ctx)
 			for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
 				// A pause stored while this pass was already inside the function wins
 				// before the claim. The check at the top is not enough: listing directives
@@ -160,6 +161,10 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 					return
 				}
 				if t.Origin == protocol.TaskOriginExternal {
+					continue
+				}
+				// The project is at its concurrency cap: the task waits its turn (SYR-WZGZ6).
+				if _, full := caps.full(t.ProjectID); full {
 					continue
 				}
 				payload, sel, pinned := h.taskStartSpec(ctx, t)
@@ -240,6 +245,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				if err != nil || !claimed {
 					continue
 				}
+				caps.started(t.ProjectID)
 				h.logPlacement(ctx, taskSubject(t.ID), t.WorkKey, "scheduler", w.ID, pout, placementWorkInfo{peak: peak})
 				if payload.Shell == "" && (payload.Agent == "shell" || payload.SessionKind == "terminal") && w.DefaultShell != "" {
 					payload.Shell = w.DefaultShell
