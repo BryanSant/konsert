@@ -10,6 +10,7 @@ import { CommanderStore } from './commander.store';
 import { QuestionsStore } from './questions.store';
 import { TakenControlStore } from './taken-control.store';
 import { AgentChatStore } from './agent-chat.store';
+import { terminalState } from '../../modes/command/live-work-logic';
 import { SPINNER_WORDS, SpinnerDetail, SpinnerMachine, SpinnerState, spinnerDetailOf, spinnerMachine, spinnerStateOf } from '../../shared/spinner-logic';
 import { ProjectGroup, WorkColumn, WorkItem, buildWorkItems, groupByProject } from './work-logic';
 
@@ -140,8 +141,8 @@ export class WorkStore {
       const w = workers[it.workerId];
       const machines = w ? [spinnerMachine(w.name, heat[w.id])] : [];
       if (it.sessionKind === 'terminal') {
-        const you = it.control === 'YOU';
-        out[it.id] = { state: you ? 'you' : it.live ? 'working' : 'done', machines, coarse: !you && it.live, word: you ? 'you have control' : it.live ? 'shell open' : 'closed' };
+        const t = it.live ? terminalState(it, this.taskActivity(it.id)) : { state: 'done' as const, now: 'closed' };
+        out[it.id] = { state: t.state, machines, coarse: false, word: t.now };
         continue;
       }
       const a = narrated[`${it.kind}:${it.id}`]?.activity ?? (it.kind === 'task' ? this.taskActivity(it.id) : this.chatActivity(it.id));

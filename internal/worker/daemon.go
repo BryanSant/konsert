@@ -100,6 +100,8 @@ type Daemon struct {
 	attrib   *procs.Attributor
 	load     atomic.Pointer[protocol.MachineLoad]
 	userIdle userIdleCache
+	// termStates is each user terminal's idle/working state (terminal_state.go).
+	termStates terminalStates
 	// procWatch notices watched daemon processes exiting (procwatch.go).
 	procWatch procWatch
 
@@ -248,6 +250,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			d.taskActMu.Unlock()
 		},
 		OnOperatorCommand: func(p protocol.OperatorCommandPayload) {
+			d.terminalCommand(p)
 			d.sendJSON(protocol.MsgOperatorCommand, p)
 		},
 		OnPtyFrame: func(frameType byte, taskID string, data []byte) {

@@ -127,3 +127,18 @@ func TestHistoryBounded(t *testing.T) {
 	}
 	h.timer.Stop()
 }
+
+func TestTrackerIntegratedOnceAValidMarkArrives(t *testing.T) {
+	tr := NewTracker("t1", "n1", nil, func(protocol.OperatorCommandPayload) {})
+	if tr.Integrated() {
+		t.Fatal("integrated before any mark")
+	}
+	tr.Handle([]Mark{{Kind: MarkCommandLine, Nonce: "wrong", Value: "ls"}})
+	if tr.Integrated() {
+		t.Fatal("a mark with the wrong nonce counted")
+	}
+	tr.Handle([]Mark{{Kind: MarkCwd, Nonce: "n1", Value: "/tmp"}})
+	if !tr.Integrated() {
+		t.Fatal("not integrated after a valid mark")
+	}
+}

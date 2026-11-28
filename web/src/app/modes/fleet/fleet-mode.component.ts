@@ -681,6 +681,7 @@ export class FleetModeComponent {
       heat: this.fleet.heatByWorker(),
       now: this.now(),
       directives: this.fleet.directives(),
+      terminalActivity: (id) => this.work.taskActivity(id),
     }),
   );
 

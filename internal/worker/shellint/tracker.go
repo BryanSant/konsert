@@ -141,6 +141,15 @@ type Tracker struct {
 	cwd           string
 	pending       *string  // command line from the last valid E mark, awaiting C
 	running       *Command // started, not yet finished
+	seen          bool     // a valid mark arrived: integration works in this shell
+}
+
+// Integrated reports whether this shell's integration has sent a valid mark: its
+// command start and end events are then the truth about whether it is busy.
+func (t *Tracker) Integrated() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.seen
 }
 
 // NewTracker returns a tracker for the terminal taskID whose shell was given nonce.
@@ -169,6 +178,7 @@ func (t *Tracker) handle(m Mark) {
 	switch m.Kind {
 	case MarkCwd:
 		if t.nonceOK(m.Nonce) {
+			t.seen = true
 			cwd := m.Value
 			if t.translateMSYS {
 				cwd = TranslateMSYSPath(cwd)
@@ -177,6 +187,7 @@ func (t *Tracker) handle(m Mark) {
 		}
 	case MarkCommandLine:
 		if t.nonceOK(m.Nonce) {
+			t.seen = true
 			v := m.Value
 			t.pending = &v
 		}

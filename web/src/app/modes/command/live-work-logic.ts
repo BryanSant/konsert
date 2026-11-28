@@ -1,5 +1,6 @@
 import { OTHER_WORK_KEY, OTHER_WORK_NAME, ProjectGroup, WorkItem as ActivityItem, WorkerHeat } from '../../core/models/activity.models';
 import { Worker } from '../../core/models/syre.models';
+import { SessionActivity } from '../../core/models/activity.models';
 import { WorkItem } from '../../core/state/work-logic';
 import { SpinnerDetail, SpinnerMachine, SpinnerState, activityPhrase, spinnerDetailOf, spinnerMachine, spinnerStateOf, withDetail } from '../../shared/spinner-logic';
 
@@ -64,6 +65,17 @@ export interface StoryInputs {
   now: number;
   /** Start of today: the bar's "done" counts what finished today. */
   today: number;
+  /** A terminal's activity (task:<id>): working while a command runs, else at its prompt. */
+  terminalActivity?: (taskId: string) => SessionActivity | undefined;
+}
+
+/** A user terminal's ring and line: you, held, running a command, or idle at the prompt. */
+export function terminalState(mi: WorkItem, a: SessionActivity | undefined): { state: SpinnerState; now: string } {
+  if (mi.control === 'YOU') return { state: 'you', now: 'you have control' };
+  if (mi.stale) return { state: 'idle', now: 'machine not reporting' };
+  if (mi.control === 'SUSPENDED' || mi.control === 'HELD') return { state: 'held', now: 'held' };
+  if (a?.state === 'working') return { state: 'working', now: a.label ? `running ${a.label}` : 'running a command' };
+  return { state: 'idle', now: 'at the prompt' };
 }
 
 function machinesFor(workerId: string, inp: StoryInputs): SpinnerMachine[] {
@@ -120,15 +132,16 @@ function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
 
 function terminalLine(mi: WorkItem, inp: StoryInputs): StoryLine {
   const you = mi.control === 'YOU';
+  const t = terminalState(mi, inp.terminalActivity?.(mi.id));
   return {
     key: `task:${mi.id}`,
     id: mi.id,
     sid: mi.sid,
     kind: 'task',
     title: mi.title,
-    now: you ? 'you have control' : mi.stale ? 'machine not reporting' : 'shell open',
+    now: t.now,
     nowByCommander: false,
-    state: you ? 'you' : mi.control === 'SUSPENDED' || mi.control === 'HELD' ? 'held' : 'working',
+    state: t.state,
     coarse: !you,
     agent: 'terminal',
     machines: machinesFor(mi.workerId, inp),
@@ -206,7 +219,7 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
       done: [],
     };
     other.inFlight.push(...terms);
-    other.bar.running += terms.length;
+    other.bar.running += terms.filter((l) => l.state !== 'idle').length;
   }
   if (other) {
     if (!other.headlineByCommander) other.headline = 'Sessions you started yourself, plus your terminals';

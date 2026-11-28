@@ -24,6 +24,10 @@ type Proc struct {
 	PID, PPID int
 	// PGID is the process group (0 where the OS has none, Windows).
 	PGID int
+	// TPGID is the foreground process group of its controlling terminal (0: none or
+	// unknown). A shell whose terminal's foreground group isn't its own is running a
+	// command in the foreground.
+	TPGID int
 	// Name is the executable's base name ("zsh", "bash.exe").
 	Name string
 	// Start is the process start time; zero where the snapshot does not carry it (the

@@ -2,6 +2,8 @@ import { HeatHistory, HeatSample, ProjectGroup, ShellInfo, SubagentActivity, Wor
 import { PolicyDirective, Task, Worker } from '../../core/models/syre.models';
 import { heatLevelOf } from '../../core/state/activity-logic';
 import { WorkItem, occupiesSlot } from '../../core/state/work-logic';
+import { SessionActivity } from '../../core/models/activity.models';
+import { terminalState } from '../command/live-work-logic';
 import { SpinnerDetail, SpinnerState, activityPhrase, heatSolid, spinnerDetailOf, spinnerStateOf } from '../../shared/spinner-logic';
 
 /** Fleet mode (signed-off "machines first" design): pure helpers; see fleet-mode.component.ts. */
@@ -426,6 +428,8 @@ export interface RowInputs {
   now: number;
   /** Active policy directives. Omitted by callers that predate them. */
   directives?: readonly PolicyDirective[];
+  /** A terminal's activity: working while a command runs, else idle at its prompt. */
+  terminalActivity?: (taskId: string) => SessionActivity | undefined;
 }
 
 /** One row per machine with the sessions running on it (inside-out view of the projects). */
@@ -485,18 +489,18 @@ export function machineRows(inp: RowInputs): MachineRow[] {
   }
   for (const mi of inp.allItems) {
     if (mi.sessionKind !== 'terminal' || !mi.live || !mi.workerId) continue;
-    const you = mi.control === 'YOU';
+    const t = terminalState(mi, inp.terminalActivity?.(mi.id));
     push(mi.workerId, {
       key: `task:${mi.id}`,
       id: mi.id,
       sid: mi.sid,
       title: mi.title,
-      now: you ? 'you have control' : 'shell open',
+      now: t.now,
       agent: 'shell',
       project: 'Yours',
       projectColor: projectColor('other'),
-      state: you ? 'you' : 'working',
-      coarse: !you,
+      state: t.state,
+      coarse: false,
       done: false,
       item: mi,
       kind: 'task',

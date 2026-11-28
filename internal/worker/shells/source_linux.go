@@ -80,6 +80,9 @@ func parseStat(pid int, raw []byte, boot time.Time) (Proc, bool) {
 	p.Zombie = f[0] == "Z" || f[0] == "X"
 	p.PPID, _ = strconv.Atoi(f[1])
 	p.PGID, _ = strconv.Atoi(f[2])
+	if tp, err := strconv.Atoi(f[5]); err == nil && tp > 0 {
+		p.TPGID = tp
+	}
 	ut, _ := strconv.ParseInt(f[11], 10, 64)
 	st, _ := strconv.ParseInt(f[12], 10, 64)
 	p.CPU = time.Duration(ut+st) * time.Second / clockTicks

@@ -41,6 +41,7 @@ func (sysctlSource) Snapshot() ([]Proc, error) {
 			PID:    pid,
 			PPID:   int(kp.Eproc.Ppid),
 			PGID:   int(kp.Eproc.Pgid),
+			TPGID:  max(0, int(kp.Eproc.Tpgid)),
 			Name:   string(name),
 			Start:  time.Unix(kp.Proc.P_starttime.Sec, int64(kp.Proc.P_starttime.Usec)*1000),
 			Zombie: kp.Proc.P_stat == szomb,

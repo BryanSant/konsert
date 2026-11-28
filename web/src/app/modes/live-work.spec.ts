@@ -227,7 +227,26 @@ describe('live-work story', () => {
     expect(o.coarse).toBe(true);
     const sh = other.inFlight.find((l) => l.id === 'sh')!;
     expect(sh.terminal).toBe(true);
-    expect(sh.now).toBe('shell open');
+    expect(sh.now).toBe('at the prompt');
+    expect(sh.state).toBe('idle');
+  });
+
+  it('shows a terminal working only while a command runs', () => {
+    const tasks = [task('sh', 'running', { agent: 'shell', session_kind: 'terminal', project_id: '', prompt: '' })];
+    const wById = { w1: worker('w1', 'desk') };
+    const groups = groupWork({ projects: [project], repos: [], workers: [wById.w1], tasks, chats: [], activityOf: () => undefined });
+    const items: WorkItem[] = buildWorkItems({ tasks, chats: [], workers: wById, projects: [project], repos: [], questions: [], holds: [], interactive: () => false, reviewed: {}, now: NOW });
+    const story = (a?: SessionActivity) =>
+      buildStory({ groups, items: Object.fromEntries(items.map((i) => [i.id, i])), allItems: items, workers: wById, heat: {}, now: NOW, today: NOW - 3600_000, terminalActivity: () => a });
+    const line = (a?: SessionActivity) => story(a)[0].inFlight.find((l) => l.id === 'sh')!;
+    expect(line().state).toBe('idle');
+    expect(line(act('sh', 'done')).state).toBe('idle');
+    const busy = line(act('sh', 'working', { tool: 'shell', label: 'sleep 30' }));
+    expect(busy.state).toBe('working');
+    expect(busy.now).toBe('running sleep 30');
+    // An idle terminal doesn't count as running in the bar; a busy one does.
+    expect(story()[0].bar.running).toBe(0);
+    expect(story(act('sh', 'working'))[0].bar.running).toBe(1);
   });
 
   it('keeps idle managed and observed sessions listed, quietly, until they end', () => {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/shells"
 )
 
 // DefaultShellInterval is how often the shells under hosted sessions are counted (one
@@ -51,7 +52,12 @@ func (d *Daemon) pollShells() {
 	for key, s := range d.shells.Tick(d.shellRoots()) {
 		d.activity.SetShells(key, s)
 	}
+	d.pollTerminals(terminalSnapshot)
 }
+
+// terminalSnapshot reads the process table for terminals without shell integration
+// (tests replace it).
+var terminalSnapshot = func() ([]shells.Proc, error) { return shells.OSSource().Snapshot() }
 
 // killShells handles session.shell.kill: the tracker only touches processes it still
 // attributes to that session, then the next poll reports the new count.

@@ -234,6 +234,30 @@ func (r *Runner) SessionPIDs() map[string]int {
 	return out
 }
 
+// TerminalShell is a user terminal's shell for its idle/working state.
+type TerminalShell struct {
+	PID int
+	// Integrated: shell integration marks arrive, so command events say when it is
+	// busy; otherwise the process table does.
+	Integrated bool
+}
+
+// TerminalShells maps each running user terminal (the shell driver) to its shell.
+func (r *Runner) TerminalShells() map[string]TerminalShell {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := map[string]TerminalShell{}
+	for id, rt := range r.tasks {
+		if rt.pty == nil || rt.agent != drivers.ShellDriverName {
+			continue
+		}
+		if pid := rt.pty.Pid(); pid > 0 {
+			out[id] = TerminalShell{PID: pid, Integrated: rt.shellTracker != nil && rt.shellTracker.Integrated()}
+		}
+	}
+	return out
+}
+
 // ActiveTaskIDs returns IDs of currently running tasks for heartbeats.
 func (r *Runner) ActiveTaskIDs() []string {
 	r.mu.RLock()

@@ -259,6 +259,7 @@ export class LiveWorkComponent {
       heat: this.fleet.heatByWorker(),
       now,
       today: startOfToday(now),
+      terminalActivity: (id) => this.work.taskActivity(id),
     });
   });
 
