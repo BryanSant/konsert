@@ -154,8 +154,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       stdio: ['ignore', 'pipe', 'pipe'],
       // GET /api/setup runs `syred id`, and adding this machine would run `syred
       // install`: keep the identity out of ~/.syre and never register a real service.
+      // Its own config dir too: a hub records where it listens (local-hub.yaml), and the
+      // developer's own CLI and `syre open` must not end up pointing at this test hub.
       env: subscriptionOnlyEnv({
         SYRE_STATE_DIR: path.join(tmpDir, 'hub-state'),
+        SYRE_CONFIG_DIR: path.join(tmpDir, 'hub-config'),
         SYRE_INSTALL_DRY_RUN: '1',
         SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),

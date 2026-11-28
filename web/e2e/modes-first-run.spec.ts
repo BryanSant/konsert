@@ -33,6 +33,7 @@ async function startHub(): Promise<Hub> {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: subscriptionOnlyEnv({
         SYRE_STATE_DIR: path.join(tmpDir, 'state'),
+        SYRE_CONFIG_DIR: path.join(tmpDir, 'config'),
         SYRE_INSTALL_DRY_RUN: '1',
         SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),
