@@ -575,7 +575,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		kind, req.WorkKey)
 	reqs, inherited := s.hub.workRequirements(ctx, workKey, req.Requirements, describeActor(cause))
 	reqs.apply(&req.WorkerSelector)
-	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
+	peak := s.hub.expectedPeak(ctx, workKey, "")
+	popts := PlacementOpts{Headroom: s.hub.headroomFn(ctx), Work: placementWork(peak, taskID)}
+	selected, _, ok := SelectWorkerScored(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode, popts)
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
 		// selector allows, otherwise refuse with the re-login hint.
@@ -586,7 +588,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 					eligible = append(eligible, w)
 				}
 			}
-			if selected, ok = SelectWorker(eligible, counts, req.WorkerSelector, req.Agent, permMode); !ok {
+			if selected, _, ok = SelectWorkerScored(eligible, counts, req.WorkerSelector, req.Agent, permMode, popts); !ok {
 				return DispatchResult{}, loggedOut
 			}
 		}

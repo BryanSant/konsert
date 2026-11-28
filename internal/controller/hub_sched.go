@@ -186,7 +186,9 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 					subNote = dec.Substitution
 					eligible = filterProviderWorkers(eligible, payload.Agent, idx)
 				}
-				w, ok := SelectWorker(eligible, counts, sel, payload.Agent, t.PermissionMode)
+				peak := h.expectedPeak(ctx, t.WorkKey, "")
+				w, _, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode,
+					PlacementOpts{Headroom: h.headroomFn(ctx), Work: placementWork(peak, t.ID)})
 				if !ok {
 					continue
 				}

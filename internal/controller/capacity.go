@@ -123,3 +123,8 @@ func (h *Hub) expectedPeak(ctx context.Context, key, class string) uint64 {
 	}
 	return cmp.Or(own, any)
 }
+
+// headroomFn is workerHeadroom bound to ctx, for the placement scorer.
+func (h *Hub) headroomFn(ctx context.Context) func(store.Worker) *capacity.Headroom {
+	return func(w store.Worker) *capacity.Headroom { return h.workerHeadroom(ctx, w) }
+}

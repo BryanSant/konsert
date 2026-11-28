@@ -1,8 +1,9 @@
 package controller
 
 import (
+	"github.com/BryanSant/syre/internal/capacity"
+	"github.com/BryanSant/syre/internal/placement"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -68,76 +69,71 @@ func SelectWorkerWithLocality(
 	permMode store.PermissionMode,
 	locality LocalityScoreFn,
 ) (store.Worker, bool) {
+	w, _, ok := SelectWorkerScored(workers, activeCounts, selector, agent, permMode, PlacementOpts{Locality: locality})
+	return w, ok
+}
+
+// PlacementOpts feeds the placement scorer (SYR-YCQQ1): checkout locality, each
+// machine's headroom, and the work (its expected peak, and a seed that makes the
+// rotation of unknown work deterministic).
+type PlacementOpts struct {
+	Locality LocalityScoreFn
+	Headroom func(w store.Worker) *capacity.Headroom
+	Work     placement.Work
+}
+
+// placementWork is the scorer's view of work expected to peak at peakMB (0: no profile
+// yet) placed for seed.
+func placementWork(peakMB uint64, seed string) placement.Work {
+	return placement.Work{PeakMB: peakMB, Known: peakMB > 0, Seed: seed}
+}
+
+// SelectWorkerScored applies the hard filters (the selector: requirements, agent,
+// slots, permission mode; locality's eligibility), then ranks the rest with the
+// placement scorer and picks one. It also returns the ranking (best first), for
+// explanations.
+func SelectWorkerScored(
+	workers []store.Worker,
+	activeCounts map[string]int,
+	selector WorkerSelector,
+	agent string,
+	permMode store.PermissionMode,
+	opts PlacementOpts,
+) (store.Worker, []placement.Scored, bool) {
 	if permMode == "" {
 		permMode = store.PermissionFullAccess
 	}
-
-	type candidate struct {
-		worker     store.Worker
-		hasAll     bool
-		matched    int
-		util       float64
-		diskFreeGB uint64
-	}
-	var candidates []candidate
-
+	byID := map[string]store.Worker{}
+	var cands []placement.Candidate
 	for _, w := range workers {
 		if !workerMatchesSelector(w, activeCounts, selector, agent, permMode) {
 			continue
 		}
-		var (
-			matched int
-			hasAll  bool
-		)
-		if locality != nil {
-			var ok bool
-			matched, hasAll, ok = locality(w)
+		c := placement.Candidate{ID: w.ID, Active: activeCounts[w.ID], Slots: max(w.MaxConcurrent, 1), LastSeen: w.LastSeenAt}
+		if opts.Locality != nil {
+			matched, hasAll, ok := opts.Locality(w)
 			if !ok {
 				continue
 			}
+			c.LocalityMatched, c.LocalityTotal = matched, matched
+			if !hasAll {
+				c.LocalityTotal = matched + 1 // at least one bound repo is missing here
+			}
 		}
-		maxC := w.MaxConcurrent
-		if maxC <= 0 {
-			maxC = 1
-		}
-		active := activeCounts[w.ID]
-		var diskFree uint64
 		if f := decodeWorkerFacts(w.FactsJSON); f != nil {
-			diskFree = f.DiskFreeGB
+			c.DiskFreeGB = f.DiskFreeGB
 		}
-		candidates = append(candidates, candidate{
-			worker:     w,
-			hasAll:     hasAll,
-			matched:    matched,
-			util:       float64(active) / float64(maxC),
-			diskFreeGB: diskFree,
-		})
+		if opts.Headroom != nil {
+			c.Headroom = opts.Headroom(w)
+		}
+		byID[w.ID] = w
+		cands = append(cands, c)
 	}
-
-	if len(candidates) == 0 {
-		return store.Worker{}, false
+	best, ranked, ok := placement.Choose(opts.Work, cands)
+	if !ok {
+		return store.Worker{}, nil, false
 	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].hasAll != candidates[j].hasAll {
-			return candidates[i].hasAll
-		}
-		if candidates[i].matched != candidates[j].matched {
-			return candidates[i].matched > candidates[j].matched
-		}
-		if candidates[i].util != candidates[j].util {
-			return candidates[i].util < candidates[j].util
-		}
-		if candidates[i].diskFreeGB != candidates[j].diskFreeGB {
-			return candidates[i].diskFreeGB > candidates[j].diskFreeGB
-		}
-		if !candidates[i].worker.LastSeenAt.Equal(candidates[j].worker.LastSeenAt) {
-			return candidates[i].worker.LastSeenAt.After(candidates[j].worker.LastSeenAt)
-		}
-		return candidates[i].worker.ID < candidates[j].worker.ID
-	})
-
-	return candidates[0].worker, true
+	return byID[best.ID], ranked, true
 }
 
 func workerMatchesSelector(

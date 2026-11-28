@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json/v2"
 	"testing"
+	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
@@ -90,5 +91,35 @@ func TestInteractiveRoleGatesAutomaticWorkOnly(t *testing.T) {
 	}
 	if v, _ := th.h.policyViolation(userCtx(), w, protocol.WorkTask, 0, "t"); v != nil {
 		t.Fatalf("the user's own task was held: %v", v)
+	}
+}
+
+// Dispatch ranks machines with the placement scorer: work known to peak at 8 GB goes
+// to the machine with room for it, though the other has more free slots (SYR-YCQQ1).
+func TestDispatchPlacesKnownWorkWhereItFits(t *testing.T) {
+	th := newTestHub(t)
+	ctx := t.Context()
+	small := testWorkerInfo("w-a-small", "small")
+	small.MaxConcurrent = 8
+	big := testWorkerInfo("w-z-big", "big")
+	big.MaxConcurrent = 2
+	// big connects first: every tie-break (seen last, id) favours small.
+	th.connectWorker(t, big, nil, "w-z-big")
+	time.Sleep(10 * time.Millisecond)
+	th.connectWorker(t, small, nil, "w-a-small")
+	th.h.mu.Lock()
+	th.h.workerMetrics["w-a-small"] = &protocol.WorkerMetrics{MemTotalMB: 8192, MemUsedMB: 4096}
+	th.h.workerMetrics["w-z-big"] = &protocol.WorkerMetrics{MemTotalMB: 65536, MemUsedMB: 8192}
+	th.h.mu.Unlock()
+	key := "default/adhoc/train/ml-train"
+	if err := th.st.UpsertWorkProfile(ctx, store.WorkProfile{WorkKey: key, MachineClass: "linux/amd64", Runs: 4, PeakRSSMaxMB: 8000}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := th.svc.DispatchTask(userCtx(), DispatchRequest{Agent: "mock", RepoPath: "/src/train", Prompt: "train", WorkKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.WorkerID != "w-z-big" {
+		t.Fatalf("placed on %q, want w-z-big", res.WorkerID)
 	}
 }

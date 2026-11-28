@@ -378,8 +378,8 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 
 		// Locality preference: prefer machines with checkouts of all bound repos; machines
 		// without a checkout are still eligible only if the missing repo has remote_url set.
-		// A machine saturated by memory (its headroom can't fit the work's expected peak)
-		// loses the preference: the work goes where it fits (SYR-WCH0N).
+		// The scorer weighs it against the headroom: a machine that can't fit the work's
+		// expected peak is a last resort, checkout or not (SYR-WCH0N, SYR-YCQQ1).
 		peak := h.expectedPeak(ctx, h.workKeyFor(ctx, store.Attempt{TicketID: tk.ID}, store.Task{ProjectID: tk.ProjectID, RepoID: firstBinding.RepoID}), "")
 		localityFn := func(w store.Worker) (int, bool, bool) {
 			matched := 0
@@ -390,9 +390,6 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 					return 0, false, false
 				}
 			}
-			if hr := h.workerHeadroom(ctx, w); hr != nil && !hr.Fits(peak) {
-				return 0, false, true
-			}
 			return matched, matched == len(resolved), true
 		}
 
@@ -402,7 +399,8 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		}
 		agent = dec.Agent
 		eligible = filterProviderWorkers(eligible, agent, idx)
-		w, ok := SelectWorkerWithLocality(eligible, counts, sel, agent, permMode, localityFn)
+		w, _, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode, PlacementOpts{Locality: localityFn,
+			Headroom: h.headroomFn(ctx), Work: placementWork(peak, tk.ID)})
 		if !ok {
 			continue
 		}
