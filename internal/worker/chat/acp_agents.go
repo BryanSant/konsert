@@ -324,7 +324,7 @@ var cursorAdapter = &acpAdapter{
 	},
 	ReloginNote:    "Set NO_OPEN_BROWSER=1 to print the login URL instead of opening a browser.",
 	ReloginEnvKeys: []string{"CURSOR_CONFIG_DIR", "AGENT_CLI_CREDENTIAL_STORE", "CURSOR_DATA_DIR"},
-	UsageNote:      "Cursor exposes plan usage only in its TUI.",
+	usage:          cursorUsage,
 	sessionPaths: func(home string, env map[string]string, id, cwd string) []string {
 		root := env["CURSOR_CONFIG_DIR"]
 		if root == "" {

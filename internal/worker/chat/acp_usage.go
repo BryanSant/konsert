@@ -136,6 +136,15 @@ var errUsageBackoff = errors.New("usage service asked to wait")
 
 // Get fetches u for account key with the given headers and returns the body.
 func (c *usageClient) Get(ctx context.Context, key, u string, header http.Header) ([]byte, error) {
+	return c.do(ctx, key, http.MethodGet, u, "", header)
+}
+
+// Post sends a JSON body to u for account key and returns the answer's body.
+func (c *usageClient) Post(ctx context.Context, key, u, body string, header http.Header) ([]byte, error) {
+	return c.do(ctx, key, http.MethodPost, u, body, header)
+}
+
+func (c *usageClient) do(ctx context.Context, key, method, u, body string, header http.Header) ([]byte, error) {
 	now := c.Now()
 	c.mu.Lock()
 	until := c.backoff[key]
@@ -143,12 +152,19 @@ func (c *usageClient) Get(ctx context.Context, key, u string, header http.Header
 	if now.Before(until) {
 		return nil, fmt.Errorf("%w until %s", errUsageBackoff, until.Local().Format("15:04"))
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rd)
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range header {
 		req.Header[k] = v
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -176,14 +192,14 @@ func (c *usageClient) Get(ctx context.Context, key, u string, header http.Header
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("usage service answered %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, usageMaxBody+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, usageMaxBody+1))
 	if err != nil {
 		return nil, errors.New("usage response unreadable")
 	}
-	if len(body) > usageMaxBody {
+	if len(data) > usageMaxBody {
 		return nil, errors.New("usage response too large")
 	}
-	return body, nil
+	return data, nil
 }
 
 // retryAfter parses a Retry-After header (seconds, or an HTTP date).

@@ -1,0 +1,3 @@
+{"billingCycleStart":"2026-11-01T00:00:00.000Z","billingCycleEnd":"2026-12-01T00:00:00.000Z","membershipType":"enterprise","limitType":"team","isUnlimited":false,
+ "individualUsage":{"overall":{"enabled":true,"used":45744,"limit":65000,"remaining":19256}},
+ "teamUsage":{"onDemand":{"enabled":true,"used":1200,"limit":10000,"remaining":8800}}}
