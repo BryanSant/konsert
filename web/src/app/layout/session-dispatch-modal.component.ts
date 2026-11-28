@@ -24,6 +24,7 @@ export interface SessionDispatchRequest {
  * chat composer (account chip, model·effort, approval mode, machine · folder context bar),
  * so they offer the same real models, efforts and approval modes as a chat.
  */
+import { TakeControlService } from '../modes/take-control.service';
 @Component({
   selector: 'app-session-dispatch-modal',
   standalone: true,
@@ -173,6 +174,7 @@ export interface SessionDispatchRequest {
 })
 export class SessionDispatchModalComponent implements OnInit {
   private readonly api = inject(ApiClientService);
+  private readonly takeControl = inject(TakeControlService);
   private readonly relogin = inject(ReloginService);
   readonly fleet = inject(FleetStore);
   readonly agentAccounts = inject(AgentAccountsStore);
@@ -336,6 +338,10 @@ export class SessionDispatchModalComponent implements OnInit {
         origin: 'direct',
         permission_mode: perm,
       });
+      // A terminal the user starts is theirs: they hold control from the start (the same
+      // audited take-control as the button, so attribution still works). Agent sessions
+      // open read-only.
+      if (!isChat) await this.takeControl.set(res.task_id, true);
       await Promise.all([this.fleet.refresh(), this.fleet.loadSettings()]);
       const task = this.fleet.tasksById()[res.task_id];
       if (task) {

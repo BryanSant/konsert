@@ -35,17 +35,20 @@ class Host {
   closed = 0;
 }
 
+import { TakeControlService } from '../modes/take-control.service';
 describe('SessionDispatchModalComponent (shared composer)', () => {
   let createSession: ReturnType<typeof vi.fn>;
+  let setTaskControl: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     resetTooltipWarmState();
     createSession = vi.fn(async () => ({ task_id: 'task-1', status: 'queued' }));
+    setTaskControl = vi.fn(async () => ({ ok: true }));
     TestBed.configureTestingModule({
       providers: [
         {
           provide: ApiClientService,
-          useValue: { createSession, setUnauthorizedHandler: vi.fn(), uploadAttachment: vi.fn(), listDirectory: vi.fn(async () => ({ entries: [] })) },
+          useValue: { createSession, setTaskControl, loadHolds: vi.fn(), listHolds: vi.fn(async () => ({ holds: [] })), setUnauthorizedHandler: vi.fn(), uploadAttachment: vi.fn(), listDirectory: vi.fn(async () => ({ entries: [] })) },
         },
       ],
     });
@@ -165,6 +168,17 @@ describe('SessionDispatchModalComponent (shared composer)', () => {
     expect(req.account_id).toBeUndefined();
     expect(req.approval_mode).toBeUndefined();
     expect(req.shell).toBeUndefined();
+    // The user's own terminal: they hold control from the start (audited like the button).
+    expect(setTaskControl).toHaveBeenCalledWith('task-1', true);
+    expect(TestBed.inject(TakeControlService).has('task-1')).toBe(true);
+  });
+
+  it('opens an agent session read-only: no control taken on its behalf', async () => {
+    const { $, render } = await setup();
+    $<HTMLButtonElement>('[data-testid="dispatch-submit"]').click();
+    await render();
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(setTaskControl).not.toHaveBeenCalled();
   });
 
   it('offers a terminal shell picker when the machine reports available shells', async () => {
