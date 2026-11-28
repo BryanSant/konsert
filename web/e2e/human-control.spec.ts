@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { expect, Locator, Page, test } from '@playwright/test';
-import { E2E_STATE_FILE } from './global-setup';
+import { E2E_STATE_FILE, resumeFleetIfPaused } from './global-setup';
 
 /**
  * Human control (SYR-H6HJN, PRD §5.8a) against the mock engine: suspend/resume a chat
@@ -105,6 +105,10 @@ test.describe('Human control (mock engine)', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, loadEnv());
   });
+  test.afterEach(async () => {
+    const env = loadEnv();
+    await resumeFleetIfPaused(env.baseURL, env.adminToken);
+  });
 
   test('suspends a chat mid-turn and resumes it intact', async ({ page }) => {
     const chat = await newChat(page);
@@ -160,7 +164,9 @@ test.describe('Human control (mock engine)', () => {
       .toBe(true);
 
     // The veto shows in Your actions (Command's Needs-you rail).
-    await expect(page.getByTestId('needs-you-rail').getByTestId('your-actions')).toContainText(/veto/i);
+    await expect(page.getByTestId('needs-you-rail').getByTestId('your-actions')).toContainText(
+      /veto/i,
+    );
   });
 
   test('drains a machine so it receives no new work, then undrains it', async ({ page }) => {
@@ -187,7 +193,9 @@ test.describe('Human control (mock engine)', () => {
     await page.waitForTimeout(800);
     expect(await taskStatus(page, t.task_id)).toBe('queued');
     // Fleet's queue says it is waiting.
-    await expect(page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`)).toBeVisible();
+    await expect(
+      page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`),
+    ).toBeVisible();
 
     // The machine's Details dialog shows the drain too, and undrains.
     await page.getByTestId(`machine-details-${env.workerSid}`).click();
@@ -200,7 +208,9 @@ test.describe('Human control (mock engine)', () => {
     await expect(modal).toBeHidden();
     await expect(badge).not.toHaveText('DRAINING');
     await expect.poll(() => taskStatus(page, t.task_id), { timeout: 10_000 }).not.toBe('queued');
-    await expect(page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`)).toHaveCount(0);
+    await expect(
+      page.getByTestId('fleet-queue').locator(`[data-queued="${t.task_sid}"]`),
+    ).toHaveCount(0);
 
     await postJSON(page, `/api/tasks/${t.task_id}/cancel`);
   });
@@ -216,7 +226,8 @@ test.describe('Human control (mock engine)', () => {
     const banner = page.getByTestId('paused-banner');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('Everything is paused');
-    await expect(statusPill(chat)).toHaveAttribute('data-status', 'suspended');
+    // The pause suspends running sessions one by one: allow a slow CI machine.
+    await expect(statusPill(chat)).toHaveAttribute('data-status', 'suspended', { timeout: 15_000 });
     expect((await getJSON<{ paused: boolean }>(page, '/api/fleet/pause')).paused).toBe(true);
 
     // Survives a reload (persisted on the hub).
@@ -240,28 +251,40 @@ test.describe('Human control (mock engine)', () => {
         duration_minutes: 30,
         reason,
       });
-    const first = await ask('The e2e suite must run next to the build to finish before the release');
+    const first = await ask(
+      'The e2e suite must run next to the build to finish before the release',
+    );
     const second = await ask('A second lint run in parallel');
     expect(first.sid).toMatch(/^o-[0-9a-z]{5,12}$/);
 
     // Both show in Command's Needs-you rail; the item opens the dialog on its card.
     const rail = page.getByTestId('needs-you-rail');
-    await expect(rail.locator(`[data-override="${first.sid}"]`)).toContainText(`Allow 1 extra session on ${env.workerName} for 30m`);
+    await expect(rail.locator(`[data-override="${first.sid}"]`)).toContainText(
+      `Allow 1 extra session on ${env.workerName} for 30m`,
+    );
     await expect(rail.locator(`[data-override="${second.sid}"]`)).toBeVisible();
     await rail.locator(`[data-override="${first.sid}"]`).click();
-    const card = page.getByTestId('questions-detail').locator(`[data-testid="needs-you-override"][data-override="${first.sid}"]`);
+    const card = page
+      .getByTestId('questions-detail')
+      .locator(`[data-testid="needs-you-override"][data-override="${first.sid}"]`);
     await expect(card).toBeVisible();
-    await expect(card.getByTestId('override-scope')).toContainText(`${env.workerName}: 1 more session at once than its slot limit`);
+    await expect(card.getByTestId('override-scope')).toContainText(
+      `${env.workerName}: 1 more session at once than its slot limit`,
+    );
     await expect(card.getByTestId('override-duration')).toContainText('30m');
     await expect(card.getByTestId('override-reason')).toContainText('finish before the release');
-    await expect(card.getByTestId('override-consequences')).toContainText('sessions at once instead of');
+    await expect(card.getByTestId('override-consequences')).toContainText(
+      'sessions at once instead of',
+    );
     await card.getByTestId('override-note').fill('today only');
     await card.getByTestId('override-approve').click();
     await expect(card.getByTestId('override-decided')).toContainText('Approved');
 
     // Pick the other request from the dialog's queue and deny it.
     await page.getByTestId('needs-you-dialog').locator(`[data-queue-item="${second.sid}"]`).click();
-    const next = page.getByTestId('questions-detail').locator(`[data-testid="needs-you-override"][data-override="${second.sid}"]`);
+    const next = page
+      .getByTestId('questions-detail')
+      .locator(`[data-testid="needs-you-override"][data-override="${second.sid}"]`);
     await expect(next).toBeVisible();
     await next.getByTestId('override-deny').click();
     await expect(next.getByTestId('override-decided')).toContainText('Denied');
@@ -271,7 +294,13 @@ test.describe('Human control (mock engine)', () => {
 
     // Enforced and measured on the hub: approved with an expiry, the note kept; denied.
     const { overrides } = await getJSON<{
-      overrides: Array<{ id: string; status: string; decision_note?: string; expires_at?: string; use_count: number }>;
+      overrides: Array<{
+        id: string;
+        status: string;
+        decision_note?: string;
+        expires_at?: string;
+        use_count: number;
+      }>;
     }>(page, '/api/overrides');
     const a = overrides.find((o) => o.id === first.id)!;
     expect(a.status).toBe('approved');
@@ -280,27 +309,49 @@ test.describe('Human control (mock engine)', () => {
     expect(overrides.find((o) => o.id === second.id)?.status).toBe('denied');
   });
 
-  test('a vetoed task: the commander acknowledges it on its next turn and Needs you clears by itself', async ({ page }) => {
+  test('a vetoed task: the commander acknowledges it on its next turn and Needs you clears by itself', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await postJSON(page, '/api/chats/commander', {});
     const t = await dispatchMockTask(page, env);
-    await expect.poll(() => taskStatus(page, t.task_id), { timeout: 10_000 }).not.toMatch(/queued|assigned/);
-    await postJSON(page, `/api/tasks/${t.task_id}/veto`, { reason: 'not_now', note: 'after the release' });
+    await expect
+      .poll(() => taskStatus(page, t.task_id), { timeout: 10_000 })
+      .not.toMatch(/queued|assigned/);
+    await postJSON(page, `/api/tasks/${t.task_id}/veto`, {
+      reason: 'not_now',
+      note: 'after the release',
+    });
 
-    type VetoRow = { sid: string; task_id?: string; status: string; delivered_to?: string; acked_by?: string };
-    const vetoFor = async () => (await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes')).vetoes.find((v) => v.task_id === t.task_id);
+    type VetoRow = {
+      sid: string;
+      task_id?: string;
+      status: string;
+      delivered_to?: string;
+      acked_by?: string;
+    };
+    const vetoFor = async () =>
+      (await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes')).vetoes.find(
+        (v) => v.task_id === t.task_id,
+      );
     // Syre tells the commander in a turn of its own; that turn ending acknowledges it.
-    await expect.poll(async () => (await vetoFor())?.status, { timeout: 20_000 }).toBe('acknowledged');
+    await expect
+      .poll(async () => (await vetoFor())?.status, { timeout: 20_000 })
+      .toBe('acknowledged');
     const v = (await vetoFor())!;
     expect(v.acked_by).toMatch(/^the commander \(chat c-/);
     // Nothing is left for the user: no "Got it" to click, no item in the rail.
-    await expect(page.getByTestId('needs-you-rail').locator(`[data-veto="${v.sid}"]`)).toHaveCount(0);
+    await expect(page.getByTestId('needs-you-rail').locator(`[data-veto="${v.sid}"]`)).toHaveCount(
+      0,
+    );
     const open = await getJSON<{ vetoes: VetoRow[] }>(page, '/api/vetoes?open=1');
     expect(open.vetoes.some((x) => x.sid === v.sid)).toBe(false);
     // The timeline records the acknowledgement.
     await expect
       .poll(async () => {
-        const res = await getJSON<{ events: Array<{ kind: string; action?: string; summary: string }> }>(page, '/api/events?limit=100');
+        const res = await getJSON<{
+          events: Array<{ kind: string; action?: string; summary: string }>;
+        }>(page, '/api/events?limit=100');
         return res.events.some((e) => e.action === 'veto_ack' && e.summary.includes(v.sid));
       })
       .toBe(true);

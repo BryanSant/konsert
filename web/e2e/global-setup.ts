@@ -29,7 +29,11 @@ export function getFreePort(): Promise<number> {
   });
 }
 
-export async function waitFor(predicate: () => Promise<boolean>, timeoutMs: number, label: string): Promise<void> {
+export async function waitFor(
+  predicate: () => Promise<boolean>,
+  timeoutMs: number,
+  label: string,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -47,9 +51,12 @@ export async function waitFor(predicate: () => Promise<boolean>, timeoutMs: numb
  * key happens to be in the developer's or CI runner's environment. Strip every provider key
  * and commander LLM override before spawning syre and syred.
  */
-const API_KEY_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GENAI_|XAI_|GROK_|MISTRAL_|COHERE_|OPENROUTER_|SYRE_LLM_|CLAUDE_CODE_OAUTH_TOKEN$|CURSOR_API_KEY$|GH_TOKEN$|GITHUB_TOKEN$|COPILOT_)/;
+const API_KEY_ENV =
+  /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GENAI_|XAI_|GROK_|MISTRAL_|COHERE_|OPENROUTER_|SYRE_LLM_|CLAUDE_CODE_OAUTH_TOKEN$|CURSOR_API_KEY$|GH_TOKEN$|GITHUB_TOKEN$|COPILOT_)/;
 
-export function subscriptionOnlyEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
+export function subscriptionOnlyEnv(
+  extra: Record<string, string> = {},
+): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (!API_KEY_ENV.test(k)) env[k] = v;
@@ -84,7 +91,14 @@ function flagValue(args: string[], name: string): string {
  * Workdir and checkout roots point at a temp directory so ticket worktrees and clones
  * are not created under the developer's ~/src. Pass --allowed-roots to override.
  */
-export function spawnJoin(syredBin: string, cwd: string, baseURL: string, code: string, stateDir: string, extra: string[]): ChildProcess {
+export function spawnJoin(
+  syredBin: string,
+  cwd: string,
+  baseURL: string,
+  code: string,
+  stateDir: string,
+  extra: string[],
+): ChildProcess {
   const args = ['join', baseURL, code, '--foreground', ...extra];
   let allowed = flagValue(extra, '--allowed-roots');
   if (!allowed) {
@@ -115,7 +129,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const syredBin = path.join(repoRoot, 'bin', 'syred');
 
   if (!fs.existsSync(syreBin) || !fs.existsSync(syredBin)) {
-    throw new Error(`Compiled binaries not found at ${syreBin} and ${syredBin}. Run 'make web && make build' first.`);
+    throw new Error(
+      `Compiled binaries not found at ${syreBin} and ${syredBin}. Run 'make web && make build' first.`,
+    );
   }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'syre-e2e-'));
@@ -132,15 +148,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
   const controller = spawn(
     syreBin,
-    [
-      'serve',
-      '--listen',
-      `127.0.0.1:${port}`,
-      '--db',
-      dbPath,
-      '--recovery-key',
-      adminToken,
-    ],
+    ['serve', '--listen', `127.0.0.1:${port}`, '--db', dbPath, '--recovery-key', adminToken],
     {
       cwd: repoRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -151,7 +159,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         SYRE_INSTALL_DRY_RUN: '1',
         SYRE_DISABLE_AGENT_DISCOVERY: '1',
       }),
-    }
+    },
   );
   procs.push(controller);
 
@@ -161,7 +169,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       return res.ok;
     },
     10_000,
-    'syre /api/health'
+    'syre /api/health',
   );
 
   const loginRes = await fetch(`${baseURL}/api/auth/login`, {
@@ -201,7 +209,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         headers: { Cookie: cookieHeader },
       });
       if (!res.ok) return false;
-      const body = (await res.json()) as { workers?: Array<{ id: string; sid: string; name: string; status: string }> };
+      const body = (await res.json()) as {
+        workers?: Array<{ id: string; sid: string; name: string; status: string }>;
+      };
       const w = body.workers?.find((w) => w.name === workerName && w.status === 'online');
       if (!w) return false;
       workerId = w.id;
@@ -209,15 +219,30 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       return true;
     },
     10_000,
-    'syred worker registration'
+    'syred worker registration',
   );
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(workerId) || !/^m-[0-9a-z]{5,12}$/.test(workerSid)) {
-    throw new Error(`worker registered as id=${workerId} sid=${workerSid}; want a UUIDv7 id and an m- sid`);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(workerId) ||
+    !/^m-[0-9a-z]{5,12}$/.test(workerSid)
+  ) {
+    throw new Error(
+      `worker registered as id=${workerId} sid=${workerSid}; want a UUIDv7 id and an m- sid`,
+    );
   }
 
   fs.writeFileSync(
     E2E_STATE_FILE,
-    JSON.stringify({ baseURL, adminToken, workerName, workerId, workerSid, workdir, syredBin, repoRoot, tmpDir })
+    JSON.stringify({
+      baseURL,
+      adminToken,
+      workerName,
+      workerId,
+      workerSid,
+      workdir,
+      syredBin,
+      repoRoot,
+      tmpDir,
+    }),
   );
 
   return async () => {
@@ -239,4 +264,22 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       // ignore cleanup errors
     }
   };
+}
+
+/**
+ * Resumes the fleet if a test left it paused (a failed pause test would otherwise fail
+ * every test after it). Uses the admin token, so it works whatever the page shows.
+ */
+export async function resumeFleetIfPaused(baseURL: string, adminToken: string): Promise<void> {
+  const headers = {
+    Authorization: `Bearer ${adminToken}`,
+    'Content-Type': 'application/json',
+    'X-Syre-Request': '1',
+  };
+  const res = await fetch(`${baseURL}/api/fleet/pause`, { headers });
+  if (!res.ok) throw new Error(`GET /api/fleet/pause: ${res.status}`);
+  const st = (await res.json()) as { paused?: boolean };
+  if (!st.paused) return;
+  const r = await fetch(`${baseURL}/api/fleet/resume`, { method: 'POST', headers, body: '{}' });
+  if (!r.ok) throw new Error(`POST /api/fleet/resume: ${r.status} ${await r.text()}`);
 }

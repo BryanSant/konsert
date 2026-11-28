@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, Locator, Page, test } from '@playwright/test';
-import { E2E_STATE_FILE } from './global-setup';
+import { E2E_STATE_FILE, resumeFleetIfPaused } from './global-setup';
 
 /**
  * The mode UI (SYR-88NN9): users land in Command on desktop and in the needs-you inbox on a
@@ -53,7 +53,11 @@ async function api<T>(page: Page, method: string, path: string, body?: unknown):
 }
 
 /** Dispatches a mock task that waits for input (so it stays live) and returns its sid. */
-async function dispatchWaiting(page: Page, env: E2EEnv, title: string): Promise<{ id: string; sid: string }> {
+async function dispatchWaiting(
+  page: Page,
+  env: E2EEnv,
+  title: string,
+): Promise<{ id: string; sid: string }> {
   const res = await api<{ task_id: string }>(page, 'POST', '/api/tasks', {
     worker_selector: { worker_id: env.workerId },
     agent: 'mock',
@@ -65,7 +69,11 @@ async function dispatchWaiting(page: Page, env: E2EEnv, title: string): Promise<
   let sid = '';
   await expect
     .poll(async () => {
-      const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${res.task_id}`);
+      const t = await api<{ task_sid: string; status: string }>(
+        page,
+        'GET',
+        `/api/tasks/${res.task_id}`,
+      );
       sid = t.task_sid;
       return t.status;
     })
@@ -88,8 +96,12 @@ async function askFromCommander(page: Page): Promise<string> {
   let sid = '';
   await expect
     .poll(async () => {
-      const res = await api<{ questions: Array<{ sid: string; prompt: string; status: string; created_at: string }> }>(page, 'GET', '/api/questions');
-      const q = res.questions.filter((x) => x.prompt === QUESTION && x.status === 'open').sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+      const res = await api<{
+        questions: Array<{ sid: string; prompt: string; status: string; created_at: string }>;
+      }>(page, 'GET', '/api/questions');
+      const q = res.questions
+        .filter((x) => x.prompt === QUESTION && x.status === 'open')
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
       sid = q?.sid ?? '';
       return sid;
     })
@@ -102,21 +114,35 @@ function rail(page: Page): Locator {
 }
 
 test.describe('Mode UI (desktop)', () => {
+  test.afterEach(async () => {
+    const env = loadEnv();
+    await resumeFleetIfPaused(env.baseURL, env.adminToken);
+  });
   test.skip(({ isMobile }) => isMobile, 'desktop modes');
 
-  test('lands in Command with the mode header; keys 1–4 switch modes and the URL follows', async ({ page }) => {
+  test('lands in Command with the mode header; keys 1–4 switch modes and the URL follows', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     await expect(page).toHaveURL(/\/command$/);
     const nav = page.getByRole('navigation', { name: 'Modes' });
-    await expect(nav.getByRole('link')).toHaveText([/1\s*Command/, /2\s*Work/, /3\s*Fleet/, /4\s*Wall/]);
+    await expect(nav.getByRole('link')).toHaveText([
+      /1\s*Command/,
+      /2\s*Work/,
+      /3\s*Fleet/,
+      /4\s*Wall/,
+    ]);
     await expect(nav.locator('[data-mode="command"]')).toHaveAttribute('aria-current', 'page');
     await expect(page.getByTestId('fleet-state')).toHaveText('FLEET: RUNNING');
     await expect(page.getByTestId('pause-everything')).toBeVisible();
 
     // The commander tab is pinned: no close button.
     const tabs = page.getByTestId('command-tabs');
-    await expect(tabs.getByRole('tab', { name: 'Commander' })).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.getByRole('tab', { name: 'Commander' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await expect(tabs.locator('[data-tab="commander"] [aria-label^="Close"]')).toHaveCount(0);
 
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -140,7 +166,9 @@ test.describe('Mode UI (desktop)', () => {
     await expect(page).toHaveURL(/\/fleet$/);
   });
 
-  test('Command: a session opens as a closable tab with GOAL/NOW and controls; holds land in the rail', async ({ page }) => {
+  test('Command: a session opens as a closable tab with GOAL/NOW and controls; holds land in the rail', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     const task = await dispatchWaiting(page, env, 'Tidy the release notes');
@@ -175,7 +203,9 @@ test.describe('Mode UI (desktop)', () => {
       // Hold: the hub places a session hold; it shows in the rail, released from the strip.
       await strip.getByTestId('session-hold-btn').click();
       await expect(rail(page).locator('[data-hold]').filter({ hasText: task.sid })).toBeVisible();
-      await expect(strip.locator('[data-control="HELD"], [data-control="ASKING"]').first()).toBeVisible();
+      await expect(
+        strip.locator('[data-control="HELD"], [data-control="ASKING"]').first(),
+      ).toBeVisible();
       await strip.getByTestId('session-release-hold').click();
       await expect(rail(page).locator('[data-hold]').filter({ hasText: task.sid })).toHaveCount(0);
 
@@ -184,13 +214,17 @@ test.describe('Mode UI (desktop)', () => {
       await expect(page.getByTestId('session-strip')).toContainText('Tidy the release notes');
       await page.getByTestId(`close-tab-${task.sid}`).click();
       await expect(page).toHaveURL(/\/command$/);
-      await expect(page.getByTestId('command-tabs').locator(`[data-tab="${task.sid}"]`)).toHaveCount(0);
+      await expect(
+        page.getByTestId('command-tabs').locator(`[data-tab="${task.sid}"]`),
+      ).toHaveCount(0);
     } finally {
       await cancel(page, task.id);
     }
   });
 
-  test('Needs you: every item opens the one dialog; it walks the queue and answering moves on', async ({ page }) => {
+  test('Needs you: every item opens the one dialog; it walks the queue and answering moves on', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     const sid = await askFromCommander(page);
@@ -207,7 +241,10 @@ test.describe('Mode UI (desktop)', () => {
     const card = dialog.getByTestId('questions-detail').getByTestId('question-card');
     await expect(card).toHaveAttribute('data-question', sid);
     await expect(dialog.getByTestId('needs-you-position')).toHaveText(/\d+ of \d+/);
-    await expect(dialog.locator(`[data-queue-item="${sid}"]`)).toHaveAttribute('aria-current', 'step');
+    await expect(dialog.locator(`[data-queue-item="${sid}"]`)).toHaveAttribute(
+      'aria-current',
+      'step',
+    );
     // Esc closes and focus goes back to the item we came from.
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
@@ -215,9 +252,15 @@ test.describe('Mode UI (desktop)', () => {
 
     // The card in the asking chat stays; its Ask about this opens the same dialog with the side conversation.
     const chat = page.locator('app-chat-view');
-    await chat.getByTestId('question-card').filter({ hasText: QUESTION }).getByTestId('question-ask').click();
+    await chat
+      .getByTestId('question-card')
+      .filter({ hasText: QUESTION })
+      .getByTestId('question-ask')
+      .click();
     await expect(dialog.getByTestId('side-conversation')).toBeVisible();
-    await expect(dialog.getByTestId('questions-detail').getByTestId('question-card')).toHaveAttribute('data-question', sid);
+    await expect(
+      dialog.getByTestId('questions-detail').getByTestId('question-card'),
+    ).toHaveAttribute('data-question', sid);
     await page.keyboard.press('Escape'); // closes the side conversation first
     await expect(dialog.getByTestId('side-conversation')).toHaveCount(0);
 
@@ -226,18 +269,34 @@ test.describe('Mode UI (desktop)', () => {
     await page.getByTestId('needs-you-count').click();
     await dialog.locator(`[data-queue-item="${sid}"]`).click();
     await dialog.getByTestId('questions-detail').getByTestId('question-option-option_2').click();
-    await expect(dialog.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
-    await expect(chat.getByTestId('assistant-message').filter({ hasText: 'The user chose: "No, keep the strict exit criteria"' })).toBeVisible();
+    await expect(
+      dialog.getByTestId('questions-detail').locator(`[data-question="${sid}"]`),
+    ).toHaveCount(0, { timeout: 5000 });
+    await expect(
+      chat
+        .getByTestId('assistant-message')
+        .filter({ hasText: 'The user chose: "No, keep the strict exit criteria"' }),
+    ).toBeVisible();
     if (await dialog.isVisible()) await page.keyboard.press('Escape');
   });
 
   test('Work: board with lanes and columns, review panel, board/list toggle', async ({ page }) => {
     const env = loadEnv();
     await signIn(page, env, '/work');
-    const task = await dispatchWaiting(page, env, 'Write the migration guide\n- cover the new config keys\n- link the changelog');
+    const task = await dispatchWaiting(
+      page,
+      env,
+      'Write the migration guide\n- cover the new config keys\n- link the changelog',
+    );
     try {
       const board = page.getByTestId('work-board');
-      await expect(board.locator('[data-column]')).toHaveText([/Queued/, /Running/, /Needs you/, /Review/, /Done/]);
+      await expect(board.locator('[data-column]')).toHaveText([
+        /Queued/,
+        /Running/,
+        /Needs you/,
+        /Review/,
+        /Done/,
+      ]);
       await expect(board.locator('[data-lane="Expedite"]')).toBeVisible();
       const card = board.locator(`[data-card="${task.sid}"]`);
       await expect(card).toContainText('Write the migration guide');
@@ -248,22 +307,39 @@ test.describe('Mode UI (desktop)', () => {
       await expect(panel).toContainText('cover the new config keys');
       await expect(panel).toContainText('Receipts vs acceptance');
       // Acceptance comes from the hub: the prompt's bullets (no ka ticket linked).
-      await expect(panel.getByTestId('acceptance-source')).toHaveText('Asked for (from the prompt)');
+      await expect(panel.getByTestId('acceptance-source')).toHaveText(
+        'Asked for (from the prompt)',
+      );
       await expect(panel.getByTestId('acceptance').locator('li')).toHaveCount(2);
 
       // Expedite moves the card into the Expedite lane, and it is kept on the hub: it
       // survives a reload (and any other client sees it).
       await panel.getByTestId('toggle-expedite').click();
-      await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toBeVisible();
-      const reviews = await api<{ reviews: Array<{ task_id?: string; expedite: boolean; sid: string }> }>(page, 'GET', '/api/reviews');
-      expect(reviews.reviews.find((r) => r.task_id === task.id)).toMatchObject({ expedite: true, sid: expect.stringMatching(/^rv-/) });
+      await expect(
+        board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`),
+      ).toBeVisible();
+      const reviews = await api<{
+        reviews: Array<{ task_id?: string; expedite: boolean; sid: string }>;
+      }>(page, 'GET', '/api/reviews');
+      expect(reviews.reviews.find((r) => r.task_id === task.id)).toMatchObject({
+        expedite: true,
+        sid: expect.stringMatching(/^rv-/),
+      });
       await page.reload();
-      await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toBeVisible();
+      await expect(
+        board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`),
+      ).toBeVisible();
       await expect(panel.getByTestId('toggle-expedite')).toHaveText(/Remove from Expedite/);
       await expect(panel.getByTestId('toggle-expedite')).toHaveAttribute('aria-pressed', 'true');
       await panel.getByTestId('toggle-expedite').click();
-      await expect(board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`)).toHaveCount(0);
-      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('syre.review')))).toEqual([]);
+      await expect(
+        board.locator('[data-lane="Expedite"]').locator(`[data-card="${task.sid}"]`),
+      ).toHaveCount(0);
+      expect(
+        await page.evaluate(() =>
+          Object.keys(localStorage).filter((k) => k.startsWith('syre.review')),
+        ),
+      ).toEqual([]);
 
       await page.getByTestId('view-list').click();
       await expect(page.getByTestId('work-list').locator(`[data-row="${task.sid}"]`)).toBeVisible();
@@ -274,13 +350,16 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Work: a finished change waits in Review; Approve moves it to Done today', async ({ page }) => {
+  test('Work: a finished change waits in Review; Approve moves it to Done today', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env, '/work');
     // A git checkout for the agent to change (the mock touches a file and leaves it uncommitted).
     const repo = fs.mkdtempSync(path.join('/var/tmp', 'syre-e2e-review-'));
     try {
-      const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
       git('init', '-q', '-b', 'main');
       git('config', 'user.email', 'e2e@example.invalid');
       git('config', 'user.name', 'e2e');
@@ -300,14 +379,19 @@ test.describe('Mode UI (desktop)', () => {
       let sid = '';
       await expect
         .poll(async () => {
-          const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${res.task_id}`);
+          const t = await api<{ task_sid: string; status: string }>(
+            page,
+            'GET',
+            `/api/tasks/${res.task_id}`,
+          );
           sid = t.task_sid;
           return t.status;
         })
         .toBe('completed');
       const board = page.getByTestId('work-board');
       const card = board.locator(`[data-card="${sid}"]`);
-      const column = () => card.evaluate((el) => el.closest('[role="cell"]')?.getAttribute('data-cell') ?? '');
+      const column = () =>
+        card.evaluate((el) => el.closest('[role="cell"]')?.getAttribute('data-cell') ?? '');
       await expect.poll(column).toBe('review');
       // A review is a needs-you item: the card opens the shared dialog with the review body.
       await card.click();
@@ -336,7 +420,9 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Work: Approve in direct mode pushes to a local bare remote; pr_merge without forge shows compare URL text', async ({ page }) => {
+  test('Work: Approve in direct mode pushes to a local bare remote; pr_merge without forge shows compare URL text', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env, '/work');
     const base = fs.mkdtempSync(path.join('/var/tmp', 'syre-e2e-delivery-'));
@@ -349,7 +435,8 @@ test.describe('Mode UI (desktop)', () => {
       fs.mkdirSync(bare, { recursive: true });
       fs.mkdirSync(repoDirect, { recursive: true });
       fs.mkdirSync(repoPR, { recursive: true });
-      const gitIn = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+      const gitIn = (dir: string, ...args: string[]) =>
+        execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
 
       gitIn(bare, 'init', '--bare', '-b', 'main');
       gitIn(repoDirect, 'init', '-b', 'main');
@@ -384,7 +471,11 @@ test.describe('Mode UI (desktop)', () => {
       let directSid = '';
       await expect
         .poll(async () => {
-          const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${directTask.task_id}`);
+          const t = await api<{ task_sid: string; status: string }>(
+            page,
+            'GET',
+            `/api/tasks/${directTask.task_id}`,
+          );
           directSid = t.task_sid;
           return t.status;
         })
@@ -396,9 +487,13 @@ test.describe('Mode UI (desktop)', () => {
       await directCard.click();
       const dialog = page.getByTestId('questions-panel');
       const panel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
-      await expect(panel.getByTestId('review-delivery-action')).toContainText('Approve → squash-merge into main and push');
+      await expect(panel.getByTestId('review-delivery-action')).toContainText(
+        'Approve → squash-merge into main and push',
+      );
       await panel.getByTestId('review-approve').click();
-      await expect(panel.getByTestId('review-message')).toContainText('pushed to origin/main; your local main is behind — pull when ready');
+      await expect(panel.getByTestId('review-message')).toContainText(
+        'pushed to origin/main; your local main is behind — pull when ready',
+      );
       if (await dialog.isVisible()) await page.keyboard.press('Escape');
 
       // Confirm the file actually landed on the bare remote's main branch,
@@ -438,7 +533,11 @@ test.describe('Mode UI (desktop)', () => {
       let prSid = '';
       await expect
         .poll(async () => {
-          const t = await api<{ task_sid: string; status: string }>(page, 'GET', `/api/tasks/${prTask.task_id}`);
+          const t = await api<{ task_sid: string; status: string }>(
+            page,
+            'GET',
+            `/api/tasks/${prTask.task_id}`,
+          );
           prSid = t.task_sid;
           return t.status;
         })
@@ -448,16 +547,24 @@ test.describe('Mode UI (desktop)', () => {
       await expect(prCard).toBeVisible();
       await prCard.click();
       const prPanel = dialog.getByTestId('needs-you-review').getByTestId('review-panel');
-      await expect(prPanel.getByTestId('review-delivery-action')).toContainText('Approve → push branch and show compare URL (no forge credential)');
+      await expect(prPanel.getByTestId('review-delivery-action')).toContainText(
+        'Approve → push branch and show compare URL (no forge credential)',
+      );
       if (await dialog.isVisible()) await page.keyboard.press('Escape');
     } finally {
-      if (repoDirectId) await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoDirectId}`).catch(() => undefined);
-      if (repoPRId) await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoPRId}`).catch(() => undefined);
+      if (repoDirectId)
+        await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoDirectId}`).catch(
+          () => undefined,
+        );
+      if (repoPRId)
+        await api(page, 'DELETE', `/api/projects/p-00000/repos/${repoPRId}`).catch(() => undefined);
       fs.rmSync(base, { recursive: true, force: true });
     }
   });
 
-  test('Fleet: machine rows with sessions, heat strips over the range picker (12h default), the queue', async ({ page }) => {
+  test('Fleet: machine rows with sessions, heat strips over the range picker (12h default), the queue', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env, '/fleet');
     const task = await dispatchWaiting(page, env, 'Fleet row session');
@@ -485,7 +592,10 @@ test.describe('Mode UI (desktop)', () => {
         ['1w', 'week'],
       ]) {
         await ranges.locator(`[data-range="${id}"]`).click();
-        await expect(ranges.locator(`[data-range="${id}"]`)).toHaveAttribute('aria-checked', 'true');
+        await expect(ranges.locator(`[data-range="${id}"]`)).toHaveAttribute(
+          'aria-checked',
+          'true',
+        );
         await expect(ranges.locator('[aria-checked="true"]')).toHaveCount(1);
         await expect(strip).toHaveAttribute('aria-label', new RegExp(`last ${title}`));
         // 24h reads hourly roll-ups: one cell per hour.
@@ -493,7 +603,9 @@ test.describe('Mode UI (desktop)', () => {
       }
       // Retention is stated in plain words on the range label.
       await page.getByTestId('heat-retention').hover();
-      await expect(page.getByRole('tooltip')).toContainText('every sample for 12 hours, hourly summaries for 30 days');
+      await expect(page.getByRole('tooltip')).toContainText(
+        'every sample for 12 hours, hourly summaries for 30 days',
+      );
 
       // Details asks the machine for its listening ports (not in heartbeats any more); the
       // hub itself listens on this machine, so there is at least one.
@@ -511,7 +623,9 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Wall: tiles stream live sessions, layouts and pins; tiles stay where they are', async ({ page }) => {
+  test('Wall: tiles stream live sessions, layouts and pins; tiles stay where they are', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     const a = await dispatchWaiting(page, env, 'Wall tile A');
@@ -527,7 +641,10 @@ test.describe('Mode UI (desktop)', () => {
       await page.getByTestId(`pin-${b.sid}`).click();
       await page.getByTestId(`pin-${a.sid}`).click();
       await expect(page.getByTestId('wall-summary')).toContainText('pinned 2');
-      const order = async () => grid.locator('[data-tile]').evaluateAll((els) => els.map((e) => e.getAttribute('data-tile')));
+      const order = async () =>
+        grid
+          .locator('[data-tile]')
+          .evaluateAll((els) => els.map((e) => e.getAttribute('data-tile')));
       const before = await order();
       expect(before.indexOf(b.sid)).toBeLessThan(before.indexOf(a.sid));
 
@@ -538,10 +655,12 @@ test.describe('Mode UI (desktop)', () => {
 
       // Moving is up to the user.
       await grid.getByRole('button', { name: `Move ${a.sid} earlier` }).click();
-      await expect.poll(async () => {
-        const after = await order();
-        return after.indexOf(a.sid) < after.indexOf(b.sid);
-      }).toBe(true);
+      await expect
+        .poll(async () => {
+          const after = await order();
+          return after.indexOf(a.sid) < after.indexOf(b.sid);
+        })
+        .toBe(true);
 
       // Layouts: 1×2 shows two tiles per page and pages the rest.
       await page.locator('[data-layout="1x2"]').click();
@@ -565,7 +684,9 @@ test.describe('Mode UI (desktop)', () => {
     }
   });
 
-  test('Pause all is quiet and asks first (Cancel is the default); Resume needs no confirmation', async ({ page }) => {
+  test('Pause all is quiet and asks first (Cancel is the default); Resume needs no confirmation', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env, '/work');
     await page.getByTestId('pause-everything').click();
@@ -584,9 +705,15 @@ test.describe('Mode UI (desktop)', () => {
 });
 
 test.describe('Mode UI (phone)', () => {
+  test.afterEach(async () => {
+    const env = loadEnv();
+    await resumeFleetIfPaused(env.baseURL, env.adminToken);
+  });
   test.skip(({ isMobile }) => !isMobile, 'phone inbox');
 
-  test('lands in the needs-you inbox; session detail has big controls; fleet is read-only', async ({ page }) => {
+  test('lands in the needs-you inbox; session detail has big controls; fleet is read-only', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     await expect(page).toHaveURL(/\/inbox$/);
@@ -617,13 +744,17 @@ test.describe('Mode UI (phone)', () => {
       await page.getByTestId('mobile-back').click();
       await expect(page).toHaveURL(/\/inbox$/);
       await page.getByTestId('mobile-fleet-link').click();
-      await expect(page.getByTestId('mobile-fleet').locator(`[data-machine="${env.workerName}"]`)).toBeVisible();
+      await expect(
+        page.getByTestId('mobile-fleet').locator(`[data-machine="${env.workerName}"]`),
+      ).toBeVisible();
     } finally {
       await cancel(page, task.id);
     }
   });
 
-  test('the emergency pause is a quiet link behind a confirm sheet with Cancel first', async ({ page }) => {
+  test('the emergency pause is a quiet link behind a confirm sheet with Cancel first', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     const link = page.getByTestId('mobile-pause');
@@ -637,7 +768,9 @@ test.describe('Mode UI (phone)', () => {
     await expect(page.getByTestId('mobile-fleet-state')).toHaveText('FLEET: RUNNING');
   });
 
-  test('nothing floats over the terminal quick keys after Take control (SYR-WKJM6)', async ({ page }) => {
+  test('nothing floats over the terminal quick keys after Take control (SYR-WKJM6)', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env);
     const task = await dispatchWaiting(page, env, 'Phone quick keys task');
@@ -660,7 +793,9 @@ test.describe('Mode UI (phone)', () => {
     }
   });
 
-  test('a needs-you item opens the dialog as a full-screen sheet; answering moves on', async ({ page }) => {
+  test('a needs-you item opens the dialog as a full-screen sheet; answering moves on', async ({
+    page,
+  }) => {
     const env = loadEnv();
     await signIn(page, env, '/command');
     const sid = await askFromCommander(page);
@@ -676,8 +811,16 @@ test.describe('Mode UI (phone)', () => {
     const card = panel.getByTestId('questions-detail').getByTestId('question-card');
     await expect(card).toHaveAttribute('data-question', sid);
     await card.getByTestId('question-option-option_1').click();
-    await expect(panel.getByTestId('questions-detail').locator(`[data-question="${sid}"]`)).toHaveCount(0, { timeout: 5000 });
-    if (await panel.isVisible()) await panel.getByTestId('questions-close').click().catch(() => undefined);
-    await expect(page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`)).toHaveCount(0);
+    await expect(
+      panel.getByTestId('questions-detail').locator(`[data-question="${sid}"]`),
+    ).toHaveCount(0, { timeout: 5000 });
+    if (await panel.isVisible())
+      await panel
+        .getByTestId('questions-close')
+        .click()
+        .catch(() => undefined);
+    await expect(
+      page.locator(`[data-testid="mobile-needs-you"] [data-question="${sid}"]`),
+    ).toHaveCount(0);
   });
 });
