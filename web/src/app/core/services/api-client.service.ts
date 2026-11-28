@@ -436,6 +436,11 @@ export class ApiClientService {
     return this.request<AuditListResponse>(`/api/audit${qs ? `?${qs}` : ''}`);
   }
 
+  /** Ends a user's terminal as closing its window would (its shell and job are hung up). */
+  closeTerminal(taskId: string): Promise<{ ok: boolean }> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/close`, { method: 'POST' });
+  }
+
   cancelTask(taskId: string): Promise<{ ok: boolean }> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
       method: 'POST',

@@ -132,6 +132,12 @@ func (p *windowsPtyProcess) Terminate() error {
 	return p.TerminateWithGrace(5 * time.Second)
 }
 
+// Hangup ends the console session: Windows has no SIGHUP, and the job object takes the
+// whole tree with it.
+func (p *windowsPtyProcess) Hangup(grace time.Duration) error {
+	return p.TerminateWithGrace(grace)
+}
+
 func (p *windowsPtyProcess) TerminateWithGrace(grace time.Duration) error {
 	return terminateWithGrace(grace, p.Interrupt, p.Wait, p.kill)
 }

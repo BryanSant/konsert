@@ -63,7 +63,9 @@ type runningTask struct {
 	status    string
 	canceled  bool
 	stopGrace time.Duration
-	events    []drivers.TelemetryEvent
+	// hangup: the user closed this terminal (TaskCancelPayload.Hangup).
+	hangup bool
+	events []drivers.TelemetryEvent
 	// suspended is set while the process tree is frozen; prevStatus is restored on resume.
 	suspended  bool
 	prevStatus string
@@ -621,9 +623,11 @@ func (r *Runner) superviseTask(ctx context.Context, rt *runningTask, drv drivers
 		select {
 		case <-ctx.Done():
 			rt.mu.Lock()
-			grace := rt.stopGrace
+			grace, hangup := rt.stopGrace, rt.hangup
 			rt.mu.Unlock()
-			if grace > 0 {
+			if hangup {
+				_ = rt.pty.Hangup(terminalHangupGrace)
+			} else if grace > 0 {
 				_ = rt.pty.TerminateWithGrace(grace)
 			} else {
 				_ = rt.pty.Terminate()
@@ -1137,6 +1141,29 @@ func (r *Runner) CancelTaskWithGrace(taskID string, grace time.Duration) error {
 	rt.stopGrace = grace
 	rt.mu.Unlock()
 	// A frozen process tree can't handle SIGINT/SIGTERM: thaw it first.
+	_ = r.ResumeTask(taskID)
+	rt.cancelFunc()
+	return nil
+}
+
+// terminalHangupGrace is how long a closed terminal's shell and job get after SIGHUP.
+const terminalHangupGrace = 2 * time.Second
+
+// CloseTerminal ends a user's terminal as closing its window would (Hangup). Only the
+// shell driver's terminals: an agent's session is canceled, never hung up.
+func (r *Runner) CloseTerminal(taskID string) error {
+	r.mu.Lock()
+	rt, ok := r.tasks[taskID]
+	r.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("task %s not running", taskID)
+	}
+	if rt.agent != drivers.ShellDriverName {
+		return r.CancelTask(taskID)
+	}
+	rt.mu.Lock()
+	rt.canceled, rt.hangup = true, true
+	rt.mu.Unlock()
 	_ = r.ResumeTask(taskID)
 	rt.cancelFunc()
 	return nil

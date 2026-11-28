@@ -164,6 +164,43 @@ func (p *unixPtyProcess) TerminateWithGrace(grace time.Duration) error {
 	})
 }
 
+// Hangup sends SIGHUP to the shell's process group and to the terminal's foreground
+// process group (a running command has its own), as the kernel does when a terminal
+// window closes; whatever is left after grace is killed.
+func (p *unixPtyProcess) Hangup(grace time.Duration) error {
+	if p.pgid <= 0 {
+		return nil
+	}
+	groups := []int{p.pgid}
+	if p.ptmx != nil {
+		if fg, err := unix.IoctlGetInt(int(p.ptmx.Fd()), unix.TIOCGPGRP); err == nil && fg > 0 && fg != p.pgid {
+			groups = append(groups, fg)
+		}
+	}
+	signal := func(sig syscall.Signal) bool {
+		alive := false
+		for _, g := range groups {
+			if syscall.Kill(-g, sig) == nil {
+				alive = true
+			}
+		}
+		return alive
+	}
+	signal(syscall.SIGCONT) // a stopped job can't handle SIGHUP
+	if !signal(syscall.SIGHUP) {
+		return nil
+	}
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		if !signal(0) {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	signal(syscall.SIGKILL)
+	return nil
+}
+
 func (p *unixPtyProcess) Wait() (int, error) {
 	p.waitOnce.Do(func() {
 		err := p.cmd.Wait()

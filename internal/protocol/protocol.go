@@ -586,6 +586,10 @@ type TaskStartPayload struct {
 type TaskCancelPayload struct {
 	TaskID string `json:"task_id"`
 	GraceS int    `json:"grace_s,omitzero"`
+	// Hangup closes a user's terminal the way a terminal emulator does when its window
+	// closes: SIGHUP to the shell and its foreground job, a short wait, then SIGKILL.
+	// Without it a cancel interrupts, which an interactive shell ignores.
+	Hangup bool `json:"hangup,omitzero"`
 }
 
 type TaskSteerPayload struct {

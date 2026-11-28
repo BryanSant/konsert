@@ -33,6 +33,7 @@ func (p *lingeringPty) Resize(uint16, uint16) error              { return nil }
 func (p *lingeringPty) Interrupt() error                         { return nil }
 func (p *lingeringPty) Terminate() error                         { return p.Close() }
 func (p *lingeringPty) TerminateWithGrace(_ time.Duration) error { return p.Close() }
+func (p *lingeringPty) Hangup(_ time.Duration) error             { return p.Close() }
 func (p *lingeringPty) Wait() (int, error)                       { return p.exit, nil }
 func (p *lingeringPty) Pid() int                                 { return 0 }
 func (p *lingeringPty) Guard() *guard.Session                    { return nil }

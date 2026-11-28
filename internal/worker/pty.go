@@ -29,6 +29,9 @@ type PtyProcess interface {
 	Interrupt() error
 	Terminate() error
 	TerminateWithGrace(grace time.Duration) error
+	// Hangup ends a terminal as closing its window would: hang up the shell and its
+	// foreground job, wait up to grace, then kill what is left.
+	Hangup(grace time.Duration) error
 	Wait() (int, error)
 	Close() error
 	// Pid returns the OS process ID of the PTY's main child process.

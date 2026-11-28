@@ -10,6 +10,8 @@ import { HotkeyService } from '../../layout/hotkey.service';
 import { IconComponent } from '../../shared/icon.component';
 import { PopoverComponent, PopoverTriggerDirective } from '../../shared/popover.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
+import { ModalDialogComponent } from '../../shared/modal-dialog.component';
+import { ApiClientService } from '../../core/services/api-client.service';
 import { ModeUiStore } from '../mode-ui.store';
 import { CommandTabsStore } from './command-tabs.store';
 import { FirstRunComponent } from './first-run.component';
@@ -41,6 +43,7 @@ export const COMMANDER = 'commander';
     TooltipDirective,
     PopoverComponent,
     PopoverTriggerDirective,
+    ModalDialogComponent,
   ],
   host: { class: 'flex flex-col h-full min-h-0' },
   template: `
@@ -131,6 +134,16 @@ export const COMMANDER = 'commander';
       </aside>
     </div>
     <sy-fleet-strip />
+    @if (confirmClose(); as c) {
+      <app-modal-dialog labelledBy="close-terminal-title" describedBy="close-terminal-text" panelClass="w-full max-w-sm rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-5 space-y-3" (close)="confirmClose.set(null)">
+        <h3 id="close-terminal-title" class="m-0 text-[14px] font-semibold text-[var(--sy-text)]">Terminate this shell?</h3>
+        <p id="close-terminal-text" class="m-0 text-[12.5px] text-[var(--sy-text-secondary)]" data-testid="close-terminal-command"><code class="font-mono-ide text-[var(--sy-text)]">{{ c.command }}</code> is still running. Closing the terminal stops it and its shell.</p>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="sy-btn sy-btn-sm" data-testid="close-terminal-cancel" (click)="confirmClose.set(null)">Cancel</button>
+          <button type="button" class="sy-btn sy-btn-sm sy-btn-danger" data-testid="close-terminal-confirm" (click)="terminate(c.id)">Terminate</button>
+        </div>
+      </app-modal-dialog>
+    }
   `,
   styles: `
     .sy-command-tab {
@@ -167,6 +180,7 @@ export class CommandModeComponent {
   readonly commander = COMMANDER;
   readonly ui = inject(ModeUiStore);
   private readonly work = inject(WorkStore);
+  private readonly api = inject(ApiClientService);
   private readonly orch = inject(CommanderStore);
   private readonly tabStore = inject(CommandTabsStore);
   private readonly router = inject(Router);
@@ -268,7 +282,42 @@ export class CommandModeComponent {
     this.select(it.id);
   }
 
+  /** A running command asks before its terminal is closed (and the shell ended). */
+  readonly confirmClose = signal<{ id: string; command: string } | null>(null);
+
+  /**
+   * Closes a tab. A user's terminal ends with it, as in every terminal app: at its prompt
+   * at once, with a command running after a confirmation. An agent's session only loses
+   * its view; it keeps running.
+   */
   close(id: string): void {
+    const it = this.work.byId()[id];
+    if (it?.sessionKind === 'terminal' && it.live) {
+      const a = this.work.taskActivity(id);
+      if (a?.state === 'working') {
+        this.confirmClose.set({ id, command: a.label || 'A command' });
+        return;
+      }
+      void this.endTerminal(id);
+    }
+    this.closeTab(id);
+  }
+
+  terminate(id: string): void {
+    this.confirmClose.set(null);
+    void this.endTerminal(id);
+    this.closeTab(id);
+  }
+
+  private async endTerminal(id: string): Promise<void> {
+    try {
+      await this.api.closeTerminal(id);
+    } catch {
+      // The tab closes either way; the session list still shows a terminal that didn't end.
+    }
+  }
+
+  private closeTab(id: string): void {
     const next = this.tabStore.close(id);
     if (this.activeId() === id) this.select(next || COMMANDER);
   }

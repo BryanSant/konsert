@@ -963,6 +963,10 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		if err != nil {
 			return
 		}
+		if p.Hangup {
+			_ = d.runner.CloseTerminal(p.TaskID)
+			break
+		}
 		grace := time.Duration(protocol.NormalizeStopGraceS(p.GraceS)) * time.Second
 		_ = d.runner.CancelTaskWithGrace(p.TaskID, grace)
 

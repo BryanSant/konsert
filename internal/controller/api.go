@@ -267,6 +267,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/tasks/{id}", s.requireBrowserAuth(s.byRef(ids.Task, s.handleGetTask)))
 	s.mux.Handle("POST /api/tasks/{id}/steer", s.requireBrowserAuth(s.byRef(ids.Task, s.handleSteerTask)))
 	s.mux.Handle("POST /api/tasks/{id}/cancel", s.requireBrowserAuth(s.byRef(ids.Task, s.handleCancelTask)))
+	s.mux.Handle("POST /api/tasks/{id}/close", s.requireBrowserAuth(s.byRef(ids.Task, s.handleCloseTerminal)))
 	s.mux.Handle("GET /api/tasks/{id}/events", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskEvents)))
 	s.mux.Handle("POST /api/tasks/{id}/control", s.requireBrowserAuth(s.byRef(ids.Task, s.handleTaskControl)))
 	s.mux.Handle("POST /api/tasks/{id}/review", s.requireBrowserAuth(s.byRef(ids.Task, s.handleReviewTask)))
