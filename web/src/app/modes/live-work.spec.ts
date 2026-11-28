@@ -57,7 +57,7 @@ const project: Project = { id: 'p1', sid: 'p-1', name: 'JumpKick', headline: 'Ad
 
 function storyFor(tasks: Task[], acts: SessionActivity[], chats: ChatSession[] = [], workers = [worker('w1', 'desk'), worker('w2', 'mini-pc')]) {
   const byKey = Object.fromEntries(acts.map((a) => [`task:${a.task_id}`, a]));
-  const groups = groupWork({ projects: [project], repos: [], tasks, chats, activityOf: (k) => byKey[k] });
+  const groups = groupWork({ projects: [project], repos: [], workers, tasks, chats, activityOf: (k) => byKey[k] });
   const wById = Object.fromEntries(workers.map((w) => [w.id, w]));
   const items: WorkItem[] = buildWorkItems({ tasks, chats, workers: wById, projects: [project], repos: [], questions: [], holds: [], interactive: () => false, reviewed: {}, now: NOW });
   return buildStory({
@@ -228,6 +228,42 @@ describe('live-work story', () => {
     const sh = other.inFlight.find((l) => l.id === 'sh')!;
     expect(sh.terminal).toBe(true);
     expect(sh.now).toBe('shell open');
+  });
+
+  it('keeps idle managed and observed sessions listed, quietly, until they end', () => {
+    const lastTurn = { since: iso(NOW - 12 * 60_000), at: iso(NOW - 12 * 60_000) };
+    const tasks = [
+      // A managed session between turns, long after any fade window.
+      task('m', 'idle'),
+      // An observed session at its prompt.
+      task('o', 'idle', { origin: 'external', project_id: '', workdir: '/tmp/x' }),
+      // An observed session that ended.
+      task('gone', 'completed', { origin: 'external', project_id: '', workdir: '/tmp/x', completed_at: iso(NOW - 60_000) }),
+      task('busy', 'running'),
+    ];
+    const story = storyFor(tasks, [act('m', 'done', lastTurn), act('o', 'done', { coarse: true }), act('gone', 'done'), act('busy', 'working')]);
+    const jk = story.find((p) => p.name === 'JumpKick')!;
+    const m = jk.inFlight.find((l) => l.id === 'm')!;
+    expect(m.state).toBe('idle');
+    expect(m.opacity).toBe(1);
+    expect(m.now).toBe('idle · last turn 12m ago');
+    // Idle isn't running: the bar and summary count it apart.
+    expect(jk.bar.running).toBe(1);
+    expect(jk.summary).toContain('1 in flight');
+    expect(jk.summary).toContain('1 idle');
+    const other = story.find((p) => p.name === 'Other work')!;
+    expect(other.inFlight.find((l) => l.id === 'o')?.state).toBe('idle');
+    expect([...other.inFlight, ...other.done].some((l) => l.id === 'gone')).toBe(false);
+  });
+
+  it('keeps a chat listed while its engine is open on its machine', () => {
+    const chat = (id: string): ChatSession =>
+      ({ id, sid: `c-${id}`, backend: 'agent', agent: 'claude', worker_id: 'w1', status: 'idle', title: `Chat ${id}`, created_at: iso(NOW - 3600_000), updated_at: iso(NOW - DONE_FADE_MS - 60_000) }) as ChatSession;
+    const workers = [worker('w1', 'desk', { metrics: { cpu_percent: 1, mem_used_mb: 1, mem_total_mb: 2, load_avg: 0, open_chats: ['open'] } }), worker('w2', 'mini-pc')];
+    const story = storyFor([], [], [chat('open'), chat('closed')], workers);
+    const lines = story.flatMap((p) => [...p.inFlight, ...p.done]);
+    expect(lines.find((l) => l.id === 'open')?.state).toBe('idle');
+    expect(lines.some((l) => l.id === 'closed')).toBe(false);
   });
 });
 

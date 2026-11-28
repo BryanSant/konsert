@@ -447,13 +447,15 @@ export function machineRows(inp: RowInputs): MachineRow[] {
         if (!next.has(it.workerId)) next.set(it.workerId, it.title);
         continue;
       }
-      if (it.bucket === 'done') {
+      const idle = it.bucket === 'done' && it.alive;
+      if (it.bucket === 'done' && !idle) {
         if (it.observed) continue;
         const at = Date.parse(mi?.finishedAt || it.activity.since || '') || 0;
         // Shells left running (or background sub-agents) keep the card until they end.
         if (inp.now - at >= FLEET_DONE_MS && !(it.activity.shells ?? 0) && !it.activity.subagents?.length) continue;
       }
-      const state = spinnerStateOf(it.activity, mi?.control);
+      let state = spinnerStateOf(it.activity, mi?.control);
+      if (idle && (state === 'done' || state === 'error')) state = 'idle';
       const doneAgo = inp.now - (Date.parse(mi?.finishedAt || it.activity.since || '') || inp.now);
       const now =
         it.nowSource === 'commander' || it.nowSource === 'activity'
@@ -472,7 +474,7 @@ export function machineRows(inp: RowInputs): MachineRow[] {
         state,
         coarse: !!it.activity.coarse && it.observed,
         tps: it.activity.state === 'speaking' ? it.activity.tokens_per_sec : undefined,
-        done: it.bucket === 'done',
+        done: it.bucket === 'done' && !idle,
         item: mi,
         kind: it.kind,
         detail: spinnerDetailOf(it.activity),

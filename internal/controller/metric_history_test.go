@@ -101,3 +101,16 @@ func TestRetentionPutKeepsUnsentMetricsPeriods(t *testing.T) {
 		t.Fatalf("hourly history under a week accepted: %d", code)
 	}
 }
+
+// Heartbeats tell browsers which chats are still open on the machine, so an idle open
+// chat stays listed as a live session.
+func TestHeartbeatReportsOpenChats(t *testing.T) {
+	th := newTestHub(t)
+	fw := th.connectWorker(t, testWorkerInfo("w1", "box"), nil, "w1")
+	fw.send(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{At: time.Now().UTC(), ActiveChatIDs: []string{"c-open"},
+		Metrics: &protocol.WorkerMetrics{MemTotalMB: 1}})
+	waitFor(t, 3*time.Second, "open chats stored", func() bool {
+		m := th.h.WorkerMetrics("w1")
+		return m != nil && len(m.OpenChats) == 1 && m.OpenChats[0] == "c-open"
+	})
+}

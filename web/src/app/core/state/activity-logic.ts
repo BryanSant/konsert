@@ -331,7 +331,18 @@ export interface GroupInputs {
  * their cwd when it maps to a project's repo. Scratch terminals, shells, the commander
  * chat itself and API-backend chats are not work items.
  */
+/** Chat statuses during which a chat is in use whatever its machine reports. */
+const CHAT_BUSY = new Set(['starting', 'working', 'needs_you', 'suspended']);
+
+/** A chat is alive while busy or while its engine is open on its machine. */
+export function chatAlive(c: ChatSession, workers: Worker[]): boolean {
+  if (CHAT_BUSY.has(c.status ?? '')) return true;
+  const w = workers.find((x) => x.id === c.worker_id);
+  return !!w?.metrics?.open_chats?.includes(c.id);
+}
+
 export function groupWork(inp: GroupInputs): ProjectGroup[] {
+  const workerList: Worker[] = Array.isArray(inp.workers) ? inp.workers : Object.values(inp.workers ?? {});
   const real = new Map(inp.projects.filter((p) => !p.is_default).map((p) => [p.id, p]));
   const items = new Map<string, WorkItem[]>();
   const add = (key: string, it: WorkItem) => {
@@ -368,6 +379,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
       activity: a,
       bucket: bucketOf(a, t.status),
       observed,
+      alive: !TERMINAL_TASK.has(t.status),
       createdAt: t.created_at,
     });
   }
@@ -388,6 +400,7 @@ export function groupWork(inp: GroupInputs): ProjectGroup[] {
       activity: a,
       bucket: bucketOf(a),
       observed: false,
+      alive: chatAlive(c, workerList),
       createdAt: c.created_at,
     });
   }

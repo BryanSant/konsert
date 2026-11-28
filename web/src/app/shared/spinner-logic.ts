@@ -12,7 +12,7 @@ import { ControlLabel } from '../core/state/work-logic';
  * The ring states: the eight activity states, with blocked split into held and "you", and
  * working split off as waiting when the parent only waits on its sub-agents.
  */
-export type SpinnerState = 'thinking' | 'working' | 'waiting' | 'speaking' | 'asking' | 'held' | 'you' | 'queued' | 'done' | 'error';
+export type SpinnerState = 'thinking' | 'working' | 'waiting' | 'speaking' | 'asking' | 'held' | 'you' | 'queued' | 'idle' | 'done' | 'error';
 
 /** Shells and sub-agents drawn around the ring (badge and orbiting dots). */
 export interface SpinnerDetail {
@@ -43,6 +43,7 @@ export const SPINNER_WORDS: Record<SpinnerState, string> = {
   held: 'held',
   you: 'you have control',
   queued: 'queued',
+  idle: 'idle',
   done: 'done',
   error: 'error',
 };
@@ -57,6 +58,7 @@ export const SPINNER_LABEL_COLORS: Record<SpinnerState, string> = {
   held: '#9ec5ff',
   you: '#9ec5ff',
   queued: '#8f9199',
+  idle: '#9a9ca4',
   done: '#8f9199',
   error: '#f3a3a3',
 };
@@ -219,6 +221,10 @@ export function activityPhrase(state: SpinnerState, tps: number | undefined, lab
       return tps ? `writing · ${Math.round(tps)} tok/s` : 'writing…';
     case 'working':
       return label || 'working';
+    case 'idle': {
+      const m = Math.max(0, Math.round(agoMs / 60_000));
+      return m ? `idle · last turn ${m}m ago` : 'idle';
+    }
     case 'done': {
       const m = Math.max(0, Math.round(agoMs / 60_000));
       return `${label && label !== 'Ready' ? `${label} · ` : ''}done ${m ? `${m}m ago` : 'just now'}`;

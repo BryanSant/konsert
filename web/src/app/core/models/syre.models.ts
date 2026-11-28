@@ -35,6 +35,8 @@ export interface WorkerMetrics {
   gpu_percent?: number;
   /** The machine's processes split by who runs them (latest sample). */
   load?: MachineLoad;
+  /** Chats whose engine is open on the machine (from its heartbeat). */
+  open_chats?: string[];
 }
 
 /** One session's processes (WorkerMetrics.load.sessions). CPU is 100 per core. */

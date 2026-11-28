@@ -44,6 +44,7 @@ export class SpinnerLegendComponent {
     { state: 'held', word: 'held / suspended' },
     { state: 'you', word: 'you have control' },
     { state: 'queued', word: 'queued' },
+    { state: 'idle', word: 'idle (open, between turns)' },
     { state: 'done', word: 'done' },
     { state: 'error', word: 'error' },
     { state: 'working', word: 'observed (coarse)', coarse: true },

@@ -212,6 +212,9 @@ export interface WorkItem {
   bucket: WorkBucket;
   /** A session started outside Syre (observed). */
   observed: boolean;
+  /** The session still exists (its task isn't finished, its chat engine is open),
+   * whatever it is doing: it stays listed, idle when its activity is done. */
+  alive: boolean;
   createdAt: string;
 }
 

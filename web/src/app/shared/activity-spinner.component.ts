@@ -12,6 +12,7 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
  *   speaking  mint ripple (speed by tok/s)  asking   solid amber + "?"
  *   held      dashed blue + pause           you      solid blue + "›"
  *   queued    hollow avatar, dotted ring    done     grey ring + green check, neutral fill
+ *   idle      faint grey ring, still          (an open session between turns)
  *   error     red + "!"                     coarse   (observed sessions) half strength
  *   waiting   plain grey: the parent only waits on its sub-agents
  *
@@ -54,7 +55,7 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
       aria-hidden="true"
       [class.sy-sp-hollow]="state() === 'queued'"
       [class.sy-sp-neutral]="state() === 'done' || glyph()"
-      [class.sy-sp-drift]="state() !== 'queued' && state() !== 'done' && !glyph()"
+      [class.sy-sp-drift]="state() !== 'queued' && state() !== 'done' && state() !== 'idle' && !glyph()"
       [style.background]="avatarBg()"
       [style.animation-duration]="first()?.fill?.drift ?? null"
     >
@@ -146,6 +147,9 @@ import { SpinnerDetail, SpinnerMachine, SpinnerState, describeMachine, describeS
     }
     .sy-sp-ring[data-ring='done'] {
       background: rgba(255, 255, 255, 0.16);
+    }
+    .sy-sp-ring[data-ring='idle'] {
+      background: rgba(255, 255, 255, 0.12);
     }
     .sy-sp-ring[data-ring='waiting'] {
       background: rgba(255, 255, 255, 0.22);

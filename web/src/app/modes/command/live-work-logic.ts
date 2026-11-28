@@ -76,11 +76,17 @@ function doneAt(it: ActivityItem, mi: WorkItem | undefined): number {
   return Date.parse(mi?.finishedAt || it.activity.since || it.activity.at || it.createdAt || '') || 0;
 }
 
+/** A session that still exists but whose turn (or task step) ended: idle, not done. */
+function isIdle(it: ActivityItem): boolean {
+  return it.bucket === 'done' && it.alive;
+}
+
 function lineFor(it: ActivityItem, inp: StoryInputs): StoryLine {
   const mi = inp.items[it.id];
-  const state = spinnerStateOf(it.activity, mi?.control);
+  let state = spinnerStateOf(it.activity, mi?.control);
+  if (isIdle(it) && (state === 'done' || state === 'error')) state = 'idle';
   let opacity = 1;
-  if (it.bucket === 'done') {
+  if (it.bucket === 'done' && !isIdle(it)) {
     const age = Math.max(0, inp.now - doneAt(it, mi));
     opacity = Math.max(0.35, 0.75 - (0.4 * age) / DONE_FADE_MS);
   }
@@ -148,6 +154,11 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
     const done: StoryLine[] = [];
     let doneToday = 0;
     for (const it of g.items) {
+      if (isIdle(it)) {
+        // Still open, between turns: listed for as long as the session exists.
+        inFlight.push(lineFor(it, inp));
+        continue;
+      }
       if (it.bucket === 'done') {
         const at = doneAt(it, inp.items[it.id]);
         // Only work Syre ran counts toward the bar (an idle observed session isn't "done").
@@ -162,12 +173,13 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
     }
     if (!inFlight.length && !queued.length && !done.length) continue;
     const needsYou = inFlight.filter((l) => l.state === 'asking').length;
+    const idle = inFlight.filter((l) => l.state === 'idle').length;
     const p: StoryProject = {
       key: g.key,
       name: g.name,
       headline: g.headline,
       headlineByCommander: g.headlineSource === 'commander',
-      bar: { done: doneToday, running: inFlight.length - needsYou, needsYou, queued: queued.length },
+      bar: { done: doneToday, running: inFlight.length - needsYou - idle, needsYou, queued: queued.length },
       total: 0,
       summary: '',
       inFlight,
@@ -204,9 +216,12 @@ export function buildStory(inp: StoryInputs): StoryProject[] {
   for (const p of out) {
     const b = p.bar;
     p.total = b.done + b.running + b.needsYou + b.queued;
-    const machines = new Set(p.inFlight.map((l) => l.machines[0]?.name).filter(Boolean));
+    const active = p.inFlight.filter((l) => l.state !== 'idle');
+    const idle = p.inFlight.length - active.length;
+    const machines = new Set(active.map((l) => l.machines[0]?.name).filter(Boolean));
     const parts: string[] = [];
-    if (p.inFlight.length) parts.push(`${p.inFlight.length} in flight${machines.size ? ` on ${plural(machines.size, 'machine')}` : ''}`);
+    if (active.length) parts.push(`${active.length} in flight${machines.size ? ` on ${plural(machines.size, 'machine')}` : ''}`);
+    if (idle) parts.push(`${idle} idle`);
     if (b.queued) parts.push(`${b.queued} queued`);
     if (b.needsYou) parts.push(`${b.needsYou} need${b.needsYou === 1 ? 's' : ''} you`);
     if (b.done) parts.push(`${b.done} done today`);

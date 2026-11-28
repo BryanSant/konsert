@@ -351,6 +351,10 @@ type WorkerMetrics struct {
 	// IOAccelerator statistics, nvidia-smi on Linux); nil when unknown. Read on every
 	// heartbeat while sessions run, otherwise every 5 minutes.
 	GPUPercent *float64 `json:"gpu_percent,omitzero"`
+	// OpenChats are the chats whose engine is open (or whose turn runs) on the machine,
+	// set by the hub from the heartbeat: an idle chat that is still open is a live
+	// session, one that closed is not.
+	OpenChats []string `json:"open_chats,omitempty"`
 	// Load splits the machine's processes by session (from the process sampler,
 	// docs/plan.md Phase 6); nil until the first sample.
 	Load *MachineLoad `json:"load,omitzero"`
