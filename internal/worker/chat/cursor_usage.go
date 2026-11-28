@@ -67,10 +67,10 @@ func cursorUsage(ctx context.Context, acct Account) acpUsage {
 	}
 	sub, exp, ok := jwtSubExp(token)
 	if !ok {
-		return acpUsage{Err: errors.New("Cursor's sign-in token is unreadable: run cursor-agent login")}
+		return acpUsage{Err: errors.New("the Cursor sign-in token is unreadable: run cursor-agent login")}
 	}
 	if !exp.IsZero() && time.Now().After(exp) {
-		return acpUsage{Err: errors.New("Cursor sign-in expired: run cursor-agent login")}
+		return acpUsage{Err: errors.New("the Cursor sign-in expired: run cursor-agent login")}
 	}
 	user := sub
 	if i := strings.LastIndexByte(sub, '|'); i >= 0 {
