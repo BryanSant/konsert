@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -122,13 +123,13 @@ func TestAccountDirPerAccount(t *testing.T) {
 	a := Account{ID: "grok", Env: map[string]string{"HOME": "/home/u"}}
 	b := Account{ID: "grok2", Env: map[string]string{"GROK_HOME": "/home/u/.grok2"}}
 	c := Account{ID: "cursor2", Env: map[string]string{"HOME": "/home/u", "CURSOR_CONFIG_DIR": "~/.cursor2"}}
-	if got := accountDir(a, "GROK_HOME", ".grok"); got != "/home/u/.grok" {
+	if got := accountDir(a, "GROK_HOME", ".grok"); got != filepath.Join("/home/u", ".grok") {
 		t.Fatalf("a: %s", got)
 	}
 	if got := accountDir(b, "GROK_HOME", ".grok"); got != "/home/u/.grok2" {
 		t.Fatalf("b: %s", got)
 	}
-	if got := accountDir(c, "CURSOR_CONFIG_DIR", ".cursor"); got != "/home/u/.cursor2" {
+	if got := accountDir(c, "CURSOR_CONFIG_DIR", ".cursor"); got != filepath.Join("/home/u", ".cursor2") {
 		t.Fatalf("c: %s", got)
 	}
 }
