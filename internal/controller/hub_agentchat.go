@@ -401,8 +401,12 @@ func (h *Hub) failInterruptedChats(ctx context.Context, wc *workerConn) {
 		return
 	}
 	for _, cs := range sessions {
+		// A starting chat has not had a turn on any daemon yet: sendAgentChat marks the
+		// chat active on its connection and sets it working right after the open goes out.
+		// One the scheduler is still opening (ticket runs, cross-reviews) while this
+		// machine replays its spool is new work, not an interrupted turn (SYR-DZBS6).
 		switch cs.Status {
-		case protocol.ChatStatusWorking, protocol.ChatStatusStarting, protocol.ChatStatusNeedsYou:
+		case protocol.ChatStatusWorking, protocol.ChatStatusNeedsYou:
 		default:
 			continue
 		}
