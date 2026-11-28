@@ -587,7 +587,12 @@ Built alongside 5a (open requests are questions with an action attached).
   - a process keeps its session (by PID and start time) after its parent dies or its session ends, until it exits, and is counted as an orphan.
 
   Per session: CPU%, RSS now and peak, process count and orphans. The result rides on the heartbeat as `WorkerMetrics.Load`.
-- Machine load split into agent load and other load, with top non-agent processes; input-idle time on interactive machines (macOS `IOHIDSystem` idle, Windows `GetLastInputInfo`, Linux logind `IdleHint`).
+- Load split (done, SYR-PSDFB: `procs.SplitLoad`, `worker/useridle_*.go`). Each sample is divided into agent load (attributed sessions, plus syred and its helpers) and other load (everything else), CPU and RSS each, with the five busiest other processes. Processes macOS won't report without root are counted, not guessed. User idle time:
+  - macOS: `ioreg` HIDIdleTime;
+  - Windows: `GetLastInputInfo`, only when syred runs in the desktop session (not as a session-0 service);
+  - Linux: logind IdleHint of the user's seat sessions. This is coarse: 0 until the desktop's own idle timeout passes. Servers with no seat report none.
+
+  Idle is read at most every 30 s. All of it rides on `WorkerMetrics.Load`.
 - Store: `metric_samples` (machine and session, downsampled 1 min / 1 h, retention settings), session peaks on the task row.
 - Exit: a build started by an agent is attributed to it; a build started by hand counts as other load; history survives hub restarts.
 

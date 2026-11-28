@@ -2,7 +2,10 @@ package worker
 
 import (
 	"context"
+	"math"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/procs"
@@ -26,9 +29,24 @@ func (d *Daemon) loadLoop(ctx context.Context) {
 // attribute splits a sample among the sessions and keeps the result for heartbeats.
 func (d *Daemon) attribute(smp procs.Sample) {
 	usage := d.attrib.Attribute(smp, d.loadRoots())
-	load := &protocol.MachineLoad{At: smp.At.UTC()}
+	sp := procs.SplitLoad(smp, usage, os.Getpid(), topOtherProcs)
+	load := &protocol.MachineLoad{
+		At:              smp.At.UTC(),
+		AgentCPUPercent: round1(sp.AgentCPUPercent),
+		OtherCPUPercent: round1(sp.OtherCPUPercent),
+		AgentRSSMB:      sp.AgentRSS >> 20,
+		OtherRSSMB:      sp.OtherRSS >> 20,
+		Unreported:      sp.Unreported,
+	}
+	for _, p := range sp.TopOther {
+		load.TopOther = append(load.TopOther, protocol.ProcessLoad{PID: p.PID, Name: p.Name, CPUPercent: round1(p.CPUPercent), RSSMB: p.RSS >> 20})
+	}
+	if idle, src, ok := d.userIdle.get(context.Background()); ok {
+		s := int64(idle / time.Second)
+		load.UserIdleS, load.UserIdleSource = &s, src
+	}
 	for _, u := range usage {
-		sl := protocol.SessionLoad{CPUPercent: u.CPUPercent, RSSMB: u.RSS >> 20, PeakRSSMB: u.PeakRSS >> 20, Procs: u.Procs, Orphans: u.Orphans}
+		sl := protocol.SessionLoad{CPUPercent: round1(u.CPUPercent), RSSMB: u.RSS >> 20, PeakRSSMB: u.PeakRSS >> 20, Procs: u.Procs, Orphans: u.Orphans}
 		kind, id, _ := strings.Cut(u.Key, ":")
 		switch kind {
 		case "task":
@@ -60,3 +78,8 @@ func (d *Daemon) loadRoots() []procs.Root {
 	}
 	return roots
 }
+
+// topOtherProcs is how many non-agent processes a load report names.
+const topOtherProcs = 5
+
+func round1(v float64) float64 { return math.Round(v*10) / 10 }

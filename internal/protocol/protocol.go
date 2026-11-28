@@ -357,6 +357,31 @@ type MachineLoad struct {
 	// Sessions are the managed and observed sessions with processes, each with its
 	// whole process tree: helpers, builds, and processes that outlived their parent.
 	Sessions []SessionLoad `json:"sessions,omitempty"`
+	// Agent load is the sessions' processes plus syred and its helpers; other load is
+	// everything else (the user's own work, the OS). CPU is 100 per fully used core.
+	AgentCPUPercent float64 `json:"agent_cpu_percent"`
+	OtherCPUPercent float64 `json:"other_cpu_percent"`
+	AgentRSSMB      uint64  `json:"agent_rss_mb"`
+	OtherRSSMB      uint64  `json:"other_rss_mb"`
+	// TopOther are the busiest processes outside agent work.
+	TopOther []ProcessLoad `json:"top_other,omitempty"`
+	// Unreported counts processes the OS gave no CPU or memory for (macOS: other
+	// users' processes unless syred runs as root); they are in neither total.
+	Unreported int `json:"unreported,omitzero"`
+	// UserIdleS is how long since someone used the keyboard or mouse here (nil: no
+	// user session to read, e.g. a server reached over SSH). UserIdleSource says how
+	// it was read: "hid" (macOS), "last_input" (Windows), "logind" (Linux; coarse, 0
+	// until the desktop's own idle timeout passes).
+	UserIdleS      *int64 `json:"user_idle_s,omitzero"`
+	UserIdleSource string `json:"user_idle_source,omitempty"`
+}
+
+// ProcessLoad is one process in a load report.
+type ProcessLoad struct {
+	PID        int     `json:"pid"`
+	Name       string  `json:"name"`
+	CPUPercent float64 `json:"cpu_percent"`
+	RSSMB      uint64  `json:"rss_mb"`
 }
 
 // SessionLoad is one session's processes in a sample. Exactly one of TaskID, ChatID

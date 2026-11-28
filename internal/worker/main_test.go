@@ -40,6 +40,7 @@ func TestMain(m *testing.M) {
 	discoverCheckouts = func(context.Context, []string, int) []protocol.ReportedCheckout { return nil }
 	// No ioreg / nvidia-smi / lsof / ss from daemons under test.
 	readGPU = func(context.Context) *float64 { return nil }
+	readUserIdle = func(context.Context) (time.Duration, string, bool) { return 0, "", false }
 	collectPorts = func(context.Context) []protocol.ListeningPort {
 		return []protocol.ListeningPort{{Port: 5173, Process: "vite"}}
 	}

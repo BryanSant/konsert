@@ -97,6 +97,7 @@ type Daemon struct {
 	sampler  *procs.Sampler
 	attrib   *procs.Attributor
 	load     atomic.Pointer[protocol.MachineLoad]
+	userIdle userIdleCache
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.

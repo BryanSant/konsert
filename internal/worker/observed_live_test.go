@@ -111,3 +111,40 @@ func TestLiveAttribution(t *testing.T) {
 		time.Sleep(procs.BusyInterval)
 	}
 }
+
+// TestLiveLoadSplit logs this machine's agent/other split, the top other processes and
+// the user idle time for SYRE_OBSERVE_LIVE_S seconds. Opt-in: SYRE_OBSERVE_LIVE=1.
+func TestLiveLoadSplit(t *testing.T) {
+	if os.Getenv("SYRE_OBSERVE_LIVE") != "1" {
+		t.Skip("set SYRE_OBSERVE_LIVE=1")
+	}
+	secs := 15
+	if v := os.Getenv("SYRE_OBSERVE_LIVE_S"); v != "" {
+		_, _ = fmt.Sscan(v, &secs)
+	}
+	prev := readUserIdle
+	readUserIdle = platformUserIdle // TestMain stubs it for daemons under test
+	t.Cleanup(func() { readUserIdle = prev })
+	d := &Daemon{}
+	d.sampler, d.attrib = procs.NewSampler(), procs.NewAttributor()
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	for time.Now().Before(deadline) {
+		smp, err := d.sampler.Sample()
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.attribute(smp)
+		l := d.load.Load()
+		idle := "none"
+		if l.UserIdleS != nil {
+			idle = fmt.Sprintf("%ds (%s)", *l.UserIdleS, l.UserIdleSource)
+		}
+		var top []string
+		for _, p := range l.TopOther {
+			top = append(top, fmt.Sprintf("%s:%.0f%%/%dMiB", p.Name, p.CPUPercent, p.RSSMB))
+		}
+		t.Logf("%s agent %.1f%% %d MiB | other %.1f%% %d MiB | unreported %d | idle %s | top %v",
+			time.Now().Format("15:04:05"), l.AgentCPUPercent, l.AgentRSSMB, l.OtherCPUPercent, l.OtherRSSMB, l.Unreported, idle, top)
+		time.Sleep(3 * time.Second)
+	}
+}
