@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/store"
 )
 
 func TestDispatchSetsWorkKeyAndRemembersRequirements(t *testing.T) {
@@ -64,4 +65,26 @@ func TestWorkRequirementsKeepTheSelectorsOwn(t *testing.T) {
 		t.Fatalf("merged: %+v", sel)
 	}
 	_ = protocol.TaskStatusQueued
+}
+
+// A capability a machine declares with a probe is selectable like any tool (SYR-M7F13).
+func TestDeclaredProbeIsSelectable(t *testing.T) {
+	facts := func(tools map[string]string) string {
+		raw, _ := json.Marshal(protocol.MachineFacts{Tools: tools})
+		return string(raw)
+	}
+	workers := []store.Worker{
+		{ID: "plain", Status: "online", MaxConcurrent: 2, Agents: []string{"mock"}, FactsJSON: facts(map[string]string{"git": "2.50"})},
+		{ID: "mac", Status: "online", MaxConcurrent: 2, Agents: []string{"mock"}, FactsJSON: facts(map[string]string{"git": "2.50", "xcode": "26.1", "android-sdk": "installed"})},
+	}
+	var sel WorkerSelector
+	WorkRequirements{Tools: map[string]string{"xcode": "26", "android-sdk": ""}}.apply(&sel)
+	if w, ok := SelectWorker(workers, nil, sel, "mock", ""); !ok || w.ID != "mac" {
+		t.Fatalf("picked %+v %v", w, ok)
+	}
+	sel = WorkerSelector{}
+	WorkRequirements{Tools: map[string]string{"xcode": "27"}}.apply(&sel)
+	if w, ok := SelectWorker(workers, nil, sel, "mock", ""); ok {
+		t.Fatalf("xcode 27 placed on %s", w.ID)
+	}
 }

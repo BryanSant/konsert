@@ -101,6 +101,12 @@ type WorkerConfig struct {
 	// top of each installed CLI's default account. See docs/design/agent-chat.md.
 	Accounts []AgentAccountConfig `yaml:"accounts"`
 
+	// Probes are capabilities this machine reports beyond the built-in tool list
+	// (SYR-M7F13): an SDK found by running a command (its version from a regex) or by
+	// a path that exists. A probe's name joins the machine's tools, so work can require
+	// it like any tool.
+	Probes []ProbeConfig `yaml:"probes,omitempty"`
+
 	// Spool bounds the durable outbound spool that keeps hub-bound messages while the hub
 	// is unreachable (docs/design/spool.md).
 	Spool SpoolConfig `yaml:"spool"`
@@ -114,6 +120,24 @@ type WorkerConfig struct {
 	// for this daemon (spool, scrollback, link status, credential, worker id). Tests set
 	// it to isolate daemons run in the same process.
 	StateDir string `yaml:"-"`
+}
+
+// ProbeConfig declares one capability probe:
+//
+//	probes:
+//	  - name: android-sdk
+//	    path: ~/Android/Sdk/platform-tools/adb    # present: "installed"
+//	  - name: xcode
+//	    command: [xcodebuild, -version]
+//	    version_regex: 'Xcode (\d+\.\d+)'       # first group, else the match
+//	  - name: cuda
+//	    command: [nvcc, --version]
+//	    version_regex: 'release (\d+\.\d+)'
+type ProbeConfig struct {
+	Name         string   `yaml:"name"`
+	Command      []string `yaml:"command,omitempty"`
+	VersionRegex string   `yaml:"version_regex,omitempty"`
+	Path         string   `yaml:"path,omitempty"`
 }
 
 // SpoolConfig is the outbound spool's budget:

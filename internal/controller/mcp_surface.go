@@ -352,10 +352,23 @@ func workerHasGPU(w WorkerStatusView) bool {
 		return true
 	}
 	if w.Facts != nil {
+		if hasComputeGPU(w.Facts) {
+			return true
+		}
 		for _, k := range []string{"nvidia-smi", "rocm-smi", "cuda"} {
 			if strings.TrimSpace(w.Facts.Tools[k]) != "" {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// hasComputeGPU reports a GPU to place compute work on: any but a small integrated one.
+func hasComputeGPU(f *protocol.MachineFacts) bool {
+	for _, g := range f.GPUs {
+		if !g.Integrated {
+			return true
 		}
 	}
 	return false

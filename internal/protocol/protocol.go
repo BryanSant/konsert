@@ -231,6 +231,21 @@ type ReportedCheckout struct {
 	LastFetch *time.Time `json:"last_fetch,omitzero"`
 }
 
+// GPU is one graphics processor.
+type GPU struct {
+	// Vendor is nvidia, amd, intel or apple.
+	Vendor string `json:"vendor"`
+	Model  string `json:"model,omitempty"`
+	// VRAMMB is its dedicated memory; for a unified-memory GPU (Apple silicon) the
+	// machine's RAM, shared with the CPU.
+	VRAMMB  uint64 `json:"vram_mb,omitzero"`
+	Unified bool   `json:"unified,omitzero"`
+	// Integrated marks a small integrated GPU (an iGPU next to a discrete one, or a
+	// laptop's): not one to place compute work on.
+	Integrated bool `json:"integrated,omitzero"`
+	Cores      int  `json:"cores,omitzero"`
+}
+
 // MachineFacts captures cached OS, hardware, virtualization, filesystem, and safe tool/auth readiness facts.
 type MachineFacts struct {
 	OSName         string            `json:"os_name,omitempty"`
@@ -252,6 +267,8 @@ type MachineFacts struct {
 	Virtualization string            `json:"virtualization,omitempty"` // "bare_metal" | "wsl" | "container" | "mac_container" | "vm" | "unknown"
 	Tools          map[string]string `json:"tools,omitempty"`
 	AuthReady      map[string]bool   `json:"auth_ready,omitempty"`
+	// GPUs are the machine's graphics processors (SYR-M7F13).
+	GPUs []GPU `json:"gpus,omitempty"`
 	// Shells lists the supported terminal shells detected on this machine.
 	Shells []TerminalShell `json:"shells,omitempty"`
 	// Checkouts lists local git checkouts discovered under the daemon's configured roots.

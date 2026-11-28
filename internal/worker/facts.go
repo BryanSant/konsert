@@ -39,6 +39,7 @@ func CollectMachineFacts(parentCtx context.Context) protocol.MachineFacts {
 	f.Virtualization = classifyVirtualization(&f)
 	f.Shells = drivers.DetectShells()
 	collectToolAndAuthCapabilities(ctx, &f)
+	f.GPUs = collectGPUs(ctx, f.RAMTotalMB)
 	return f
 }
 

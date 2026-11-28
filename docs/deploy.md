@@ -265,7 +265,17 @@ max_concurrent: 2
 # spool:                 # what syred keeps for the hub while it is unreachable
 #   max_mb: 256          # default 256
 #   max_age_days: 14     # default 14
+# probes:                # capabilities beyond the built-in tool list; each joins the
+#   - name: xcode        # machine's tools, so work can require it (tools: {xcode: "26"})
+#     command: [xcodebuild, -version]
+#     version_regex: 'Xcode (\d+\.\d+)'
+#   - name: android-sdk  # a path that exists: "installed"
+#     path: ~/Android/Sdk/platform-tools/adb
 ```
+
+GPUs are detected without configuration: NVIDIA through `nvidia-smi` (also under WSL), AMD
+and Intel through sysfs on Linux, and Apple silicon's unified GPU. They appear in the
+machine's facts (`gpus`: vendor, model, VRAM; small integrated GPUs are marked).
 
 Check a host with `syred doctor`.
 

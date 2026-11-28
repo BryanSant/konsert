@@ -1565,6 +1565,7 @@ func (d *Daemon) RefreshCheckouts(ctx context.Context) []protocol.ReportedChecko
 // refreshFacts collects machine facts and caches them for the next reconnect.
 func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
 	f := collectFacts(ctx)
+	runDeclaredProbes(ctx, d.cfg.Probes, &f)
 	if len(f.Checkouts) == 0 {
 		f.Checkouts = d.collectCheckouts(ctx, false)
 	}
