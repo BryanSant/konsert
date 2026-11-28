@@ -187,8 +187,8 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 					eligible = filterProviderWorkers(eligible, payload.Agent, idx)
 				}
 				peak := h.expectedPeak(ctx, t.WorkKey, "")
-				w, _, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode,
-					PlacementOpts{Headroom: h.headroomFn(ctx), Work: placementWork(peak, t.ID)})
+				scope := h.placementScopeOf(ctx, t.ProjectID, t.RepoID, t.Workdir, t.Branch, t.WorkKey)
+				w, pout, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode, h.placementOpts(ctx, scope, peak, t.ID, nil))
 				if !ok {
 					continue
 				}
@@ -210,6 +210,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 				if err != nil || !claimed {
 					continue
 				}
+				h.logPlacement(ctx, taskSubject(t.ID), t.WorkKey, "scheduler", w.ID, pout, placementWorkInfo{peak: peak})
 				if payload.Shell == "" && (payload.Agent == "shell" || payload.SessionKind == "terminal") && w.DefaultShell != "" {
 					payload.Shell = w.DefaultShell
 				}

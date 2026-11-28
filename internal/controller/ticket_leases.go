@@ -399,8 +399,9 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		}
 		agent = dec.Agent
 		eligible = filterProviderWorkers(eligible, agent, idx)
-		w, _, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode, PlacementOpts{Locality: localityFn,
-			Headroom: h.headroomFn(ctx), Work: placementWork(peak, tk.ID)})
+		ticketKey := h.workKeyFor(ctx, store.Attempt{TicketID: tk.ID}, store.Task{ProjectID: tk.ProjectID, RepoID: firstBinding.RepoID})
+		scope := h.placementScopeOf(ctx, tk.ProjectID, firstBinding.RepoID, "", cmpOr(firstBinding.TargetBranch, firstBinding.BaseBranch), ticketKey)
+		w, pout, ok := SelectWorkerScored(eligible, counts, sel, agent, permMode, h.placementOpts(ctx, scope, peak, tk.ID, localityFn))
 		if !ok {
 			continue
 		}
@@ -433,6 +434,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 		if err != nil || !claimed {
 			continue
 		}
+		h.logPlacement(ctx, "ticket:"+tk.ID, ticketKey, "scheduler", w.ID, pout, placementWorkInfo{peak: peak})
 
 		pkt, err := h.CompileDispatchPacket(ctx, claimedTk.ID, PacketOptions{WorkerID: w.ID})
 		if err != nil {

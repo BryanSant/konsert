@@ -80,6 +80,37 @@ type PlacementOpts struct {
 	Locality LocalityScoreFn
 	Headroom func(w store.Worker) *capacity.Headroom
 	Work     placement.Work
+	// Rules are the placement rules for the work's scope (SYR-880CP); ClassOf gives a
+	// machine's class for class targets.
+	Rules   []store.PlacementRule
+	ClassOf func(w store.Worker) string
+}
+
+// Rejection is a machine the hard filters or a require rule ruled out, and why.
+type Rejection struct {
+	WorkerID   string `json:"worker_id"`
+	WorkerName string `json:"worker_name"`
+	Reason     string `json:"reason"`
+}
+
+// PlacementOutcome is what a placement saw: the candidates ranked best first, the
+// machines ruled out, and the rules that applied.
+type PlacementOutcome struct {
+	Ranked   []placement.Scored    `json:"ranked"`
+	Rejected []Rejection           `json:"rejected,omitempty"`
+	Rules    []store.PlacementRule `json:"rules,omitempty"`
+}
+
+// ruleTargets reports whether rule r's target is machine w.
+func ruleTargets(r store.PlacementRule, w store.Worker, class func(store.Worker) string) bool {
+	t := strings.TrimSpace(r.Target)
+	switch r.TargetKind {
+	case store.RuleTargetMachine:
+		return strings.EqualFold(w.ID, t) || strings.EqualFold(w.SID, t) || strings.EqualFold(w.Name, t)
+	case store.RuleTargetClass:
+		return class != nil && t != "" && strings.HasPrefix(class(w), t)
+	}
+	return false
 }
 
 // placementWork is the scorer's view of work expected to peak at peakMB (0: no profile
@@ -99,25 +130,54 @@ func SelectWorkerScored(
 	agent string,
 	permMode store.PermissionMode,
 	opts PlacementOpts,
-) (store.Worker, []placement.Scored, bool) {
+) (store.Worker, PlacementOutcome, bool) {
 	if permMode == "" {
 		permMode = store.PermissionFullAccess
 	}
+	var out PlacementOutcome
+	var requires []store.PlacementRule
+	for _, r := range opts.Rules {
+		if r.Effect == store.RuleEffectRequire {
+			requires = append(requires, r)
+		}
+	}
+	out.Rules = opts.Rules
 	byID := map[string]store.Worker{}
 	var cands []placement.Candidate
+	reject := func(w store.Worker, why string) {
+		out.Rejected = append(out.Rejected, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: why})
+	}
 	for _, w := range workers {
-		if !workerMatchesSelector(w, activeCounts, selector, agent, permMode) {
+		if why := selectorMismatch(w, activeCounts, selector, agent, permMode); why != "" {
+			reject(w, why)
+			continue
+		}
+		// Require rules narrow the machines the policy admitted (any of their targets).
+		if len(requires) > 0 && !slices.ContainsFunc(requires, func(r store.PlacementRule) bool { return ruleTargets(r, w, opts.ClassOf) }) {
+			reject(w, "a placement rule requires "+requires[0].Target)
 			continue
 		}
 		c := placement.Candidate{ID: w.ID, Active: activeCounts[w.ID], Slots: max(w.MaxConcurrent, 1), LastSeen: w.LastSeenAt}
 		if opts.Locality != nil {
 			matched, hasAll, ok := opts.Locality(w)
 			if !ok {
+				reject(w, "no checkout, and a bound repo has no remote to clone")
 				continue
 			}
 			c.LocalityMatched, c.LocalityTotal = matched, matched
 			if !hasAll {
 				c.LocalityTotal = matched + 1 // at least one bound repo is missing here
+			}
+		}
+		for _, r := range opts.Rules {
+			if !ruleTargets(r, w, opts.ClassOf) {
+				continue
+			}
+			switch r.Effect {
+			case store.RuleEffectPrefer:
+				c.RuleBonus += placement.RuleBonus
+			case store.RuleEffectAvoid:
+				c.RuleBonus -= placement.RuleBonus
 			}
 		}
 		if f := decodeWorkerFacts(w.FactsJSON); f != nil {
@@ -130,10 +190,11 @@ func SelectWorkerScored(
 		cands = append(cands, c)
 	}
 	best, ranked, ok := placement.Choose(opts.Work, cands)
+	out.Ranked = ranked
 	if !ok {
-		return store.Worker{}, nil, false
+		return store.Worker{}, out, false
 	}
-	return byID[best.ID], ranked, true
+	return byID[best.ID], out, true
 }
 
 func workerMatchesSelector(
@@ -143,43 +204,54 @@ func workerMatchesSelector(
 	agent string,
 	permMode store.PermissionMode,
 ) bool {
+	return selectorMismatch(w, activeCounts, selector, agent, permMode) == ""
+}
+
+// selectorMismatch is why w can't take the work ("" when it can).
+func selectorMismatch(
+	w store.Worker,
+	activeCounts map[string]int,
+	selector WorkerSelector,
+	agent string,
+	permMode store.PermissionMode,
+) string {
 	if w.Status != "online" {
-		return false
+		return "offline"
 	}
 	maxC := w.MaxConcurrent
 	if maxC <= 0 {
 		maxC = 1
 	}
 	if activeCounts[w.ID] >= maxC {
-		return false
+		return "every slot is busy"
 	}
 	if selector.WorkerID != "" && w.ID != selector.WorkerID {
-		return false
+		return "another machine was asked for"
 	}
 	if selector.Name != "" {
 		want := strings.TrimSpace(selector.Name)
 		if !strings.EqualFold(w.Name, want) && !strings.EqualFold(w.HostGroup, want) && !strings.EqualFold(w.ID, want) {
-			return false
+			return "another machine was asked for"
 		}
 	}
 	if selector.HostGroup != "" && !strings.EqualFold(w.HostGroup, selector.HostGroup) {
-		return false
+		return "not in host group " + selector.HostGroup
 	}
 	if selector.OS != "" && normalizeOSName(w.OS) != normalizeOSName(selector.OS) {
-		return false
+		return "requires " + normalizeOSName(selector.OS)
 	}
 	if selector.Arch != "" && !strings.EqualFold(w.Arch, strings.TrimSpace(selector.Arch)) {
-		return false
+		return "requires " + strings.TrimSpace(selector.Arch)
 	}
 	if agent != "" && !slices.Contains(w.Agents, agent) {
-		return false
+		return "no " + agent + " here"
 	}
 	// A sandboxed worker refuses full_access escalation.
 	if w.PermissionMode == store.PermissionSandboxed && permMode == store.PermissionFullAccess {
-		return false
+		return "sandboxed: no full access"
 	}
 	if !tagsMatch(w.Tags, selector.Tags) {
-		return false
+		return "tags don't match"
 	}
 
 	// Fact-based constraints (evaluated against cached MachineFacts).
@@ -194,13 +266,13 @@ func workerMatchesSelector(
 	if needsFacts {
 		facts := decodeWorkerFacts(w.FactsJSON)
 		if facts == nil {
-			return false
+			return "no machine facts yet"
 		}
 		if !factsMatchSelector(facts, selector) {
-			return false
+			return "doesn't meet the requirements"
 		}
 	}
-	return true
+	return ""
 }
 
 // wantsGPU reports a GPU requirement.

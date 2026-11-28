@@ -308,6 +308,7 @@ func (h *Hub) compactionPass(ctx context.Context, run *CompactionRun, full bool)
 		return err
 	}
 	policy := retentionFromSettings(kv).policy()
+	h.prunePlacementLog(ctx) // fixed window, apart from the configurable steps below
 	batch := h.RetentionBatch
 	if batch <= 0 {
 		batch = retentionBatch

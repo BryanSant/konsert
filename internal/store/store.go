@@ -665,6 +665,13 @@ type Store interface {
 	// Work profiles (SYR-VYFYX).
 	SetAttemptProfileFields(ctx context.Context, attemptID, workKey, machineClass string, peakRSSMB uint64, cpuS float64) error
 	ListProfileAttempts(ctx context.Context, workKey, machineClass string, limit int) ([]Attempt, error)
+	// Placement rules and log (SYR-880CP).
+	CreatePlacementRule(ctx context.Context, r PlacementRule) (PlacementRule, error)
+	ListPlacementRules(ctx context.Context, activeAt time.Time) ([]PlacementRule, error)
+	EndPlacementRule(ctx context.Context, id string, at time.Time) error
+	AppendPlacementLog(ctx context.Context, e PlacementLogEntry) error
+	ListPlacementLog(ctx context.Context, f PlacementLogFilter) ([]PlacementLogEntry, error)
+	PrunePlacementLog(ctx context.Context, before time.Time) (int64, error)
 	// SetWorkRequirements remembers the requirements declared for a work key (JSON of
 	// a worker selector's requirement fields); GetWorkRequirements returns them ("" and
 	// ErrNotFound when none).

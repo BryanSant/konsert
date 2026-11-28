@@ -576,8 +576,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	reqs, inherited := s.hub.workRequirements(ctx, workKey, req.Requirements, describeActor(cause))
 	reqs.apply(&req.WorkerSelector)
 	peak := s.hub.expectedPeak(ctx, workKey, "")
-	popts := PlacementOpts{Headroom: s.hub.headroomFn(ctx), Work: placementWork(peak, taskID)}
-	selected, _, ok := SelectWorkerScored(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode, popts)
+	scope := s.hub.placementScopeOf(ctx, req.ProjectID, req.RepoID, req.RepoPath, req.Branch, workKey)
+	popts := s.hub.placementOpts(ctx, scope, peak, taskID, nil)
+	selected, pout, ok := SelectWorkerScored(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode, popts)
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
 		// selector allows, otherwise refuse with the re-login hint.
@@ -588,7 +589,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 					eligible = append(eligible, w)
 				}
 			}
-			if selected, _, ok = SelectWorkerScored(eligible, counts, req.WorkerSelector, req.Agent, permMode, popts); !ok {
+			if selected, pout, ok = SelectWorkerScored(eligible, counts, req.WorkerSelector, req.Agent, permMode, popts); !ok {
 				return DispatchResult{}, loggedOut
 			}
 		}
@@ -659,6 +660,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		return DispatchResult{}, err
 	}
 	s.hub.recordTaskTransition(ctx, task, "", cause, "")
+	s.hub.logPlacement(ctx, taskSubject(task.ID), workKey, deciderOf(cause), task.WorkerID, pout, placementWorkInfo{peak: peak})
 	if placement.Substitution != "" {
 		workerID := ""
 		if ok {

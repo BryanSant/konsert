@@ -44,6 +44,9 @@ type Candidate struct {
 	LocalityMatched, LocalityTotal int
 	DiskFreeGB                     uint64
 	LastSeen                       time.Time
+	// RuleBonus is what placement rules add (prefer) or take away (avoid): enough to
+	// beat any score, never the fit penalty of a machine that can't hold the work.
+	RuleBonus float64
 }
 
 // Scored is a candidate with its score and the parts of it.
@@ -54,8 +57,13 @@ type Scored struct {
 	Locality float64 `json:"locality"` // 0 … 1
 	Spread   float64 `json:"spread"`   // 0 … 1, free slots
 	Weight   float64 `json:"weight"`   // the headroom's weight (a shed down-weights)
+	Rule     float64 `json:"rule,omitzero"`
 	Fits     bool    `json:"fits"`
 }
+
+// RuleBonus is a prefer rule's bonus (an avoid rule's penalty): more than the whole
+// score can be.
+const RuleBonus = 2 * (WeightFit + WeightLocality + WeightSpread)
 
 // fitScore is how comfortably peak fits headroom: 1 with twice the peak to spare or
 // more, 0 just fitting; below 0 when it doesn't fit, toward -1 the less room there is.
@@ -89,7 +97,8 @@ func Rank(w Work, cands []Candidate) []Scored {
 		if c.Slots > 0 {
 			s.Spread = math.Max(0, 1-float64(c.Active)/float64(c.Slots))
 		}
-		s.Score = (WeightFit*s.Fit + WeightLocality*s.Locality + WeightSpread*s.Spread) * s.Weight
+		s.Score = (WeightFit*s.Fit+WeightLocality*s.Locality+WeightSpread*s.Spread)*s.Weight + c.RuleBonus
+		s.Rule = c.RuleBonus
 		if !s.Fits {
 			s.Score -= 100 // last resort: only where nothing fits
 		}
@@ -128,7 +137,7 @@ func Choose(w Work, cands []Candidate) (Scored, []Scored, bool) {
 	var pool []Scored
 	var total float64
 	for _, s := range ranked {
-		if !s.Fits || s.Locality < best.Locality || s.Headroom == nil || s.Spread == 0 {
+		if !s.Fits || s.Locality < best.Locality || s.Rule < best.Rule || s.Headroom == nil || s.Spread == 0 {
 			continue
 		}
 		if wt := rotationWeight(s); wt > 0 {
