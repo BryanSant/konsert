@@ -59,6 +59,7 @@ type tracked struct {
 	readMod   time.Time
 	// status and waiting are the live status last reported.
 	status, waiting string
+	alive           bool
 	reported        bool
 	managed         bool
 }
@@ -187,7 +188,7 @@ func (r *Registry) step(ctx context.Context, t *tracked, now time.Time) {
 	if now.Sub(t.firstSeen) < r.cfg.Grace {
 		return // give the managed markers time to arrive
 	}
-	statusChanged := s.Status != t.status || s.Waiting != t.waiting
+	statusChanged := s.Status != t.status || s.Waiting != t.waiting || s.Alive != t.alive
 	fileChanged := s.Size != t.readSize || !s.ModTime.Equal(t.readMod)
 	if t.reported && !fileChanged && !statusChanged {
 		return // unchanged since the last read
@@ -215,7 +216,7 @@ func (r *Registry) step(ctx context.Context, t *tracked, now time.Time) {
 	}
 	if len(evs) > 0 || !t.reported || statusChanged {
 		t.reported = true
-		t.status, t.waiting = s.Status, s.Waiting
+		t.status, t.waiting, t.alive = s.Status, s.Waiting, s.Alive
 		r.emit(Update{Kind: UpdateEvents, Session: s, Events: evs})
 	}
 }

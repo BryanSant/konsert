@@ -18,6 +18,7 @@ type obsProcs struct{ procs []shells.Proc }
 
 func (f *obsProcs) Snapshot() ([]shells.Proc, error) { return f.procs, nil }
 func (f *obsProcs) Details(*shells.Proc)             {}
+func (f *obsProcs) Argv(int) []string                { return nil }
 
 // obsHarness is a claude config dir, a fake process table and the payloads reported.
 type obsHarness struct {

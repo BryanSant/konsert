@@ -45,6 +45,7 @@ type observedSessions struct {
 	// claudeDirs lists claude's config dirs (sourcedAgents: claude has a source when any
 	// exists).
 	claudeDirs func() []observe.ClaudeDir
+	codexDirs  func() []observe.CodexDir
 
 	mu      sync.Mutex
 	st      map[string]*observedState  // by Session.Key
@@ -68,7 +69,8 @@ type observedState struct {
 // observedConfig wires observedSessions into a daemon.
 type observedConfig struct {
 	ClaudeDirs func() []observe.ClaudeDir
-	Procs      observe.ProcTable
+	CodexDirs  func() []observe.CodexDir
+	Procs      observe.CodexProcs
 	// Fresh snapshots processes and lists transcripts on every poll (tests).
 	Fresh bool
 	// IsManaged reports a process Syre runs (a task's agent, syred itself).
@@ -93,8 +95,17 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 	if cfg.Fresh {
 		claude.ProcTTL, claude.ListEvery = -1, -1
 	}
-	o.sources = []observe.Source{claude}
-	o.claudeDirs = cfg.ClaudeDirs
+	codex := &observe.CodexSource{Dirs: cfg.CodexDirs, Procs: cfg.Procs, OpenFiles: processOpenFiles,
+		Cwd: func(pid int) string {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultCwdTimeout)
+			defer cancel()
+			return resolveProcessCwd(ctx, pid)
+		}}
+	if cfg.Fresh {
+		codex.ProcTTL, codex.ListEvery = -1, -1
+	}
+	o.sources = []observe.Source{claude, codex}
+	o.claudeDirs, o.codexDirs = cfg.ClaudeDirs, cfg.CodexDirs
 	o.reg = observe.New(observe.Config{
 		Sources: o.sources,
 		Managed: func(s observe.Session) bool {
@@ -127,6 +138,9 @@ func (o *observedSessions) sourcedAgents() map[string]bool {
 	out := map[string]bool{}
 	if o.claudeDirs != nil && len(o.claudeDirs()) > 0 {
 		out["claude"] = true
+	}
+	if o.codexDirs != nil && len(o.codexDirs()) > 0 {
+		out["codex"] = true
 	}
 	return out
 }
@@ -360,5 +374,50 @@ func claudeConfigDirs(accounts *chat.AccountRegistry) []observe.ClaudeDir {
 	return out
 }
 
+// observedCodexDirs is replaced by tests, as observedClaudeDirs.
+var observedCodexDirs = codexHomes
+
+// codexHomes lists the home of every codex account with sessions in it: each extra
+// account's CODEX_HOME (~/.codex2), syred's own CODEX_HOME, ~/.codex, and any other
+// ~/.codex<N>.
+func codexHomes(accounts *chat.AccountRegistry) []observe.CodexDir {
+	home, _ := os.UserHomeDir()
+	var out []observe.CodexDir
+	seen := map[string]bool{}
+	add := func(account, dir string) {
+		if dir == "" {
+			return
+		}
+		if strings.HasPrefix(dir, "~/") && home != "" {
+			dir = filepath.Join(home, dir[2:])
+		}
+		dir = filepath.Clean(dir)
+		if seen[dir] || !dirExists(filepath.Join(dir, "sessions")) {
+			return
+		}
+		seen[dir] = true
+		out = append(out, observe.CodexDir{Account: account, Dir: dir})
+	}
+	if accounts != nil {
+		for _, e := range accounts.List() {
+			if e.Agent == "codex" && !e.IsDefault {
+				add(e.ID, e.Env["CODEX_HOME"])
+			}
+		}
+	}
+	add("", os.Getenv("CODEX_HOME"))
+	if home != "" {
+		add("", filepath.Join(home, ".codex"))
+		matches, _ := filepath.Glob(filepath.Join(home, ".codex[0-9]*"))
+		for _, m := range matches {
+			name := filepath.Base(m)[1:]
+			if strings.Trim(name[len("codex"):], "0123456789") == "" {
+				add(name, m)
+			}
+		}
+	}
+	return out
+}
+
 // osProcTable is the process table observed sources check PIDs against.
-func osProcTable() observe.ProcTable { return shells.OSSource() }
+func osProcTable() observe.CodexProcs { return shells.OSSource() }

@@ -45,10 +45,17 @@ type Session struct {
 	// grow.
 	Status  string
 	Waiting string
+	// Alive marks a session a running agent process holds although the agent publishes
+	// no status (codex): its status still comes from the records, but it doesn't age out
+	// while the process runs.
+	Alive bool
 }
 
-// Live reports whether the session has a running agent process publishing its status.
-func (s Session) Live() bool { return s.Status != "" && s.Status != protocol.ChatStatusDone }
+// Live reports whether the session has a running agent process: one publishing its
+// status, or one holding the session (Alive).
+func (s Session) Live() bool {
+	return s.Alive && s.Status == "" || s.Status != "" && s.Status != protocol.ChatStatusDone
+}
 
 // Key identifies a session across sources and restarts.
 func (s Session) Key() string { return s.Agent + "/" + s.Account + "/" + s.ID }

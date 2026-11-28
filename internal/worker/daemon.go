@@ -288,6 +288,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 		self := os.Getpid()
 		d.discovery.observed = newObservedSessions(observedConfig{
 			ClaudeDirs:  func() []observe.ClaudeDir { return observedClaudeDirs(d.accounts) },
+			CodexDirs:   func() []observe.CodexDir { return observedCodexDirs(d.accounts) },
 			Procs:       osProcTable(),
 			IsManaged:   func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) },
 			OffsetsPath: filepath.Join(d.stateDir(), "observed-offsets.json"),
