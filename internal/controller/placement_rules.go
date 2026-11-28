@@ -289,3 +289,88 @@ func (h *Hub) createPlacementRule(ctx context.Context, r store.PlacementRule, du
 	h.kickScheduler()
 	return rule, nil
 }
+
+type dryRunKey struct{}
+
+// withDryRun marks ctx as a placement dry run: nothing is created or counted.
+func withDryRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, dryRunKey{}, true)
+}
+
+func isDryRun(ctx context.Context) bool { v, _ := ctx.Value(dryRunKey{}).(bool); return v }
+
+// PlacementExplanation is a placement dry run's answer (SYR-QY2TG): the machine the
+// work would go to ("" when it would queue), and why.
+type PlacementExplanation struct {
+	WorkerID   string          `json:"worker_id,omitempty"`
+	WorkerName string          `json:"worker_name,omitempty"`
+	WorkKey    string          `json:"work_key"`
+	Detail     PlacementDetail `json:"detail"`
+}
+
+// droppedBy lists the machines in before but not in after, as rejections for reason.
+func droppedBy(before, after []store.Worker, reason string) []Rejection {
+	kept := make(map[string]bool, len(after))
+	for _, w := range after {
+		kept[w.ID] = true
+	}
+	var out []Rejection
+	for _, w := range before {
+		if !kept[w.ID] {
+			out = append(out, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: reason})
+		}
+	}
+	return out
+}
+
+// inspectPlacement answers inspect kind=placement: the latest placements of the task
+// (and of its ticket), newest first.
+func (s *FleetService) inspectPlacement(ctx context.Context, req InspectRequest, task store.Task, ticketID string) (InspectResult, error) {
+	var entries []store.PlacementLogEntry
+	for _, subject := range []string{taskSubject(task.ID), "ticket:" + ticketID} {
+		if strings.HasSuffix(subject, ":") {
+			continue
+		}
+		rows, err := s.store.ListPlacementLog(ctx, store.PlacementLogFilter{Subject: subject, Limit: 3})
+		if err != nil {
+			return InspectResult{}, err
+		}
+		entries = append(entries, rows...)
+	}
+	type view struct {
+		At       time.Time       `json:"at"`
+		Subject  string          `json:"subject"`
+		WorkKey  string          `json:"work_key,omitempty"`
+		Decider  string          `json:"decider"`
+		WorkerID string          `json:"worker_id,omitempty"`
+		Detail   PlacementDetail `json:"detail"`
+	}
+	out := make([]view, 0, len(entries))
+	for _, e := range entries {
+		v := view{At: e.At, Subject: e.Subject, WorkKey: e.WorkKey, Decider: e.Decider, WorkerID: e.WorkerID}
+		_ = json.Unmarshal([]byte(e.DetailJSON), &v.Detail, protocol.JSONOptions)
+		out = append(out, v)
+	}
+	raw, err := json.Marshal(out, protocol.JSONOptions)
+	if err != nil {
+		return InspectResult{}, err
+	}
+	return InspectResult{Target: req.Target, Kind: req.Kind, TaskID: task.ID, TaskSID: task.SID, TicketID: ticketID,
+		WorkerID: task.WorkerID, Text: string(raw)}, nil
+}
+
+// handleExplainPlacement serves POST /api/placement/explain: a dispatch dry run that
+// says where the work would go and why, dispatching nothing.
+func (s *Server) handleExplainPlacement(w http.ResponseWriter, r *http.Request) {
+	var req DispatchRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	req.DryRun = true
+	res, err := s.service.DispatchTask(r.Context(), req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}

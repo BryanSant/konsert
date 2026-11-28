@@ -14,6 +14,7 @@ import { ControlLabelComponent } from '../control-label.component';
 import { ItemSpinnerComponent } from '../item-spinner.component';
 import { TakeControlService } from '../take-control.service';
 import { ObservedTranscriptComponent } from './observed-transcript.component';
+import { PlacementWhyComponent } from './placement-why.component';
 
 /**
  * An agent session as a Command tab: the GOAL / NOW strip with its controls, and the
@@ -24,7 +25,7 @@ import { ObservedTranscriptComponent } from './observed-transcript.component';
   selector: 'sy-session-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, ObservedTranscriptComponent, IconComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, ObservedTranscriptComponent, PlacementWhyComponent, IconComponent, TooltipDirective],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     @let it = item();
@@ -85,6 +86,9 @@ import { ObservedTranscriptComponent } from './observed-transcript.component';
           <app-icon name="split" [size]="13" />
         </button>
         <sy-keep-toggle [kind]="it.kind" [id]="it.id" [keep]="work.isKept(it.id)" [compact]="true" />
+        @if (it.kind === 'task' && !it.observed) {
+          <sy-placement-why [taskId]="it.id" />
+        }
       </div>
     </div>
     <div class="flex-1 min-h-0">

@@ -374,6 +374,10 @@ type DispatchRequest struct {
 	Kind         string            `json:"kind,omitempty" jsonschema:"Kind of work (build, test, ml-train, review, …); part of the work key"`
 	WorkKey      string            `json:"work_key,omitempty" jsonschema:"Work key override; default project/epic-or-ticket/repo[/kind]"`
 	Requirements *WorkRequirements `json:"requirements,omitzero" jsonschema:"Hard requirements on the machine (os, arch, min_ram_gb, min_disk_free_gb, tools, auth, virtualization); remembered for the work key"`
+	// DryRun explains where the work would go without dispatching it (SYR-QY2TG);
+	// Seed stands in for the task id in the rotation of work with no profile yet.
+	DryRun bool   `json:"dry_run,omitzero"`
+	Seed   string `json:"seed,omitempty"`
 }
 
 type DispatchResult struct {
@@ -390,9 +394,14 @@ type DispatchResult struct {
 	WorkdirEffective string `json:"workdir_effective"`
 	// Warnings are non-fatal notes, e.g. the account's usage window is exhausted.
 	Warnings []string `json:"warnings,omitempty"`
+	// Placement answers a dry run (nothing was dispatched).
+	Placement *PlacementExplanation `json:"placement,omitzero"`
 }
 
 func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (DispatchResult, error) {
+	if req.DryRun {
+		ctx = withDryRun(ctx)
+	}
 	resolveRefs(ctx, s.store, map[ids.Kind][]*string{
 		ids.Machine: {&req.WorkerSelector.WorkerID},
 		ids.Project: {&req.ProjectID},
@@ -513,13 +522,16 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	onlineWorkers := make([]store.Worker, 0, len(workers))
 	pinnedID := req.WorkerSelector.WorkerID
 	lifted := map[string]*store.Override{}
+	var earlier []Rejection // machines ruled out before scoring, for the placement log
 	for _, w := range workers {
 		if w.Status != "online" || !s.hub.IsWorkerConnected(w.ID) {
+			earlier = append(earlier, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: "offline"})
 			continue
 		}
 		if w.Drained {
 			// A drained machine accepts nothing new: work pinned to it waits in the queue
 			// until the user undrains it.
+			earlier = append(earlier, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: "drained"})
 			continue
 		}
 		if isAutomatic(cause) {
@@ -528,6 +540,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 				if w.ID == pinnedID {
 					return DispatchResult{}, holdError(hold, w.Name)
 				}
+				earlier = append(earlier, Rejection{WorkerID: w.ID, WorkerName: w.Name, Reason: "held"})
 				continue
 			}
 			lifted[w.ID] = ov
@@ -539,7 +552,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	// Approved machine_slots overrides raise a machine's slot limit while they last.
 	// Directives then tighten: pause and drain drop the machine, throttle caps it.
 	onlineWorkers, slots := s.hub.applySlotOverrides(ctx, onlineWorkers)
+	beforeDirectives := onlineWorkers
 	onlineWorkers = s.hub.applyMachineDirectives(ctx, onlineWorkers)
+	earlier = append(earlier, droppedBy(beforeDirectives, onlineWorkers, "a directive (pause, drain or throttle)")...)
 	// The machine policy refuses work it rules out; work pinned to such a machine
 	// says why instead of waiting.
 	if pinnedID != "" {
@@ -552,7 +567,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		}
 	}
 	var lifts liftUses
+	beforePolicy := onlineWorkers
 	onlineWorkers, lifts = s.hub.applyMachinePolicy(ctx, onlineWorkers, counts, taskWork(req.TicketID), "dispatch")
+	earlier = append(earlier, droppedBy(beforePolicy, onlineWorkers, "its machine policy")...)
 	req.AccountID = strings.TrimSpace(req.AccountID)
 	requestedAgent, requestedAccount := req.Agent, req.AccountID
 	var placement providerDecision
@@ -561,7 +578,9 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		placement, idx = s.hub.applyProviderPlacement(ctx, req.Agent, req.AccountID, false, onlineWorkers)
 		req.Agent = placement.Agent
 		req.AccountID = placement.AccountID
+		beforeProvider := onlineWorkers
 		onlineWorkers = filterProviderWorkers(onlineWorkers, req.Agent, idx)
+		earlier = append(earlier, droppedBy(beforeProvider, onlineWorkers, "the provider policy for "+req.Agent)...)
 	}
 	kind, kindOK := normalizeWorkKind(req.Kind)
 	if !kindOK {
@@ -577,7 +596,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	reqs.apply(&req.WorkerSelector)
 	peak := s.hub.expectedPeak(ctx, workKey, "")
 	scope := s.hub.placementScopeOf(ctx, req.ProjectID, req.RepoID, req.RepoPath, req.Branch, workKey)
-	popts := s.hub.placementOpts(ctx, scope, peak, taskID, nil)
+	popts := s.hub.placementOpts(ctx, scope, peak, cmpOr(req.Seed, taskID), nil)
 	selected, pout, ok := SelectWorkerScored(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode, popts)
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
@@ -623,6 +642,14 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 
 	if inherited {
 		warnings = append(warnings, "requirements inherited from work key "+workKey)
+	}
+	pout.Rejected = append(earlier, pout.Rejected...)
+	if req.DryRun {
+		ex := &PlacementExplanation{WorkKey: workKey, Detail: PlacementDetail{PlacementOutcome: pout, PeakMB: peak, Known: peak > 0}}
+		if ok {
+			ex.WorkerID, ex.WorkerName = selected.ID, selected.Name
+		}
+		return DispatchResult{Status: "dry_run", WorkerID: ex.WorkerID, Agent: req.Agent, Warnings: warnings, Placement: ex}, nil
 	}
 	task := store.Task{
 		ID:             taskID,

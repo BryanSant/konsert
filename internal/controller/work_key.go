@@ -121,7 +121,7 @@ func (h *Hub) workRequirements(ctx context.Context, key string, declared *WorkRe
 	if declared != nil && !declared.empty() {
 		r := *declared
 		r.Tools = maps.Clone(r.Tools)
-		if raw, err := json.Marshal(r, protocol.JSONOptions); err == nil && key != "" {
+		if raw, err := json.Marshal(r, protocol.JSONOptions); err == nil && key != "" && !isDryRun(ctx) {
 			if err := h.store.SetWorkRequirements(ctx, key, string(raw), setBy); err != nil {
 				h.logger.Warn("work requirements not stored", "work_key", key, "err", err)
 			}

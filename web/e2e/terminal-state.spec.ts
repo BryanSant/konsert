@@ -143,3 +143,22 @@ test('closing an idle terminal ends its shell; a running command asks first', as
   fs.rmSync(shellPidFile, { force: true });
   fs.rmSync(jobPidFile, { force: true });
 });
+
+test('a task says why it runs where it does (SYR-QY2TG)', async ({ page }) => {
+  const env = loadEnv();
+  await page.goto(`${env.baseURL}/command`);
+  await page.getByRole('button', { name: 'Use recovery key' }).click();
+  await page.locator('#token').fill(env.adminToken);
+  await page.getByRole('button', { name: 'Sign In' }).click();
+  await expect(page.locator('#token')).toBeHidden();
+  const term = await openTerminal(page, env);
+  try {
+    await page.goto(`${env.baseURL}/command/${term.sid}`);
+    await page.getByTestId('placement-why').click();
+    const panel = page.getByTestId('placement-explanation');
+    await expect(panel.getByTestId('placement-summary')).toContainText(/Placed on .+ by you/);
+    await expect(panel.getByTestId('placement-candidate').first()).toContainText(/fits · fit/);
+  } finally {
+    await api(page, 'POST', `/api/tasks/${term.id}/cancel`).catch(() => undefined);
+  }
+});

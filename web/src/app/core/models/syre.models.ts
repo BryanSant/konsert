@@ -1182,3 +1182,39 @@ export interface StorageResponse {
   retention_text: string[];
   compaction: CompactionRun;
 }
+
+/** One machine in a placement's ranking (internal/placement Scored). */
+export interface PlacementScored {
+  ID: string;
+  score: number;
+  fit: number;
+  locality: number;
+  spread: number;
+  weight: number;
+  rule?: number;
+  fits: boolean;
+}
+
+/** A machine ruled out before scoring, and why. */
+export interface PlacementRejection {
+  worker_id: string;
+  worker_name: string;
+  reason: string;
+}
+
+/** A placement log entry: where work went, who decided and why (SYR-880CP). */
+export interface PlacementLogEntry {
+  id: number;
+  at: string;
+  subject: string;
+  work_key?: string;
+  decider: 'scheduler' | 'commander' | 'user' | string;
+  worker_id?: string;
+  detail: {
+    ranked: PlacementScored[];
+    rejected?: PlacementRejection[];
+    rules?: { id: string; effect: string; target_kind: string; target: string; scope_kind: string; scope_value?: string }[];
+    peak_mb?: number;
+    known?: boolean;
+  };
+}

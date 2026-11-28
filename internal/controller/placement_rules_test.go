@@ -118,3 +118,55 @@ func TestPlacementRuleScopes(t *testing.T) {
 		}
 	}
 }
+
+// A dry run says where work would go, the same as the real dispatch of the same
+// inputs, and creates nothing (SYR-QY2TG).
+func TestExplainPlacementMatchesRealPlacement(t *testing.T) {
+	cs := newChatServer(t)
+	ctx := t.Context()
+	cs.connectWorker(t, testWorkerInfo("w-z-big", "big"), nil, "w-z-big")
+	time.Sleep(10 * time.Millisecond)
+	cs.connectWorker(t, testWorkerInfo("w-a-small", "small"), nil, "w-a-small")
+	cs.h.mu.Lock()
+	cs.h.workerMetrics["w-a-small"] = &protocol.WorkerMetrics{MemTotalMB: 8192, MemUsedMB: 4096}
+	cs.h.workerMetrics["w-z-big"] = &protocol.WorkerMetrics{MemTotalMB: 65536, MemUsedMB: 8192}
+	cs.h.mu.Unlock()
+	if err := cs.st.UpsertWorkProfile(ctx, store.WorkProfile{WorkKey: "ml/train", MachineClass: "linux/amd64", Runs: 3, PeakRSSMaxMB: 6000}); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"agent": "mock", "repo_path": "/src/train", "prompt": "train", "work_key": "ml/train",
+		"requirements": map[string]any{"os": "linux"}}
+	code, raw := cs.api(t, "POST", "/api/placement/explain", body)
+	var dry DispatchResult
+	if code != 200 || json.Unmarshal(raw, &dry) != nil || dry.Placement == nil {
+		t.Fatalf("explain: %d %s", code, raw)
+	}
+	if dry.Placement.WorkerID != "w-z-big" || dry.TaskID != "" || len(dry.Placement.Detail.Ranked) != 2 || !dry.Placement.Detail.Known {
+		t.Fatalf("dry run: %+v", dry.Placement)
+	}
+	if small := dry.Placement.Detail.Ranked[1]; small.ID != "w-a-small" || small.Fits {
+		t.Fatalf("small should not fit 6 GB: %+v", small)
+	}
+	// Nothing was created or remembered.
+	if tasks, _ := cs.st.ListTasks(ctx, "", "", 10); len(tasks) != 0 {
+		t.Fatalf("a dry run created %d tasks", len(tasks))
+	}
+	if _, err := cs.st.GetWorkRequirements(ctx, "ml/train"); err == nil {
+		t.Fatal("a dry run remembered requirements")
+	}
+
+	// The real dispatch of the same inputs lands where the dry run said.
+	code, raw = cs.api(t, "POST", "/api/tasks", body)
+	var real DispatchResult
+	if code >= 300 || json.Unmarshal(raw, &real) != nil {
+		t.Fatalf("dispatch: %d %s", code, raw)
+	}
+	if real.WorkerID != dry.Placement.WorkerID {
+		t.Fatalf("real placement %s, dry run said %s", real.WorkerID, dry.Placement.WorkerID)
+	}
+	// And inspect kind=placement explains it afterwards.
+	res, err := cs.svc.Inspect(ctx, InspectRequest{Kind: protocol.InspectKindPlacement, Target: real.TaskID})
+	if err != nil || !strings.Contains(res.Text, `"worker_id":"w-z-big"`) || !strings.Contains(res.Text, `"decider":"user"`) {
+		t.Fatalf("inspect: %+v %v", res, err)
+	}
+}

@@ -86,7 +86,9 @@ func (h *Hub) policyViolation(ctx context.Context, w store.Worker, work string, 
 			v = lv
 		}
 	}
-	h.noteBlock(w.ID, v.Rule, subject, v.Message)
+	if !isDryRun(ctx) {
+		h.noteBlock(w.ID, v.Rule, subject, v.Message)
+	}
 	return v, nil
 }
 

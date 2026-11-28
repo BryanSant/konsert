@@ -102,6 +102,9 @@ func (s *FleetService) Inspect(ctx context.Context, req InspectRequest) (Inspect
 	if err != nil {
 		return InspectResult{}, err
 	}
+	if req.Kind == protocol.InspectKindPlacement {
+		return s.inspectPlacement(ctx, req, task, ticketID)
+	}
 	res := InspectResult{
 		Target:   req.Target,
 		Kind:     req.Kind,
@@ -189,7 +192,7 @@ func validInspectKind(kind string) bool {
 	case protocol.InspectKindDigest, protocol.InspectKindDiffStat, protocol.InspectKindDiff,
 		protocol.InspectKindStderr, protocol.InspectKindLog, protocol.InspectKindTranscript,
 		protocol.InspectKindFile, protocol.InspectKindResult, protocol.InspectKindEvents,
-		protocol.InspectKindAudit, protocol.InspectKindProfile:
+		protocol.InspectKindAudit, protocol.InspectKindProfile, protocol.InspectKindPlacement:
 		return true
 	default:
 		return false

@@ -300,7 +300,7 @@ var (
 		"type": "object",
 		"properties": map[string]any{
 			"target":    map[string]any{"type": "string"},
-			"kind":      map[string]any{"type": "string", "enum": []any{"digest", "diff_stat", "diff", "stderr", "log", "transcript", "file", "result", "events", "audit", "profile"}},
+			"kind":      map[string]any{"type": "string", "enum": []any{"digest", "diff_stat", "diff", "stderr", "log", "transcript", "file", "result", "events", "audit", "profile", "placement"}},
 			"repo":      map[string]any{"type": "string"},
 			"path":      map[string]any{"type": "string"},
 			"max_lines": map[string]any{"type": "integer"},

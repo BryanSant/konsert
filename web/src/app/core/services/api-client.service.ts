@@ -43,7 +43,7 @@ import {
   TicketRollup,
   WakeLockStatus,
   Worker,
-  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult, MachinePolicy } from '../models/syre.models';
+  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult, MachinePolicy, PlacementLogEntry } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -319,6 +319,11 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ pid, started_at: startedAt ?? '0001-01-01T00:00:00Z' }),
     });
+  }
+
+  /** Placement log entries for a subject ("task:<id>"), newest first. */
+  getPlacementLog(subject: string, limit = 1): Promise<{ entries: PlacementLogEntry[] }> {
+    return this.request(`/api/placement/log?subject=${encodeURIComponent(subject)}&limit=${limit}`);
   }
 
   /** A machine's policy (empty when none). */

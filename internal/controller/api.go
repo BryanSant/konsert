@@ -229,6 +229,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("POST /api/placement/rules", s.requireBrowserAuth(http.HandlerFunc(s.handleCreatePlacementRule)))
 	s.mux.Handle("POST /api/placement/rules/{id}/end", s.requireBrowserAuth(http.HandlerFunc(s.handleEndPlacementRule)))
 	s.mux.Handle("GET /api/placement/log", s.requireBrowserAuth(http.HandlerFunc(s.handlePlacementLog)))
+	s.mux.Handle("POST /api/placement/explain", s.requireBrowserAuth(http.HandlerFunc(s.handleExplainPlacement)))
 	s.mux.Handle("POST /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleCreateProjectRepo)))
 	s.mux.Handle("PATCH /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProjectRepo)))
 	s.mux.Handle("DELETE /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProjectRepo)))
