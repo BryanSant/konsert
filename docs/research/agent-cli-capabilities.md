@@ -228,6 +228,23 @@ GROK_HOME=<empty> grok -p "…" --output-format json →
 
 **Session store (gap).** `~/.gemini/antigravity-cli/conversations/<id>.db` is SQLite: `trajectory_meta`, `steps` (`step_type`, `status`, protobuf `step_payload`, `metadata`, …), `gen_metadata` and `trajectory_metadata_blob` (protobuf, with the workspace URI). The step protobufs are undocumented, so observed sessions don't read agy's store yet (SYR-JHBB5-agy-store). agy sessions started outside Syre show through the process scan: present, with a CPU-based working or idle status.
 
+**Step map (SYR-JHBB5, 2026-11-28, agy 1.5.x, 77 conversations plus a live run).** The blobs decode without a schema (plain protobuf wire format). In `step_payload`, field 1 repeats the step type and field 4 the status; field 5 holds the step: 5.1 created (seconds, nanos), 5.6 started, 5.7/5.8 finished, 5.3 a small kind number, 5.35 a step id.
+
+| `step_type` | What it is | Where the text is |
+|---|---|---|
+| 14 | user input (first step of a turn) | field 2: the prompt as typed; nested: the system prompt (e.g. the Commander's) |
+| 15 | model turn ("planner response") | field 3: a thinking summary; field 4 (repeated): tool calls it asked for (4.1 call id, 4.2 tool name, 4.3 JSON args); 5.9: token counts |
+| 132 | tool call and its result | 5.4.1 call id, 5.4.2 tool name (`mcp_syre_backlog`, `run_command`, …), 5.4.3 JSON args; result nested |
+| 101 | a system reminder injected into the turn | field 1: text, field 3: its name (`work_efficiently_reminder`) |
+| 17 | an engine error, retried | 2: "API error (attempt 1): …" |
+| 23 | rare, not identified (4 of 7,100 steps) | |
+
+`status`: 3 done (98%), 6 cancelled (no details), 7 failed (`error_details` holds the message, e.g. an edit whose target text was not found). A turn ends with a type-15 step that asks for no tool calls.
+
+**Writes come at the end of a turn.** Watching a headless run (`agy -p`), the database file appeared within 2 s but all four steps (14, 15, 132, 15) were written together, already done, when the turn ended (17 s). So the store gives finished turns (a transcript), not live progress: a source reading it would keep the process scan for working/idle and add the transcript, the prompt, the tools used and token counts after each turn. Whether the interactive TUI writes earlier was not established (the PTY test did not get a prompt through).
+
+**Verdict.** Enough decodes for a transcript source like grok's and codex's: user prompts, model text summaries, tool names with arguments, errors and token counts. It needs SQLite in syred (a pure-Go driver, since syred builds without cgo: the same question as cursor's store, SYR-JYEQC) and opens the database read-only with the WAL (copying it is the safe fallback, as `-readonly` fails while agy holds it). Field numbers are not a public contract: decode defensively and fall back to the process scan when a blob doesn't parse.
+
 ## 6. cursor-agent
 
 **Binary/version.** `/opt/homebrew/bin/cursor-agent` → `/opt/homebrew/Caskroom/cursor-cli/2026.11.19-f005e9d/dist-package/cursor-agent` (bash launcher plus bundled node and JS). `--version` → `2026.11.19-f005e9d`. `cursor-agent about` reports CLI Version `2026.11.22-e9042b2`, Subscription Tier <tier>, Model Auto.
