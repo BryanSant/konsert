@@ -161,6 +161,18 @@ test.describe('Device sign-in (auth on)', () => {
     expect(list.devices).toHaveLength(1);
   });
 
+  test('Settings → Devices offers notifications on this device (SYR-Z15J6)', async ({ page }) => {
+    await pairVia(page, hub.signInURL, 'E2E laptop');
+    await openDevices(page);
+    const box = page.getByTestId('push-settings');
+    await expect(box).toContainText('Notifications on this device');
+    // The production PWA's service worker can subscribe here; the switch is offered.
+    await expect(box.getByTestId('push-enable').or(box.getByTestId('push-unsupported'))).toBeVisible();
+    // Without a subscription, the test button's endpoint says so.
+    const res = await page.evaluate(async () => (await fetch('/api/push/test', { method: 'POST', headers: { 'X-Syre-Request': '1' } })).status);
+    expect(res).toBe(409);
+  });
+
   test('add a device from a signed-in browser, then revoke it: it is signed out at once', async ({
     page,
   }) => {

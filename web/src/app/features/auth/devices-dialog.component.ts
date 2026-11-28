@@ -1,3 +1,4 @@
+import { PushSettingsComponent } from './push-settings.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -38,7 +39,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
   selector: 'sy-devices-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, ModalDialogComponent],
+  imports: [FormsModule, IconComponent, ModalDialogComponent, PushSettingsComponent],
   template: `
     <app-modal-dialog
       labelledBy="devices-title"
@@ -70,6 +71,7 @@ export type DevicesView = 'list' | 'add' | 'mcp';
                 Authentication is off (--no-auth): anyone who can reach this hub is signed in.
               </p>
             }
+            <sy-push-settings />
             <div class="flex flex-wrap gap-2 mb-4">
               <button
                 type="button"

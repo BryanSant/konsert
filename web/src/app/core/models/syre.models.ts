@@ -1218,3 +1218,10 @@ export interface PlacementLogEntry {
     known?: boolean;
   };
 }
+
+/** A device's Web Push choices (SYR-Z15J6): categories switched off, quiet hours. */
+export interface PushPrefs {
+  off?: ('waiting' | 'question' | 'failed' | 'completed')[];
+  quiet?: { start: string; end: string; days?: string[] };
+  time_zone?: string;
+}

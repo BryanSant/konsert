@@ -110,12 +110,20 @@ describe('SyreSocketService', () => {
       ]);
     });
 
+    it('reports presence when the socket opens (SYR-Z15J6)', () => {
+      socket.connect();
+      const ws = FakeWebSocket.last;
+      ws.open();
+      const presence = ws.sent.map((m) => (typeof m === 'string' ? JSON.parse(m) : null)).find((m) => m?.type === 'presence');
+      expect(presence?.payload).toEqual({ visible: expect.any(Boolean), focused: expect.any(Boolean) });
+    });
+
     it('encodes stdin as a binary frame', () => {
       socket.connect();
       const ws = FakeWebSocket.last;
       ws.open();
       socket.sendPtyStdin('t1', 'ls\r');
-      const sent = new Uint8Array(ws.sent[0] as ArrayBuffer);
+      const sent = new Uint8Array(ws.sent[ws.sent.length - 1] as ArrayBuffer); // after the presence report
       expect(sent[0]).toBe(FRAME_PTY_STDIN);
       expect(new TextDecoder().decode(sent.subarray(1, 3))).toBe('t1');
       expect(new TextDecoder().decode(sent.subarray(FRAME_HEADER_SIZE))).toBe('ls\r');

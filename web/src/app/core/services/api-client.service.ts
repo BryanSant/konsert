@@ -43,7 +43,7 @@ import {
   TicketRollup,
   WakeLockStatus,
   Worker,
-  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult, MachinePolicy, PlacementLogEntry } from '../models/syre.models';
+  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult, MachinePolicy, PlacementLogEntry, PushPrefs } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -319,6 +319,27 @@ export class ApiClientService {
       method: 'POST',
       body: JSON.stringify({ pid, started_at: startedAt ?? '0001-01-01T00:00:00Z' }),
     });
+  }
+
+  /** Web Push: the hub's VAPID key and this device's subscriptions and prefs (SYR-Z15J6). */
+  getPushConfig(): Promise<{ public_key: string; endpoints: string[]; prefs: PushPrefs }> {
+    return this.request('/api/push');
+  }
+
+  addPushSubscription(sub: PushSubscriptionJSON, prefs?: PushPrefs): Promise<{ ok: boolean }> {
+    return this.request('/api/push/subscriptions', { method: 'POST', body: JSON.stringify({ ...sub, prefs }) });
+  }
+
+  removePushSubscription(endpoint: string): Promise<{ ok: boolean }> {
+    return this.request('/api/push/subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint }) });
+  }
+
+  setPushPrefs(prefs: PushPrefs): Promise<{ ok: boolean; prefs: PushPrefs }> {
+    return this.request('/api/push/prefs', { method: 'PUT', body: JSON.stringify(prefs) });
+  }
+
+  sendTestPush(): Promise<{ sent: number; subscriptions: number }> {
+    return this.request('/api/push/test', { method: 'POST', body: '{}' });
   }
 
   /** Placement log entries for a subject ("task:<id>"), newest first. */

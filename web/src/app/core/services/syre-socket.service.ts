@@ -192,6 +192,7 @@ export class SyreSocketService {
         void this.controlStore.load();
         void this.questionsStore.load();
       }
+      this.reportPresence();
       // A new socket starts with no subscriptions: re-subscribe the active chat session.
       this.subscribedChats.clear();
       this.syncChatSubscriptions();
@@ -470,6 +471,24 @@ export class SyreSocketService {
   }
 
   /** Writes one JSON frame (used by ChatTransportService); false when not delivered. */
+  private presenceHooked = false;
+
+  /**
+   * Tells the hub whether this page is visible and focused: such a device shows alerts
+   * itself and gets no Web Push (SYR-Z15J6). Sent on connect and when either changes.
+   */
+  private reportPresence(): void {
+    if (typeof document === 'undefined') return;
+    const send = () => this.sendFrame('presence', { visible: !document.hidden, focused: document.hasFocus() });
+    if (!this.presenceHooked) {
+      this.presenceHooked = true;
+      document.addEventListener('visibilitychange', send);
+      window.addEventListener('focus', send);
+      window.addEventListener('blur', send);
+    }
+    send();
+  }
+
   sendFrame(type: string, payload: unknown): boolean {
     return this.sendJSON(type, payload);
   }
