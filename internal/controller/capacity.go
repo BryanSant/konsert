@@ -93,16 +93,7 @@ func (h *Hub) sessionEstimate(ctx context.Context, taskID, subject, class string
 			a = rows[len(rows)-1]
 		}
 		e.key = cmpOr(task.WorkKey, h.workKeyFor(ctx, a, task))
-		if profiles, err := h.store.ListWorkProfiles(ctx, e.key); err == nil {
-			var own, any uint64
-			for _, p := range profiles {
-				if p.MachineClass == class {
-					own = p.PeakRSSMaxMB
-				}
-				any = max(any, p.PeakRSSMaxMB)
-			}
-			e.peak = cmp.Or(own, any)
-		}
+		e.peak = h.expectedPeak(ctx, e.key, class)
 	}
 	h.estimates.mu.Lock()
 	if h.estimates.m == nil || len(h.estimates.m) > 4096 {
@@ -111,4 +102,24 @@ func (h *Hub) sessionEstimate(ctx context.Context, taskID, subject, class string
 	h.estimates.m[ck] = e
 	h.estimates.mu.Unlock()
 	return e.key, e.peak
+}
+
+// expectedPeak is the memory work of key is expected to peak at: its profile's highest
+// peak on the machine class, else on any class ("" class: any); 0 when unknown.
+func (h *Hub) expectedPeak(ctx context.Context, key, class string) uint64 {
+	if key == "" || h.store == nil {
+		return 0
+	}
+	profiles, err := h.store.ListWorkProfiles(ctx, key)
+	if err != nil {
+		return 0
+	}
+	var own, any uint64
+	for _, p := range profiles {
+		if class != "" && p.MachineClass == class {
+			own = p.PeakRSSMaxMB
+		}
+		any = max(any, p.PeakRSSMaxMB)
+	}
+	return cmp.Or(own, any)
 }

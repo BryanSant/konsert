@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
@@ -219,7 +220,17 @@ func (s *Server) handleListProjectRepos(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repos": list})
+	// Each repo with the machines that have a checkout of it (SYR-WCH0N).
+	type repoView struct {
+		store.Repo `json:",inline"`
+		Checkouts  []MachineCheckout `json:"checkouts,omitempty"`
+	}
+	byRepo, _ := s.hub.checkoutsByRepo(r.Context())
+	views := make([]repoView, 0, len(list))
+	for _, repo := range list {
+		views = append(views, repoView{Repo: repo, Checkouts: byRepo[gitutil.NormalizeRemoteURL(repo.RemoteURL)]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": views})
 }
 
 func (s *Server) handleCreateProjectRepo(w http.ResponseWriter, r *http.Request) {

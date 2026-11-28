@@ -224,6 +224,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/projects/{id}/autopilot", s.requireBrowserAuth(s.byRef(ids.Project, s.handleGetProjectAutopilot)))
 	s.mux.Handle("POST /api/projects/{id}/autopilot", s.requireBrowserAuth(s.byRef(ids.Project, s.handleSetProjectAutopilot)))
 	s.mux.Handle("GET /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleListProjectRepos)))
+	s.mux.Handle("GET /api/checkouts", s.requireBrowserAuth(http.HandlerFunc(s.handleListCheckouts)))
 	s.mux.Handle("POST /api/projects/{id}/repos", s.requireBrowserAuth(s.byRef(ids.Project, s.handleCreateProjectRepo)))
 	s.mux.Handle("PATCH /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleUpdateProjectRepo)))
 	s.mux.Handle("DELETE /api/projects/{id}/repos/{repoId}", s.requireBrowserAuth(s.byRef(ids.Project, s.handleDeleteProjectRepo)))

@@ -2,8 +2,11 @@ package controller
 
 import (
 	"context"
+	"net/http"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BryanSant/syre/internal/gitutil"
 	"github.com/BryanSant/syre/internal/protocol"
@@ -165,4 +168,73 @@ func (h *Hub) repoForPath(ctx context.Context, workerID, cwd string) (store.Repo
 		}
 	}
 	return bestRepo, matched
+}
+
+// MachineCheckout is one machine's checkout of a repo (SYR-WCH0N).
+type MachineCheckout struct {
+	WorkerID   string     `json:"worker_id"`
+	WorkerSID  string     `json:"worker_sid,omitempty"`
+	WorkerName string     `json:"worker_name"`
+	Status     string     `json:"status"`
+	Path       string     `json:"path"`
+	Branch     string     `json:"branch,omitempty"`
+	Head       string     `json:"head,omitempty"`
+	LastFetch  *time.Time `json:"last_fetch,omitzero"`
+}
+
+// RepoCheckouts is a repo (by normalized remote URL) and the machines with a checkout.
+type RepoCheckouts struct {
+	RemoteURL string            `json:"remote_url"`
+	Checkouts []MachineCheckout `json:"checkouts"`
+}
+
+// checkoutsByRepo groups every machine's reported checkouts by normalized remote URL;
+// within a repo, online machines come first, then by name.
+func (h *Hub) checkoutsByRepo(ctx context.Context) (map[string][]MachineCheckout, error) {
+	workers, err := h.store.ListWorkers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]MachineCheckout{}
+	for _, w := range workers {
+		status := w.Status
+		if status == "online" && !h.IsWorkerConnected(w.ID) {
+			status = "offline"
+		}
+		for _, co := range h.workerCheckouts(ctx, w.ID) {
+			out[co.RemoteURL] = append(out[co.RemoteURL], MachineCheckout{WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name,
+				Status: status, Path: co.Path, Branch: co.Branch, Head: co.Head, LastFetch: co.LastFetch})
+		}
+	}
+	for _, list := range out {
+		sort.Slice(list, func(i, j int) bool {
+			if (list[i].Status == "online") != (list[j].Status == "online") {
+				return list[i].Status == "online"
+			}
+			if list[i].WorkerName != list[j].WorkerName {
+				return list[i].WorkerName < list[j].WorkerName
+			}
+			return list[i].Path < list[j].Path
+		})
+	}
+	return out, nil
+}
+
+// handleListCheckouts serves GET /api/checkouts[?remote=<url>]: every repo's checkouts
+// across machines, or one repo's.
+func (s *Server) handleListCheckouts(w http.ResponseWriter, r *http.Request) {
+	byRepo, err := s.hub.checkoutsByRepo(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	only := gitutil.NormalizeRemoteURL(r.URL.Query().Get("remote"))
+	out := []RepoCheckouts{}
+	for url, list := range byRepo {
+		if only == "" || url == only {
+			out = append(out, RepoCheckouts{RemoteURL: url, Checkouts: list})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].RemoteURL < out[j].RemoteURL })
+	writeJSON(w, http.StatusOK, map[string]any{"repos": out})
 }
