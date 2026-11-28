@@ -447,6 +447,25 @@ func Announce(ev Evidence) {
 	}
 }
 
+// Members lists the live processes of every managed session, by the session's root
+// PID: what its container (cgroup scope, job object) or tracked process tree holds,
+// including descendants that left the root's process group or were reparented.
+func (g *Guard) Members() map[int][]int {
+	if g == nil {
+		return nil
+	}
+	g.mu.Lock()
+	sessions := slices.Clone(g.sessions)
+	g.mu.Unlock()
+	out := make(map[int][]int, len(sessions))
+	for _, s := range sessions {
+		if pids := g.plat.members(s); len(pids) > 0 {
+			out[s.pid] = pids
+		}
+	}
+	return out
+}
+
 // OwnerPeak is the peak memory of owner's live sessions, or of its most recently
 // released one; 0 when unknown.
 func (g *Guard) OwnerPeak(owner string) uint64 {

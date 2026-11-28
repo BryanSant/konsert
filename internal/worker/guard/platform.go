@@ -25,6 +25,9 @@ type platform interface {
 	// commit is the tree's committed memory now, where the OS has a commit limit
 	// (Windows); 0 elsewhere.
 	commit(s *Session) uint64
+	// members lists the tree's live processes (the root included), from the session's
+	// container where it has one (cgroup, job object), else its tracked process tree.
+	members(s *Session) []int
 	// peak is the tree's peak memory so far (0 unknown).
 	peak(s *Session) uint64
 	// background moves the tree to (or back from) background priority.

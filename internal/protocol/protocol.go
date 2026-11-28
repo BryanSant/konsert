@@ -346,6 +346,32 @@ type WorkerMetrics struct {
 	// IOAccelerator statistics, nvidia-smi on Linux); nil when unknown. Read on every
 	// heartbeat while sessions run, otherwise every 5 minutes.
 	GPUPercent *float64 `json:"gpu_percent,omitzero"`
+	// Load splits the machine's processes by session (from the process sampler,
+	// docs/plan.md Phase 6); nil until the first sample.
+	Load *MachineLoad `json:"load,omitzero"`
+}
+
+// MachineLoad is the machine's processes split by who runs them.
+type MachineLoad struct {
+	At time.Time `json:"at"`
+	// Sessions are the managed and observed sessions with processes, each with its
+	// whole process tree: helpers, builds, and processes that outlived their parent.
+	Sessions []SessionLoad `json:"sessions,omitempty"`
+}
+
+// SessionLoad is one session's processes in a sample. Exactly one of TaskID, ChatID
+// and ExternalID (an observed session) is set.
+type SessionLoad struct {
+	TaskID     string  `json:"task_id,omitempty"`
+	ChatID     string  `json:"chat_id,omitempty"`
+	ExternalID string  `json:"external_id,omitempty"`
+	CPUPercent float64 `json:"cpu_percent"` // 100 per fully used core
+	RSSMB      uint64  `json:"rss_mb"`
+	PeakRSSMB  uint64  `json:"peak_rss_mb"`
+	Procs      int     `json:"procs"`
+	// Orphans are processes kept by lineage: no longer under the session's tree (a
+	// build daemon, a dev server), or still running after the session ended.
+	Orphans int `json:"orphans,omitzero"`
 }
 
 // WorkerPortsPayload is a machine's listening TCP ports (worker.ports).

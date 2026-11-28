@@ -160,6 +160,8 @@ func (p *darwinPlat) kill(s *Session) error {
 // 12 GiB showed 921 MiB of RSS live and was called a bystander. phys_footprint counts
 // compressed and swapped pages, as Activity Monitor's "Memory" column does. ps RSS
 // covers processes whose footprint can't be read.
+func (p *darwinPlat) members(s *Session) []int { return treeOf(s).members(true) }
+
 func (p *darwinPlat) rss(s *Session) uint64 {
 	pids := treeOf(s).members(true)
 	var sum uint64

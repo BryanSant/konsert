@@ -170,6 +170,27 @@ func (winPlat) attach(s *Session, m Mode) {
 	}
 }
 
+func (winPlat) members(s *Session) []int {
+	ws := winOf(s)
+	job := ws.handle()
+	if job == 0 {
+		return []int{s.pid}
+	}
+	ws.adopt(false)
+	var out []int
+	for _, pid := range jobPIDs(job) {
+		out = append(out, int(pid))
+	}
+	ws.mu.Lock()
+	for pid, h := range ws.extras {
+		if alive(h) {
+			out = append(out, int(pid))
+		}
+	}
+	ws.mu.Unlock()
+	return out
+}
+
 func winOf(s *Session) *winSess {
 	ws, _ := s.plat.(*winSess)
 	return ws

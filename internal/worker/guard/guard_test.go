@@ -37,6 +37,7 @@ func (f *fakePlat) rss(s *Session) uint64 {
 	return 42 * mib
 }
 func (f *fakePlat) peak(*Session) uint64             { return 0 }
+func (f *fakePlat) members(s *Session) []int         { return []int{s.pid} }
 func (f *fakePlat) throttle(*Session, throttleState) {}
 func (f *fakePlat) selfProtect() []string            { return nil }
 func (f *fakePlat) commit(s *Session) uint64 {

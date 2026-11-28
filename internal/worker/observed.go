@@ -50,6 +50,7 @@ type observedState struct {
 	recStatus string    // status from the records
 	titled    bool      // Summary is the agent's title, not a prompt
 	live      bool      // a live process publishes the status
+	pid       int       // its process, when known
 	lastWrite time.Time // the transcript's mtime
 	emitted   bool
 	// edits are the paths of edit tool calls still running, by tool call id: a result
@@ -190,6 +191,7 @@ func (o *observedSessions) handle(u observe.Update) {
 		}
 	}
 	st.live = s.Live()
+	st.pid = s.PID
 	st.lastWrite = s.ModTime
 	switch {
 	case s.Status != "":
@@ -221,6 +223,19 @@ func (o *observedSessions) handle(u observe.Update) {
 	if !quiet {
 		o.emit(out)
 	}
+}
+
+// pids maps each observed session with a known process to it (external id → PID).
+func (o *observedSessions) pids() map[string]int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	out := map[string]int{}
+	for _, st := range o.st {
+		if st.live && st.pid > 0 {
+			out[st.p.ExternalID] = st.pid
+		}
+	}
+	return out
 }
 
 // recordStatusAt ages a status that comes from the records alone.

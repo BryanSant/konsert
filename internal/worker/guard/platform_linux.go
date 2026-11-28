@@ -384,6 +384,37 @@ func (ls *linuxSess) path() string {
 	return ls.cgroup
 }
 
+func (p *linuxPlat) members(s *Session) []int {
+	ls := sessOf(s)
+	if cg := ls.path(); cg != "" {
+		if pids := cgroupPIDs(cg); len(pids) > 0 {
+			return pids
+		}
+	}
+	return ls.procTree().members(true)
+}
+
+// cgroupPIDs reads cgroup.procs of dir and every cgroup below it.
+func cgroupPIDs(dir string) []int {
+	var out []int
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		raw, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
+		if err != nil {
+			return nil
+		}
+		for f := range strings.FieldsSeq(string(raw)) {
+			if pid, err := strconv.Atoi(f); err == nil && pid > 0 {
+				out = append(out, pid)
+			}
+		}
+		return nil
+	})
+	return out
+}
+
 func sessOf(s *Session) *linuxSess {
 	ls, _ := s.plat.(*linuxSess)
 	return ls

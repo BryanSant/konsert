@@ -28,6 +28,7 @@ import (
 	"github.com/BryanSant/syre/internal/worker/drivers"
 	"github.com/BryanSant/syre/internal/worker/guard"
 	"github.com/BryanSant/syre/internal/worker/observe"
+	"github.com/BryanSant/syre/internal/worker/procs"
 	"github.com/BryanSant/syre/internal/worker/shells"
 	"github.com/BryanSant/syre/internal/worker/spool"
 	"github.com/coder/websocket"
@@ -90,6 +91,12 @@ type Daemon struct {
 	// lastMetrics are the vitals of the last heartbeat: load and free memory for the
 	// policy check at admission.
 	lastMetrics atomic.Pointer[protocol.WorkerMetrics]
+
+	// Process sampling and attribution (load.go).
+	loadOnce sync.Once
+	sampler  *procs.Sampler
+	attrib   *procs.Attributor
+	load     atomic.Pointer[protocol.MachineLoad]
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
@@ -757,6 +764,8 @@ func (d *Daemon) serveConn(daemonCtx, connParent context.Context, conn *websocke
 
 	// Shells under hosted sessions, from the process tree (~1 s).
 	go d.shellLoop(connCtx)
+	// Every process attributed to its session (5 s while sessions run, 30 s idle).
+	go d.loadLoop(connCtx)
 
 	// Read loop
 	for {
@@ -814,6 +823,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context, kick <-chan struct{}, maxIdl
 		if ctx.Err() != nil {
 			return
 		}
+		m.Load = d.load.Load()
 		d.lastMetrics.Store(m)
 		d.sendJSON(protocol.MsgWorkerHeartbeat, protocol.WorkerHeartbeatPayload{
 			ActiveTaskIDs: ids,

@@ -581,7 +581,12 @@ Built alongside 5a (open requests are questions with an action attached).
 ### Phase 6: Processes and load (Visibility II)
 
 - Daemon process sampler (done, SYR-7AK2A: `internal/worker/procs`). It reads `/proc/<pid>/stat` on Linux, `kern.proc.all` plus `proc_pid_rusage` on macOS, and one `NtQuerySystemInformation(SystemProcessInformation)` call on Windows. For each process it records parent, name, start time, cumulative CPU and memory: RSS on Linux, physical footprint on macOS, working set on Windows. CPU% comes from the delta between samples, keyed by PID and start time. It samples every 5 s while work runs and every 30 s idle. On macOS, other users' processes come back without CPU and memory unless syred runs as root. Measured cost per sample at the 5 s interval: 0.1% of one core on macOS (768 processes), 0.22% on Linux (659), 0.016% on Windows (171). The daemon starts it with its first consumer (attribution, SYR-G1JPX).
-- Attribution: managed sessions by process group / job object; observed sessions by descendant tree of the agent process, keeping orphaned descendants attributed by start-time lineage until they exit.
+- Attribution (done, SYR-G1JPX: `procs.Attributor`, `worker/load.go`). The daemon runs the sampler and splits each sample among sessions:
+  - each session owns its root process, its descendants and, for managed sessions, what its guardrail container holds (`Guard.Members`: the cgroup scope's `cgroup.procs` on Linux, the job object plus adopted escapees on Windows, the tracked tree on macOS), which catches double forks that left the tree between samples;
+  - managed sessions are listed before observed ones;
+  - a process keeps its session (by PID and start time) after its parent dies or its session ends, until it exits, and is counted as an orphan.
+
+  Per session: CPU%, RSS now and peak, process count and orphans. The result rides on the heartbeat as `WorkerMetrics.Load`.
 - Machine load split into agent load and other load, with top non-agent processes; input-idle time on interactive machines (macOS `IOHIDSystem` idle, Windows `GetLastInputInfo`, Linux logind `IdleHint`).
 - Store: `metric_samples` (machine and session, downsampled 1 min / 1 h, retention settings), session peaks on the task row.
 - Exit: a build started by an agent is attributed to it; a build started by hand counts as other load; history survives hub restarts.

@@ -127,6 +127,26 @@ func (s *SessionDiscovery) Resync() {
 	}
 }
 
+// observedPIDs maps every observed session with a known agent process to it: passive
+// ones (pid-<n>) and transcript ones whose agent publishes its PID.
+func (s *SessionDiscovery) observedPIDs() map[string]int {
+	out := map[string]int{}
+	if s.observed != nil {
+		out = s.observed.pids()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, p := range s.activeExternal {
+		if p.Source != "passive" || p.Status == "done" {
+			continue
+		}
+		if pid, err := strconv.Atoi(strings.TrimPrefix(id, "pid-")); err == nil && pid > 0 {
+			out[id] = pid
+		}
+	}
+	return out
+}
+
 // PollObserved reads the agents' session stores once (see observedSessions).
 func (s *SessionDiscovery) PollObserved(ctx context.Context) {
 	if s.observed == nil || agentDiscoveryDisabled() {

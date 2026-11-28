@@ -10,6 +10,7 @@ import (
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/chat"
 	"github.com/BryanSant/syre/internal/worker/observe"
+	"github.com/BryanSant/syre/internal/worker/procs"
 )
 
 // TestLiveObservedClaude watches this machine's real claude accounts for
@@ -63,5 +64,50 @@ func TestLiveObservedClaude(t *testing.T) {
 		wall := time.Duration(n-3) * 2 * time.Second
 		t.Logf("first 3 polls %s; then %d polls: mean %s, slowest %s, CPU %s over %s (%.2f%%)",
 			first, n-3, total/time.Duration(n-3), worst, cpu, wall, 100*cpu.Seconds()/wall.Seconds())
+	}
+}
+
+// TestLiveAttribution attributes this machine's processes to its observed claude
+// sessions for SYRE_OBSERVE_LIVE_S seconds and logs each session's tree. Opt-in:
+// SYRE_OBSERVE_LIVE=1. Run a build from a claude session meanwhile.
+func TestLiveAttribution(t *testing.T) {
+	if os.Getenv("SYRE_OBSERVE_LIVE") != "1" {
+		t.Skip("set SYRE_OBSERVE_LIVE=1")
+	}
+	secs := 20
+	if v := os.Getenv("SYRE_OBSERVE_LIVE_S"); v != "" {
+		_, _ = fmt.Sscan(v, &secs)
+	}
+	dirs := claudeConfigDirs(chat.NewAccountRegistry(chat.AccountOptions{}))
+	o := newObservedSessions(observedConfig{ClaudeDirs: func() []observe.ClaudeDir { return dirs }, Procs: osProcTable(), Grace: -1},
+		func(protocol.ExternalSessionPayload) {})
+	s, a := procs.NewSampler(), procs.NewAttributor()
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	for time.Now().Before(deadline) {
+		o.Poll(context.Background())
+		smp, err := s.Sample()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var roots []procs.Root
+		for id, pid := range o.pids() {
+			roots = append(roots, procs.Root{Key: "observed:" + id, PID: pid})
+		}
+		names := map[int]string{}
+		for _, p := range smp.Procs {
+			names[p.PID] = p.Name
+		}
+		for _, u := range a.Attribute(smp, roots) {
+			var top []string
+			for _, pid := range u.PIDs {
+				top = append(top, names[pid])
+			}
+			if len(top) > 8 {
+				top = append(top[:8], "…")
+			}
+			t.Logf("%s %-46s cpu %6.1f%% rss %5d MiB peak %5d procs %3d orphans %d %v",
+				time.Now().Format("15:04:05"), u.Key, u.CPUPercent, u.RSS>>20, u.PeakRSS>>20, u.Procs, u.Orphans, top)
+		}
+		time.Sleep(procs.BusyInterval)
 	}
 }
