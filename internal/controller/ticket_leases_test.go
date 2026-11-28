@@ -238,7 +238,7 @@ func TestTicketHeartbeatRenewalAndStatusTransitions(t *testing.T) {
 		ChatID: open2.ChatID,
 		Seq:    1,
 		Kind:   protocol.EventError,
-		Error:  &protocol.AgentChatError{Kind: protocol.ErrKindAuth, Message: "token expired"},
+		Error:  &protocol.AgentChatError{Kind: protocol.ErrKindExit, Message: "agent exited"},
 	})
 	waitFor(t, 2*time.Second, "ticket failed", func() bool {
 		cur, err := th.st.GetTicket(ctx, tkFail.ID)

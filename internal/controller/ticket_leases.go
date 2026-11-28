@@ -252,6 +252,8 @@ func (h *Hub) ticketWorkerSelector(ctx context.Context, tk store.Ticket) WorkerS
 		sel.MinRAMMB = uint64(tk.Hints.MinRAMGB) * 1024
 	}
 	sel.GPU = tk.Hints.GPU
+	// A run that ran out of memory, disk or time asks for a larger machine (SYR-DNFEV).
+	h.largerClass(ctx, tk, &sel)
 	if len(tk.Hints.Tools) > 0 {
 		sel.RequiredTools = make(map[string]string, len(tk.Hints.Tools))
 		for _, tool := range tk.Hints.Tools {
@@ -1084,22 +1086,47 @@ func (h *Hub) syncTicketFromChatEvent(ctx context.Context, cs store.ChatSession,
 		if ev.Error != nil && ev.Error.ExitCode != nil {
 			errCode = *ev.Error.ExitCode
 		}
-		h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, "", &errCode, 0)
-		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusFailed); err == nil && changed {
+		// What failed decides what happens next (SYR-DNFEV): the classifier's category
+		// when the digest has one, else the error's kind.
+		category := ""
+		if mergedDig != nil && mergedDig.Failure != nil {
+			category = mergedDig.Failure.Category
+		}
+		if category == "" && ev.Error != nil {
+			category = ev.Error.Kind
+		}
+		if category == "" || category == protocol.ErrKindExit || category == protocol.ErrKindOther {
+			category = protocol.ErrKindAgentError
+		}
+		h.finishTicketAttempt(ctx, tk, cs, task, mergedDig, store.AttemptFailed, category, &errCode, 0)
+		next, note := h.retryOutcome(ctx, tk, category)
+		pulseKind := category
+		if next == store.TicketStatusFailed && pulseKind != protocol.ErrKindAgentError {
+			pulseKind = protocol.ErrKindAgentError
+		}
+		if updated, changed, err := h.store.ReleaseTicket(ctx, tk.ID, next); err == nil && changed {
 			h.broadcastFleetUpdate("ticket", updated)
-			h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
+			if next != store.TicketStatusReady {
+				h.pulseTicketTransition(ctx, updated, task, mergedDig, pulseKind)
+			}
 		} else if tk.Lease == nil {
-			tk.Status = store.TicketStatusFailed
+			tk.Status = next
 			if updated, uErr := h.store.UpdateTicket(ctx, tk); uErr == nil {
 				h.broadcastFleetUpdate("ticket", updated)
-				h.pulseTicketTransition(ctx, updated, task, mergedDig, protocol.ErrKindAgentError)
+				if next != store.TicketStatusReady {
+					h.pulseTicketTransition(ctx, updated, task, mergedDig, pulseKind)
+				}
 			}
 		}
+		if next == store.TicketStatusReady {
+			h.logger.Info("ticket run failed; retrying", "ticket_id", tk.ID, "ticket_sid", tk.SID, "category", category)
+			h.kickScheduler()
+		}
 		if task != nil {
-			msg := ""
+			msg := note
 			var code *int
 			if ev.Error != nil {
-				msg = ev.Error.Message
+				msg = strings.TrimSpace(ev.Error.Message + " " + note)
 				code = ev.Error.ExitCode
 			}
 			if code == nil {

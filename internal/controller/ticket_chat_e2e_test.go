@@ -253,9 +253,10 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	_ = cs.st.PutTicketRepoBinding(ctx, store.TicketRepoBinding{TicketID: tkErr.ID, RepoID: repo.ID})
 	cs.h.SchedulePending(ctx)
 
-	waitFor(t, 10*time.Second, "error ticket reaches failed with auth digest", func() bool {
+	// A login problem is the user's to fix, never retried: Needs you (SYR-DNFEV).
+	waitFor(t, 10*time.Second, "auth error ticket reaches needs_you with a digest", func() bool {
 		cur, err := cs.st.GetTicket(ctx, tkErr.ID)
-		if err != nil || cur.Status != store.TicketStatusFailed {
+		if err != nil || cur.Status != store.TicketStatusNeedsYou {
 			return false
 		}
 		tasks, _ := cs.st.ListTasksByTicket(ctx, tkErr.ID)
@@ -277,6 +278,11 @@ func TestTicketChatEndToEndWithMockEngine(t *testing.T) {
 	waitFor(t, 5*time.Second, "failed ticket chat closed on daemon", func() bool {
 		return len(chatsErr) > 0 && !isOpen(chatsErr[0].ID)
 	})
+
+	// The user deals with the login and drops the ticket: the project is done again.
+	if code, raw := cs.api(t, http.MethodPost, "/api/tickets/"+tkErr.ID+"/cancel", map[string]string{"note": "signed in again"}); code != http.StatusOK {
+		t.Fatalf("cancel auth ticket: %d %s", code, raw)
+	}
 
 	// 4. Elicitation ("ask") -> ticket needs_you, answered -> running -> review.
 	waitFor(t, 3*time.Second, "autopilot auto-off after tkErr", func() bool {

@@ -60,6 +60,9 @@ type SettingsUpdate struct {
 	// set over REST only: settingsUpdateFromMap (the MCP path) does not know it, so an
 	// agent cannot turn on its own approvals.
 	OverrideSelfApprove *bool `json:"override_self_approve"`
+	// RetryLimit is how many times a ticket run that failed for a retryable reason
+	// (oom, disk_full, timeout, usage or rate limit) runs again (0-10; SYR-DNFEV).
+	RetryLimit *int `json:"retry_limit"`
 	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own
 	// machine; SYR-CNMDK).
 	CommanderWorkerID *string `json:"commander_worker_id"`
@@ -121,6 +124,12 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 
 	if u.DefaultAgent != nil {
 		updates["default_agent"] = strings.TrimSpace(*u.DefaultAgent)
+	}
+	if u.RetryLimit != nil {
+		if *u.RetryLimit < 0 || *u.RetryLimit > maxRetryLimitValue {
+			return errInvalidSettings{fmt.Errorf("retry_limit must be 0 to %d", maxRetryLimitValue)}
+		}
+		updates[retryLimitSetting] = strconv.Itoa(*u.RetryLimit)
 	}
 	if u.WorkspaceFolder != nil {
 		f, err := normalizeWorkspaceFolder(*u.WorkspaceFolder)

@@ -800,6 +800,8 @@ type settingsResponse struct {
 	AutopilotGlobal bool `json:"autopilot_global"`
 	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own).
 	CommanderWorkerID string `json:"commander_worker_id"`
+	// RetryLimit is how many times a ticket run failing for a retryable reason runs again.
+	RetryLimit int `json:"retry_limit"`
 	// WorkspaceFolder is the fleet workspace folder as stored ("" until the user picks one).
 	WorkspaceFolder string `json:"workspace_folder"`
 	// CommanderPolicyWrites is tighten (default), confirm, or none.
@@ -841,6 +843,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		DefaultModel:          saved["default_model"],
 		CommanderWorkerID:     saved[commanderWorkerSetting],
 		WorkspaceFolder:       saved[workspaceFolderSetting],
+		RetryLimit:            s.hub.retryLimit(ctx),
 		LastUsedMachine:       saved["last_used_machine"],
 		LastUsedAgent:         saved["last_used_agent"],
 		LastUsedModel:         saved["last_used_model"],

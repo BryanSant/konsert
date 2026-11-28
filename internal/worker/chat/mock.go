@@ -539,6 +539,12 @@ func (s *mockSession) run(ctx context.Context, p protocol.AgentChatPrompt) {
 		}})
 		s.doneOnce.Do(func() { close(s.done) })
 
+	case strings.Contains(text, "fail oom"):
+		code := 137
+		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
+			Kind: protocol.ErrKindOOM, Message: "mock ran out of memory (keyword \"fail oom\")", ExitCode: &code,
+		}})
+
 	case strings.Contains(text, "fail auth"):
 		s.emitEv(protocol.AgentChatEvent{Kind: protocol.EventError, TurnID: turn, Error: &protocol.AgentChatError{
 			Kind: protocol.ErrKindAuth, Message: s.acct.Label + " needs you to sign in again (mock)",
