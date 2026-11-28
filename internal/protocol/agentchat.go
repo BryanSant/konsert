@@ -304,9 +304,14 @@ type AgentCredits struct {
 }
 
 type AgentRateLimit struct {
-	Window      string     `json:"window"`                // five_hour, seven_day, seven_day_opus, monthly, daily, ...
-	UsedPercent float64    `json:"used_percent,omitzero"` // 0-100
-	ResetsAt    *time.Time `json:"resets_at,omitzero"`
+	Window string `json:"window"` // five_hour, seven_day, seven_day_opus, monthly, daily, ...
+	// Label is the vendor's name for a bucket ("Gemini Models", "Other Models"); the
+	// UI shows it in place of the window's own name. WindowMinutes is the window's
+	// length when the vendor gives it.
+	Label         string     `json:"label,omitempty"`
+	WindowMinutes int        `json:"window_minutes,omitzero"`
+	UsedPercent   float64    `json:"used_percent,omitzero"` // 0-100
+	ResetsAt      *time.Time `json:"resets_at,omitzero"`
 	// State: ok, warning (approaching), exhausted (requests rejected until ResetsAt).
 	State string `json:"state,omitempty"`
 }

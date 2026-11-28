@@ -46,7 +46,7 @@ func NewACPEngine(agent string) (Engine, error) {
 	if !ok {
 		return nil, fmt.Errorf("acp: unknown agent %q", agent)
 	}
-	return &acpEngine{ad: ad, probes: map[string]*acpProbeEntry{}}, nil
+	return &acpEngine{ad: ad, probes: map[string]*acpProbeEntry{}, usages: map[string]*acpUsageEntry{}}, nil
 }
 
 type acpEngine struct {
@@ -54,6 +54,9 @@ type acpEngine struct {
 
 	probeMu sync.Mutex
 	probes  map[string]*acpProbeEntry
+
+	usageMu sync.Mutex
+	usages  map[string]*acpUsageEntry
 }
 
 func (e *acpEngine) Agent() string { return e.ad.Agent }

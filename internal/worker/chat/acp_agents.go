@@ -65,6 +65,10 @@ type acpAdapter struct {
 	sessionPaths func(home string, env map[string]string, sessionID, cwd string) []string
 	// statusCheck is an optional cheap CLI auth check (state, email, detail).
 	statusCheck func(ctx context.Context, acct Account) (state, email, detail string)
+	// usage is an optional plan-usage fetch (SYR-W1GXW): one vendor HTTP call or a short
+	// CLI run. It runs only for a signed-in account, on its own schedule (acpUsageTTL),
+	// apart from the heavy ACP handshake.
+	usage func(ctx context.Context, acct Account) acpUsage
 	// ForkMethod is the agent's own session-fork method when it doesn't advertise the
 	// standard session/fork (grok: _x.ai/session/fork {sourceSessionId, sourceCwd,
 	// newCwd} -> {newSessionId}).

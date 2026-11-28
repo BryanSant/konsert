@@ -34,3 +34,15 @@ func TestQuotasFromCapabilities(t *testing.T) {
 		t.Errorf("unexpected quota details: %+v", qs)
 	}
 }
+
+// A bucket's label names its quota (SYR-W1GXW).
+func TestQuotaWindowLabelPrefersBucketLabel(t *testing.T) {
+	rep := protocol.AgentCapabilitiesReport{Accounts: []protocol.AgentAccount{{ID: "cursor", Agent: "cursor", Usage: []protocol.AgentRateLimit{
+		{Window: "monthly_cursor_models", Label: "Cursor Models", UsedPercent: 30},
+		{Window: "five_hour", UsedPercent: 10},
+	}}}}
+	q := quotasFromCapabilities(rep, "w1")
+	if len(q) != 2 || q[0].WindowLabel != "Cursor Models" || q[1].WindowLabel != "5h" {
+		t.Fatalf("%+v", q)
+	}
+}

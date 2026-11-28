@@ -55,7 +55,7 @@ func (e *acpEngine) Probe(ctx context.Context, acct Account) protocol.AgentAccou
 	ent.mu.Lock()
 	defer ent.mu.Unlock()
 	if !ent.at.IsZero() && time.Since(ent.at) < acpProbeTTL {
-		return ent.res
+		return e.withUsage(ctx, acct, key, ent.res)
 	}
 	res := e.probe(ctx, acct)
 	// Only healthy results are cached: a logged-out or failing account is re-probed on the
@@ -65,7 +65,7 @@ func (e *acpEngine) Probe(ctx context.Context, acct Account) protocol.AgentAccou
 	} else {
 		ent.at = time.Time{}
 	}
-	return res
+	return e.withUsage(ctx, acct, key, res)
 }
 
 func (e *acpEngine) baseAccount(acct Account) protocol.AgentAccount {

@@ -35,7 +35,7 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
   if (health === 'logged_out') return 'Signed out';
   const w = bindingWindow(a.usage);
   if (!w) return a.usage_note ? `Not available: ${a.usage_note}` : 'No usage reported';
-  const name = windowName(w.window);
+  const name = w.label || windowName(w.window);
   const reset = formatResetTime(w.resets_at, now);
   if (isExhausted(w)) return `Exhausted until ${reset || 'reset'}${name ? ` (${name})` : ''}`;
   return `${usedPercent(a)}% of ${name || 'usage'}${reset ? ` · resets ${reset}` : ''}`;
@@ -129,7 +129,7 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
               <div class="mt-1.5 ml-[22px] space-y-1">
                 @for (w of r.windows; track w.window) {
                   <div class="flex items-center gap-2 text-[11px] text-[var(--sy-text-muted)]">
-                    <span class="w-[86px] shrink-0">{{ windowLabel(w.window) }}</span>
+                    <span class="w-[86px] shrink-0 truncate" [syTooltip]="w.label ?? ''">{{ w.label || windowLabel(w.window) }}</span>
                     <span class="h-1 flex-1 rounded-full bg-white/10 overflow-hidden">
                       <span
                         class="block h-full rounded-full"

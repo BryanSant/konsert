@@ -118,6 +118,9 @@ export interface AgentRateLimit {
   resets_at?: string;
   /** ok, warning, exhausted */
   state?: 'ok' | 'warning' | 'exhausted' | (string & {});
+  /** The vendor's name for a bucket ("Gemini Models"); shown in place of the window's name. */
+  label?: string;
+  window_minutes?: number;
 }
 
 export type AgentErrorKind =

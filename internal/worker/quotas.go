@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func quotasFromCapabilities(rep protocol.AgentCapabilitiesReport, workerID strin
 			out = append(out, protocol.SubscriptionQuota{
 				Provider:    a.ID,
 				Label:       a.Label,
-				WindowLabel: windowLabel(u.Window),
+				WindowLabel: cmp.Or(u.Label, windowLabel(u.Window)),
 				UsedPercent: pct,
 				ResetAt:     u.ResetsAt,
 				Source:      "probe",
