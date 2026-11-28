@@ -75,21 +75,22 @@ func TestIntegrationCommand(t *testing.T) {
 
 func TestFishCommand(t *testing.T) {
 	in := Integration{Dir: "/d", Nonce: "n"}
+	src := "source " + fishQuote(filepath.Join("/d", "syre.fish"))
 	// fish 3 (or a version we can't read): no feature flags.
 	fishVersions.Store("/usr/bin/fish", 3)
 	args, env, ok := in.Command("/usr/bin/fish", "")
-	if !ok || !slices.Equal(args, []string{"-l", "-i", "--init-command", "source '/d/syre.fish'"}) || !slices.Contains(env, NonceEnv+"=n") {
+	if !ok || !slices.Equal(args, []string{"-l", "-i", "--init-command", src}) || !slices.Contains(env, NonceEnv+"=n") {
 		t.Fatalf("fish 3: %q %v %v", args, env, ok)
 	}
 	// fish 4 marks prompts itself, before our hooks run: that is turned off.
 	fishVersions.Store("/opt/fish4/fish", 4)
 	args, _, _ = in.Command("/opt/fish4/fish", "")
-	if !slices.Equal(args, []string{"--features", "no-mark-prompt", "-l", "-i", "--init-command", "source '/d/syre.fish'"}) {
+	if !slices.Equal(args, []string{"--features", "no-mark-prompt", "-l", "-i", "--init-command", src}) {
 		t.Fatalf("fish 4: %q", args)
 	}
 	// A prompt runs first, then the integrated shell.
 	args, _, _ = in.Command("/opt/fish4/fish", "codex login")
-	want := "codex login\nexec '/opt/fish4/fish' '--features' 'no-mark-prompt' '-l' '-i' '--init-command' 'source \\'/d/syre.fish\\''"
+	want := "codex login\nexec '/opt/fish4/fish' '--features' 'no-mark-prompt' '-l' '-i' '--init-command' " + fishQuote(src)
 	if len(args) != 5 || args[2] != "-l" || args[3] != "-c" || args[4] != want {
 		t.Fatalf("fish with prompt: %q", args)
 	}
