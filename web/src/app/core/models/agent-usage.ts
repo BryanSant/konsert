@@ -154,8 +154,35 @@ export function windowResetText(w: AgentRateLimit, now = new Date()): string {
 
 /** "as of 9:42 PM" when the account's numbers are older than 10 minutes, else ''. */
 export function usageAsOf(a: Pick<AgentAccount, 'checked_at' | 'usage'>, now = new Date()): string {
-  if (!a.usage?.length || !a.checked_at) return '';
-  const t = new Date(a.checked_at);
+  if (!a.usage?.length) return '';
+  // The oldest reading decides: a window last seen in a chat an hour ago is an hour old,
+  // however recently the account was probed (SYR-BA6HV).
+  const seen = a.usage.map((w) => w.observed_at).filter((x): x is string => !!x).sort()[0] ?? a.checked_at;
+  if (!seen) return '';
+  const t = new Date(seen);
   if (isNaN(t.getTime()) || now.getTime() - t.getTime() < 10 * 60_000) return '';
   return `as of ${t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+/**
+ * How the account is billed (SYR-BA6HV): its plan when known, "Subscription
+ * (long-lived token)" for a CLAUDE_CODE_OAUTH_TOKEN account, "API billing" for an API key.
+ */
+export function billingLabel(a: Pick<AgentAccount, 'plan' | 'auth'>): string {
+  if (a.plan) return a.plan[0].toUpperCase() + a.plan.slice(1);
+  switch (a.auth?.method) {
+    case 'setup_token':
+      return 'Subscription (long-lived token)';
+    case 'api_key':
+      return 'API billing';
+  }
+  return '';
+}
+
+/** "$0.75 today · $12.40 this month" for an API-key account. */
+export function spendText(a: Pick<AgentAccount, 'spend'>): string {
+  const s = a.spend;
+  if (!s) return '';
+  const usd = (n: number) => (n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`);
+  return `${usd(s.today_usd)} today · ${usd(s.month_usd)} this month`;
 }

@@ -108,6 +108,8 @@ type Hub struct {
 	shedCooldown shedCooldowns
 	// people caches detected display names by login (people.go).
 	people peopleNames
+	// spend caches API-key accounts' cost (account_spend.go).
+	spend spendCache
 	// estimates caches running sessions' work keys and expected peaks (capacity.go).
 	estimates estimateCache
 	// trackers syncs external trackers into the work model (tracker_api.go).

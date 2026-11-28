@@ -314,6 +314,9 @@ type AgentRateLimit struct {
 	ResetsAt      *time.Time `json:"resets_at,omitzero"`
 	// State: ok, warning (approaching), exhausted (requests rejected until ResetsAt).
 	State string `json:"state,omitempty"`
+	// ObservedAt is when the numbers were read (a fetch, or a session's in-stream
+	// report), so a stale snapshot says how old it is (SYR-BA6HV).
+	ObservedAt *time.Time `json:"observed_at,omitzero"`
 }
 
 // Error kinds (AgentChatError.Kind and RunDigest.Failure.Category).

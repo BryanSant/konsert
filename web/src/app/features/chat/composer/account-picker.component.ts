@@ -2,9 +2,11 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 import { AgentAccount } from '../../../core/models/agent-chat.models';
 import {
   accountHealth,
+  billingLabel,
   bindingWindow,
   formatResetTime,
   outOfUsageText,
+  spendText,
   usedPercent,
   windowName,
 } from '../../../core/models/agent-usage';
@@ -27,8 +29,10 @@ export function accountStateLine(a: AgentAccount, now = new Date()): string {
     const reset = formatResetTime(w.resets_at, now);
     return `${pct}% of ${name || 'usage'} used${reset ? ` · resets ${reset}` : ''}`;
   }
+  if (a.spend) return `API billing · ${spendText(a)}`;
   if (a.usage_note) return `Usage not available: ${a.usage_note}`;
-  return a.plan ? `${capitalize(a.plan)} plan` : 'Signed in';
+  if (a.plan) return `${capitalize(a.plan)} plan`;
+  return billingLabel(a) || 'Signed in';
 }
 
 function capitalize(s: string): string {

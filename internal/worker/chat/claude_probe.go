@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,9 @@ type claudeUsageEntry struct {
 	fetchedAt time.Time
 	limits    []protocol.AgentRateLimit
 	note      string
+	// blockedUntil holds off the usage endpoint after a 429 (its Retry-After) or a
+	// 403 (the token cannot read usage): polling again only renews the limit.
+	blockedUntil time.Time
 
 	stream   map[string]protocol.AgentRateLimit
 	streamAt map[string]time.Time
@@ -84,6 +88,9 @@ func (e *claudeEngine) Probe(ctx context.Context, acct Account) protocol.AgentAc
 	}
 
 	auth := e.authStatus(ctx, acct)
+	if auth.State == protocol.AuthOK {
+		auth.Method = claudeAuthMode(auth.Method, acct)
+	}
 	out.Auth = auth.AgentAuthStatus
 	out.Plan = auth.plan
 
@@ -104,6 +111,11 @@ func (e *claudeEngine) Probe(ctx context.Context, acct Account) protocol.AgentAc
 
 	if auth.State != protocol.AuthOK {
 		out.UsageNote = "Sign in to see usage."
+		return out
+	}
+	if auth.Method == "api_key" {
+		// Pay per token: no subscription windows; the hub shows what chats spent.
+		out.UsageNote = "API billing: pay per token, no subscription windows."
 		return out
 	}
 	out.Usage, out.UsageNote = e.usage(ctx, acct, usage)
@@ -318,6 +330,9 @@ func (e *claudeEngine) usageDue(acctID string) bool {
 	e.usageMu.Lock()
 	defer e.usageMu.Unlock()
 	ent, ok := e.usageCache[acctID]
+	if ok && e.now().Before(ent.blockedUntil) {
+		return false
+	}
 	return !ok || ent.fetchedAt.IsZero() || e.now().Sub(ent.fetchedAt) >= claudeUsageMinPeriod
 }
 
@@ -334,13 +349,23 @@ func (e *claudeEngine) usage(ctx context.Context, acct Account, fromCLI jsontext
 		if len(fromCLI) == 0 || err != nil {
 			limits, err = e.fetchUsage(ctx, acct)
 		}
+		var block *claudeUsageBlock
 		if err != nil {
 			note = "Usage unavailable (" + err.Error() + "); showing what chats report."
 			limits = nil
+			errors.As(err, &block)
 		}
 		e.usageMu.Lock()
 		ent := e.usageCache[acct.ID]
-		ent.fetchedAt, ent.limits, ent.note = e.now(), limits, note
+		if block != nil {
+			// Keep the last good numbers (they say how old they are) and wait it out.
+			ent.blockedUntil, ent.note = block.until, note
+			if ent.fetchedAt.IsZero() {
+				ent.fetchedAt = e.now()
+			}
+		} else {
+			ent.fetchedAt, ent.limits, ent.note = e.now(), limits, note
+		}
 		e.usageCache[acct.ID] = ent
 		e.usageMu.Unlock()
 	}
@@ -367,9 +392,14 @@ func (e *claudeEngine) usage(ctx context.Context, acct Account, fromCLI jsontext
 func claudeMergeLimits(ent claudeUsageEntry, now time.Time) []protocol.AgentRateLimit {
 	byWin := map[string]protocol.AgentRateLimit{}
 	var order []string
+	fetched := ent.fetchedAt
 	for _, l := range ent.limits {
 		if _, ok := byWin[l.Window]; !ok {
 			order = append(order, l.Window)
+		}
+		if l.ObservedAt == nil && !fetched.IsZero() {
+			at := fetched.UTC()
+			l.ObservedAt = &at
 		}
 		byWin[l.Window] = l
 	}
@@ -386,6 +416,10 @@ func claudeMergeLimits(ent claudeUsageEntry, now time.Time) []protocol.AgentRate
 		}
 		if !ok {
 			order = append(order, w)
+		}
+		if at := ent.streamAt[w]; !at.IsZero() {
+			at = at.UTC()
+			l.ObservedAt = &at
 		}
 		byWin[w] = l
 	}
@@ -531,9 +565,11 @@ func (e *claudeEngine) fetchUsage(ctx context.Context, acct Account) ([]protocol
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, errors.New("usage endpoint refused the token (401)")
 	case resp.StatusCode == http.StatusForbidden:
-		return nil, errors.New("the token lacks the scope for usage (403)")
+		return nil, &claudeUsageBlock{until: e.now().Add(claudeUsageScopeWait), reason: "the token cannot read usage (403)"}
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return nil, errors.New("usage endpoint rate-limited (429)")
+		wait := claudeRetryAfter(resp.Header.Get("Retry-After"), e.now())
+		until := e.now().Add(wait)
+		return nil, &claudeUsageBlock{until: until, reason: "usage endpoint rate-limited (429) until " + until.Local().Format("15:04")}
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("usage endpoint returned HTTP %d", resp.StatusCode)
 	}
@@ -585,4 +621,53 @@ func claudeTokenFromCredentials(data []byte) (string, error) {
 		return "", errors.New("credentials hold no OAuth access token")
 	}
 	return c.ClaudeAiOauth.AccessToken, nil
+}
+
+// claudeUsageScopeWait is how long a token that may not read usage (403) waits before
+// the endpoint is asked again.
+const claudeUsageScopeWait = 24 * time.Hour
+
+// claudeUsageBlock is a usage endpoint answer to wait out (429, 403).
+type claudeUsageBlock struct {
+	until  time.Time
+	reason string
+}
+
+func (b *claudeUsageBlock) Error() string { return b.reason }
+
+// claudeRetryAfter reads a Retry-After header (seconds or an HTTP date); 30 minutes
+// when absent or unreadable, at most a day.
+func claudeRetryAfter(v string, now time.Time) time.Duration {
+	const def, most = 30 * time.Minute, 24 * time.Hour
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return def
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+		return min(time.Duration(secs)*time.Second, most)
+	}
+	if t, err := http.ParseTime(v); err == nil && t.After(now) {
+		return min(t.Sub(now), most)
+	}
+	return def
+}
+
+// claudeAuthMode tells the three ways a Claude account authenticates (SYR-BA6HV):
+// "oauth" (an interactive subscription login), "setup_token" (a long-lived subscription
+// token, CLAUDE_CODE_OAUTH_TOKEN) and "api_key" (pay per token). The token prefix is
+// only checked locally, never logged or sent.
+func claudeAuthMode(reported string, acct Account) string {
+	if t := ccEnvValue(acct.Env, "CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
+		if strings.HasPrefix(t, "sk-ant-api") {
+			return "api_key" // an API key put in the token variable
+		}
+		return "setup_token"
+	}
+	if reported == "oauth" || reported == "setup_token" {
+		return reported
+	}
+	if ccEnvValue(acct.Env, "ANTHROPIC_API_KEY") != "" || reported == "api_key" {
+		return "api_key"
+	}
+	return reported
 }

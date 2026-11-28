@@ -9,6 +9,8 @@ import {
   usedPercent,
   windowName,
   usageAsOf,
+  billingLabel,
+  spendText,
   windowDisplayName,
   windowResetText,
 } from '../core/models/agent-usage';
@@ -102,8 +104,8 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
               <span class="flex-1 min-w-0">
                 <span class="block truncate text-[12.5px] font-medium text-[var(--sy-text)]">
                   {{ r.account.label }}
-                  @if (r.account.plan) {
-                    <span class="font-normal text-[var(--sy-text-muted)]" data-testid="usage-plan">· {{ planLabel(r.account.plan) }}</span>
+                  @if (billing(r.account); as b) {
+                    <span class="font-normal text-[var(--sy-text-muted)]" data-testid="usage-plan">· {{ b }}</span>
                   }
                   @if (multiHost()) {
                     <span class="font-normal text-[var(--sy-text-muted)]">· {{ r.host }}</span>
@@ -151,6 +153,9 @@ export function footerStateLine(a: AgentAccount, now = new Date()): string {
                   <div class="text-[10.5px] text-[var(--sy-text-muted)]" data-testid="usage-note">{{ r.account.usage_note }}</div>
                 }
               </div>
+            }
+            @if (spend(r.account); as sp) {
+              <div class="mt-1 ml-[22px] text-[11px] text-[var(--sy-text-muted)]" data-testid="usage-spend">Spent {{ sp }}</div>
             }
             @if (r.account.credits; as c) {
               <div class="mt-1 ml-[22px] text-[11px] text-[var(--sy-text-muted)]" data-testid="usage-credits">
@@ -230,6 +235,14 @@ export class FooterUsageComponent {
 
   planLabel(plan: string): string {
     return plan ? plan[0].toUpperCase() + plan.slice(1) : '';
+  }
+
+  billing(a: AgentAccount): string {
+    return billingLabel(a);
+  }
+
+  spend(a: AgentAccount): string {
+    return spendText(a);
   }
 
   displayName(w: AgentRateLimit): string {

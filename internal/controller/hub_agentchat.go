@@ -150,6 +150,8 @@ type AgentAccountView struct {
 	Exhausted       bool       `json:"exhausted"`
 	ExhaustedWindow string     `json:"exhausted_window,omitempty"`
 	ExhaustedUntil  *time.Time `json:"exhausted_until,omitzero"`
+	// Spend is what an API-key account's chats cost (no subscription windows; SYR-BA6HV).
+	Spend *AccountSpend `json:"spend,omitzero"`
 }
 
 // --- event emission -------------------------------------------------------------
@@ -482,6 +484,10 @@ func (h *Hub) agentAccountViews(ctx context.Context, workerID string) ([]AgentAc
 		}
 		if u, ok := exhaustedWindow(a, time.Now()); ok {
 			v.Exhausted, v.ExhaustedWindow, v.ExhaustedUntil = true, u.Window, u.ResetsAt
+		}
+		if a.Auth.Method == "api_key" {
+			sp := h.accountSpend(ctx, r.WorkerID, a.ID)
+			v.Spend = &sp
 		}
 		out = append(out, v)
 	}

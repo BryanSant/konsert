@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { claude2Account, claudeAccount, codexLoggedOut, cursorAccount, agyAccount, copilotAccount } from '../../../testing/agent-chat.fixtures';
-import {
-  accountHealth,
-  alternativeAccounts,
-  bindingWindow,
-  formatCountdown,
-  formatResetTime,
-  outOfUsageText,
-  usedPercent,
-  windowName, windowDisplayName, windowResetText, usageAsOf, isCycleWindow } from './agent-usage';
+import { accountHealth, alternativeAccounts, billingLabel, bindingWindow, formatCountdown, formatResetTime, isCycleWindow, outOfUsageText, spendText, usageAsOf, usedPercent, windowDisplayName, windowName, windowResetText } from './agent-usage';
 
 describe('agent usage helpers', () => {
   it('names windows', () => {
@@ -86,5 +78,32 @@ describe('agent usage helpers', () => {
     expect(usageAsOf(copilot, new Date('2026-11-28T05:05:00Z'))).toBe('');
     expect(usageAsOf(copilot, now)).toMatch(/^as of /);
     expect(usageAsOf({ checked_at: '2026-11-28T05:00:00Z', usage: [] }, now)).toBe('');
+  });
+});
+
+describe('billing (SYR-BA6HV)', () => {
+  it('labels the three Claude modes; a token account is never API billing', () => {
+    expect(billingLabel({ plan: 'max', auth: { state: 'ok', method: 'oauth' } })).toBe('Max');
+    expect(billingLabel({ plan: '', auth: { state: 'ok', method: 'setup_token' } })).toBe('Subscription (long-lived token)');
+    expect(billingLabel({ auth: { state: 'ok', method: 'api_key' } })).toBe('API billing');
+    expect(billingLabel({ auth: { state: 'ok', method: 'oauth' } })).toBe('');
+  });
+
+  it('shows spend for API-key accounts', () => {
+    expect(spendText({ spend: { today_usd: 0.75, month_usd: 123.4 } })).toBe('$0.75 today · $123 this month');
+    expect(spendText({})).toBe('');
+  });
+
+  it('dates usage by its oldest reading, not the last probe', () => {
+    const now = new Date('2026-11-27T12:00:00Z');
+    const a = {
+      checked_at: '2026-11-27T11:59:00Z',
+      usage: [
+        { window: 'five_hour', used_percent: 21, observed_at: '2026-11-27T10:30:00Z' },
+        { window: 'seven_day', used_percent: 23, observed_at: '2026-11-27T11:00:00Z' },
+      ],
+    };
+    expect(usageAsOf(a, now)).toContain('as of');
+    expect(usageAsOf({ ...a, usage: a.usage.map((w) => ({ ...w, observed_at: '2026-11-27T11:58:00Z' })) }, now)).toBe('');
   });
 });

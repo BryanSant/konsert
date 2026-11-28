@@ -121,6 +121,8 @@ export interface AgentRateLimit {
   /** The vendor's name for a bucket ("Gemini Models"); shown in place of the window's name. */
   label?: string;
   window_minutes?: number;
+  /** When the numbers were read (a fetch or a session's report). */
+  observed_at?: string;
 }
 
 export type AgentErrorKind =
@@ -180,6 +182,8 @@ export interface AgentAccount {
   chat_supported: boolean;
   /** The plan's prepaid credit balance, when it has one (codex). */
   credits?: { balance?: string; unlimited?: boolean };
+  /** An API-key account's cost so far (no subscription windows; SYR-BA6HV). */
+  spend?: { today_usd: number; month_usd: number; as_of?: string };
 }
 
 export interface AgentAuthStatus {
