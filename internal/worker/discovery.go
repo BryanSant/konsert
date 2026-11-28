@@ -358,17 +358,23 @@ func passiveAgent(name string, argv func() []string) string {
 		// ~/.local/share/claude/versions/2.1.332): the OS names the process by the file,
 		// argv[0] by the command the user typed.
 		if a := argv(); len(a) > 0 {
-			if agent, ok := passiveAgentBinaries[strings.TrimSuffix(strings.ToLower(filepath.Base(strings.ReplaceAll(a[0], `\`, "/"))), ".exe")]; ok {
+			if agent, ok := passiveAgentBinaries[argv0Name(a)]; ok {
 				return agent
 			}
 		}
 		return ""
 	}
-	// Recent node names its main thread, and so the process on Linux: "node-MainThread".
-	if rt != "node" && rt != "bun" && !strings.HasPrefix(rt, "node-") {
+	// Recent node names its main thread, and so the process on Linux: "node-MainThread";
+	// a single-executable app (copilot) shows just "MainThread", its argv[0] the command.
+	if rt != "node" && rt != "bun" && rt != "mainthread" && !strings.HasPrefix(rt, "node-") {
 		return ""
 	}
 	a := argv()
+	if len(a) > 0 {
+		if agent, ok := passiveAgentBinaries[argv0Name(a)]; ok {
+			return agent
+		}
+	}
 	for i := 0; i < len(a) && i < 3; i++ {
 		arg := strings.ToLower(strings.ReplaceAll(a[i], `\`, "/"))
 		for _, m := range passiveScriptAgents {
@@ -378,6 +384,15 @@ func passiveAgent(name string, argv func() []string) string {
 		}
 	}
 	return ""
+}
+
+// argv0Name is the command a process was started as: argv[0]'s base name, lower case,
+// without .exe.
+func argv0Name(a []string) string {
+	if len(a) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(filepath.Base(strings.ReplaceAll(a[0], `\`, "/"))), ".exe")
 }
 
 // versionName reports a process name that is a version ("2.1.332"): digits and dots.

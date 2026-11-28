@@ -37,6 +37,7 @@ func TestLiveObservedCodex(t *testing.T) {
 	o := newObservedSessions(observedConfig{
 		CodexDirs:   func() []observe.CodexDir { return codexHomes(nil) },
 		GrokDirs:    func() []observe.GrokDir { return grokHomes(nil) },
+		CopilotDirs: func() []observe.CopilotDir { return copilotHomes(nil) },
 		Procs:       osProcTable(),
 		OffsetsPath: filepath.Join(t.TempDir(), "offsets.json"),
 	}, func(p protocol.ExternalSessionPayload) {

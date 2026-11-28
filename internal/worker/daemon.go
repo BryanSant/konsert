@@ -290,6 +290,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			ClaudeDirs:  func() []observe.ClaudeDir { return observedClaudeDirs(d.accounts) },
 			CodexDirs:   func() []observe.CodexDir { return observedCodexDirs(d.accounts) },
 			GrokDirs:    func() []observe.GrokDir { return observedGrokDirs(d.accounts) },
+			CopilotDirs: func() []observe.CopilotDir { return observedCopilotDirs(d.accounts) },
 			Procs:       osProcTable(),
 			IsManaged:   func(pid int) bool { return pid == self || d.runner.IsManagedPID(pid) },
 			OffsetsPath: filepath.Join(d.stateDir(), "observed-offsets.json"),

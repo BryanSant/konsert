@@ -281,3 +281,29 @@ func TestObservedTranscriptAndWatch(t *testing.T) {
 		t.Fatal("watch did not lapse")
 	}
 }
+
+func TestObservedSessionStaysEndedAfterLateRecords(t *testing.T) {
+	var got []protocol.ExternalSessionPayload
+	o := newObservedSessions(observedConfig{}, func(p protocol.ExternalSessionPayload) { got = append(got, p) })
+	s := observe.Session{Agent: "copilot", ID: "c1", Cwd: "/w", Alive: true, ModTime: time.Now()}
+	ev := func(kind, status, text string) protocol.AgentChatEvent {
+		return protocol.AgentChatEvent{Kind: kind, Status: status, Text: text, At: time.Now()}
+	}
+	o.handle(observe.Update{Session: s, Events: []protocol.AgentChatEvent{
+		ev(protocol.EventUserMessage, "", "do it"), ev(protocol.EventStatus, protocol.ChatStatusWorking, ""),
+	}})
+	o.handle(observe.Update{Session: s, Events: []protocol.AgentChatEvent{ev(protocol.EventStatus, protocol.ChatStatusDone, "")}})
+	if len(got) != 2 || got[1].Status != protocol.ChatStatusDone {
+		t.Fatalf("working then done: %+v", got)
+	}
+	// Shutdown hooks written after the end: nothing new to show.
+	o.handle(observe.Update{Session: s})
+	if len(got) != 2 {
+		t.Fatalf("ended session came back: %+v", got[2:])
+	}
+	// Resumed with a new prompt: shown again.
+	o.handle(observe.Update{Session: s, Events: []protocol.AgentChatEvent{ev(protocol.EventUserMessage, "", "again"), ev(protocol.EventStatus, protocol.ChatStatusWorking, "")}})
+	if len(got) != 3 || got[2].Status != protocol.ChatStatusWorking || got[2].Summary != "again" {
+		t.Fatalf("resumed: %+v", got)
+	}
+}

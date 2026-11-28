@@ -124,3 +124,56 @@ func TestGrokDiscoverAndReadAcrossPolls(t *testing.T) {
 		t.Fatalf("two reads:\n%s\nwant:\n%s", strings.Join(all, "\n"), strings.Join(whole, "\n"))
 	}
 }
+
+func TestCopilotEventsFromSession(t *testing.T) {
+	raw, err := os.ReadFile("testdata/copilot-events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := CopilotEvents("c1", raw)
+	got := grokSummary(evs)
+	want := []string{
+		"user_message:Run the shell command: sleep 5;",
+		"status:working",
+		"usage",
+		"tool_call:running:execute:Run: sleep 5; echo",
+		"tool_call:completed:execute:Run: sleep 5; echo",
+		"usage",
+		"message:syre-copilot-test",
+		"turn_end:end_turn",
+		"status:idle",
+		"status:done",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	for _, ev := range evs {
+		if ev.Kind == protocol.EventToolCall && ev.ToolCall.Status == "completed" && !strings.Contains(ev.ToolCall.Output, "syre-copilot-test") {
+			t.Fatalf("output: %+v", ev.ToolCall)
+		}
+		if ev.Kind == protocol.EventMessage && ev.Model != "mai-code-2-flash" {
+			t.Fatalf("model: %+v", ev)
+		}
+	}
+}
+
+func TestCopilotDiscoverUsesTheHoldFile(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "session-state", "0452f1ef-0f0d-45f7-b54a-0235c95c06df")
+	os.MkdirAll(dir, 0o700)
+	raw, _ := os.ReadFile("testdata/copilot-events.jsonl")
+	os.WriteFile(filepath.Join(dir, "events.jsonl"), raw, 0o600)
+	os.WriteFile(filepath.Join(dir, "inuse.4242.hold"), nil, 0o600)
+	procs := &fakeProcs{procs: []shells.Proc{{PID: 1}, {PID: 40, PPID: 1, Name: "zsh"}, {PID: 4242, PPID: 40, Name: "MainThread", Start: time.Now().Add(-time.Minute)}}}
+	src := &CopilotSource{Dirs: func() []CopilotDir { return []CopilotDir{{Dir: home}} }, Procs: procs, ProcTTL: -1}
+	got, _ := src.Discover(context.Background(), time.Now().Add(-time.Hour))
+	if len(got) != 1 || !got[0].Alive || got[0].PID != 4242 || got[0].Cwd != "/work/demo" || len(got[0].Ancestors) == 0 || got[0].Ancestors[0] != 40 {
+		t.Fatalf("live: %+v", got)
+	}
+	// It exits (the hold file stays behind): done.
+	procs.procs = procs.procs[:2]
+	got, _ = src.Discover(context.Background(), time.Now().Add(-time.Hour))
+	if len(got) != 1 || got[0].Alive || got[0].Status != protocol.ChatStatusDone {
+		t.Fatalf("after exit: %+v", got)
+	}
+}

@@ -44,12 +44,16 @@ type observedSessions struct {
 	sources []observe.Source
 	// claudeDirs lists claude's config dirs (sourcedAgents: claude has a source when any
 	// exists).
-	claudeDirs func() []observe.ClaudeDir
-	codexDirs  func() []observe.CodexDir
-	grokDirs   func() []observe.GrokDir
+	claudeDirs  func() []observe.ClaudeDir
+	codexDirs   func() []observe.CodexDir
+	grokDirs    func() []observe.GrokDir
+	copilotDirs func() []observe.CopilotDir
 
-	mu      sync.Mutex
-	st      map[string]*observedState  // by Session.Key
+	mu sync.Mutex
+	st map[string]*observedState // by Session.Key
+	// ended remembers sessions reported done, so records written after the end (an
+	// agent's shutdown hooks) don't bring them back; a new prompt does.
+	ended   map[string]time.Time
 	known   map[string]observe.Session // by session id, for transcripts
 	watches map[string]*transcriptWatch
 }
@@ -69,10 +73,11 @@ type observedState struct {
 
 // observedConfig wires observedSessions into a daemon.
 type observedConfig struct {
-	ClaudeDirs func() []observe.ClaudeDir
-	CodexDirs  func() []observe.CodexDir
-	GrokDirs   func() []observe.GrokDir
-	Procs      observe.CodexProcs
+	ClaudeDirs  func() []observe.ClaudeDir
+	CodexDirs   func() []observe.CodexDir
+	GrokDirs    func() []observe.GrokDir
+	CopilotDirs func() []observe.CopilotDir
+	Procs       observe.CodexProcs
 	// Fresh snapshots processes and lists transcripts on every poll (tests).
 	Fresh bool
 	// IsManaged reports a process Syre runs (a task's agent, syred itself).
@@ -108,8 +113,12 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 		codex.ProcTTL, codex.ListEvery = -1, -1
 		grok.ProcTTL, grok.ListEvery = -1, -1
 	}
-	o.sources = []observe.Source{claude, codex, grok}
-	o.claudeDirs, o.codexDirs, o.grokDirs = cfg.ClaudeDirs, cfg.CodexDirs, cfg.GrokDirs
+	copilot := &observe.CopilotSource{Dirs: cfg.CopilotDirs, Procs: cfg.Procs}
+	if cfg.Fresh {
+		copilot.ProcTTL = -1
+	}
+	o.sources = []observe.Source{claude, codex, grok, copilot}
+	o.claudeDirs, o.codexDirs, o.grokDirs, o.copilotDirs = cfg.ClaudeDirs, cfg.CodexDirs, cfg.GrokDirs, cfg.CopilotDirs
 	o.reg = observe.New(observe.Config{
 		Sources: o.sources,
 		Managed: func(s observe.Session) bool {
@@ -149,6 +158,9 @@ func (o *observedSessions) sourcedAgents() map[string]bool {
 	if o.grokDirs != nil && len(o.grokDirs()) > 0 {
 		out["grok"] = true
 	}
+	if o.copilotDirs != nil && len(o.copilotDirs()) > 0 {
+		out["copilot"] = true
+	}
 	return out
 }
 
@@ -184,6 +196,13 @@ func (o *observedSessions) handle(u observe.Update) {
 		return
 	}
 	if st == nil {
+		if _, ok := o.ended[key]; ok {
+			if !resumed(u.Events) {
+				o.mu.Unlock()
+				return
+			}
+			delete(o.ended, key)
+		}
 		account := s.Account
 		if account == "" {
 			account = s.Agent
@@ -258,6 +277,7 @@ func (o *observedSessions) handle(u observe.Update) {
 	done := out.Status == protocol.ChatStatusDone
 	if done {
 		delete(o.st, key)
+		o.markEnded(key, now)
 	}
 	// A session first seen already finished is history: nothing to show.
 	quiet := !st.emitted && done
@@ -266,6 +286,33 @@ func (o *observedSessions) handle(u observe.Update) {
 	if !quiet {
 		o.emit(out)
 	}
+}
+
+// markEnded remembers a session that ended (o.mu held). Entries older than the
+// observed lookback are dropped: the registry has forgotten those sessions too.
+func (o *observedSessions) markEnded(key string, now time.Time) {
+	if o.ended == nil {
+		o.ended = map[string]time.Time{}
+	}
+	o.ended[key] = now
+	if len(o.ended) > 256 {
+		for k, at := range o.ended {
+			if now.Sub(at) > observedLookback {
+				delete(o.ended, k)
+			}
+		}
+	}
+}
+
+// resumed reports events that start new work in an ended session: a prompt, or the
+// agent working again.
+func resumed(evs []protocol.AgentChatEvent) bool {
+	for _, ev := range evs {
+		if ev.Kind == protocol.EventUserMessage || ev.Kind == protocol.EventStatus && ev.Status == protocol.ChatStatusWorking {
+			return true
+		}
+	}
+	return false
 }
 
 // pids maps each observed session with a known process to it (external id → PID).
@@ -312,6 +359,7 @@ func (o *observedSessions) sweep() {
 		st.p.Status, st.p.Tool, st.p.ChangedFiles = status, "", nil
 		if status == protocol.ChatStatusDone {
 			delete(o.st, key)
+			o.markEnded(key, now)
 		}
 		if st.emitted {
 			out = append(out, st.p)
@@ -459,6 +507,43 @@ func grokHomes(accounts *chat.AccountRegistry) []observe.GrokDir {
 	add("", os.Getenv("GROK_HOME"))
 	if home != "" {
 		add("", filepath.Join(home, ".grok"))
+	}
+	return out
+}
+
+// observedCopilotDirs is replaced by tests, as observedClaudeDirs.
+var observedCopilotDirs = copilotHomes
+
+// copilotHomes lists the home of every copilot account with sessions in it: each extra
+// account's COPILOT_HOME, syred's own COPILOT_HOME, and ~/.copilot.
+func copilotHomes(accounts *chat.AccountRegistry) []observe.CopilotDir {
+	home, _ := os.UserHomeDir()
+	var out []observe.CopilotDir
+	seen := map[string]bool{}
+	add := func(account, dir string) {
+		if dir == "" {
+			return
+		}
+		if strings.HasPrefix(dir, "~/") && home != "" {
+			dir = filepath.Join(home, dir[2:])
+		}
+		dir = filepath.Clean(dir)
+		if seen[dir] || !dirExists(filepath.Join(dir, "session-state")) {
+			return
+		}
+		seen[dir] = true
+		out = append(out, observe.CopilotDir{Account: account, Dir: dir})
+	}
+	if accounts != nil {
+		for _, e := range accounts.List() {
+			if e.Agent == "copilot" && !e.IsDefault {
+				add(e.ID, e.Env["COPILOT_HOME"])
+			}
+		}
+	}
+	add("", os.Getenv("COPILOT_HOME"))
+	if home != "" {
+		add("", filepath.Join(home, ".copilot"))
 	}
 	return out
 }

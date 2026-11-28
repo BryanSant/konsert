@@ -255,6 +255,8 @@ logged-out -p: "Error: Authentication required. Please run 'agent login' first, 
 
 **Headless.** `cursor-agent -p "<prompt>" --output-format stream-json [--stream-partial-output] [--model id] [--force|--yolo] [--trust] [--approve-mcps] [--workspace dir] [--resume chatId]`. `create-chat` returns a chat ID. stream-json message `type`s: `system` (subtype `init`), `user`, `assistant`, `thinking`, `tool_call`, `result` (subtype `success`). MCP: `.cursor/mcp.json` in the workspace or `$CURSOR_CONFIG_DIR/mcp.json`; `cursor-agent mcp list/list-tools/enable/disable/login`. There is no per-run `--mcp-config` (a worker-only env `CURSOR_WORKER_MCP_CONFIG_JSON` exists).
 
+**Session store (CLI).** `~/.cursor/chats/<workspace hash>/<chat id>/` holds `meta.json` (`cwd`, `createdAtMs`, `updatedAtMs`, `hasConversation`) and `store.db`, a SQLite file with `blobs(id, data)` (content-addressed messages as JSON `{role, content}`) and `meta(key, value)` (hex-encoded JSON). Observed sessions don't read it yet, because it needs a SQLite driver in syred (SYR-JYEQC-cursor-store). cursor-agent runs as `node` (`node-MainThread` on Linux) with argv[0] set to its launcher, which is how the process scan finds it.
+
 ## 7. copilot (GitHub Copilot CLI)
 
 **Binary/version.** `~/.local/bin/copilot` (Mach-O). `GitHub Copilot CLI 1.0.114.` Home `~/.copilot`; cache `~/Library/Caches/copilot`.
@@ -276,11 +278,32 @@ logged-out -p: "Error: Authentication required. Please run 'agent login' first, 
 
 **Headless.** `copilot -p "<prompt>" --output-format json [-s] [--stream on|off] [--model m] [--reasoning-effort l] [--allow-all-tools|--allow-tool …] [--additional-mcp-config @file.json] [--session-id uuid|--resume id] [--usage-output-file f] [--no-custom-instructions] [--disable-builtin-mcps]`. JSONL events have the shape `{type, data, id, timestamp, parentId, ephemeral?}`: `session.start`, `session.mcp_server_status_changed`, `session.model_change`, `session.auto_mode_resolved`, `user.message`, `assistant.turn_start`, `assistant.message`, `assistant.turn_end`, `session.usage_record`, `session.usage_checkpoint`, `session.shutdown`. `--acp` = ACP server.
 
+**Session store (1.0.114, used by observed sessions).** `$COPILOT_HOME/session-state/<session id>/`:
+- `events.jsonl` has one event per line: `{type, data, id, timestamp, parentId}`.
+  - Event types: `session.start` (`context.cwd`, `copilotVersion`), `session.model_change`, `session.auto_mode_resolved` (`chosenModel`), `user.message` (`content`), `assistant.turn_start`/`assistant.turn_end` (one per model call), `assistant.message` (`content`, `toolRequests`, `phase`), `tool.execution_start` (`toolName`, `arguments`, `toolTitle`) and `tool.execution_complete` (`success`, `result.content`, `shellExecution.exitCode`), `session.usage_record` (`inputTokens` including `cacheReadTokens`), `session.shutdown`, plus `hook.start`/`hook.end`.
+  - Hooks are written after `session.shutdown` too.
+- `inuse.<pid>.hold` is held by the running copilot (a pid file); `workspace.yaml` holds `cwd` and `name`.
+- The process is a single-executable app: comm `MainThread`, argv[0] `copilot`.
+
 ## 8. gemini
 
 Not installed (`which gemini` → not found). `~/.gemini` is now used by agy; the legacy `oauth_creds.json` there is stale (expired 2026-03).
 
 ---
+
+## Desktop and IDE agents (observed sessions)
+
+| Agent surface | Where its sessions go | Observed |
+|---|---|---|
+| Claude Desktop "Code" sessions | They run the claude CLI, so `~/.claude/projects` | yes (claude source) |
+| Codex in VS Code / the Codex app | `~/.codex/sessions` rollouts (`session_meta.source` `vscode`) | yes (codex source) |
+| Copilot CLI started from VS Code | `~/.copilot/session-state` | yes (copilot source) |
+| Copilot Chat agent mode in VS Code | `<VS Code user dir>/workspaceStorage/<hash>/chatSessions/<id>.jsonl`, a patch log (`kind` 0 initial state, then mutations) | not yet (SYR-X609Y) |
+| Cursor app | `workspaceStorage/*/state.vscdb` (SQLite) | not yet (SYR-JYEQC) |
+| grok in an IDE (ACP) | `~/.grok/sessions` | yes (grok source) |
+| agy / Antigravity | `~/.gemini/antigravity-cli/conversations/*.db` (SQLite + protobuf) | process scan only (SYR-JHBB5) |
+
+Chats in the Claude and ChatGPT desktop apps are cloud conversations, not agent sessions on the machine, so there is nothing to observe locally.
 
 ## Windows shell tool / Git Bash configuration
 

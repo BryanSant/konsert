@@ -29,6 +29,8 @@ func TestPassiveAgentNames(t *testing.T) {
 		{"2.1.332", argv("claude"), "claude"},
 		{"1.2.3", argv("/opt/other/thing"), ""},
 		{"node-MainThread", argv("/home/u/.local/bin/cursor-agent", "-e", "x"), "cursor"},
+		{"MainThread", argv("copilot", "-p", "hi"), "copilot"},
+		{"MainThread", argv("/usr/bin/something"), ""},
 		// An editor's Copilot language server is not the copilot CLI.
 		{"node", argv("node", "/home/u/.vscode/extensions/github.copilot/node_modules/@github/copilot-language-server/dist/language-server.js"), ""},
 		{"node", argv("node", "server.js"), ""},
