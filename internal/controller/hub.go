@@ -94,6 +94,9 @@ type browserClient struct {
 	mu       sync.Mutex
 	subs     map[string]bool // subscribed task IDs (PTY)
 	chatSubs map[string]bool // chat session IDs this client receives events for
+	// foreground: the page is visible and focused (its presence reports), so this device
+	// shows alerts itself and gets no Web Push (SYR-Z15J6).
+	foreground bool
 }
 
 // Hub manages connected worker daemons, browser PWA subscribers,
@@ -115,12 +118,17 @@ type Hub struct {
 	workers       map[string]*workerConn
 	workerMetrics map[string]*protocol.WorkerMetrics
 	clients       map[*browserClient]struct{}
-	taskWorker    map[string]string                  // taskID -> workerID
-	ptySubs       map[string]map[*browserClient]bool // taskID -> client -> needsSnapshot
-	waiters       map[string][]chan store.Task
-	rpcWaiters    map[string]chan protocol.Envelope
-	chatSessions  map[string]*chatSession // per-session turn serialization
-	agentChats    map[string]*agentChatRT // agent chat runtime state (seq, MCP token, ask_user)
+	// push is the Web Push state (VAPID keys; push.go). publicURL is the hub's public
+	// URL, the VAPID contact.
+	push            pushState
+	pushedQuestions pushQuestions
+	publicURL       string
+	taskWorker      map[string]string                  // taskID -> workerID
+	ptySubs         map[string]map[*browserClient]bool // taskID -> client -> needsSnapshot
+	waiters         map[string][]chan store.Task
+	rpcWaiters      map[string]chan protocol.Envelope
+	chatSessions    map[string]*chatSession // per-session turn serialization
+	agentChats      map[string]*agentChatRT // agent chat runtime state (seq, MCP token, ask_user)
 	// pendingCauses holds the cause of an intervention sent to a worker (cancel, suspend,
 	// resume) until the worker reports the resulting status; keyed by task id or "chat:"+id.
 	pendingCauses map[string]pendingCause
@@ -317,6 +325,8 @@ func NewHub(st store.Store, logger *slog.Logger) *Hub {
 	h.goBackground(h.deliveryPollLoop)
 	// Policy directives: expire at until (one timer, plus a reaper).
 	h.goBackground(h.directiveLoop)
+	// Web Push: escalate questions that block too long (push_events.go).
+	h.goBackground(h.pushQuestionsLoop)
 	// External trackers (ka, ...): pull then push on an interval and after ticket changes.
 	h.trackers = &tracker.Syncer{
 		Store:     st,

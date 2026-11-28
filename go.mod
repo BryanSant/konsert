@@ -6,6 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/KanArtist/ka v1.4.0
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/UserExistsError/conpty v0.1.4
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
@@ -14,7 +15,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.63.0
 	rsc.io/qr v0.2.0
@@ -23,6 +24,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/gofrs/flock v0.13.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
@@ -31,6 +33,7 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/time v0.16.0 // indirect

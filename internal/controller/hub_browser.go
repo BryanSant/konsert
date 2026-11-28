@@ -112,6 +112,15 @@ func (h *Hub) handleBrowserMessage(ctx context.Context, c *browserClient, env pr
 	case msgChatRespond, msgChatControl, msgChatClose:
 		h.handleAgentChatBrowserMessage(ctx, c, env)
 
+	case msgPresence:
+		p, err := protocol.DecodePayload[presencePayload](env)
+		if err != nil {
+			return
+		}
+		c.mu.Lock()
+		c.foreground = p.Visible && p.Focused
+		c.mu.Unlock()
+
 	case msgChatSubscribe, msgChatUnsubscribe:
 		p, err := protocol.DecodePayload[chatSubscribePayload](env)
 		if err != nil || p.SessionID == "" {

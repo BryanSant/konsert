@@ -665,6 +665,12 @@ type Store interface {
 	// Work profiles (SYR-VYFYX).
 	SetAttemptProfileFields(ctx context.Context, attemptID, workKey, machineClass string, peakRSSMB uint64, cpuS float64) error
 	ListProfileAttempts(ctx context.Context, workKey, machineClass string, limit int) ([]Attempt, error)
+	// Web Push subscriptions (SYR-Z15J6).
+	UpsertPushSubscription(ctx context.Context, s PushSubscription) error
+	ListPushSubscriptions(ctx context.Context, deviceID string) ([]PushSubscription, error)
+	DeletePushSubscription(ctx context.Context, endpoint string) error
+	DeletePushSubscriptionsForDevice(ctx context.Context, deviceID string) (int64, error)
+	RecordPushResult(ctx context.Context, endpoint string, at time.Time, errText string) error
 	// Placement rules and log (SYR-880CP).
 	CreatePlacementRule(ctx context.Context, r PlacementRule) (PlacementRule, error)
 	ListPlacementRules(ctx context.Context, activeAt time.Time) ([]PlacementRule, error)

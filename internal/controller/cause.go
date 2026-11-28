@@ -185,6 +185,7 @@ func (h *Hub) recordTaskTransition(ctx context.Context, t store.Task, from strin
 		WorkerID: t.WorkerID, TaskID: t.ID, ChatID: t.ParentChatID,
 		FromStatus: from, ToStatus: t.Status, Summary: msg,
 	})
+	h.pushTaskTransition(t, from)
 }
 
 // recordChatTransition records a chat status change in the fleet timeline.
@@ -194,6 +195,7 @@ func (h *Hub) recordChatTransition(ctx context.Context, cs store.ChatSession, fr
 		WorkerID: cs.WorkerID, ChatID: cs.ID, FromStatus: from, ToStatus: cs.Status,
 		Summary: fmt.Sprintf("Chat %s (%s) %s → %s by %s", cs.SID, cs.Title, statusLabel(from), statusLabel(cs.Status), describeActor(cause)),
 	})
+	h.pushChatTransition(cs, from)
 }
 
 func statusLabel(s string) string {

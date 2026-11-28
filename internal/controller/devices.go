@@ -371,6 +371,10 @@ func (s *Server) revokeDevice(ctx context.Context, d store.Device, verb string) 
 		return ok, err
 	}
 	closed := s.hub.DisconnectDevice(d.ID)
+	// A revoked device gets no more notifications (SYR-Z15J6).
+	if _, err := s.store.DeletePushSubscriptionsForDevice(ctx, d.ID); err != nil {
+		s.hub.logger.Warn("push subscriptions of a revoked device not dropped", "device", d.SID, "err", err)
+	}
 	s.hub.recordAudit(ctx, store.AuditEvent{
 		Action:   AuditDeviceRevoke,
 		Message:  verb + " " + d.Name + " (" + d.SID + ")",
