@@ -7,11 +7,13 @@ package chat
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
+	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 const agyUsageTimeout = 60 * time.Second
@@ -126,4 +128,24 @@ func agyGroupSlug(name string) string {
 		parts = append(parts, w)
 	}
 	return strings.Join(parts, "_")
+}
+
+// copilotUsage reads copilot's plan quotas (monthly premium requests, chat) from its
+// local plan cache, which copilot writes after it talks to GitHub (SYR-PFBW5). There is
+// no headless usage command: `copilot -p /usage` sends "/usage" to the model as a
+// prompt (checked with 1.0.114), so it is never run.
+func copilotUsage(_ context.Context, acct Account) acpUsage {
+	var out []protocol.AgentRateLimit
+	for _, q := range drivers.CopilotPlanUsage(EnvList(acct)) {
+		rl := protocol.AgentRateLimit{Window: "monthly_" + q.Window, Label: q.Label, UsedPercent: math.Round(q.UsedPercent*10) / 10, ResetsAt: q.ResetsAt,
+			State: claudePercentState(q.UsedPercent)}
+		if q.UsedPercent >= 100 {
+			rl.State = "exhausted"
+		}
+		out = append(out, rl)
+	}
+	if len(out) == 0 {
+		return acpUsage{Note: "Copilot hasn't cached its plan yet: it shows after a Copilot session"}
+	}
+	return acpUsage{Windows: out}
 }

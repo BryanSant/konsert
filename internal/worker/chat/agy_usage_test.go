@@ -2,6 +2,7 @@ package chat
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -52,5 +53,27 @@ func TestParseAgyUsageUnknownBucketIsNotExhausted(t *testing.T) {
 	}
 	if _, err := parseAgyUsage([]byte("Gemini Models\tWeekly\t86%")); err == nil {
 		t.Fatal("text output accepted")
+	}
+}
+
+// Copilot's plan quotas come back through the usage hook (SYR-PFBW5).
+func TestCopilotUsageFromPlanCache(t *testing.T) {
+	dir := t.TempDir()
+	cache := "// copilot cache\n" + `{"copilotUserCache":{"github.com:u":{"retrievedAt":"2026-11-27T20:00:00Z","response":{"quota_reset_date_utc":"2026-12-01T00:00:00Z",
+	  "quota_snapshots":{"premium_interactions":{"entitlement":300,"percent_remaining":40,"unlimited":false},
+	                     "chat":{"entitlement":0,"percent_remaining":100,"unlimited":true}}}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "copilot-user-cache.json"), []byte(cache), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u := copilotUsage(t.Context(), Account{ID: "copilot", Env: map[string]string{"COPILOT_CACHE_HOME": dir}})
+	if u.Err != nil || len(u.Windows) == 0 {
+		t.Fatalf("usage: %+v", u)
+	}
+	w := u.Windows[0]
+	if w.Window != "monthly_premium" || w.UsedPercent != 60 || w.ResetsAt == nil || w.Label == "" {
+		t.Fatalf("premium window: %+v", w)
+	}
+	if empty := copilotUsage(t.Context(), Account{ID: "copilot", Env: map[string]string{"COPILOT_CACHE_HOME": t.TempDir()}}); len(empty.Windows) != 0 || empty.Note == "" {
+		t.Fatalf("no cache: %+v", empty)
 	}
 }

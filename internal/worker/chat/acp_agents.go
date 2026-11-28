@@ -246,6 +246,7 @@ const copilotModeURL = "https://agentclientprotocol.com/protocol/session-modes#"
 // persist to ~/.copilot/config.json); changing them restarts with session/load.
 var copilotAdapter = &acpAdapter{
 	Agent: "copilot", Label: "Copilot", DefaultBinary: "copilot",
+	usage: copilotUsage,
 	Approvals: []acpApproval{
 		{Mode: mode("plan", "Plan", "Plan multi-step work before executing.", 0, "eye"), ACPMode: copilotModeURL + "plan", Config: map[string]string{"allow_all": "off"}},
 		{Mode: mode("agent", "Agent", "Ask before using tools, paths or URLs.", 1, "hand"), ACPMode: copilotModeURL + "agent", Config: map[string]string{"allow_all": "off"}},

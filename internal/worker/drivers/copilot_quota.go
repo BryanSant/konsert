@@ -57,10 +57,10 @@ type copilotSnapshot struct {
 	PercentRemaining float64 `json:"percent_remaining"`
 	Unlimited        bool    `json:"unlimited"`
 	HasQuota         *bool   `json:"has_quota"`
-	// TokenBasedBilling marks accounts billed in AI credits. Their request buckets are not
-	// drawn down by CLI usage (verified: "chat" stayed 100% remaining across runs that used
-	// AI credits), and the AI-credit plan budget ("Plan: N% used" in /usage) is not cached
-	// locally, so those buckets are not reported.
+	// TokenBasedBilling marks accounts billed in AI credits. It once looked like their
+	// request buckets weren't drawn down by CLI usage, but a free plan's "chat" bucket
+	// (200 a month) went from 70.1% to 69.9% left across CLI runs (2026-11-28): a bucket
+	// with a real limit (has_quota, an entitlement) is reported whatever the billing.
 	TokenBasedBilling bool `json:"token_based_billing"`
 }
 
@@ -120,7 +120,7 @@ func readCopilotQuotas(cacheDir string) []copilotQuota {
 	var out []copilotQuota
 	for _, name := range names {
 		s := snaps[name]
-		if name == "completions" || s.Unlimited || s.TokenBasedBilling || s.Entitlement <= 0 || (s.HasQuota != nil && !*s.HasQuota) {
+		if name == "completions" || s.Unlimited || s.Entitlement <= 0 || (s.HasQuota != nil && !*s.HasQuota) {
 			continue
 		}
 		q := copilotQuota{Label: "Copilot", WindowLabel: name, UsedPercent: 100 - s.PercentRemaining, ResetAt: resetDate}

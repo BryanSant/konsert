@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/BryanSant/syre/internal/protocol"
-	"github.com/BryanSant/syre/internal/worker/drivers"
 )
 
 // CLIStatus is the default StatusChecker for agents without a chat engine: it runs the
@@ -83,35 +82,11 @@ func CLIStatus(ctx context.Context, acct Account) protocol.AgentAccount {
 		case strings.Contains(low, "logged in"):
 			a.Auth.State = protocol.AuthOK
 		}
-	case "copilot":
-		a.Auth.Detail = "copilot has no status command; login is checked when a chat starts"
-		for _, q := range drivers.CopilotPlanUsage(EnvList(acct)) {
-			rl := protocol.AgentRateLimit{Window: "monthly_" + q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt, State: "ok"}
-			if q.UsedPercent >= 100 {
-				rl.State = "exhausted"
-			} else if q.UsedPercent >= 80 {
-				rl.State = "warning"
-			}
-			a.Usage = append(a.Usage, rl)
-		}
-	case "agy":
-		a.Auth.Detail = "agy has no status command; login is checked when a chat starts"
-		a.UsageNote = "Antigravity shows usage only inside its TUI"
 	}
 	if a.Auth.State == protocol.AuthLoggedOut {
 		a.Auth.Relogin = relogin()
 	}
-	if a.UsageNote == "" && len(a.Usage) == 0 {
-		a.UsageNote = "Usage is reported once chat is supported for " + labelOr(info.Label, acct.Agent)
-	}
 	return a
-}
-
-func labelOr(label, agent string) string {
-	if label != "" {
-		return label
-	}
-	return agent
 }
 
 // runStatus runs `<binary> args...` with the account env, stdin closed, a 10 s cap and

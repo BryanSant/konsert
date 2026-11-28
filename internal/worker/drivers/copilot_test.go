@@ -257,15 +257,16 @@ func TestReadCopilotQuotasPremium(t *testing.T) {
 		t.Fatal("missing cache must yield no quotas")
 	}
 
-	// AI-credit (token-billed) accounts: request buckets do not track CLI usage, so none
-	// are reported.
+	// AI-credit (token-billed) accounts: a bucket with a real limit is reported (a free
+	// plan's 200 chats a month draw down with CLI use, SYR-PFBW5); one without isn't.
 	body = `{"copilotUserCache":{"v1:a":{"retrievedAt":"2026-11-23T00:00:00Z","response":{"token_based_billing":true,"quota_snapshots":{` +
-		`"chat":{"entitlement":200,"percent_remaining":100,"unlimited":false,"has_quota":true,"token_based_billing":true}}}}}}`
+		`"chat":{"entitlement":200,"percent_remaining":69.9,"unlimited":false,"has_quota":true,"token_based_billing":true},` +
+		`"premium_interactions":{"entitlement":0,"percent_remaining":0,"unlimited":false,"has_quota":false,"token_based_billing":true}}}}}}`
 	if err := os.WriteFile(filepath.Join(cache, "copilot-user-cache.json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if qs := readCopilotQuotas(cache); len(qs) != 0 {
-		t.Fatalf("token-billed buckets must not be reported: %+v", qs)
+	if qs := readCopilotQuotas(cache); len(qs) != 1 || qs[0].WindowLabel != "chat" || qs[0].UsedPercent < 30.0 || qs[0].UsedPercent > 30.2 {
+		t.Fatalf("token-billed chat bucket: %+v", qs)
 	}
 }
 
