@@ -15,7 +15,6 @@ import (
 
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/worker/chat"
-	"github.com/BryanSant/syre/internal/worker/shells"
 )
 
 // CodexDir is one codex account's home (~/.codex, or a CODEX_HOME such as ~/.codex2).
@@ -58,25 +57,15 @@ type CodexSource struct {
 	// snapshot on every discovery).
 	ListEvery, ProcTTL time.Duration
 
-	mu      sync.Mutex
-	meta    map[string]codexMeta // rollout path → its session's cwd and model
-	listed  map[string]*claudeListing
-	alive   map[string]string // sessions alive at the last discovery → rollout path
-	procs   []codexProc
-	procsAt time.Time
+	mu     sync.Mutex
+	meta   map[string]codexMeta // rollout path → its session's cwd and model
+	listed map[string]*claudeListing
+	alive  map[string]string // sessions alive at the last discovery → rollout path
+	finder *procFinder
 }
 
 type codexMeta struct {
 	cwd, model string
-}
-
-// codexProc is a running codex (the top process of its tree).
-type codexProc struct {
-	pid       int
-	cwd       string
-	open      map[string]bool
-	ancestors []int
-	server    bool // app-server or mcp-server: a client's, never matched by cwd
 }
 
 // Agent implements Source.
@@ -108,7 +97,8 @@ func (c *CodexSource) Discover(_ context.Context, since time.Time) ([]Session, e
 	c.mu.Lock()
 	prevAlive := c.alive
 	c.mu.Unlock()
-	procs := c.codexProcs()
+	finder := c.procFinder()
+	procs := finder.running()
 	nowAlive := map[string]string{}
 	var out []Session
 	seen := map[string]bool{}
@@ -128,7 +118,7 @@ func (c *CodexSource) Discover(_ context.Context, since time.Time) ([]Session, e
 			}
 			key := "codex/" + d.Account + "/" + id
 			m := c.metaOf(path)
-			p := c.holder(procs, path, m.cwd)
+			p := finder.holder(procs, func(f string) bool { return f == path }, m.cwd)
 			_, wasAlive := prevAlive[key]
 			if info.ModTime().Before(since) && p == nil && !wasAlive {
 				continue
@@ -155,7 +145,7 @@ func (c *CodexSource) Discover(_ context.Context, since time.Time) ([]Session, e
 // full listing; between them those written recently, today's and yesterday's (a
 // listing of one or two day dirs, so a new session is seen within a poll), those of
 // sessions alive at the last poll and those a running codex holds open.
-func (c *CodexSource) candidates(d CodexDir, prevAlive map[string]string, procs []codexProc) []string {
+func (c *CodexSource) candidates(d CodexDir, prevAlive map[string]string, procs []agentProc) []string {
 	now := time.Now()
 	c.mu.Lock()
 	ls := c.listed[d.Dir]
@@ -207,7 +197,7 @@ func (c *CodexSource) candidates(d CodexDir, prevAlive map[string]string, procs 
 	}
 	sessions := filepath.Join(d.Dir, "sessions") + string(filepath.Separator)
 	for _, p := range procs {
-		for f := range p.open {
+		for _, f := range p.open {
 			if strings.HasPrefix(f, sessions) && codexSessionID(f) != "" {
 				addPath(f)
 			}
@@ -216,61 +206,22 @@ func (c *CodexSource) candidates(d CodexDir, prevAlive map[string]string, procs 
 	return out
 }
 
-// codexProcs lists the running codex processes: the cached list while fresh.
-func (c *CodexSource) codexProcs() []codexProc {
-	if c.Procs == nil {
-		return nil
-	}
-	ttl := c.ProcTTL
-	if ttl == 0 {
-		ttl = procTableTTL
-	}
+// procFinder finds the running codex processes (built once from the fields).
+func (c *CodexSource) procFinder() *procFinder {
 	c.mu.Lock()
-	if c.procsAt.After(time.Now().Add(-ttl)) && ttl > 0 {
-		list := c.procs
-		c.mu.Unlock()
-		return list
-	}
-	c.mu.Unlock()
-	snap, err := c.Procs.Snapshot()
-	if err != nil {
-		return nil
-	}
-	byPID := make(map[int]shells.Proc, len(snap))
-	for _, p := range snap {
-		byPID[p.PID] = p
-	}
-	var out []codexProc
-	for _, p := range snap {
-		if p.Zombie || !isCodexName(p.Name) {
-			continue
-		}
-		if parent, ok := byPID[p.PPID]; ok && isCodexName(parent.Name) {
-			continue // a helper of a codex (its sandbox): the top process holds the session
-		}
-		cp := codexProc{pid: p.PID, ancestors: ancestors(byPID, p.PID)}
-		if c.Cwd != nil {
-			cp.cwd = c.Cwd(p.PID)
-		}
-		if c.OpenFiles != nil {
-			cp.open = map[string]bool{}
-			for _, f := range c.OpenFiles(p.PID) {
-				if strings.HasSuffix(f, ".jsonl") {
-					cp.open[f] = true
+	defer c.mu.Unlock()
+	if c.finder == nil {
+		c.finder = &procFinder{procs: c.Procs, cwd: c.Cwd, openFiles: c.OpenFiles, ttl: c.ProcTTL, isAgent: isCodexName,
+			isServer: func(argv []string) bool {
+				for _, a := range argv {
+					if a == "app-server" || a == "mcp-server" {
+						return true
+					}
 				}
-			}
-		}
-		for _, a := range c.Procs.Argv(p.PID) {
-			if a == "app-server" || a == "mcp-server" {
-				cp.server = true
-			}
-		}
-		out = append(out, cp)
+				return false
+			}}
 	}
-	c.mu.Lock()
-	c.procs, c.procsAt = out, time.Now()
-	c.mu.Unlock()
-	return out
+	return c.finder
 }
 
 // isCodexName reports a codex executable: codex, codex.exe, or a platform build such as
@@ -282,34 +233,6 @@ func isCodexName(name string) bool {
 	}
 	return strings.HasPrefix(n, "codex-") && !strings.Contains(n, "sandbox") &&
 		(strings.Contains(n, "linux") || strings.Contains(n, "apple") || strings.Contains(n, "windows") || strings.Contains(n, "darwin"))
-}
-
-// holder is the codex process holding path open, else the only interactive codex in
-// cwd; nil when none or ambiguous.
-func (c *CodexSource) holder(procs []codexProc, path, cwd string) *codexProc {
-	if c.OpenFiles != nil {
-		for i := range procs {
-			if procs[i].open[path] {
-				return &procs[i]
-			}
-		}
-		return nil
-	}
-	if cwd == "" {
-		return nil
-	}
-	var found *codexProc
-	for i := range procs {
-		p := &procs[i]
-		if p.server || p.cwd == "" || filepath.Clean(p.cwd) != filepath.Clean(cwd) {
-			continue
-		}
-		if found != nil {
-			return nil // two codex in one dir: can't tell which session is whose
-		}
-		found = p
-	}
-	return found
 }
 
 // metaOf reads a rollout's head for its cwd and model (cached once the cwd is known).

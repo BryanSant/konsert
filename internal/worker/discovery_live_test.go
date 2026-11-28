@@ -36,6 +36,7 @@ func TestLiveObservedCodex(t *testing.T) {
 	}
 	o := newObservedSessions(observedConfig{
 		CodexDirs:   func() []observe.CodexDir { return codexHomes(nil) },
+		GrokDirs:    func() []observe.GrokDir { return grokHomes(nil) },
 		Procs:       osProcTable(),
 		OffsetsPath: filepath.Join(t.TempDir(), "offsets.json"),
 	}, func(p protocol.ExternalSessionPayload) {
@@ -47,4 +48,65 @@ func TestLiveObservedCodex(t *testing.T) {
 		o.Poll(context.Background())
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// TestLiveReplayAllSessions parses every grok and codex session on this machine and
+// reports oddities: a turn left working, tool calls never finished, empty messages.
+func TestLiveReplayAllSessions(t *testing.T) {
+	if os.Getenv("SYRE_LIVE_SCAN") == "" {
+		t.Skip("set SYRE_LIVE_SCAN=1")
+	}
+	check := func(agent, path string, evs []protocol.AgentChatEvent) (odd string) {
+		running := map[string]bool{}
+		last := ""
+		for _, ev := range evs {
+			switch ev.Kind {
+			case protocol.EventStatus:
+				last = ev.Status
+			case protocol.EventToolCall:
+				running[ev.ToolCall.ID] = ev.ToolCall.Status == "running"
+			case protocol.EventMessage, protocol.EventUserMessage:
+				if ev.Text == "" {
+					odd += " empty-message"
+				}
+			}
+		}
+		n := 0
+		for _, r := range running {
+			if r {
+				n++
+			}
+		}
+		if n > 0 {
+			odd += " unfinished-tools=" + strconv.Itoa(n)
+		}
+		if last == protocol.ChatStatusWorking {
+			odd += " ends-working"
+		}
+		return odd
+	}
+	home, _ := os.UserHomeDir()
+	var total, odd int
+	grok, _ := filepath.Glob(filepath.Join(home, ".grok", "sessions", "*", "*", "updates.jsonl"))
+	for _, f := range grok {
+		raw, _ := os.ReadFile(f)
+		evs := observe.GrokEvents("x", raw)
+		total++
+		if o := check("grok", f, evs); o != "" {
+			odd++
+			info, _ := os.Stat(f)
+			t.Logf("grok %s (%d events, modified %s):%s", filepath.Base(filepath.Dir(f)), len(evs), info.ModTime().Format("01-02 15:04"), o)
+		}
+	}
+	codex, _ := filepath.Glob(filepath.Join(home, ".codex", "sessions", "*", "*", "*", "rollout-*.jsonl"))
+	for _, f := range codex {
+		raw, _ := os.ReadFile(f)
+		evs := observe.CodexEvents("x", raw)
+		total++
+		if o := check("codex", f, evs); o != "" {
+			odd++
+			t.Logf("codex %s (%d events):%s", filepath.Base(f), len(evs), o)
+		}
+	}
+	t.Logf("%d sessions, %d odd", total, odd)
 }

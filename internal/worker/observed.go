@@ -46,6 +46,7 @@ type observedSessions struct {
 	// exists).
 	claudeDirs func() []observe.ClaudeDir
 	codexDirs  func() []observe.CodexDir
+	grokDirs   func() []observe.GrokDir
 
 	mu      sync.Mutex
 	st      map[string]*observedState  // by Session.Key
@@ -70,6 +71,7 @@ type observedState struct {
 type observedConfig struct {
 	ClaudeDirs func() []observe.ClaudeDir
 	CodexDirs  func() []observe.CodexDir
+	GrokDirs   func() []observe.GrokDir
 	Procs      observe.CodexProcs
 	// Fresh snapshots processes and lists transcripts on every poll (tests).
 	Fresh bool
@@ -95,17 +97,19 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 	if cfg.Fresh {
 		claude.ProcTTL, claude.ListEvery = -1, -1
 	}
-	codex := &observe.CodexSource{Dirs: cfg.CodexDirs, Procs: cfg.Procs, OpenFiles: processOpenFiles,
-		Cwd: func(pid int) string {
-			ctx, cancel := context.WithTimeout(context.Background(), defaultCwdTimeout)
-			defer cancel()
-			return resolveProcessCwd(ctx, pid)
-		}}
+	procCwd := func(pid int) string {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultCwdTimeout)
+		defer cancel()
+		return resolveProcessCwd(ctx, pid)
+	}
+	codex := &observe.CodexSource{Dirs: cfg.CodexDirs, Procs: cfg.Procs, OpenFiles: processOpenFiles, Cwd: procCwd}
+	grok := &observe.GrokSource{Dirs: cfg.GrokDirs, Procs: cfg.Procs, OpenFiles: processOpenFiles, Cwd: procCwd}
 	if cfg.Fresh {
 		codex.ProcTTL, codex.ListEvery = -1, -1
+		grok.ProcTTL, grok.ListEvery = -1, -1
 	}
-	o.sources = []observe.Source{claude, codex}
-	o.claudeDirs, o.codexDirs = cfg.ClaudeDirs, cfg.CodexDirs
+	o.sources = []observe.Source{claude, codex, grok}
+	o.claudeDirs, o.codexDirs, o.grokDirs = cfg.ClaudeDirs, cfg.CodexDirs, cfg.GrokDirs
 	o.reg = observe.New(observe.Config{
 		Sources: o.sources,
 		Managed: func(s observe.Session) bool {
@@ -141,6 +145,9 @@ func (o *observedSessions) sourcedAgents() map[string]bool {
 	}
 	if o.codexDirs != nil && len(o.codexDirs()) > 0 {
 		out["codex"] = true
+	}
+	if o.grokDirs != nil && len(o.grokDirs()) > 0 {
+		out["grok"] = true
 	}
 	return out
 }
@@ -415,6 +422,43 @@ func codexHomes(accounts *chat.AccountRegistry) []observe.CodexDir {
 				add(name, m)
 			}
 		}
+	}
+	return out
+}
+
+// observedGrokDirs is replaced by tests, as observedClaudeDirs.
+var observedGrokDirs = grokHomes
+
+// grokHomes lists the home of every grok account with sessions in it: each extra
+// account's GROK_HOME, syred's own GROK_HOME, and ~/.grok.
+func grokHomes(accounts *chat.AccountRegistry) []observe.GrokDir {
+	home, _ := os.UserHomeDir()
+	var out []observe.GrokDir
+	seen := map[string]bool{}
+	add := func(account, dir string) {
+		if dir == "" {
+			return
+		}
+		if strings.HasPrefix(dir, "~/") && home != "" {
+			dir = filepath.Join(home, dir[2:])
+		}
+		dir = filepath.Clean(dir)
+		if seen[dir] || !dirExists(filepath.Join(dir, "sessions")) {
+			return
+		}
+		seen[dir] = true
+		out = append(out, observe.GrokDir{Account: account, Dir: dir})
+	}
+	if accounts != nil {
+		for _, e := range accounts.List() {
+			if e.Agent == "grok" && !e.IsDefault {
+				add(e.ID, e.Env["GROK_HOME"])
+			}
+		}
+	}
+	add("", os.Getenv("GROK_HOME"))
+	if home != "" {
+		add("", filepath.Join(home, ".grok"))
 	}
 	return out
 }

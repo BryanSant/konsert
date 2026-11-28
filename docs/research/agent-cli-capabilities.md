@@ -155,6 +155,14 @@ $ codex login status       → "Not logged in"   exit 1
 - Richer: `codex app-server` with `thread/start` and `turn/start` (per-turn model, effort, approvalPolicy, sandboxPolicy), approval requests as server→client JSON-RPC (`CommandExecutionRequestApproval`, `FileChangeRequestApproval`), and `DynamicToolCall` (client-provided tools).
 - MCP: `-c 'mcp_servers.syre.command="…"' -c 'mcp_servers.syre.args=[…]'` or `codex mcp add`.
 
+**Session store (0.166–0.172, used by observed sessions).**
+- `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<local time>-<session id>.jsonl` (local-date day dirs), one record per line: `{timestamp, ordinal, type, payload}`.
+- `session_meta` carries `id`, `cwd`, `originator` (`codex-tui`, `codex_exec`, …), `cli_version` and `source`; `turn_context` carries `model`.
+- `event_msg` payloads: `task_started`, `task_complete`, `turn_aborted`, `token_count`, `thread_settings_applied`, and `item_completed` with an `item` of type `UserMessage`, `AgentMessage` (`phase` `commentary` or `final_answer`), `CommandExecution` (`command` argv, `aggregated_output`, `exit_code`, `status`), `Reasoning`, `ImageView` or `Extension`.
+- `response_item` payloads: `message`, `reasoning`, and the model's tool calls: `custom_tool_call` (`name` `exec`, a JavaScript cell such as `tools.exec_command({cmd:"…"})`; or `apply_patch` with the patch text) and `function_call` (`name`, JSON `arguments`; `wait` polls a long cell), each answered by a `*_output` with the same `call_id`. `token_usage_record` carries `response_id` and `usage` (`input_tokens` includes `cached_input_tokens`).
+- No item is written when a command *starts*: a running command shows as a tool call without its output yet. Approval requests are not written.
+- A running codex keeps its rollout open (seen in `/proc/<pid>/fd` on Linux). There is no pid or status file.
+
 ## 4. grok
 
 **Binary/version.** `~/.grok/bin/grok` → `../downloads/grok-macos-aarch64`. `grok 1.0.92 (b06756fd6256) [stable]`. Docs: `~/.grok/README.md` (113 KB).
@@ -188,6 +196,13 @@ GROK_HOME=<empty> grok -p "…" --output-format json →
 - ACP: `grok agent stdio` (JSON-RPC, ACP; extension methods `x.ai/auth/info`, `x.ai/auth/check_subscription`, …). Also `agent serve`/`headless` (WebSocket).
 - MCP: there is no per-run flag. Use `[mcp_servers.<name>]` in `$GROK_HOME/config.toml`, `grok mcp add`, or a project `.mcp.json` (Claude-compatible). It also reads `~/.claude.json` MCP servers. Per run: a temporary `GROK_HOME`, or `.mcp.json` in the cwd.
 
+**Session store (1.0.92, used by observed sessions).** Documented in `~/.grok/docs/user-guide/17-sessions.md`.
+- `$GROK_HOME/sessions/<url-encoded cwd>/<session id>/` (a `.cwd` file names the cwd when the encoded name is too long).
+- `updates.jsonl` is the ACP update stream: `{timestamp, timestamp_us, method, params: {sessionId, update}}`. `session/update` carries `user_message_chunk`, `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`, `plan` and `current_mode_update`.
+- `_x.ai/session/update` carries `turn_completed` (`prompt_id`, `stop_reason` `end_turn`/`cancelled`/`error`, `usage` with `inputTokens` including `cachedReadTokens`), `hook_execution` (`event_name` `session_start`, `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `stop`, `session_end`, …), `retry_state`, `task_backgrounded`/`task_completed`, `subagent_spawned`/`subagent_finished`, `session_recap`, compaction and memory records.
+- `summary.json` holds `info.cwd`, `session_summary` (the generated title), `current_model_id` and timestamps. `active_sessions.json` stayed `[]` during a headless run.
+- Versions before about September 2026 wrote no `turn_completed`. Permission prompts are not written.
+
 ## 5. agy (Google Antigravity CLI)
 
 **Binary/version.** `/opt/homebrew/bin/agy` (Mach-O, about 229 MB). `agy --version` → `1.5.14`. Data in `~/.gemini/antigravity-cli/` (settings.json, history.jsonl, conversations/, `log/cli-*.log`). Shared config in `~/.gemini/config/` (hooks.json, mcp_config.json, skills).
@@ -210,6 +225,8 @@ GROK_HOME=<empty> grok -p "…" --output-format json →
 **Multi-account.** Nothing documented for the main Google login: the Keychain item is per macOS user. `AGY_ACCOUNT=<name>` exists but selects among **plugin-connected provider accounts** (e.g. gh) for sandboxed commands, not the Antigravity login. Options are `AGY_ADC_AUTH` (point at different ADC/service-account creds) or `GEMINI_API_KEY`. HOME-override isolation was not tested.
 
 **Headless.** `agy -p "<prompt>" --output-format stream-json [--input-format stream-json] [--model id] [--effort level] [--mode accept-edits|auto|plan] [--dangerously-skip-permissions] [--print-timeout 0] [--conversation id|-c] [--json-schema] [--settings '{…}']`. stream-json uses NDJSON with `type`, `session_id`, `result`, `usage`, `is_error`, `stop_reason`, `delta` fields (from Go struct tags; exact event list not captured). `agy acp` = ACP stdio server. MCP: `~/.gemini/config/mcp_config.json` `{"mcpServers":{…}}`, `agy mcp add/remove/list`.
+
+**Session store (gap).** `~/.gemini/antigravity-cli/conversations/<id>.db` is SQLite: `trajectory_meta`, `steps` (`step_type`, `status`, protobuf `step_payload`, `metadata`, …), `gen_metadata` and `trajectory_metadata_blob` (protobuf, with the workspace URI). The step protobufs are undocumented, so observed sessions don't read agy's store yet (SYR-JHBB5-agy-store). agy sessions started outside Syre show through the process scan: present, with a CPU-based working or idle status.
 
 ## 6. cursor-agent
 
