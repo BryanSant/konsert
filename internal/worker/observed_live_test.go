@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"testing"
@@ -147,4 +148,32 @@ func TestLiveLoadSplit(t *testing.T) {
 			time.Now().Format("15:04:05"), l.AgentCPUPercent, l.AgentRSSMB, l.OtherCPUPercent, l.OtherRSSMB, l.Unreported, idle, top)
 		time.Sleep(3 * time.Second)
 	}
+}
+
+// TestLiveProcessExits watches this machine's daemon processes for SYRE_OBSERVE_LIVE_S
+// seconds and logs every exit the daemon would report, with the SSH shells open then.
+// Opt-in: SYRE_OBSERVE_LIVE=1.
+func TestLiveProcessExits(t *testing.T) {
+	if os.Getenv("SYRE_OBSERVE_LIVE") != "1" {
+		t.Skip("set SYRE_OBSERVE_LIVE=1")
+	}
+	secs := 30
+	if v := os.Getenv("SYRE_OBSERVE_LIVE_S"); v != "" {
+		_, _ = fmt.Sscan(v, &secs)
+	}
+	s := procs.NewSampler()
+	var w procWatch
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	for time.Now().Before(deadline) {
+		smp, err := s.Sample()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ex := range w.observe(smp, agentPIDs(smp, nil, os.Getpid())) {
+			b, _ := json.Marshal(ex)
+			t.Logf("%s exit %s", time.Now().Format("15:04:05"), b)
+		}
+		time.Sleep(procs.BusyInterval)
+	}
+	t.Logf("watched %d daemon processes at the end", len(w.known))
 }

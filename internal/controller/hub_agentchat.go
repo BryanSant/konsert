@@ -360,6 +360,9 @@ func (h *Hub) onAgentChatEvent(ctx context.Context, wc *workerConn, env protocol
 		el.QuestionID = h.questionForElicitation(ctx, cs, &el)
 		ev.Elicitation = &el
 	}
+	if ev.Kind == protocol.EventToolCall {
+		h.noteAgentCommand(wc.id, cs, ev)
+	}
 	h.emitChatEvent(ctx, ev.ChatID, ev, emitOpts{fromWorker: wc})
 }
 

@@ -100,6 +100,8 @@ type Daemon struct {
 	attrib   *procs.Attributor
 	load     atomic.Pointer[protocol.MachineLoad]
 	userIdle userIdleCache
+	// procWatch notices watched daemon processes exiting (procwatch.go).
+	procWatch procWatch
 
 	// discovery outlives connections so hook events written while disconnected are
 	// delivered after reconnect.
@@ -898,6 +900,17 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		return
 	}
 	switch env.Type {
+	case protocol.MsgProcessKill:
+		p, err := protocol.DecodePayload[protocol.ProcessKillPayload](env)
+		if err != nil {
+			return
+		}
+		reqID := env.ID
+		go func() { // the grace period must not stall the read loop
+			res := d.killProcess(p, shells.OSKiller())
+			d.logger.Info("process kill requested", "pid", p.PID, "name", res.Name, "killed", res.Killed, "forced", res.Forced, "err", res.Error)
+			d.sendJSONWithID(protocol.MsgProcessKillResult, reqID, res)
+		}()
 	case protocol.MsgWorkerDirectives:
 		p, err := protocol.DecodePayload[protocol.WorkerDirectivesPayload](env)
 		if err != nil {

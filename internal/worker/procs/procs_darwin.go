@@ -56,6 +56,9 @@ func osTable() ([]Proc, error) {
 			Name:  string(name),
 			Start: time.Unix(kp.Proc.P_starttime.Sec, int64(kp.Proc.P_starttime.Usec)*1000),
 		}
+		if dev := kp.Eproc.Tdev; dev != -1 && dev != 0 {
+			p.TTY = uint64(uint32(dev))
+		}
 		//lint:ignore SA1019 x/sys has no proc_pid_rusage wrapper, and syred builds without cgo.
 		_, _, errno := unix.Syscall6(unix.SYS_PROC_INFO, procInfoCallPIDRusage, uintptr(pid), rusageInfoV4, 0,
 			uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))

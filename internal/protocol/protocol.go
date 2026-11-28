@@ -19,7 +19,12 @@ const (
 	MsgExternalSession  = "worker.external_session"
 	// MsgWorkerPorts carries the listening ports (WorkerPortsPayload): sent every few
 	// minutes and as the reply (same envelope id) to MsgWorkerPortsRequest.
-	MsgWorkerPorts        = "worker.ports"
+	MsgWorkerPorts = "worker.ports"
+	// Process-level attribution (SYR-AT7T1): a watched daemon process exited (with
+	// who could have stopped it), and a user's request to kill one process.
+	MsgProcessExit        = "worker.process_exit"
+	MsgProcessKill        = "worker.process_kill"
+	MsgProcessKillResult  = "worker.process_kill_result"
 	MsgWorkerPortsRequest = "worker.ports.request"
 	// MsgWorkerCheckoutsRefresh asks syred to re-scan local git checkouts and report
 	// updated machine facts immediately (on-demand refresh).
@@ -382,6 +387,47 @@ type ProcessLoad struct {
 	Name       string  `json:"name"`
 	CPUPercent float64 `json:"cpu_percent"`
 	RSSMB      uint64  `json:"rss_mb"`
+	// StartedAt identifies the process with PID (PIDs are reused): a kill names both.
+	StartedAt time.Time `json:"started_at,omitzero"`
+}
+
+// ProcessExitPayload reports that a watched process exited: a long-lived daemon
+// (its parent is init, systemd or launchd) that belonged to no session. It exited
+// between After and Before (two samples). SSHShells are the interactive shells under
+// sshd, outside Syre, at that time: who might have stopped it.
+type ProcessExitPayload struct {
+	Name      string     `json:"name"`
+	PID       int        `json:"pid"`
+	StartedAt time.Time  `json:"started_at,omitzero"`
+	After     time.Time  `json:"after"`
+	Before    time.Time  `json:"before"`
+	SSHShells []SSHShell `json:"ssh_shells,omitempty"`
+}
+
+// SSHShell is an interactive shell under sshd that Syre did not start.
+type SSHShell struct {
+	PID  int    `json:"pid"`
+	Name string `json:"name"`
+	TTY  string `json:"tty,omitempty"` // "/dev/pts/3"
+	// LastInput is when its terminal last had input (the tty's access time); zero
+	// when unknown.
+	LastInput time.Time `json:"last_input,omitzero"`
+}
+
+// ProcessKillPayload asks the daemon to stop one process (the user, from the UI). The
+// start time must match, so a reused PID is never killed.
+type ProcessKillPayload struct {
+	PID       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// ProcessKillResult is the daemon's answer to a ProcessKillPayload.
+type ProcessKillResult struct {
+	Name   string `json:"name,omitempty"`
+	Killed bool   `json:"killed"`
+	// Forced: it ignored the polite signal and was killed outright.
+	Forced bool   `json:"forced,omitzero"`
+	Error  string `json:"error,omitempty"`
 }
 
 // SessionLoad is one session's processes in a sample. Exactly one of TaskID, ChatID

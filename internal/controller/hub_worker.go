@@ -449,6 +449,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onAgentCapabilities(ctx, wc, env)
 	case protocol.MsgOperatorCommand:
 		h.onOperatorCommand(ctx, wc, env)
+	case protocol.MsgProcessExit:
+		h.onProcessExit(ctx, wc, env)
 	case protocol.MsgSessionActivity:
 		h.onSessionActivity(ctx, wc, env)
 	}

@@ -77,6 +77,9 @@ func parseStat(pid int, raw []byte, boot time.Time, pageSize uint64) (Proc, bool
 	}
 	p := Proc{PID: pid, Name: string(raw[open+1 : end])}
 	p.PPID, _ = strconv.Atoi(f[1])
+	if tty, err := strconv.ParseInt(f[4], 10, 64); err == nil && tty > 0 {
+		p.TTY = uint64(tty)
+	}
 	ut, _ := strconv.ParseInt(f[11], 10, 64)
 	st, _ := strconv.ParseInt(f[12], 10, 64)
 	p.CPU = time.Duration(ut+st) * time.Second / clockTicks

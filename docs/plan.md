@@ -564,7 +564,14 @@ Built right after observed sessions and before placement: it shapes every intera
 - Shell integration for Syre terminals (OSC 133 prompt/command/exit marks; zsh, bash, PowerShell) → `worker.operator_command` events; command text kept on the daemon with a short TTL, redacted summary to the hub.
 - Event delivery: fleet events to the commander chat; notes before a worker session's next prompt; `recent_events` MCP tool; standing operator-protocol instruction in managed sessions.
 - PWA: intervention controls, Pause everything, holds and requests visible, "your actions" timeline.
-- Later (needs Phase 6): process-death ↔ command correlation, SSH-outside-Syre attribution, per-process kill.
+- Process-level attribution (done, SYR-AT7T1). From each process sample the daemon watches long-lived daemons that belong to no session: their parent is init, systemd or launchd, and they are at least 60 s old. When one exits it sends `worker.process_exit` with the interactive shells under sshd outside Syre and their tty's last input (atime). The hub attributes the exit in order of evidence:
+  1. a UI kill;
+  2. a Syre terminal command naming it (already held);
+  3. an agent's shell tool call naming it (the agent, likely);
+  4. SSH terminal input in the window (the user, `source=ssh`, likely, with the same resource hold as a terminal stop);
+  5. otherwise nothing is recorded.
+
+  Non-interactive `ssh host cmd` has no tty and is never taken for the user. Per-process kill: `POST /api/workers/{id}/processes/kill {pid, started_at}`, audited. The daemon refuses PID 1, syred and its ancestors, and a reused PID; it sends SIGTERM, then kills after 5 s. Verified live on bocabox (Linux) and bocamacmini (macOS) with a stand-in nginx stopped over plain SSH. Windows has no ttys, so SSH attribution doesn't apply there.
 - Exit: user stops nginx in a Syre terminal on host-1 → hold on host-1/nginx, commander and the affected session are told and ask before restarting; when an agent asked the user to restart nginx, the same action resolves its request and the agent continues.
 
 ### Phase 5b: Questions and steering

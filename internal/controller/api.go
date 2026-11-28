@@ -185,6 +185,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/metrics", s.requireBrowserAuth(s.handleMetrics))
 	s.mux.Handle("GET /api/policy/report", s.requireBrowserAuth(s.handlePolicyReport))
 	s.mux.Handle("GET /api/work-profiles", s.requireBrowserAuth(s.handleWorkProfiles))
+	s.mux.Handle("POST /api/workers/{id}/processes/kill", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleKillProcess)))
 	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDeleteWorker)))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))

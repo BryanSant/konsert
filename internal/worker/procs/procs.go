@@ -33,6 +33,8 @@ type Proc struct {
 	// footprint on macOS (resident plus compressed and swapped, what Activity Monitor
 	// shows), working set on Windows.
 	RSS uint64
+	// TTY is the controlling terminal's device number (0: none; Windows: always 0).
+	TTY uint64
 	// Partial marks a process the OS would not report CPU and memory for (macOS: another
 	// user's process, syred not root). CPU and RSS are zero then.
 	Partial bool

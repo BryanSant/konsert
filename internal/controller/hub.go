@@ -218,6 +218,7 @@ type Hub struct {
 	heat      heatState
 	metrics   metricHistory
 	blocks    blockLog
+	recent    recentActions
 	ports     portsCache
 	checkouts checkoutState
 	// retention is the history compaction state (retention.go). RetentionEvery is how

@@ -30,6 +30,9 @@ func (d *Daemon) loadLoop(ctx context.Context) {
 func (d *Daemon) attribute(smp procs.Sample) {
 	usage := d.attrib.Attribute(smp, d.loadRoots())
 	sp := procs.SplitLoad(smp, usage, os.Getpid(), topOtherProcs)
+	for _, ex := range d.procWatch.observe(smp, agentPIDs(smp, usage, os.Getpid())) {
+		d.sendJSON(protocol.MsgProcessExit, ex)
+	}
 	load := &protocol.MachineLoad{
 		At:              smp.At.UTC(),
 		AgentCPUPercent: round1(sp.AgentCPUPercent),
@@ -39,7 +42,7 @@ func (d *Daemon) attribute(smp procs.Sample) {
 		Unreported:      sp.Unreported,
 	}
 	for _, p := range sp.TopOther {
-		load.TopOther = append(load.TopOther, protocol.ProcessLoad{PID: p.PID, Name: p.Name, CPUPercent: round1(p.CPUPercent), RSSMB: p.RSS >> 20})
+		load.TopOther = append(load.TopOther, protocol.ProcessLoad{PID: p.PID, Name: p.Name, CPUPercent: round1(p.CPUPercent), RSSMB: p.RSS >> 20, StartedAt: p.Start.UTC()})
 	}
 	if idle, src, ok := d.userIdle.get(context.Background()); ok {
 		s := int64(idle / time.Second)
@@ -83,3 +86,31 @@ func (d *Daemon) loadRoots() []procs.Root {
 const topOtherProcs = 5
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
+// agentPIDs are the processes of sessions and of syred's own tree.
+func agentPIDs(smp procs.Sample, usage []procs.SessionUsage, self int) map[int]bool {
+	out := map[int]bool{}
+	for _, u := range usage {
+		for _, pid := range u.PIDs {
+			out[pid] = true
+		}
+	}
+	kids := map[int][]int{}
+	for _, p := range smp.Procs {
+		kids[p.PPID] = append(kids[p.PPID], p.PID)
+	}
+	var mark func(int)
+	mark = func(pid int) {
+		if out[pid] && pid != self {
+			return
+		}
+		out[pid] = true
+		for _, c := range kids[pid] {
+			if c != pid {
+				mark(c)
+			}
+		}
+	}
+	mark(self)
+	return out
+}
