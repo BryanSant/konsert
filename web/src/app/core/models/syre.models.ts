@@ -33,6 +33,66 @@ export interface WorkerMetrics {
   swap_total_mb?: number;
   /** GPU utilization 0-100 where the platform reports it. */
   gpu_percent?: number;
+  /** The machine's processes split by who runs them (latest sample). */
+  load?: MachineLoad;
+}
+
+/** One session's processes (WorkerMetrics.load.sessions). CPU is 100 per core. */
+export interface SessionLoad {
+  task_id?: string;
+  chat_id?: string;
+  external_id?: string;
+  cpu_percent: number;
+  rss_mb: number;
+  peak_rss_mb: number;
+  procs: number;
+  orphans?: number;
+}
+
+export interface ProcessLoad {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  rss_mb: number;
+  started_at?: string;
+}
+
+export interface MachineLoad {
+  at: string;
+  sessions?: SessionLoad[];
+  agent_cpu_percent: number;
+  other_cpu_percent: number;
+  agent_rss_mb: number;
+  other_rss_mb: number;
+  top_other?: ProcessLoad[];
+  unreported?: number;
+  user_idle_s?: number;
+  user_idle_source?: string;
+}
+
+/** One minute or hour of a load series (GET /api/metrics). */
+export interface MetricPoint {
+  subject: string;
+  t: string;
+  n: number;
+  cpu_avg: number;
+  cpu_max: number;
+  rss_avg_mb: number;
+  rss_max_mb: number;
+  procs_max: number;
+}
+
+export interface MetricSeries {
+  subject: string;
+  period: number;
+  points: MetricPoint[];
+}
+
+export interface ProcessKillResult {
+  name?: string;
+  killed: boolean;
+  forced?: boolean;
+  error?: string;
 }
 
 /** GET /api/workers/{id}/ports: listening ports, fetched on demand (lsof / ss on the machine). */

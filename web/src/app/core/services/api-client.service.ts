@@ -43,7 +43,7 @@ import {
   TicketRollup,
   WakeLockStatus,
   Worker,
-  AutonomyPolicy, PolicyReport } from '../models/syre.models';
+  AutonomyPolicy, PolicyReport, MetricSeries, ProcessKillResult } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -305,6 +305,19 @@ export class ApiClientService {
 
   setRetention(r: RetentionDays): Promise<StorageResponse> {
     return this.request('/api/storage/retention', { method: 'PUT', body: JSON.stringify(r) });
+  }
+
+  /** Load history of subjects (task:<id>, chat:<id>, agent:<worker>, other:<worker>). */
+  getMetrics(subjects: string[], range: string): Promise<{ range: string; series: MetricSeries[] | null }> {
+    return this.request(`/api/metrics?subject=${encodeURIComponent(subjects.join(','))}&range=${encodeURIComponent(range)}`);
+  }
+
+  /** Stops one process on a machine (the start time guards against a reused PID). */
+  killProcess(workerId: string, pid: number, startedAt?: string): Promise<ProcessKillResult> {
+    return this.request(`/api/workers/${encodeURIComponent(workerId)}/processes/kill`, {
+      method: 'POST',
+      body: JSON.stringify({ pid, started_at: startedAt ?? '0001-01-01T00:00:00Z' }),
+    });
   }
 
   /** Settings → Policy report: how often rules blocked work and the overrides that followed. */

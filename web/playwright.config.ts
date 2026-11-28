@@ -30,7 +30,7 @@ export default defineConfig({
         browserName: 'chromium',
         viewport: { width: 1440, height: 900 },
       },
-      testMatch: /(syre|autopilot|subscription-chat|human-control|questions|activity|modes|modes-first-run|shells|device-auth|machine-join|retention|shell-policy|fleet-layout|forges|deep-links|work-board)\.spec\.ts/,
+      testMatch: /(syre|autopilot|subscription-chat|human-control|questions|activity|modes|modes-first-run|shells|device-auth|machine-join|retention|shell-policy|fleet-layout|forges|deep-links|work-board|machine-resources)\.spec\.ts/,
     },
     {
       name: 'mobile',

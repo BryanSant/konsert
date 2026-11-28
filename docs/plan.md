@@ -601,6 +601,13 @@ Built alongside 5a (open requests are questions with an action attached).
 
   Idle is read at most every 30 s. All of it rides on `WorkerMetrics.Load`.
 - Store (done, SYR-PEEBE). `metric_samples` keeps per-subject series: `task:`, `chat:`, `observed:<machine>/`, `agent:<machine>`, `other:<machine>`. The hub folds each heartbeat's `WorkerMetrics.Load` into 1-minute buckets, written each minute and at shutdown (a restart merges into the same rows), and rolls them up hourly. Retention is in Settings → Storage: minutes 2 days, hours 30 days (at least 7). Tasks keep their peaks (`peak_rss_mb`, `peak_cpu_pct`). Queries: `GET /api/metrics?subject=…|worker=…&range=1h|12h|24h|3d|1w` and MCP `fleet_status detail=history`. Machine rows in `fleet_status` carry the live load and the policy.
+- PWA (done, SYR-V2GGM): Machine details → Resources shows:
+  - the agent vs other split of CPU (in cores) and memory, and how long the user has been idle;
+  - per-session CPU, memory, peak, processes and left-over processes;
+  - the busiest other processes, each with a Stop button (confirmed; start-time guarded);
+  - CPU and memory history as two charts, never two scales on one axis: agent and other series, direct end labels, a crosshair tooltip, a 1h–1w range picker and a table view.
+
+  Colors are categorical slots 1 and 2 (dark), validated against the card surface.
 - Exit: a build started by an agent is attributed to it; a build started by hand counts as other load; history survives hub restarts.
 
 ### Phase 7: Facts, work keys and outcomes

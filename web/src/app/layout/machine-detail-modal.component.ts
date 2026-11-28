@@ -13,10 +13,12 @@ import { YourActionsComponent } from '../features/control/your-actions.component
 import { activeMachineDirectives, directiveBadgeText, guardrailLabel, offlineText, providerBadgesForWorker, spoolSummary, transportHint, transportLabel, windowsStartText } from '../modes/fleet/fleet-logic';
 import { MachineCredentialComponent } from './machine-credential.component';
 
+import { MachineResourcesComponent } from './machine-resources.component';
+
 @Component({
   selector: 'app-machine-detail-modal',
   standalone: true,
-  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent],
+  imports: [IconComponent, ModalDialogComponent, TooltipDirective, HoldsRequestsComponent, YourActionsComponent, MachineCredentialComponent, MachineResourcesComponent],
   template: `
     <app-modal-dialog labelledBy="machine-detail-title" panelClass="w-full max-w-[580px] rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <!-- Header -->
@@ -340,6 +342,9 @@ import { MachineCredentialComponent } from './machine-credential.component';
           </div>
         </div>
       }
+
+      <!-- What uses the machine: agents vs other, per session, history (SYR-V2GGM) -->
+      <sy-machine-resources [worker]="worker()" />
 
       @if (ports()?.length) {
         <div class="rounded-lg bg-[#141518] p-3 space-y-1.5 text-[11.5px]" data-testid="machine-ports">
