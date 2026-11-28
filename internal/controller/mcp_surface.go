@@ -41,12 +41,17 @@ type FleetSummaryResult struct {
 	Groups      []string `json:"groups"`
 	Directives  []string `json:"directives,omitempty"`
 	Holds       []string `json:"holds,omitempty"`
+	// MachineGroups are the user's saved groups ("Lab: box-1, box-2"); Scope is where
+	// this Commander chat may send work, set by the user (SYR-FJA2T).
+	MachineGroups []string `json:"machine_groups,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
 }
 
 type MachineDetailRow struct {
 	WorkerID      string                 `json:"worker_id"`
 	WorkerSID     string                 `json:"worker_sid"`
 	WorkerName    string                 `json:"worker_name"`
+	Labels        []string               `json:"labels,omitempty"`
 	Status        string                 `json:"status"`
 	OS            string                 `json:"os"`
 	Arch          string                 `json:"arch"`
@@ -67,7 +72,7 @@ type MachineDetailRow struct {
 // machineRow is a fleet_status machine row.
 func machineRow(w WorkerStatusView) MachineDetailRow {
 	r := MachineDetailRow{
-		WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status,
+		WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Labels: w.Labels, Status: w.Status,
 		OS: w.OS, Arch: w.Arch, Agents: w.Agents, ActiveTasks: w.ActiveTasks,
 		MaxConcurrent: w.MaxConcurrent, Drained: w.Drained, Facts: w.Facts, Policy: w.Policy, Headroom: w.Headroom,
 	}
@@ -158,6 +163,7 @@ type WorkItemInput struct {
 	Agent         string             `json:"agent,omitempty"`
 	Model         string             `json:"model,omitempty"`
 	Machine       string             `json:"machine,omitempty"`
+	Machines      []string           `json:"machines,omitempty"`
 	Repo          string             `json:"repo,omitempty"`
 	Prompt        string             `json:"prompt,omitempty"`
 	Mode          string             `json:"mode,omitempty"`
@@ -167,6 +173,21 @@ type WorkItemInput struct {
 	// WorkKey and Requirements apply to dispatch (Kind is then the kind of work).
 	WorkKey      string            `json:"work_key,omitempty"`
 	Requirements *WorkRequirements `json:"requirements,omitempty"`
+}
+
+// groupMachines is a group's members: machines, or machine as a comma-separated list
+// (the schema documents only machine, to keep the Commander's tool schemas small).
+func (item WorkItemInput) groupMachines() []string {
+	if len(item.Machines) > 0 {
+		return item.Machines
+	}
+	var out []string
+	for _, m := range strings.Split(item.Machine, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 type ManageWorkResult struct {
@@ -234,7 +255,7 @@ var (
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type": "string",
-				"enum": []any{"create", "update", "cancel", "requeue", "dispatch", "create_project", "add_repo"},
+				"enum": []any{"create", "update", "cancel", "requeue", "dispatch", "create_project", "add_repo", "label", "unlabel", "group", "ungroup"},
 			},
 			"items": map[string]any{
 				"type": "array",
@@ -338,7 +359,7 @@ var (
 const (
 	fleetStatusDesc = "Fleet summary grouped by capability (default) with directives and holds; per-machine facts, policy and current load (per session, agent vs other, user idle) when detail=machines or machine is set; load history of a session or machine with detail=history."
 	backlogDesc     = "Compact table of projects/repos, tickets (sid, title, status, lease, blockers), and ad-hoc tasks."
-	manageWorkDesc  = "Batch create/update/cancel/requeue tickets (incl. blocked_by, repos, hints), dispatch ad-hoc tasks (kind, requirements), or create projects/repos."
+	manageWorkDesc  = "Batch create/update/cancel/requeue tickets, dispatch tasks (kind, requirements), create projects/repos, or (un)label/(un)group machines (machine: a,b)."
 	controlDesc     = "Pause, resume, stop, drain, undrain, suspend, veto, or toggle autopilot at ticket, session, machine, project, or fleet scope. Resume/undrain require user confirmation."
 	replyDesc       = "Steer a running task/session or answer a delegated question (only via answer_question rules)."
 	memoryDesc      = "Save or recall concise fleet/project/session memory entries."
@@ -485,6 +506,7 @@ func (s *FleetService) FleetStatusView(ctx context.Context, in FleetStatusInput)
 			Groups:      groups,
 		}
 		if s.hub != nil {
+			res.MachineGroups, res.Scope = s.hub.scopeSummary(ctx, fs.Workers)
 			res.Autopilot = s.hub.AutopilotState(ctx).State
 			now := s.hub.directiveClock()
 			if dirs, err := s.store.ListDirectives(ctx, store.DirectiveFilter{ActiveOnly: true, Now: now, Limit: 20}); err == nil {
@@ -946,6 +968,53 @@ func (s *FleetService) ManageWork(ctx context.Context, in ManageWorkInput) (Mana
 				return out, err
 			}
 			out.Results = append(out.Results, res)
+		}
+
+	case "label", "unlabel":
+		for _, item := range in.Items {
+			m := strings.TrimSpace(item.Machine)
+			if m == "" || len(item.Labels) == 0 {
+				return out, errors.New(action + " needs machine and labels")
+			}
+			id := s.hub.resolveMachine(ctx, m)
+			labels, err := s.hub.labelMachine(ctx, id, item.Labels, action == "unlabel")
+			if errors.Is(err, store.ErrNotFound) {
+				return out, fmt.Errorf("no machine %q", m)
+			}
+			if err != nil {
+				return out, err
+			}
+			out.Results = append(out.Results, machineLabelsUpdate{WorkerID: id, Labels: labels})
+		}
+
+	case "group":
+		for _, item := range in.Items {
+			id := ""
+			if ref := strings.TrimSpace(item.ID); ref != "" {
+				g, err := s.hub.findGroup(ctx, ref)
+				if err != nil {
+					return out, err
+				}
+				id = g.ID
+			}
+			g, err := s.hub.saveGroup(ctx, id, item.Title, item.groupMachines())
+			if err != nil {
+				return out, err
+			}
+			out.Results = append(out.Results, g)
+		}
+
+	case "ungroup":
+		for _, item := range in.Items {
+			g, err := s.hub.findGroup(ctx, cmpOr(strings.TrimSpace(item.ID), strings.TrimSpace(item.Title)))
+			if err != nil {
+				return out, err
+			}
+			if err := s.store.DeleteMachineGroup(ctx, g.ID); err != nil {
+				return out, err
+			}
+			s.hub.broadcastMachineGroups(ctx)
+			out.Results = append(out.Results, map[string]any{"ok": true, "deleted": g.Name})
 		}
 
 	case "create_project":
@@ -1545,6 +1614,60 @@ func (c *RemoteFleetClient) ManageWork(ctx context.Context, in ManageWorkInput) 
 				return out, err
 			}
 			out.Results = append(out.Results, r)
+		case "label", "unlabel":
+			if strings.TrimSpace(item.Machine) == "" || len(item.Labels) == 0 {
+				return out, errors.New(action + " needs machine and labels")
+			}
+			var res machineLabelsUpdate
+			base := "/api/workers/" + url.PathEscape(strings.TrimSpace(item.Machine)) + "/labels"
+			for _, l := range item.Labels {
+				var err error
+				if action == "label" {
+					err = c.doJSON(ctx, http.MethodPost, base, map[string]string{"label": l}, &res)
+				} else {
+					err = c.doJSON(ctx, http.MethodDelete, base+"/"+url.PathEscape(l), nil, &res)
+				}
+				if err != nil {
+					return out, err
+				}
+			}
+			out.Results = append(out.Results, res)
+		case "group", "ungroup":
+			ref := strings.TrimSpace(item.ID)
+			if action == "ungroup" {
+				ref = firstNonEmpty(ref, strings.TrimSpace(item.Title))
+			}
+			id := ""
+			if ref != "" {
+				var list struct {
+					Groups []store.MachineGroup `json:"groups"`
+				}
+				if err := c.doJSON(ctx, http.MethodGet, "/api/machine-groups", nil, &list); err != nil {
+					return out, err
+				}
+				for _, g := range list.Groups {
+					if g.ID == ref || strings.EqualFold(g.Name, ref) {
+						id = g.ID
+					}
+				}
+				if id == "" {
+					return out, fmt.Errorf("no machine group %q", ref)
+				}
+			}
+			var res any
+			var err error
+			switch {
+			case action == "ungroup":
+				err = c.doJSON(ctx, http.MethodDelete, "/api/machine-groups/"+url.PathEscape(id), nil, &res)
+			case id == "":
+				err = c.doJSON(ctx, http.MethodPost, "/api/machine-groups", map[string]any{"name": item.Title, "worker_ids": item.groupMachines()}, &res)
+			default:
+				err = c.doJSON(ctx, http.MethodPut, "/api/machine-groups/"+url.PathEscape(id), map[string]any{"name": item.Title, "worker_ids": item.groupMachines()}, &res)
+			}
+			if err != nil {
+				return out, err
+			}
+			out.Results = append(out.Results, res)
 		default:
 			return out, fmt.Errorf("invalid manage_work action %q", in.Action)
 		}

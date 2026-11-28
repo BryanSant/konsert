@@ -69,10 +69,19 @@ func (s *FleetService) FanOutFleet(ctx context.Context, req FanOutRequest) (FanO
 	if automatic && kind == "agent_sweep" && s.hub.fleetPaused(ctx) {
 		return FanOutResult{}, errFleetPaused
 	}
+	// A Commander chat reaches only its machines (SYR-FJA2T).
+	sc := s.hub.chatScope(ctx)
+	if err := scopeAllowsSelector(sc, workers, req.WorkerSelector); err != nil {
+		return FanOutResult{}, err
+	}
 	var targets []store.Worker
 	var skipped []FanOutMachineOutcome
 	for _, w := range workers {
 		if !s.hub.IsWorkerConnected(w.ID) {
+			continue
+		}
+		if !sc.in(w.ID) {
+			skipped = append(skipped, FanOutMachineOutcome{WorkerID: w.ID, WorkerName: w.Name, Status: "skipped", Error: "outside this chat's machines (" + sc.label + ")"})
 			continue
 		}
 		// Drained machines accept nothing new; held machines get nothing automatic.

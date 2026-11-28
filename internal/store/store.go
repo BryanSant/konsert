@@ -11,6 +11,8 @@ import (
 var (
 	ErrNotFound         = errors.New("record not found")
 	ErrProtectedDefault = errors.New("cannot delete built-in default resource")
+	// ErrConflict is a unique name already in use.
+	ErrConflict = errors.New("name already in use")
 )
 
 const (
@@ -671,6 +673,18 @@ type Store interface {
 	DeletePushSubscription(ctx context.Context, endpoint string) error
 	DeletePushSubscriptionsForDevice(ctx context.Context, deviceID string) (int64, error)
 	RecordPushResult(ctx context.Context, endpoint string, at time.Time, errText string) error
+	// Operator labels, machine groups and chat scope (SYR-FJA2T).
+	ListMachineLabels(ctx context.Context) (map[string][]string, error)
+	AddMachineLabel(ctx context.Context, workerID, label string) error
+	RemoveMachineLabel(ctx context.Context, workerID, label string) error
+	ListMachineGroups(ctx context.Context) ([]MachineGroup, error)
+	GetMachineGroup(ctx context.Context, id string) (MachineGroup, error)
+	CreateMachineGroup(ctx context.Context, g MachineGroup) (MachineGroup, error)
+	UpdateMachineGroup(ctx context.Context, g MachineGroup) error
+	DeleteMachineGroup(ctx context.Context, id string) error
+	// GetChatScope returns a chat's scope; all machines when none is stored.
+	GetChatScope(ctx context.Context, chatID string) (MachineTarget, error)
+	SetChatScope(ctx context.Context, chatID string, t MachineTarget) error
 	// Placement rules and log (SYR-880CP).
 	CreatePlacementRule(ctx context.Context, r PlacementRule) (PlacementRule, error)
 	ListPlacementRules(ctx context.Context, activeAt time.Time) ([]PlacementRule, error)

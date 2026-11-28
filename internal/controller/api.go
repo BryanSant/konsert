@@ -182,6 +182,7 @@ func (s *Server) registerRoutes() {
 
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
+	s.registerMachineScopeRoutes()
 	s.mux.Handle("GET /api/fleet/heat", s.requireBrowserAuth(s.handleFleetHeat))
 	s.mux.Handle("GET /api/metrics", s.requireBrowserAuth(s.handleMetrics))
 	s.mux.Handle("GET /api/policy/report", s.requireBrowserAuth(s.handlePolicyReport))
@@ -487,6 +488,7 @@ func (s *Server) handleGetFleet(w http.ResponseWriter, r *http.Request) {
 		"activity":           s.hub.activityList(),
 		"reviews":            reviews,
 		"directives":         directives,
+		"machine_groups":     s.hub.machineGroups(r.Context()),
 	})
 }
 

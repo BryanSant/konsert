@@ -151,6 +151,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 	}
 	if len(tasks) > 0 {
 		if workers, counts, slots, ok := h.schedulableWorkers(ctx); ok {
+			scopes := map[string]machineScope{}
 			for _, t := range dispatchOrder(tasks, h.expeditedTasks(ctx)) {
 				// A pause stored while this pass was already inside the function wins
 				// before the claim. The check at the top is not enough: listing directives
@@ -178,6 +179,16 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 						lifted[w.ID] = ov
 					}
 				}
+				// Work a Commander chat queued stays inside the chat's machines (SYR-FJA2T).
+				var scopeRejected []Rejection
+				if t.ParentChatID != "" {
+					sc, seen := scopes[t.ParentChatID]
+					if !seen {
+						sc = h.commanderScope(ctx, t.ParentChatID)
+						scopes[t.ParentChatID] = sc
+					}
+					eligible, scopeRejected = filterScope(eligible, sc)
+				}
 				subNote := ""
 				if payload.Agent != "shell" && payload.SessionKind != "terminal" {
 					dec, idx := h.applyProviderPlacement(ctx, payload.Agent, payload.AccountID, false, eligible)
@@ -193,6 +204,7 @@ func (h *Hub) SchedulePending(ctx context.Context) {
 					popts = h.withAccounts(ctx, popts, payload.Agent, payload.AccountID, t.Cause == nil || isAutomatic(*t.Cause))
 				}
 				w, pout, ok := SelectWorkerScored(eligible, counts, sel, payload.Agent, t.PermissionMode, popts)
+				pout.Rejected = append(scopeRejected, pout.Rejected...)
 				if ok && payload.AccountID == "" {
 					payload.AccountID = chosenAccount(pout, w.ID)
 				}

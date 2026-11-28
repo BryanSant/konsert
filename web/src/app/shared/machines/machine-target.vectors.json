@@ -1,0 +1,29 @@
+{
+  "comment": "Shared test vectors for the machine target resolver: store.ResolveTarget (Go) and resolveTarget (machine-target.ts) must both give want for every case (SYR-FJA2T).",
+  "machines": ["m-1", "m-2", "m-3", "m-4"],
+  "labels": {
+    "m-1": ["Work", "Gaming hardware"],
+    "m-2": ["work"],
+    "m-4": ["Slow"]
+  },
+  "groups": {
+    "g-lab": ["m-3", "m-1"],
+    "g-empty": [],
+    "g-stale": ["m-gone", "m-2"]
+  },
+  "cases": [
+    { "name": "all machines", "target": { "kind": "all" }, "want": ["m-1", "m-2", "m-3", "m-4"] },
+    { "name": "empty kind is all", "target": { "kind": "" }, "want": ["m-1", "m-2", "m-3", "m-4"] },
+    { "name": "one machine", "target": { "kind": "machine", "id": "m-2" }, "want": ["m-2"] },
+    { "name": "a machine that is gone", "target": { "kind": "machine", "id": "m-gone" }, "want": [] },
+    { "name": "listed machines keep fleet order", "target": { "kind": "machines", "ids": ["m-4", "m-1", "m-gone"] }, "want": ["m-1", "m-4"] },
+    { "name": "group", "target": { "kind": "group", "id": "g-lab" }, "want": ["m-1", "m-3"] },
+    { "name": "empty group", "target": { "kind": "group", "id": "g-empty" }, "want": [] },
+    { "name": "group with a removed machine", "target": { "kind": "group", "id": "g-stale" }, "want": ["m-2"] },
+    { "name": "unknown group", "target": { "kind": "group", "id": "g-nope" }, "want": [] },
+    { "name": "label matches any case", "target": { "kind": "label", "label": "WORK" }, "want": ["m-1", "m-2"] },
+    { "name": "label with a space", "target": { "kind": "label", "label": "gaming hardware" }, "want": ["m-1"] },
+    { "name": "unused label", "target": { "kind": "label", "label": "GPU" }, "want": [] },
+    { "name": "unknown kind names nothing", "target": { "kind": "cluster", "id": "m-1" }, "want": [] }
+  ]
+}

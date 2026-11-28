@@ -31,9 +31,12 @@ func NewFleetService(st store.Store, hub *Hub) *FleetService {
 }
 
 type WorkerStatusView struct {
-	ID             string                  `json:"id"`
-	SID            string                  `json:"sid"`
-	Name           string                  `json:"name"`
+	ID   string `json:"id"`
+	SID  string `json:"sid"`
+	Name string `json:"name"`
+	// Labels are the user's operator labels (FleetStatus only; "machine_labels" updates
+	// carry changes, so a worker update without them keeps the ones the page has).
+	Labels         []string                `json:"labels,omitempty"`
 	HostGroup      string                  `json:"host_group"`
 	OS             string                  `json:"os"`
 	Arch           string                  `json:"arch"`
@@ -150,6 +153,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		return FleetStatusResult{}, err
 	}
 	counts := s.hub.ActiveTaskCounts()
+	labels, _ := s.store.ListMachineLabels(ctx)
 	views := make([]WorkerStatusView, 0, len(workers))
 	totalActive := 0
 	for _, w := range workers {
@@ -160,6 +164,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 			st = "offline"
 		}
 		view := toWorkerView(w, ac, s.hub.WorkerMetrics(w.ID))
+		view.Labels = labels[w.ID]
 		view.Status = st
 		view.WakeLock = s.hub.workerWakeLockView(w.ID)
 		s.hub.decorateSpool(&view)
@@ -546,6 +551,20 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 			lifted[w.ID] = ov
 		}
 		onlineWorkers = append(onlineWorkers, w)
+	}
+
+	// A Commander chat sends work only to its machines (SYR-FJA2T): a machine named
+	// outside them is refused, and unpinned work is placed inside them.
+	if sc := s.hub.chatScope(ctx); !sc.all() {
+		if err := scopeAllowsSelector(sc, workers, req.WorkerSelector); err != nil {
+			return DispatchResult{}, err
+		}
+		if len(sc.ids) == 0 {
+			return DispatchResult{}, fmt.Errorf("this chat's machines (%s) name no machine right now; ask the user to change the chat's machines", sc.label)
+		}
+		var dropped []Rejection
+		onlineWorkers, dropped = filterScope(onlineWorkers, sc)
+		earlier = append(earlier, dropped...)
 	}
 
 	counts := s.hub.ActiveTaskCounts()

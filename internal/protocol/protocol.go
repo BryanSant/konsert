@@ -732,6 +732,12 @@ type FleetUpdatePayload struct {
 	Directive any `json:"directive,omitzero"`
 	// PolicyProposal carries a Commander set_policy approval card when Kind is "policy_proposal".
 	PolicyProposal any `json:"policy_proposal,omitzero"`
+	// Labels carries one machine's operator labels (WorkerID) when Kind is "machine_labels";
+	// MachineGroups every saved group when Kind is "machine_groups"; ChatScope a Commander
+	// chat's machines when Kind is "chat_scope" (SYR-FJA2T).
+	Labels        any `json:"labels,omitzero"`
+	MachineGroups any `json:"machine_groups,omitzero"`
+	ChatScope     any `json:"chat_scope,omitzero"`
 }
 
 // Policy directive kinds.
