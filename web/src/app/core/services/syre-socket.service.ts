@@ -51,6 +51,7 @@ export const HANDSHAKE_FAILURES_BEFORE_AUTH_CHECK = 3;
 /** Close code the hub uses when it signs a device out (revoked): 1008 policy violation. */
 const SIGNED_OUT_CLOSE_CODE = 1008;
 
+import { ObservedEventsPush, ObservedTranscriptStore } from '../state/observed-transcript.store';
 @Injectable({ providedIn: 'root' })
 export class SyreSocketService {
   private readonly fleetStore = inject(FleetStore);
@@ -60,6 +61,7 @@ export class SyreSocketService {
   private readonly controlStore = inject(ControlStore);
   private readonly questionsStore = inject(QuestionsStore);
   private readonly agentChat = inject(AgentChatStore);
+  private readonly observed = inject(ObservedTranscriptStore);
   private readonly agentAccounts = inject(AgentAccountsStore);
   private readonly activity = inject(ActivityStore);
   private readonly notifications = inject(NotificationService);
@@ -371,6 +373,10 @@ export class SyreSocketService {
       }
       case CHAT_PROTOCOL.wsEvent: {
         this.agentChat.onEvent(env.payload);
+        break;
+      }
+      case 'observed.events': {
+        this.observed.onEvents(env.payload as ObservedEventsPush);
         break;
       }
       case 'usage.update': {

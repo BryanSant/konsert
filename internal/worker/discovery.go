@@ -38,6 +38,8 @@ type SessionDiscovery struct {
 	// observed reads agents' own session stores (claude's transcripts and live status
 	// files); nil when not set up.
 	observed *observedSessions
+	// sendObserved sends a watched observed session's new events to the hub.
+	sendObserved func(protocol.ObservedEvents)
 
 	// resolveCwd and cwdTimeout are per-instance so tests can simulate a slow lsof.
 	resolveCwd func(ctx context.Context, pid int) string
@@ -155,6 +157,7 @@ func (s *SessionDiscovery) PollObserved(ctx context.Context) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	s.observed.Poll(ctx)
+	s.observed.pollWatches(ctx, s.sendObserved)
 }
 
 // maxHookRead bounds how much of the hook inbox is read per poll.

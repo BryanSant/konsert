@@ -451,6 +451,8 @@ func (h *Hub) handleWorkerMessage(ctx context.Context, wc *workerConn, env proto
 		h.onOperatorCommand(ctx, wc, env)
 	case protocol.MsgProcessExit:
 		h.onProcessExit(ctx, wc, env)
+	case protocol.MsgObservedEvents:
+		h.onObservedEvents(wc, env)
 	case protocol.MsgSessionActivity:
 		h.onSessionActivity(ctx, wc, env)
 	}

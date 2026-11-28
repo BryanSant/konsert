@@ -127,6 +127,7 @@ func (h *Hub) vitalsLoop(ctx context.Context) {
 			h.flushVitals(ctx, false)
 			h.flushMetrics(ctx, false)
 			h.flushBlocks(ctx)
+			h.purgeTranscripts(ctx, now)
 			if hr := now.Truncate(time.Hour); hr.After(lastHour) {
 				lastHour = hr
 				h.rollupVitals(ctx, now)

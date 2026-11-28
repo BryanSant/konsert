@@ -13,6 +13,7 @@ import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ControlLabelComponent } from '../control-label.component';
 import { ItemSpinnerComponent } from '../item-spinner.component';
 import { TakeControlService } from '../take-control.service';
+import { ObservedTranscriptComponent } from './observed-transcript.component';
 
 /**
  * An agent session as a Command tab: the GOAL / NOW strip with its controls, and the
@@ -23,7 +24,7 @@ import { TakeControlService } from '../take-control.service';
   selector: 'sy-session-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, IconComponent, TooltipDirective],
+  imports: [ItemSpinnerComponent, ControlLabelComponent, SessionControlsComponent, KeepToggleComponent, XtermPaneComponent, SessionChatComponent, ObservedTranscriptComponent, IconComponent, TooltipDirective],
   host: { class: 'flex flex-col min-h-0 h-full' },
   template: `
     @let it = item();
@@ -89,6 +90,8 @@ import { TakeControlService } from '../take-control.service';
     <div class="flex-1 min-h-0">
       @if (it.kind === 'chat') {
         <sy-session-chat class="h-full" [chatId]="it.id" />
+      } @else if (it.observed && it.sessionKind !== 'terminal') {
+        <sy-observed-transcript class="block h-full" [taskId]="it.id" [agent]="it.agent" />
       } @else {
         @defer (on immediate) {
           <app-xterm-pane class="block h-full" [taskId]="it.id" [visible]="true" [bare]="true" />

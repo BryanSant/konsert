@@ -234,3 +234,49 @@ func TestClaudeConfigDirs(t *testing.T) {
 		t.Fatalf("dirs = %+v", dirs)
 	}
 }
+
+func TestObservedTranscriptAndWatch(t *testing.T) {
+	h := newObsHarness(t, nil)
+	lines := fixture(t)
+	cut := strings.Index(lines, `"stop_reason":"end_turn"`)
+	cut = strings.LastIndexByte(lines[:cut], '\n') + 1
+	h.write("projects/-work-demo/s1.jsonl", lines[:cut], h.now)
+	h.poll() // the registry learns the session
+
+	if res := h.o.Transcript(context.Background(), protocol.ObservedTranscriptRequest{ExternalID: "nope"}); res.Available || res.Reason == "" {
+		t.Fatalf("unknown session: %+v", res)
+	}
+	res := h.o.Transcript(context.Background(), protocol.ObservedTranscriptRequest{ExternalID: "s1", Watch: true})
+	if !res.Available || len(res.Events) == 0 || res.Events[0].Kind != protocol.EventUserMessage || res.Events[0].Seq != 1 {
+		t.Fatalf("transcript: %+v", res)
+	}
+	turn := res.Events[0].TurnID
+	for i, ev := range res.Events {
+		if ev.Seq != int64(i+1) || ev.TurnID != turn {
+			t.Fatalf("event %d: seq %d turn %q (want %d, %q)", i, ev.Seq, ev.TurnID, i+1, turn)
+		}
+	}
+	last := res.Events[len(res.Events)-1].Seq
+
+	// The session goes on: the watch sends only what's new, numbered on.
+	h.write("projects/-work-demo/s1.jsonl", lines, h.now.Add(time.Second))
+	var got []protocol.ObservedEvents
+	h.o.pollWatches(context.Background(), func(e protocol.ObservedEvents) { got = append(got, e) })
+	if len(got) != 1 || got[0].ExternalID != "s1" || got[0].Events[0].Seq != last+1 {
+		t.Fatalf("watch: %+v", got)
+	}
+	if k := got[0].Events; k[len(k)-1].Kind == "" {
+		t.Fatal("empty event")
+	}
+	// Nothing new: nothing sent. Past its TTL the watch lapses.
+	got = nil
+	h.o.pollWatches(context.Background(), func(e protocol.ObservedEvents) { got = append(got, e) })
+	if len(got) != 0 {
+		t.Fatalf("resent: %+v", got)
+	}
+	h.now = h.now.Add(protocol.ObservedWatchTTL + time.Minute)
+	h.o.pollWatches(context.Background(), func(protocol.ObservedEvents) {})
+	if len(h.o.watches) != 0 {
+		t.Fatal("watch did not lapse")
+	}
+}

@@ -293,6 +293,7 @@ func NewDaemon(cfg config.WorkerConfig, registry *drivers.Registry, logger *slog
 			OffsetsPath: filepath.Join(d.stateDir(), "observed-offsets.json"),
 			Logger:      logger,
 		}, d.discovery.emitIfChanged)
+		d.discovery.sendObserved = func(p protocol.ObservedEvents) { d.sendJSON(protocol.MsgObservedEvents, p) }
 	}
 
 	return d
@@ -903,6 +904,19 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		return
 	}
 	switch env.Type {
+	case protocol.MsgObservedTranscript:
+		req, err := protocol.DecodePayload[protocol.ObservedTranscriptRequest](env)
+		if err != nil {
+			return
+		}
+		reqID := env.ID
+		go func() {
+			res := protocol.ObservedTranscript{ExternalID: req.ExternalID, Reason: "this machine doesn't read observed sessions"}
+			if d.discovery != nil && d.discovery.observed != nil {
+				res = d.discovery.observed.Transcript(context.Background(), req)
+			}
+			d.sendJSONWithID(protocol.MsgObservedTranscript, reqID, res)
+		}()
 	case protocol.MsgProcessKill:
 		p, err := protocol.DecodePayload[protocol.ProcessKillPayload](env)
 		if err != nil {

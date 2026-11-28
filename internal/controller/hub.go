@@ -214,13 +214,15 @@ type Hub struct {
 	questions questionState
 	// activity is the latest activity of every session (activity.go); heat is every
 	// worker's smoothed load score (heat.go).
-	activity  activityState
-	heat      heatState
-	metrics   metricHistory
-	blocks    blockLog
-	recent    recentActions
-	ports     portsCache
-	checkouts checkoutState
+	activity activityState
+	heat     heatState
+	metrics  metricHistory
+	blocks   blockLog
+	recent   recentActions
+	// transcripts are observed sessions' transcripts being viewed (memory only).
+	transcripts transcriptCache
+	ports       portsCache
+	checkouts   checkoutState
 	// retention is the history compaction state (retention.go). RetentionEvery is how
 	// often a bounded pass runs (0 disables the loop) after RetentionStartDelay;
 	// RetentionBatch and RetentionPause size the batches and the yield between them;

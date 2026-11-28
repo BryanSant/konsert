@@ -175,6 +175,7 @@ export async function* readServerSentEvents<T>(body: ReadableStream<Uint8Array>)
   }
 }
 
+import type { ObservedTranscriptResponse } from '../state/observed-transcript.store';
 @Injectable({ providedIn: 'root' })
 export class ApiClientService {
   private unauthorizedHandler: (() => void) | null = null;
@@ -434,6 +435,11 @@ export class ApiClientService {
     }
     const qs = params.toString();
     return this.request<AuditListResponse>(`/api/audit${qs ? `?${qs}` : ''}`);
+  }
+
+  /** An observed session's transcript, read on its machine (cached on the hub briefly). */
+  getObservedTranscript(taskId: string): Promise<ObservedTranscriptResponse> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/transcript`);
   }
 
   /** Ends a user's terminal as closing its window would (its shell and job are hung up). */

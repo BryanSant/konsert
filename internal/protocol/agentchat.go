@@ -466,3 +466,42 @@ const SandboxMaxRisk = 3
 
 // SandboxDisabledReason is the AgentApprovalMode.Disabled text on sandboxed workers.
 const SandboxDisabledReason = "This machine runs syred in sandbox mode, which refuses full-access modes."
+
+// Observed session transcripts (SYR-XHAHC). The hub asks a daemon for an observed
+// session's transcript when a browser opens its tab (MsgObservedTranscript, answered
+// with the same message type and envelope id); with Watch the daemon then streams the
+// session's new events (MsgObservedEvents) until the watch lapses. The hub relays them
+// to browsers and keeps transcripts in memory only, for a short while (never stored).
+const (
+	MsgObservedTranscript = "observed.transcript"
+	MsgObservedEvents     = "observed.events"
+)
+
+// ObservedTranscriptRequest asks for an observed session's transcript. Watch starts (or
+// renews) streaming its new events; a watch lapses ObservedWatchTTL after its last renewal.
+type ObservedTranscriptRequest struct {
+	ExternalID string `json:"external_id"`
+	Watch      bool   `json:"watch,omitzero"`
+}
+
+// ObservedWatchTTL is how long a watch lasts without renewal.
+const ObservedWatchTTL = 5 * time.Minute
+
+// ObservedTranscript is an observed session's transcript as the agent's own store holds
+// it, as normalized events (Seq from 1 in file order; TurnID per prompt). Truncated: only
+// the latest events are included. Available false: the daemon can't read it (Reason).
+type ObservedTranscript struct {
+	ExternalID string           `json:"external_id"`
+	Available  bool             `json:"available"`
+	Reason     string           `json:"reason,omitempty"`
+	Truncated  bool             `json:"truncated,omitzero"`
+	Events     []AgentChatEvent `json:"events,omitempty"`
+}
+
+// ObservedEvents are an observed session's new events (daemon to hub, hub to browsers;
+// TaskID is filled in by the hub).
+type ObservedEvents struct {
+	ExternalID string           `json:"external_id"`
+	TaskID     string           `json:"task_id,omitempty"`
+	Events     []AgentChatEvent `json:"events"`
+}

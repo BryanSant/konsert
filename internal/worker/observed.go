@@ -41,8 +41,12 @@ type observedSessions struct {
 	emit    func(protocol.ExternalSessionPayload)
 	now     func() time.Time
 
-	mu sync.Mutex
-	st map[string]*observedState // by Session.Key
+	sources []observe.Source
+
+	mu      sync.Mutex
+	st      map[string]*observedState  // by Session.Key
+	known   map[string]observe.Session // by session id, for transcripts
+	watches map[string]*transcriptWatch
 }
 
 type observedState struct {
@@ -86,8 +90,9 @@ func newObservedSessions(cfg observedConfig, emit func(protocol.ExternalSessionP
 	if cfg.Fresh {
 		claude.ProcTTL, claude.ListEvery = -1, -1
 	}
+	o.sources = []observe.Source{claude}
 	o.reg = observe.New(observe.Config{
-		Sources: []observe.Source{claude},
+		Sources: o.sources,
 		Managed: func(s observe.Session) bool {
 			if o.managed.Has(s) {
 				return true
@@ -126,6 +131,9 @@ func (o *observedSessions) Poll(ctx context.Context) {
 
 func (o *observedSessions) handle(u observe.Update) {
 	s := u.Session
+	if u.Kind == observe.UpdateEvents {
+		o.remember(s)
+	}
 	key := s.Key()
 	now := o.now()
 	o.mu.Lock()
