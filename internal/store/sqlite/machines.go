@@ -265,3 +265,28 @@ func (s *SQLiteStore) setScope(ctx context.Context, table, col, id string, t sto
 	}
 	return err
 }
+
+// GetChatWorkFolder implements store.Store.
+func (s *SQLiteStore) GetChatWorkFolder(ctx context.Context, chatID string) (string, error) {
+	var f string
+	err := s.db.QueryRowContext(ctx, `SELECT folder FROM chat_work_folders WHERE chat_id = ?`, chatID).Scan(&f)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return f, err
+}
+
+// SetChatWorkFolder implements store.Store; "" goes back to the fleet default.
+func (s *SQLiteStore) SetChatWorkFolder(ctx context.Context, chatID, folder string) error {
+	if folder == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM chat_work_folders WHERE chat_id = ?`, chatID)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_work_folders (chat_id, folder, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(chat_id) DO UPDATE SET folder = excluded.folder, updated_at = excluded.updated_at`,
+		chatID, folder, formatTime(time.Now().UTC()))
+	if err != nil && strings.Contains(err.Error(), "FOREIGN KEY") {
+		return store.ErrNotFound
+	}
+	return err
+}

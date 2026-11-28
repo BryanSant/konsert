@@ -229,6 +229,8 @@ export interface ComposerSubmit {
         [scope]="scope()"
         (changed)="onContextChange($event)"
         (scopeChange)="scopeChange.emit($event)"
+        [workFolder]="workFolder()"
+        (workFolderChange)="workFolderChange.emit($event)"
       />
     }
   `,
@@ -244,6 +246,9 @@ export class ChatComposerComponent {
   readonly scopeMode = input(false);
   readonly scope = input<MachineTarget>(ALL_MACHINES);
   readonly scopeChange = output<MachineTarget>();
+  /** A Commander chat across machines: its workspace folder (SYR-W3SVZ). */
+  readonly workFolder = input('');
+  readonly workFolderChange = output<string>();
   /** Shown under the approval list, e.g. "Applies from the next turn". */
   readonly approvalNote = input('');
   readonly sessionId = input('');

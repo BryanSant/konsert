@@ -688,6 +688,9 @@ type Store interface {
 	// GetTicketScope returns a ticket's Run on; all machines when none is stored (SYR-0M4QQ).
 	GetTicketScope(ctx context.Context, ticketID string) (MachineTarget, error)
 	SetTicketScope(ctx context.Context, ticketID string, t MachineTarget) error
+	// GetChatWorkFolder returns a chat's own workspace folder, "" for the fleet default (SYR-W3SVZ).
+	GetChatWorkFolder(ctx context.Context, chatID string) (string, error)
+	SetChatWorkFolder(ctx context.Context, chatID, folder string) error
 	// Placement rules and log (SYR-880CP).
 	CreatePlacementRule(ctx context.Context, r PlacementRule) (PlacementRule, error)
 	ListPlacementRules(ctx context.Context, activeAt time.Time) ([]PlacementRule, error)

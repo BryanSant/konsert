@@ -353,12 +353,15 @@ type DispatchRequest struct {
 	SessionKind    string         `json:"session_kind,omitempty"` // "chat" | "terminal"
 	// Title is a short name for the task shown in the live work views (default: the
 	// prompt's first line).
-	Title          string `json:"title,omitempty" jsonschema:"Short name for the task (max 80 chars), e.g. 'SYR-2Q0CH: questions card on mobile'"`
-	Agent          string `json:"agent"`
-	Model          string `json:"model,omitempty"`
-	RepoPath       string `json:"repo_path"`
-	Branch         string `json:"branch,omitempty"`
-	UseWorktree    *bool  `json:"use_worktree,omitzero"`
+	Title       string `json:"title,omitempty" jsonschema:"Short name for the task (max 80 chars), e.g. 'SYR-2Q0CH: questions card on mobile'"`
+	Agent       string `json:"agent"`
+	Model       string `json:"model,omitempty"`
+	RepoPath    string `json:"repo_path"`
+	Branch      string `json:"branch,omitempty"`
+	UseWorktree *bool  `json:"use_worktree,omitzero"`
+	// CreateWorkdir creates a missing home-relative RepoPath on the machine the work
+	// lands on (the fleet workspace folder; SYR-W3SVZ).
+	CreateWorkdir  bool   `json:"create_workdir,omitzero"`
 	Prompt         string `json:"prompt"`
 	Mode           string `json:"mode,omitempty"`
 	Origin         string `json:"origin,omitempty"` // "commander" | "direct" | "scratch"
@@ -763,6 +766,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		Workdir:        req.RepoPath,
 		Branch:         req.Branch,
 		UseWorktree:    useWorktree,
+		CreateWorkdir:  req.CreateWorkdir,
 		Prompt:         req.Prompt,
 		Mode:           mode,
 		PermissionMode: string(permMode),

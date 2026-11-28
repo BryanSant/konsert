@@ -716,6 +716,8 @@ export interface AppSettings {
   commander_policy_writes?: 'tighten' | 'confirm' | 'none' | string;
   /** The machine new Commander chats run on ('' = the hub's own machine; SYR-CNMDK). */
   commander_worker_id?: string;
+  /** The fleet workspace folder, home-relative ('' until the user picks one; SYR-W3SVZ). */
+  workspace_folder?: string;
   /** The Commander may approve its own break-glass override requests (default off). */
   override_self_approve?: boolean;
 }

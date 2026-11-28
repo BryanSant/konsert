@@ -428,6 +428,12 @@ func (r *Runner) finishStart(parentCtx context.Context, req protocol.TaskStartPa
 		worktreeBaseSHAs = provisioned.worktreeBaseSHAs
 		baseSHA = provisioned.baseSHA
 	} else {
+		if req.CreateWorkdir {
+			if err := gitutil.EnsureHomeWorkdir(req.Workdir, r.allowedRoots); err != nil {
+				r.failTask(req.TaskID, "", fmt.Sprintf("could not create %s: %v", req.Workdir, err))
+				return err
+			}
+		}
 		effectiveDir, err = gitutil.ValidateWorkdir(req.Workdir, r.allowedRoots)
 		if err != nil {
 			r.failTask(req.TaskID, "", fmt.Sprintf("workdir validation failed: %v", err))

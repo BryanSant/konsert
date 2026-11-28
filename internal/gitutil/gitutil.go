@@ -23,6 +23,56 @@ var (
 // ValidateWorkdir verifies that workdir exists and is a directory.
 // If allowedRoots is non-empty (opt-in sandboxing), it verifies using symlink-resolved paths
 // that workdir is contained within at least one allowed root.
+// EnsureHomeWorkdir creates a missing home-relative workdir ("~/src", "~/a/b") when it
+// lies inside the allowed roots (any root when there are none). Anything else (absolute,
+// "..", not under home) is left for ValidateWorkdir to judge (SYR-W3SVZ).
+func EnsureHomeWorkdir(workdir string, allowedRoots []string) error {
+	workdir = strings.TrimSpace(workdir)
+	if !strings.HasPrefix(workdir, "~/") {
+		return nil
+	}
+	rel := filepath.Clean(filepath.FromSlash(workdir[2:]))
+	if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.VolumeName(rel) != "" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	target := filepath.Join(home, rel)
+	if _, err := os.Stat(target); err == nil {
+		return nil
+	}
+	if len(allowedRoots) > 0 {
+		inside := false
+		for _, root := range allowedRoots {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			absRoot, err := filepath.Abs(ExpandHome(root))
+			if err != nil {
+				continue
+			}
+			if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+				absRoot = resolved
+			}
+			resolvedHome := home
+			if r, err := filepath.EvalSymlinks(home); err == nil {
+				resolvedHome = r
+			}
+			if r, err := filepath.Rel(absRoot, filepath.Join(resolvedHome, rel)); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(os.PathSeparator)) {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			return nil
+		}
+	}
+	return os.MkdirAll(target, 0o755)
+}
+
 func ValidateWorkdir(workdir string, allowedRoots []string) (string, error) {
 	workdir = strings.TrimSpace(workdir)
 	if workdir == "" {

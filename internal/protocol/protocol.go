@@ -247,6 +247,13 @@ type GPU struct {
 }
 
 // MachineFacts captures cached OS, hardware, virtualization, filesystem, and safe tool/auth readiness facts.
+// HomeFolder is a folder under the user's home: Path is home-relative with "/" between
+// parts ("src", "source/repos"), on every OS.
+type HomeFolder struct {
+	Path  string `json:"path"`
+	Repos int    `json:"repos"`
+}
+
 type MachineFacts struct {
 	OSName         string            `json:"os_name,omitempty"`
 	OSVersion      string            `json:"os_version,omitempty"`
@@ -273,6 +280,10 @@ type MachineFacts struct {
 	Shells []TerminalShell `json:"shells,omitempty"`
 	// Checkouts lists local git checkouts discovered under the daemon's configured roots.
 	Checkouts []ReportedCheckout `json:"checkouts,omitempty"`
+	// HomeFolders is the home survey (SYR-W3SVZ): which common code folders exist under
+	// the user's home, and the checkout roots there, with how many git repos sit directly
+	// in each. The hub suggests a fleet workspace folder from them. Home itself is not listed.
+	HomeFolders []HomeFolder `json:"home_folders,omitempty"`
 	// WorkdirRoot is the resolved base directory under which per-ticket worktrees
 	// (<workdir_root>/.syre/tickets/<ticket sid>/<repo name>) are provisioned on this worker.
 	WorkdirRoot string `json:"workdir_root,omitempty"`
@@ -570,20 +581,23 @@ type TaskStartPayload struct {
 	SID string `json:"sid,omitempty"`
 	// TicketSID is the owning ticket's short ID (SYR-… / k-…) when this task works a
 	// ticket with repo bindings; worktrees are provisioned at <workdir root>/.syre/tickets/<ticket_sid>/<repo_name>.
-	TicketSID      string            `json:"ticket_sid,omitempty"`
-	Bindings       []TaskRepoBinding `json:"bindings,omitempty"`
-	Agent          string            `json:"agent"`
-	Model          string            `json:"model,omitempty"`
-	SessionKind    string            `json:"session_kind,omitempty"`
-	Workdir        string            `json:"workdir"`
-	Branch         string            `json:"branch,omitempty"`
-	UseWorktree    bool              `json:"use_worktree"`
-	Prompt         string            `json:"prompt"`
-	Mode           string            `json:"mode"`
-	PermissionMode string            `json:"permission_mode"`
-	TimeoutSeconds int               `json:"timeout_seconds"`
-	Cols           uint16            `json:"cols,omitzero"`
-	Rows           uint16            `json:"rows,omitzero"`
+	TicketSID   string            `json:"ticket_sid,omitempty"`
+	Bindings    []TaskRepoBinding `json:"bindings,omitempty"`
+	Agent       string            `json:"agent"`
+	Model       string            `json:"model,omitempty"`
+	SessionKind string            `json:"session_kind,omitempty"`
+	Workdir     string            `json:"workdir"`
+	Branch      string            `json:"branch,omitempty"`
+	UseWorktree bool              `json:"use_worktree"`
+	// CreateWorkdir asks the worker to create a missing home-relative Workdir ("~/src")
+	// first: the fleet workspace folder is made only where work lands (SYR-W3SVZ).
+	CreateWorkdir  bool   `json:"create_workdir,omitzero"`
+	Prompt         string `json:"prompt"`
+	Mode           string `json:"mode"`
+	PermissionMode string `json:"permission_mode"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	Cols           uint16 `json:"cols,omitzero"`
+	Rows           uint16 `json:"rows,omitzero"`
 	// AccountID selects a worker-local agent account (AgentAccount.ID); "" = the
 	// daemon's own environment (the agent's default login).
 	AccountID string `json:"account_id,omitempty"`

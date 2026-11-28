@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { FleetStore, basenamePath } from '../../../core/state/fleet.store';
 import { IconComponent } from '../../../shared/icon.component';
@@ -6,6 +7,8 @@ import { RemoteDirPickerComponent } from '../../../shared/remote-dir-picker.comp
 import { TooltipDirective } from '../../../shared/tooltip.directive';
 import { MachineTargetPickerComponent } from '../../../shared/machines/machine-target-picker.component';
 import { ALL_MACHINES, MachineTarget } from '../../../shared/machines/machine-target';
+import { WorkspaceFolderInputComponent } from '../../../shared/machines/workspace-folder-input.component';
+import { displayFolder } from '../../../shared/machines/workspace-folder';
 
 /** One place the chat can run: a repo checkout (worktree) or a Space on the machine. */
 export interface CheckoutOption {
@@ -28,7 +31,7 @@ export interface ContextChange {
   selector: 'sy-context-bar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent, MachineTargetPickerComponent],
+  imports: [NgTemplateOutlet, PopoverComponent, PopoverTriggerDirective, IconComponent, TooltipDirective, RemoteDirPickerComponent, MachineTargetPickerComponent, WorkspaceFolderInputComponent],
   template: `
     @if (locked()) {
       <div class="flex flex-wrap items-center gap-3 px-3 pt-2 text-[11.5px] text-[var(--sy-text-muted)]" data-testid="context-locked">
@@ -37,10 +40,14 @@ export interface ContextChange {
         } @else {
           <sy-machine-target-picker mode="host" [workerId]="workerId()" [locked]="true" />
         }
-        <span class="inline-flex items-center gap-1.5" [syTooltip]="cwd()">
-          <app-icon name="folder" [size]="12" />
-          <span class="max-w-[240px] truncate">{{ checkoutLabel() }}</span>
-        </span>
+        @if (homeOnly()) {
+          <ng-container *ngTemplateOutlet="workspaceFolderChip" />
+        } @else {
+          <span class="inline-flex items-center gap-1.5" [syTooltip]="cwd()">
+            <app-icon name="folder" [size]="12" />
+            <span class="max-w-[240px] truncate">{{ checkoutLabel() }}</span>
+          </span>
+        }
         @if (displayBranch()) {
           <span class="inline-flex items-center gap-1.5">
             <app-icon name="git-branch" [size]="12" />
@@ -59,10 +66,7 @@ export interface ContextChange {
 
       <!-- Checkout -->
       @if (homeOnly()) {
-        <span class="inline-flex items-center gap-1.5 px-2 text-[var(--sy-text-muted)]" data-testid="context-checkout-home" syTooltip="Work on these machines starts in each one's home folder">
-          <app-icon name="folder" [size]="12" />
-          Home folder
-        </span>
+        <ng-container *ngTemplateOutlet="workspaceFolderChip" />
       } @else {
       <sy-popover label="Checkout" role="dialog" placement="top-start" panelClass="w-[340px]" [closeOnSelect]="false" [(open)]="checkoutOpen">
         <button
@@ -132,6 +136,24 @@ export interface ContextChange {
       }
     </div>
     }
+
+    <!-- Several machines in a Commander chat: one folder in each home (SYR-W3SVZ) -->
+    <ng-template #workspaceFolderChip>
+        <sy-popover label="Workspace folder" role="dialog" placement="top-start" panelClass="w-[320px] p-2" [closeOnSelect]="false" [(open)]="folderOpen">
+          <button
+            type="button"
+            syPopoverTrigger
+            class="sy-btn sy-btn-sm gap-1.5"
+            data-testid="context-workspace-folder"
+            [attr.aria-label]="'Workspace folder: ' + folderLabel()"
+            syTooltip="The folder in each machine's home where this chat's work starts"
+          >
+            <app-icon name="folder" [size]="12" />
+            <span class="max-w-[200px] truncate font-mono-ide">{{ folderLabel() }}</span>
+          </button>
+          <sy-workspace-folder-input label="Workspace folder for this chat" [value]="workFolder()" (valueChange)="folderOpen.set(false); workFolderChange.emit($event)" />
+        </sy-popover>
+    </ng-template>
   `,
 })
 export class ContextBarComponent {
@@ -145,6 +167,11 @@ export class ContextBarComponent {
   readonly scope = input<MachineTarget>(ALL_MACHINES);
   readonly changed = output<ContextChange>();
   readonly scopeChange = output<MachineTarget>();
+  /** Several machines in scope: the folder in each home where work starts ("src"). */
+  readonly workFolder = input('');
+  readonly workFolderChange = output<string>();
+  readonly folderOpen = signal(false);
+  readonly folderLabel = computed(() => (this.workFolder() ? displayFolder(this.workFolder()) : 'Workspace folder'));
 
   private readonly fleet = inject(FleetStore);
   readonly checkoutOpen = signal(false);

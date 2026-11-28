@@ -183,6 +183,7 @@ func (s *Server) registerRoutes() {
 	// Fleet & Tasks REST API (protected by browser/token auth)
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
 	s.registerMachineScopeRoutes()
+	s.registerWorkspaceFolderRoutes()
 	s.mux.Handle("GET /api/fleet/heat", s.requireBrowserAuth(s.handleFleetHeat))
 	s.mux.Handle("GET /api/metrics", s.requireBrowserAuth(s.handleMetrics))
 	s.mux.Handle("GET /api/policy/report", s.requireBrowserAuth(s.handlePolicyReport))
@@ -799,6 +800,8 @@ type settingsResponse struct {
 	AutopilotGlobal bool `json:"autopilot_global"`
 	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own).
 	CommanderWorkerID string `json:"commander_worker_id"`
+	// WorkspaceFolder is the fleet workspace folder as stored ("" until the user picks one).
+	WorkspaceFolder string `json:"workspace_folder"`
 	// CommanderPolicyWrites is tighten (default), confirm, or none.
 	CommanderPolicyWrites string `json:"commander_policy_writes"`
 	// OverrideSelfApprove lets the commander approve its own override requests (default
@@ -837,6 +840,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		DefaultAgent:          saved["default_agent"],
 		DefaultModel:          saved["default_model"],
 		CommanderWorkerID:     saved[commanderWorkerSetting],
+		WorkspaceFolder:       saved[workspaceFolderSetting],
 		LastUsedMachine:       saved["last_used_machine"],
 		LastUsedAgent:         saved["last_used_agent"],
 		LastUsedModel:         saved["last_used_model"],

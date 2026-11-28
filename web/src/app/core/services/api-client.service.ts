@@ -1,3 +1,4 @@
+import type { WorkspaceFolders } from '../../shared/machines/workspace-folder';
 import type { ChatScopeView, MachineGroup, MachineTarget } from '../../shared/machines/machine-target';
 import { Injectable } from '@angular/core';
 import {
@@ -382,6 +383,20 @@ export class ApiClientService {
 
   getChatScope(chatId: string): Promise<ChatScopeView> {
     return this.request(`/api/chats/${encodeURIComponent(chatId)}/scope`);
+  }
+
+  /** Folders the machines' home surveys found, ranked (SYR-W3SVZ). */
+  getWorkspaceFolders(): Promise<WorkspaceFolders> {
+    return this.request('/api/workspace-folders');
+  }
+
+  getChatWorkFolder(chatId: string): Promise<{ chat_id: string; folder: string; effective: string }> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/work-folder`);
+  }
+
+  /** A Commander chat's own workspace folder ('' = the fleet default). */
+  setChatWorkFolder(chatId: string, folder: string): Promise<{ chat_id: string; folder: string; effective: string }> {
+    return this.request(`/api/chats/${encodeURIComponent(chatId)}/work-folder`, { method: 'PUT', body: JSON.stringify({ folder }) });
   }
 
   /** A ticket's Run on: where its work may be placed (SYR-0M4QQ). */

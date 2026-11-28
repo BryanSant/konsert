@@ -3,6 +3,7 @@ import { AgentAccount, ChatStatus } from '../../core/models/agent-chat.models';
 import { accountHealth, alternativeAccounts } from '../../core/models/agent-usage';
 import { ChatSession } from '../../core/models/syre.models';
 import { SyreSocketService } from '../../core/services/syre-socket.service';
+import { ApiClientService } from '../../core/services/api-client.service';
 import { AgentAccountsStore } from '../../core/state/agent-accounts.store';
 import { AgentChatStore } from '../../core/state/agent-chat.store';
 import { ATTACHMENT_MARKER } from '../../core/state/chat-transcript';
@@ -269,6 +270,8 @@ export function chatTitleFrom(text: string): string {
             [scopeMode]="isCommanderChat()"
             [scope]="scope()"
             (scopeChange)="onScopeChange($event)"
+            [workFolder]="workFolder()"
+            (workFolderChange)="onWorkFolderChange($event)"
             [sessionId]="orch.activeSessionId()"
             [approvalNote]="active() ? 'Changes apply live when the agent supports it, otherwise from the next turn.' : ''"
             [blockedReason]="creating() ? 'Starting the chat…' : status() === 'suspended' ? 'Suspended: resume the chat to continue' : ''"
@@ -299,6 +302,15 @@ export class ChatViewComponent implements OnInit {
   readonly renameDraft = signal('');
   readonly creating = signal(false);
   readonly fleetTools = signal(true);
+  /** Workspace folders: each chat's effective one, the fleet's, and a new chat's choice (SYR-W3SVZ). */
+  private readonly chatFolders = signal<Record<string, string>>({});
+  private readonly fleetFolder = signal('');
+  readonly pendingFolder = signal('');
+  readonly workFolder = computed(() => {
+    const s = this.active();
+    return s ? (this.chatFolders()[s.id] ?? this.fleetFolder()) : this.pendingFolder() || this.fleetFolder();
+  });
+
   /** A new Commander chat's machines, saved once the chat exists. */
   readonly pendingScope = signal<MachineTarget>(ALL_MACHINES);
   readonly selection = signal<ComposerSelection>(emptySelection());
@@ -314,6 +326,7 @@ export class ChatViewComponent implements OnInit {
   readonly isApiChat = computed(() => !!this.active() && !isAgentChat(this.active()));
   readonly isAgent = computed(() => !!this.active() && isAgentChat(this.active()));
   readonly ui = inject(ModeUiStore);
+  private readonly api = inject(ApiClientService);
 
   /** The machine an open Commander chat runs on (read-only; set in Settings, SYR-CNMDK). */
   readonly commanderHostName = computed(() => {
@@ -397,11 +410,25 @@ export class ChatViewComponent implements OnInit {
   readonly bannerError = computed(() => this.agentChat.error() || this.orch.error());
 
   constructor() {
-    // A Commander chat's machines (later changes arrive over the socket).
+    // A Commander chat's machines (later changes arrive over the socket) and folder.
     effect(() => {
       const s = this.active();
-      if (s && isAgentChat(s) && s.fleet_tools) untracked(() => void this.agentChat.loadScope(s.id));
+      if (s && isAgentChat(s) && s.fleet_tools) {
+        untracked(() => {
+          void this.agentChat.loadScope(s.id);
+          if (this.chatFolders()[s.id] === undefined) {
+            this.api
+              .getChatWorkFolder(s.id)
+              .then((v) => this.chatFolders.update((m) => ({ ...m, [s.id]: v.effective })))
+              .catch(() => undefined);
+          }
+        });
+      }
     });
+    void this.api
+      .getWorkspaceFolders()
+      .then((f) => this.fleetFolder.set(f.effective))
+      .catch(() => undefined);
     // Existing agent chat: mirror its settings into the composer and load its events.
     effect(() => {
       const id = this.orch.activeSessionId();
@@ -526,11 +553,31 @@ export class ChatViewComponent implements OnInit {
         await this.agentChat.setScope(chat.id, scope);
         this.pendingScope.set(ALL_MACHINES);
       }
+      if (this.fleetTools() && this.pendingFolder()) {
+        const v = await this.api.setChatWorkFolder(chat.id, this.pendingFolder());
+        this.chatFolders.update((m) => ({ ...m, [chat.id]: v.effective }));
+        this.pendingFolder.set('');
+      }
       if (this.agentChat.send(chat, msg.text, paths)) this.composer()?.clear();
     } catch (err) {
       this.agentChat.error.set(err instanceof Error ? `Could not start the chat: ${err.message}` : 'Could not start the chat');
     } finally {
       this.creating.set(false);
+    }
+  }
+
+  /** A Commander chat's workspace folder: saved now for a chat, kept for a new one. */
+  async onWorkFolderChange(folder: string): Promise<void> {
+    const s = this.active();
+    if (!s) {
+      this.pendingFolder.set(folder);
+      return;
+    }
+    try {
+      const v = await this.api.setChatWorkFolder(s.id, folder);
+      this.chatFolders.update((m) => ({ ...m, [s.id]: v.effective }));
+    } catch (err) {
+      this.agentChat.error.set(err instanceof Error ? `Could not change the chat's folder: ${err.message}` : "Could not change the chat's folder");
     }
   }
 

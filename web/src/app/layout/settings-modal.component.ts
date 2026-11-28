@@ -1,3 +1,4 @@
+import { WorkspaceFolderInputComponent } from '../shared/machines/workspace-folder-input.component';
 import { MachineTargetPickerComponent } from '../shared/machines/machine-target-picker.component';
 import { Component, ElementRef, OnInit, computed, effect, inject, input, output, signal } from '@angular/core';
 import type { DevicesView } from '../features/auth/devices-dialog.component';
@@ -21,7 +22,7 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, MachineTargetPickerComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent, PolicyReportComponent],
+  imports: [FormsModule, ModalDialogComponent, MachineTargetPickerComponent, WorkspaceFolderInputComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent, PolicyReportComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -205,6 +206,16 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           </div>
           <p class="text-[11.5px] text-[#8e9098] leading-relaxed">
             The machine the Commander's own agent runs on, not where it sends work (each chat picks that under its composer). Applies to new Commander chats; open ones keep their machine. If it is offline, new chats start on the hub's machine.
+          </p>
+        </div>
+
+        <!-- Fleet workspace folder (SYR-W3SVZ) -->
+        <div id="settings-workspace" class="rounded-[var(--sy-radius-lg)] bg-black/20 p-4 space-y-2" data-testid="settings-workspace-folder">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8e9098]">Fleet</div>
+          <label class="block text-[12px] text-[#d4d4d8]">Workspace folder</label>
+          <sy-workspace-folder-input [value]="workspaceFolder()" (valueChange)="workspaceFolder.set($event)" />
+          <p class="text-[11.5px] text-[#8e9098] leading-relaxed">
+            One folder in each machine's home. A Commander chat that may use several machines starts its work there; it is created on a machine the first time work lands on it. Each chat can pick another under its composer.
           </p>
         </div>
 
@@ -419,6 +430,8 @@ export class SettingsModalComponent implements OnInit {
   readonly defaultDeliveryMode = signal<DeliveryMode>('');
   readonly defaultMergeStyle = signal<MergeStyle>('squash');
   readonly commanderPolicyWrites = signal('tighten');
+  /** The fleet workspace folder ('' = the top suggestion). */
+  readonly workspaceFolder = signal('');
   /** The machine new Commander chats run on ('' = the hub's own). */
   readonly commanderHost = signal('');
   readonly overrideSelfApprove = signal(false);
@@ -450,6 +463,7 @@ export class SettingsModalComponent implements OnInit {
       this.defaultMergeStyle.set(s.default_merge_style || 'squash');
       this.commanderPolicyWrites.set(s.commander_policy_writes || 'tighten');
       this.commanderHost.set(s.commander_worker_id || '');
+      this.workspaceFolder.set(s.workspace_folder || '');
       this.overrideSelfApprove.set(!!s.override_self_approve);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
@@ -510,6 +524,7 @@ export class SettingsModalComponent implements OnInit {
         default_merge_style: this.defaultMergeStyle(),
         commander_policy_writes: this.commanderPolicyWrites(),
         commander_worker_id: this.commanderHost(),
+        workspace_folder: this.workspaceFolder(),
         override_self_approve: this.overrideSelfApprove(),
       });
       this.fleet.settings.set(updated);

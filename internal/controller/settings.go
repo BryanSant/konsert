@@ -63,6 +63,9 @@ type SettingsUpdate struct {
 	// CommanderWorkerID is the machine new Commander chats run on ("" = the hub's own
 	// machine; SYR-CNMDK).
 	CommanderWorkerID *string `json:"commander_worker_id"`
+	// WorkspaceFolder is the home-relative folder used on every machine ("src"; "" =
+	// the top suggestion; SYR-W3SVZ).
+	WorkspaceFolder *string `json:"workspace_folder"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -118,6 +121,13 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 
 	if u.DefaultAgent != nil {
 		updates["default_agent"] = strings.TrimSpace(*u.DefaultAgent)
+	}
+	if u.WorkspaceFolder != nil {
+		f, err := normalizeWorkspaceFolder(*u.WorkspaceFolder)
+		if err != nil {
+			return errInvalidSettings{err}
+		}
+		updates[workspaceFolderSetting] = f
 	}
 	if u.CommanderWorkerID != nil {
 		id := s.hub.resolveMachine(ctx, strings.TrimSpace(*u.CommanderWorkerID))

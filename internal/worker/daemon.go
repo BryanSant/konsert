@@ -1569,6 +1569,9 @@ func (d *Daemon) refreshFacts(ctx context.Context) protocol.MachineFacts {
 	if len(f.Checkouts) == 0 {
 		f.Checkouts = d.collectCheckouts(ctx, false)
 	}
+	if home, err := os.UserHomeDir(); err == nil && len(f.HomeFolders) == 0 {
+		f.HomeFolders = surveyHome(home, d.checkoutRoots())
+	}
 	if f.WorkdirRoot == "" && d.runner != nil {
 		if root, err := d.runner.resolveWorkdirRoot(""); err == nil {
 			f.WorkdirRoot = root

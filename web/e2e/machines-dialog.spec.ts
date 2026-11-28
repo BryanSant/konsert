@@ -124,10 +124,13 @@ test.describe('Machines dialog and Commander scope', () => {
     await api(page, 'POST', '/api/machine-groups', { name: 'Lab', worker_ids: [env.workerId] });
     await page.goto(`${env.baseURL}/command`);
     // Earlier specs may have left a Commander chat open: start a new one.
-    const newChat = page.getByRole('tabpanel', { name: 'Commander' }).getByRole('button', { name: 'New chat', exact: true });
-    if (await newChat.isVisible()) await newChat.click();
-
     const chip = page.getByTestId('context-scope');
+    await expect(chip).toBeVisible();
+    const newChat = page.getByRole('tabpanel', { name: 'Commander' }).getByRole('button', { name: 'New chat', exact: true });
+    if (await newChat.isVisible()) {
+      await newChat.click();
+      await expect(page.getByTestId('context-locked')).toHaveCount(0);
+    }
     await expect(chip).toHaveText(/All machines/);
     await chip.click();
     await expect(page.getByTestId('scope-group-Lab')).toBeVisible();
@@ -228,5 +231,36 @@ test.describe('Machines dialog and Commander scope', () => {
     await line.click();
     await expect(page.getByTestId('settings-commander-host')).toBeInViewport();
     await api(page, 'PUT', '/api/settings', { commander_worker_id: '' });
+  });
+
+  test('Settings → Fleet → Workspace folder: suggestions, path rules, and the folder a Commander chat starts in (SYR-W3SVZ)', async ({ page }) => {
+    const env = loadEnv();
+    await login(page, env, '/command');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const section = page.getByTestId('settings-workspace-folder');
+    const field = section.getByTestId('workspace-folder-input');
+    await expect(field).toHaveValue(/^~\//);
+
+    await field.fill('/etc');
+    await expect(section.getByTestId('workspace-folder-error')).toContainText('not an absolute path');
+    await field.fill('~/AppData/tools');
+    await expect(section.getByTestId('workspace-folder-warning')).toContainText('is a Windows folder');
+    await field.fill('~/syre-e2e-work');
+    await expect(section.getByTestId('workspace-folder-coverage')).toHaveText(`on 0 of 1 machine · will be created on ${env.workerName}`);
+    await field.press('Enter');
+    await page.getByRole('button', { name: 'Save Settings' }).click();
+    await expect.poll(async () => (await api<{ workspace_folder: string }>(page, 'GET', '/api/settings')).workspace_folder).toBe('syre-e2e-work');
+    await page.keyboard.press('Escape');
+
+    // A new Commander chat across all machines starts there; it can pick its own.
+    await page.goto(`${env.baseURL}/command`);
+    const chip = page.getByTestId('context-workspace-folder');
+    await expect(chip).toHaveText(/~\/syre-e2e-work/);
+    await chip.click();
+    const own = page.getByRole('dialog', { name: 'Workspace folder' }).getByTestId('workspace-folder-input').or(page.getByLabel('Workspace folder for this chat'));
+    await own.first().fill('~/syre-e2e-other');
+    await own.first().press('Enter');
+    await expect(chip).toHaveText(/~\/syre-e2e-other/);
+    await api(page, 'PUT', '/api/settings', { workspace_folder: '' });
   });
 });

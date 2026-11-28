@@ -961,7 +961,7 @@ func (s *FleetService) ManageWork(ctx context.Context, in ManageWorkInput) (Mana
 					req.RepoPath = r
 				}
 			} else {
-				req.RepoPath = "~"
+				req.RepoPath, req.CreateWorkdir = s.hub.defaultDispatchFolder(ctx)
 			}
 			res, err := s.DispatchTask(ctx, req)
 			if err != nil {
