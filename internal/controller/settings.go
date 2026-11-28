@@ -56,6 +56,10 @@ type SettingsUpdate struct {
 	AutopilotGlobal *bool `json:"autopilot_global"`
 	// CommanderPolicyWrites is tighten (default), confirm, or none.
 	CommanderPolicyWrites *string `json:"commander_policy_writes"`
+	// OverrideSelfApprove lets the commander approve its own override requests. It is
+	// set over REST only: settingsUpdateFromMap (the MCP path) does not know it, so an
+	// agent cannot turn on its own approvals.
+	OverrideSelfApprove *bool `json:"override_self_approve"`
 }
 
 // applySettings validates, persists and activates a settings change in one place:
@@ -183,6 +187,9 @@ func (s *Server) applySettings(ctx context.Context, u SettingsUpdate, admin bool
 			return errInvalidSettings{err}
 		}
 		updates[commanderPolicyWritesSetting] = v
+	}
+	if u.OverrideSelfApprove != nil {
+		updates[overrideSelfApproveSetting] = strconv.FormatBool(*u.OverrideSelfApprove)
 	}
 
 	if len(updates) > 0 {
@@ -370,6 +377,7 @@ func settingsToMap(r settingsResponse) map[string]any {
 		"pulse_debounce_seconds":   r.PulseDebounceSeconds,
 		"autopilot_global":         r.AutopilotGlobal,
 		"commander_policy_writes":  r.CommanderPolicyWrites,
+		"override_self_approve":    r.OverrideSelfApprove,
 		"commander_backend":        r.CommanderBackend,
 		"api_key_required":         r.APIKeyRequired,
 	}

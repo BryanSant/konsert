@@ -183,6 +183,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("GET /api/fleet", s.requireBrowserAuth(s.handleGetFleet))
 	s.mux.Handle("GET /api/fleet/heat", s.requireBrowserAuth(s.handleFleetHeat))
 	s.mux.Handle("GET /api/metrics", s.requireBrowserAuth(s.handleMetrics))
+	s.mux.Handle("GET /api/policy/report", s.requireBrowserAuth(s.handlePolicyReport))
 	s.mux.Handle("POST /api/fleet/fanout", s.requireBrowserAuth(s.handleFleetFanOut))
 	s.mux.Handle("DELETE /api/workers/{id}", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleDeleteWorker)))
 	s.mux.Handle("GET /api/workers/{id}/facts", s.requireBrowserAuth(s.byRef(ids.Machine, s.handleGetWorkerFacts)))
@@ -780,6 +781,9 @@ type settingsResponse struct {
 	AutopilotGlobal bool `json:"autopilot_global"`
 	// CommanderPolicyWrites is tighten (default), confirm, or none.
 	CommanderPolicyWrites string `json:"commander_policy_writes"`
+	// OverrideSelfApprove lets the commander approve its own override requests (default
+	// off: every override waits for the user).
+	OverrideSelfApprove bool `json:"override_self_approve"`
 	// CommanderBackend is "agent": the commander is an agent chat on a
 	// logged-in agent CLI. The API-key fields above configure only the optional
 	// "api" backend, so APIKeyRequired is always false.
@@ -828,6 +832,7 @@ func (s *Server) buildSettingsResponse(ctx context.Context) settingsResponse {
 		PulseDebounceSeconds:  int(s.hub.pulseDebounce(ctx).Seconds()),
 		AutopilotGlobal:       s.hub.autopilotGlobal(ctx),
 		CommanderPolicyWrites: s.hub.commanderPolicyWrites(ctx),
+		OverrideSelfApprove:   s.hub.overrideSelfApprove(ctx),
 		CommanderBackend:      store.ChatBackendAgent,
 		CommanderChatID:       saved[commanderChatSetting],
 	}

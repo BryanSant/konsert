@@ -43,8 +43,7 @@ import {
   TicketRollup,
   WakeLockStatus,
   Worker,
-  AutonomyPolicy,
-} from '../models/syre.models';
+  AutonomyPolicy, PolicyReport } from '../models/syre.models';
 import { HeatHistory, ShellPolicySettings, ShellReminder } from '../models/activity.models';
 import { DevicesResponse, Device, LoginRequest, McpCredential, PairResponse, PairingCode } from '../models/device.models';
 import { Acceptance, DeliveryPlan, Review, ReviewDecision, ReviewResult } from '../models/review.models';
@@ -306,6 +305,11 @@ export class ApiClientService {
 
   setRetention(r: RetentionDays): Promise<StorageResponse> {
     return this.request('/api/storage/retention', { method: 'PUT', body: JSON.stringify(r) });
+  }
+
+  /** Settings → Policy report: how often rules blocked work and the overrides that followed. */
+  getPolicyReport(days = 7): Promise<PolicyReport> {
+    return this.request(`/api/policy/report?days=${days}`);
   }
 
   /** Starts a full compaction pass in the background (Compact now). */

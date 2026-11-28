@@ -100,6 +100,33 @@ func (d *Daemon) setPolicy(p *protocol.MachinePolicy) {
 	}
 }
 
+// setPolicyLifts installs the policy rules approved overrides suspend.
+func (d *Daemon) setPolicyLifts(lifts []protocol.PolicyLift) {
+	d.dirMu.Lock()
+	d.policyLifts = lifts
+	d.dirMu.Unlock()
+}
+
+// liftedRules are the rules suspended at now (an expired lift is ignored even before
+// the hub's update arrives).
+func (d *Daemon) liftedRules(now time.Time) map[string]bool {
+	d.dirMu.Lock()
+	defer d.dirMu.Unlock()
+	var out map[string]bool
+	for _, l := range d.policyLifts {
+		if !now.Before(l.Until) {
+			continue
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		for _, r := range l.Rules {
+			out[r] = true
+		}
+	}
+	return out
+}
+
 func (d *Daemon) policySnapshot() *protocol.MachinePolicy {
 	d.dirMu.Lock()
 	defer d.dirMu.Unlock()
@@ -138,6 +165,7 @@ func (d *Daemon) policyState(work string) policy.State {
 		st.SurvivalReserveMB = int(gs.Reserve >> 20)
 	}
 	st.CPUs = runtime.NumCPU()
+	st.Lifted = d.liftedRules(st.Now)
 	return st
 }
 

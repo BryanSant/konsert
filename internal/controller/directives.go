@@ -607,6 +607,7 @@ func (h *Hub) applyMachineDirectives(ctx context.Context, workers []store.Worker
 			continue
 		}
 		if c.skip {
+			h.noteBlock(w.ID, "machine.pause_or_drain", "", "paused or draining by a directive")
 			continue
 		}
 		if c.max != nil {
@@ -726,6 +727,7 @@ func (h *Hub) pushWorkerDirectives(ctx context.Context, wc *workerConn) {
 	if w, err := h.store.GetWorker(ctx, wc.id); err == nil {
 		payload.Policy = workerPolicy(w)
 	}
+	payload.PolicyLifts = h.workerPolicyLifts(ctx, wc.id)
 	h.sendWorkerJSON(wc, protocol.MsgWorkerDirectives, payload)
 }
 

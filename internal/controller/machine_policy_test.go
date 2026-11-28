@@ -132,19 +132,19 @@ func TestMachinePolicyMemoryAndLoad(t *testing.T) {
 	th.h.mu.Lock()
 	th.h.workerMetrics["w1"] = &protocol.WorkerMetrics{MemTotalMB: 16000, MemUsedMB: 12000, LoadAvg: 1}
 	th.h.mu.Unlock()
-	if v := th.h.policyViolation(w, protocol.WorkTask, 0); v == nil || !strings.Contains(v.Message, "4800 MB kept free") {
+	if v, _ := th.h.policyViolation(ctx, w, protocol.WorkTask, 0, "t"); v == nil || !strings.Contains(v.Message, "4800 MB kept free") {
 		t.Fatalf("4000 MB free under a 4800 MB floor: %+v", v)
 	}
 	th.h.mu.Lock()
 	th.h.workerMetrics["w1"] = &protocol.WorkerMetrics{MemTotalMB: 16000, MemUsedMB: 8000, LoadAvg: 6.5}
 	th.h.mu.Unlock()
-	if v := th.h.policyViolation(w, protocol.WorkTask, 0); v == nil || !strings.Contains(v.Message, "cores for the user") {
+	if v, _ := th.h.policyViolation(ctx, w, protocol.WorkTask, 0, "t"); v == nil || !strings.Contains(v.Message, "cores for the user") {
 		t.Fatalf("load 6.5 of 8 cores with 2 reserved: %+v", v)
 	}
 	th.h.mu.Lock()
 	th.h.workerMetrics["w1"] = &protocol.WorkerMetrics{MemTotalMB: 16000, MemUsedMB: 8000, LoadAvg: 3}
 	th.h.mu.Unlock()
-	if v := th.h.policyViolation(w, protocol.WorkTask, 0); v != nil {
+	if v, _ := th.h.policyViolation(ctx, w, protocol.WorkTask, 0, "t"); v != nil {
 		t.Fatalf("refused with room: %s", v.Message)
 	}
 }

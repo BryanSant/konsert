@@ -146,6 +146,9 @@ func (h *Hub) rollupMetrics(ctx context.Context, now time.Time) {
 		return
 	}
 	h.logger.Debug("metric history rolled up", "hourly", res.Hourly, "pruned", res.Pruned)
+	if _, err := h.store.PrunePolicyBlocks(ctx, now.Add(-policyBlockKeep)); err != nil && ctx.Err() == nil {
+		h.logger.Warn("policy block counters not pruned", "err", err)
+	}
 }
 
 // MetricSeries is one subject's history.

@@ -112,3 +112,20 @@ func TestValidate(t *testing.T) {
 		t.Fatal("extra reserve")
 	}
 }
+
+func TestLiftedRules(t *testing.T) {
+	p := &protocol.MachinePolicy{MaxSessions: 1, AllowedWork: []string{protocol.WorkChat}}
+	st := base()
+	st.Hosted = 3
+	if v := Check(p, st); v == nil || v.Rule != RuleAllowedWork {
+		t.Fatalf("not lifted: %+v", v)
+	}
+	st.Lifted = map[string]bool{RuleAllowedWork: true}
+	if v := Check(p, st); v == nil || v.Rule != RuleMaxSessions {
+		t.Fatalf("one lifted, the next rule decides: %+v", v)
+	}
+	st.Lifted[RuleMaxSessions] = true
+	if v := Check(p, st); v != nil {
+		t.Fatalf("both lifted: %+v", v)
+	}
+}

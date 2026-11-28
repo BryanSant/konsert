@@ -17,6 +17,8 @@ const (
 	// OverrideScopeMachine stops the machine and resource holds on a machine (WorkerID)
 	// from blocking automatic actions.
 	OverrideScopeMachine = "machine"
+	// OverrideScopePolicy lifts the named machine policy rules (Rules) on a machine.
+	OverrideScopePolicy = "policy"
 )
 
 // Override statuses.
@@ -59,6 +61,19 @@ type Override struct {
 	UseCount    int        `json:"use_count"`
 	FirstUsedAt *time.Time `json:"first_used_at,omitzero"`
 	LastUsedAt  *time.Time `json:"last_used_at,omitzero"`
+	// Rules are the machine policy rules a policy override lifts.
+	Rules []string `json:"rules,omitempty"`
+}
+
+// PolicyBlock counts the work one rule kept off one machine in one hour (each piece of
+// work at most once an hour).
+type PolicyBlock struct {
+	Hour     time.Time `json:"hour"`
+	WorkerID string    `json:"worker_id"`
+	Rule     string    `json:"rule"`
+	N        int       `json:"n"`
+	Subject  string    `json:"last_subject,omitempty"`
+	Message  string    `json:"last_message,omitempty"`
 }
 
 // Used reports whether the override was exercised at least once.

@@ -534,13 +534,14 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 	if pinnedID != "" {
 		for _, w := range onlineWorkers {
 			if w.ID == pinnedID {
-				if v := s.hub.policyViolation(w, taskWork(req.TicketID), counts[w.ID]); v != nil {
+				if v, _ := s.hub.policyViolation(ctx, w, taskWork(req.TicketID), counts[w.ID], "dispatch"); v != nil {
 					return DispatchResult{}, &errPolicyRefused{machine: w.Name, v: v}
 				}
 			}
 		}
 	}
-	onlineWorkers = s.hub.applyMachinePolicy(onlineWorkers, counts, taskWork(req.TicketID))
+	var lifts liftUses
+	onlineWorkers, lifts = s.hub.applyMachinePolicy(ctx, onlineWorkers, counts, taskWork(req.TicketID), "dispatch")
 	req.AccountID = strings.TrimSpace(req.AccountID)
 	requestedAgent, requestedAccount := req.Agent, req.AccountID
 	var placement providerDecision
@@ -717,6 +718,7 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 				s.hub.useOverride(ctx, *ov)
 			}
 			s.hub.placed(ctx, slots, selected.ID, counts[selected.ID])
+			s.hub.liftUsed(ctx, lifts, selected.ID)
 		}
 	}
 

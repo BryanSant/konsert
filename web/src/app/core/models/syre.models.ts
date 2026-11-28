@@ -620,6 +620,43 @@ export interface AppSettings {
   autopilot_global?: boolean;
   /** Commander set_policy: tighten (default), confirm (approval card), or none (read-only). */
   commander_policy_writes?: 'tighten' | 'confirm' | 'none' | string;
+  /** The Commander may approve its own break-glass override requests (default off). */
+  override_self_approve?: boolean;
+}
+
+/** One machine and rule in the weekly policy report (GET /api/policy/report). */
+export interface PolicyReportRow {
+  worker_id: string;
+  worker_name: string;
+  rule: string;
+  blocks: number;
+  overrides_requested: number;
+  overrides_approved: number;
+  overrides_denied: number;
+  overrides_used: number;
+  followed: boolean;
+  last_message?: string;
+  last_block?: string;
+}
+
+export interface PolicyReportOverride {
+  id: string;
+  sid: string;
+  scope_kind: string;
+  worker_id?: string;
+  rules?: string[];
+  reason: string;
+  status: string;
+  created_at: string;
+  decided_by?: string;
+  use_count: number;
+}
+
+export interface PolicyReport {
+  since: string;
+  rows: PolicyReportRow[] | null;
+  overrides: PolicyReportOverride[] | null;
+  totals: { Blocks: number; Requested: number; Approved: number; Denied: number; Used: number };
 }
 
 export type AutopilotDisplayState = 'playing' | 'paused' | 'finished';

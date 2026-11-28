@@ -126,6 +126,7 @@ func (h *Hub) vitalsLoop(ctx context.Context) {
 		case now := <-t.C:
 			h.flushVitals(ctx, false)
 			h.flushMetrics(ctx, false)
+			h.flushBlocks(ctx)
 			if hr := now.Truncate(time.Hour); hr.After(lastHour) {
 				lastHour = hr
 				h.rollupVitals(ctx, now)

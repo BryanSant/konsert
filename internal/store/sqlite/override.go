@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 	"time"
@@ -15,17 +16,18 @@ import (
 
 const overrideCols = `id, sid, chat_id, scope_kind, worker_id, task_id, target_chat_id, hold_id, extra_slots,
 	duration_seconds, reason, consequences, status, created_at, decided_at, decided_by, decision_note,
-	approved_at, expires_at, ended_at, use_count, first_used_at, last_used_at`
+	approved_at, expires_at, ended_at, use_count, first_used_at, last_used_at, rules_json`
 
 func scanOverride(sc interface{ Scan(...any) error }) (store.Override, error) {
 	var (
 		o                                                      store.Override
 		cAt                                                    string
 		decided, approved, expires, ended, firstUsed, lastUsed sql.NullString
+		rules                                                  string
 	)
 	if err := sc.Scan(&o.ID, &o.SID, &o.ChatID, &o.ScopeKind, &o.WorkerID, &o.TaskID, &o.TargetChatID, &o.HoldID, &o.ExtraSlots,
 		&o.DurationSeconds, &o.Reason, &o.Consequences, &o.Status, &cAt, &decided, &o.DecidedBy, &o.DecisionNote,
-		&approved, &expires, &ended, &o.UseCount, &firstUsed, &lastUsed); err != nil {
+		&approved, &expires, &ended, &o.UseCount, &firstUsed, &lastUsed, &rules); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Override{}, store.ErrNotFound
 		}
@@ -38,6 +40,9 @@ func scanOverride(sc interface{ Scan(...any) error }) (store.Override, error) {
 	o.EndedAt = scanNullTime(ended)
 	o.FirstUsedAt = scanNullTime(firstUsed)
 	o.LastUsedAt = scanNullTime(lastUsed)
+	if rules != "" {
+		_ = json.Unmarshal([]byte(rules), &o.Rules)
+	}
 	return o, nil
 }
 
@@ -54,10 +59,10 @@ func (s *SQLiteStore) CreateOverride(ctx context.Context, o store.Override) (sto
 		o.Status = store.OverridePending
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO override_requests (`+overrideCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.ID, o.SID, o.ChatID, o.ScopeKind, o.WorkerID, o.TaskID, o.TargetChatID, o.HoldID, o.ExtraSlots,
 		o.DurationSeconds, o.Reason, o.Consequences, o.Status, formatTime(o.CreatedAt), nullTime(o.DecidedAt), o.DecidedBy, o.DecisionNote,
-		nullTime(o.ApprovedAt), nullTime(o.ExpiresAt), nullTime(o.EndedAt), o.UseCount, nullTime(o.FirstUsedAt), nullTime(o.LastUsedAt))
+		nullTime(o.ApprovedAt), nullTime(o.ExpiresAt), nullTime(o.EndedAt), o.UseCount, nullTime(o.FirstUsedAt), nullTime(o.LastUsedAt), rulesJSON(o.Rules))
 	return o, err
 }
 
@@ -299,4 +304,64 @@ func (s *SQLiteStore) DismissVeto(ctx context.Context, id, by string, at time.Ti
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+func rulesJSON(rules []string) string {
+	if len(rules) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(rules)
+	return string(b)
+}
+
+// RecordPolicyBlocks adds blocks to their hour's counters.
+func (s *SQLiteStore) RecordPolicyBlocks(ctx context.Context, blocks []store.PolicyBlock) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, b := range blocks {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO policy_blocks (hour, worker_id, rule, n, last_subject, last_message) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(hour, worker_id, rule) DO UPDATE SET n = n + excluded.n,
+				last_subject = excluded.last_subject, last_message = excluded.last_message`,
+			b.Hour.UTC().Truncate(time.Hour).Unix(), b.WorkerID, b.Rule, max(1, b.N), b.Subject, b.Message); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListPolicyBlocks returns the block counters from since on, oldest first.
+func (s *SQLiteStore) ListPolicyBlocks(ctx context.Context, since time.Time) ([]store.PolicyBlock, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT hour, worker_id, rule, n, last_subject, last_message FROM policy_blocks
+		WHERE hour >= ? ORDER BY hour, worker_id, rule`, since.UTC().Truncate(time.Hour).Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []store.PolicyBlock
+	for rows.Next() {
+		var b store.PolicyBlock
+		var hour int64
+		if err := rows.Scan(&hour, &b.WorkerID, &b.Rule, &b.N, &b.Subject, &b.Message); err != nil {
+			return nil, err
+		}
+		b.Hour = time.Unix(hour, 0).UTC()
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// PrunePolicyBlocks drops counters older than before.
+func (s *SQLiteStore) PrunePolicyBlocks(ctx context.Context, before time.Time) (int64, error) {
+	r, err := s.db.ExecContext(ctx, `DELETE FROM policy_blocks WHERE hour < ?`, before.Unix())
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
 }

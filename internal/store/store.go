@@ -656,6 +656,10 @@ type Store interface {
 	RollupMetrics(ctx context.Context, now time.Time, minuteKeep, hourlyKeep time.Duration) (MetricRollupResult, error)
 	// RaiseTaskPeaks raises a task's recorded peaks to at least rssMB and cpuPct.
 	RaiseTaskPeaks(ctx context.Context, taskID string, rssMB uint64, cpuPct float64) error
+	// Policy blocks (SYR-ADQZX): hourly counters of work a rule kept off a machine.
+	RecordPolicyBlocks(ctx context.Context, blocks []PolicyBlock) error
+	ListPolicyBlocks(ctx context.Context, since time.Time) ([]PolicyBlock, error)
+	PrunePolicyBlocks(ctx context.Context, before time.Time) (int64, error)
 	UpsertVitals(ctx context.Context, samples []VitalsSample) error
 	// ListVitals returns every machine's raw samples in [since, until), oldest first.
 	ListVitals(ctx context.Context, since, until time.Time) ([]VitalsSample, error)

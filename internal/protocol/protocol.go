@@ -702,6 +702,15 @@ type WorkerDirective struct {
 type WorkerDirectivesPayload struct {
 	Directives []WorkerDirective `json:"directives"`
 	Policy     *MachinePolicy    `json:"policy,omitzero"`
+	// PolicyLifts are policy rules approved break-glass overrides suspend until Until.
+	PolicyLifts []PolicyLift `json:"policy_lifts,omitempty"`
+}
+
+// PolicyLift suspends machine policy rules until Until (an approved override).
+type PolicyLift struct {
+	OverrideSID string    `json:"override_sid"`
+	Rules       []string  `json:"rules"`
+	Until       time.Time `json:"until"`
 }
 
 // Machine roles (MachinePolicy.Role).

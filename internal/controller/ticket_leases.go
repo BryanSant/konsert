@@ -298,7 +298,8 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if workers = h.applyMachinePolicy(workers, counts, protocol.WorkTicket); len(workers) == 0 {
+	workers, ticketLifts := h.applyMachinePolicy(ctx, workers, counts, protocol.WorkTicket, "tickets")
+	if len(workers) == 0 {
 		return
 	}
 
@@ -549,6 +550,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 			h.useOverride(ctx, *ov)
 		}
 		h.placed(ctx, slots, w.ID, counts[w.ID])
+		h.liftUsed(ctx, ticketLifts, w.ID)
 		counts[w.ID]++
 		if updatedTask, err := h.store.GetTask(ctx, taskID); err == nil {
 			h.recordTaskTransition(ctx, updatedTask, "", causeScheduler, "placed ticket "+claimedTk.SID+" on "+w.Name)

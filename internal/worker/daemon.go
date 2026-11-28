@@ -88,6 +88,8 @@ type Daemon struct {
 	directives []protocol.WorkerDirective
 	// policy is the machine policy the hub pushed with the directives (nil: none).
 	policy *protocol.MachinePolicy
+	// policyLifts are the rules approved overrides suspend, each until its Until.
+	policyLifts []protocol.PolicyLift
 	// lastMetrics are the vitals of the last heartbeat: load and free memory for the
 	// policy check at admission.
 	lastMetrics atomic.Pointer[protocol.WorkerMetrics]
@@ -904,6 +906,7 @@ func (d *Daemon) handleControlMessage(daemonCtx context.Context, env protocol.En
 		}
 		d.setDirectives(p.Directives)
 		d.setPolicy(p.Policy)
+		d.setPolicyLifts(p.PolicyLifts)
 
 	case protocol.MsgTaskStart:
 		p, err := protocol.DecodePayload[protocol.TaskStartPayload](env)

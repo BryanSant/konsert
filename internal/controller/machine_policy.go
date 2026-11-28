@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 
 	"github.com/BryanSant/syre/internal/policy"
 	"github.com/BryanSant/syre/internal/protocol"
@@ -58,34 +59,68 @@ func (h *Hub) policyState(w store.Worker, work string, hosted int) policy.State 
 }
 
 // policyViolation is the rule w's policy would refuse new work of class work for
-// (nil: admitted).
-func (h *Hub) policyViolation(w store.Worker, work string, hosted int) *policy.Violation {
+// (nil: admitted), with the rules approved overrides lifted. A refusal is counted for
+// the policy report under subject. The override returned let the work through: it
+// counts as used once the work is placed.
+func (h *Hub) policyViolation(ctx context.Context, w store.Worker, work string, hosted int, subject string) (*policy.Violation, *store.Override) {
 	p := workerPolicy(w)
 	if p == nil {
-		return nil
+		return nil, nil
 	}
-	return policy.Check(p, h.policyState(w, work, hosted))
+	st := h.policyState(w, work, hosted)
+	v := policy.Check(p, st)
+	if v == nil {
+		return nil, nil
+	}
+	if l, ok := h.policyLifts(ctx, h.directiveClock())[w.ID]; ok {
+		st.Lifted = l.rules
+		if lv := policy.Check(p, st); lv == nil {
+			o := l.by
+			return nil, &o
+		} else {
+			v = lv
+		}
+	}
+	h.noteBlock(w.ID, v.Rule, subject, v.Message)
+	return v, nil
 }
 
-// applyMachinePolicy drops the machines whose policy refuses new work of class work
-// now and caps the others' slots at their max sessions.
-func (h *Hub) applyMachinePolicy(workers []store.Worker, counts map[string]int, work string) []store.Worker {
+// liftUses maps a machine to the override that admitted work there.
+type liftUses map[string]store.Override
+
+// used counts the override that let work onto workerID, once the work is placed.
+func (h *Hub) liftUsed(ctx context.Context, uses liftUses, workerID string) {
+	if o, ok := uses[workerID]; ok {
+		h.useOverride(ctx, o)
+	}
+}
+
+// applyMachinePolicy drops the machines whose policy refuses new work of class work now
+// (subject names it for the block counters) and caps the others' slots at their max
+// sessions.
+func (h *Hub) applyMachinePolicy(ctx context.Context, workers []store.Worker, counts map[string]int, work, subject string) ([]store.Worker, liftUses) {
 	out := workers[:0:0]
+	uses := liftUses{}
 	for _, w := range workers {
 		p := workerPolicy(w)
 		if p == nil {
 			out = append(out, w)
 			continue
 		}
-		if policy.Check(p, h.policyState(w, work, counts[w.ID])) != nil {
+		v, by := h.policyViolation(ctx, w, work, counts[w.ID], subject)
+		if v != nil {
 			continue
 		}
-		if p.MaxSessions > 0 && (w.MaxConcurrent <= 0 || p.MaxSessions < w.MaxConcurrent) {
+		if by != nil {
+			uses[w.ID] = *by
+		}
+		lifted := by != nil && slices.Contains(by.Rules, policy.RuleMaxSessions)
+		if p.MaxSessions > 0 && !lifted && (w.MaxConcurrent <= 0 || p.MaxSessions < w.MaxConcurrent) {
 			w.MaxConcurrent = p.MaxSessions
 		}
 		out = append(out, w)
 	}
-	return out
+	return out, uses
 }
 
 // taskWork is a task's work class.

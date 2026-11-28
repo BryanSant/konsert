@@ -26,6 +26,8 @@ type State struct {
 	AvailRAMMB        int
 	SurvivalReserveMB int
 	Now               time.Time
+	// Lifted are rules an approved break-glass override suspends for now.
+	Lifted map[string]bool
 }
 
 // Rules named in a Violation.
@@ -52,33 +54,58 @@ func Check(p *protocol.MachinePolicy, st State) *Violation {
 	if p == nil {
 		return nil
 	}
+	// A rule an override lifted reports nothing: the next rule decides.
 	v := func(rule, format string, args ...any) *Violation {
+		if st.Lifted[rule] {
+			return nil
+		}
 		return &Violation{Rule: rule, Message: "machine policy: " + fmt.Sprintf(format, args...)}
 	}
+	return check(p, st, v)
+}
+
+// Rules lists every rule name Check can report (what an override may lift).
+var Rules = []string{RuleRole, RuleAllowedWork, RuleQuietHours, RuleMaxSessions, RuleMaxLoad, RuleReserveCPU, RuleFreeRAM}
+
+func check(p *protocol.MachinePolicy, st State, v func(rule, format string, args ...any) *Violation) *Violation {
 	if p.Role == protocol.MachineRoleControlOnly {
-		return v(RuleRole, "this machine is control-only and runs no work")
+		if vi := v(RuleRole, "this machine is control-only and runs no work"); vi != nil {
+			return vi
+		}
 	}
 	if len(p.AllowedWork) > 0 && st.Work != "" && !slices.Contains(p.AllowedWork, st.Work) {
-		return v(RuleAllowedWork, "this machine runs only %s work, not %s", strings.Join(p.AllowedWork, ", "), st.Work)
+		if vi := v(RuleAllowedWork, "this machine runs only %s work, not %s", strings.Join(p.AllowedWork, ", "), st.Work); vi != nil {
+			return vi
+		}
 	}
 	if w, ok := InQuietHours(p, st.Now); ok {
-		return v(RuleQuietHours, "quiet hours (%s to %s %s): no new work", w.Start, w.End, p.TimeZone)
+		if vi := v(RuleQuietHours, "quiet hours (%s to %s %s): no new work", w.Start, w.End, p.TimeZone); vi != nil {
+			return vi
+		}
 	}
 	if p.MaxSessions > 0 && st.Hosted >= p.MaxSessions {
-		return v(RuleMaxSessions, "at most %d sessions at once (%d running)", p.MaxSessions, st.Hosted)
+		if vi := v(RuleMaxSessions, "at most %d sessions at once (%d running)", p.MaxSessions, st.Hosted); vi != nil {
+			return vi
+		}
 	}
 	if p.MaxLoad > 0 && st.LoadAvg > p.MaxLoad {
-		return v(RuleMaxLoad, "load average %.1f is above %.1f", st.LoadAvg, p.MaxLoad)
+		if vi := v(RuleMaxLoad, "load average %.1f is above %.1f", st.LoadAvg, p.MaxLoad); vi != nil {
+			return vi
+		}
 	}
 	if p.ReserveCPU > 0 && st.CPUs > 0 && st.LoadAvg >= 0 {
 		if limit := float64(st.CPUs) - p.ReserveCPU; st.LoadAvg > limit {
-			return v(RuleReserveCPU, "load average %.1f leaves less than %g of %d cores for the user", st.LoadAvg, p.ReserveCPU, st.CPUs)
+			if vi := v(RuleReserveCPU, "load average %.1f leaves less than %g of %d cores for the user", st.LoadAvg, p.ReserveCPU, st.CPUs); vi != nil {
+				return vi
+			}
 		}
 	}
 	if keep := p.MinFreeRAMMB + p.ReserveRAMMB; keep > 0 && st.AvailRAMMB >= 0 {
 		if floor := st.SurvivalReserveMB + keep; st.AvailRAMMB < floor {
-			return v(RuleFreeRAM, "%d MB available, below the %d MB kept free (%d survival reserve + %d policy)",
-				st.AvailRAMMB, floor, st.SurvivalReserveMB, keep)
+			if vi := v(RuleFreeRAM, "%d MB available, below the %d MB kept free (%d survival reserve + %d policy)",
+				st.AvailRAMMB, floor, st.SurvivalReserveMB, keep); vi != nil {
+				return vi
+			}
 		}
 	}
 	return nil

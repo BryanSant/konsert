@@ -77,3 +77,19 @@ func TestPolicyRAMAndGuardFloor(t *testing.T) {
 		t.Fatal("clearing the policy kept the user reserve")
 	}
 }
+
+func TestPolicyLiftsOnTheDaemon(t *testing.T) {
+	d := &Daemon{}
+	d.setPolicy(&protocol.MachinePolicy{AllowedWork: []string{protocol.WorkChat}})
+	if msg := d.admissionRefusal(protocol.WorkTask, ""); msg == "" {
+		t.Fatal("not refused")
+	}
+	d.setPolicyLifts([]protocol.PolicyLift{{OverrideSID: "o-1", Rules: []string{"allowed_work"}, Until: time.Now().Add(time.Minute)}})
+	if msg := d.admissionRefusal(protocol.WorkTask, ""); msg != "" {
+		t.Fatalf("refused under a lift: %s", msg)
+	}
+	d.setPolicyLifts([]protocol.PolicyLift{{OverrideSID: "o-1", Rules: []string{"allowed_work"}, Until: time.Now().Add(-time.Second)}})
+	if msg := d.admissionRefusal(protocol.WorkTask, ""); msg == "" {
+		t.Fatal("an expired lift still let work through")
+	}
+}

@@ -36,14 +36,15 @@ var errOverrideDecided = errors.New("the override request was already decided")
 
 // requestOverrideInput is the request_override MCP tool input (and POST /api/overrides).
 type requestOverrideInput struct {
-	Scope           string `json:"scope" jsonschema:"machine_slots: run more sessions at once on a machine than its slot limit; hold: lift one hold (h-…) for a while; session: lift the session holds on one task or chat; machine: lift the machine and resource holds on a machine"`
-	Machine         string `json:"machine,omitempty" jsonschema:"For machine_slots and machine: the machine (id, sid m-… or name)"`
-	HoldID          string `json:"hold_id,omitempty" jsonschema:"For hold: the hold id or sid (h-…)"`
-	TaskID          string `json:"task_id,omitempty" jsonschema:"For session: the task id or sid (t-…)"`
-	ChatID          string `json:"chat_id,omitempty" jsonschema:"For session: the agent chat id or sid (c-…)"`
-	ExtraSlots      int    `json:"extra_slots,omitzero" jsonschema:"For machine_slots: sessions allowed beyond the limit (default 1, max 8)"`
-	DurationMinutes int    `json:"duration_minutes" jsonschema:"How long the override lasts once approved, in minutes (1-1440)"`
-	Reason          string `json:"reason" jsonschema:"Why you need it, in one or two sentences the user can judge"`
+	Scope           string   `json:"scope" jsonschema:"machine_slots: run more sessions at once on a machine than its slot limit; hold: lift one hold (h-…) for a while; session: lift the session holds on one task or chat; machine: lift the machine and resource holds on a machine; policy: suspend machine policy rules (rules) on a machine"`
+	Rules           []string `json:"rules,omitempty" jsonschema:"For policy: the machine policy rules to suspend: role, allowed_work, quiet_hours, max_sessions, max_load, reserve_cpu, min_free_ram"`
+	Machine         string   `json:"machine,omitempty" jsonschema:"For machine_slots and machine: the machine (id, sid m-… or name)"`
+	HoldID          string   `json:"hold_id,omitempty" jsonschema:"For hold: the hold id or sid (h-…)"`
+	TaskID          string   `json:"task_id,omitempty" jsonschema:"For session: the task id or sid (t-…)"`
+	ChatID          string   `json:"chat_id,omitempty" jsonschema:"For session: the agent chat id or sid (c-…)"`
+	ExtraSlots      int      `json:"extra_slots,omitzero" jsonschema:"For machine_slots: sessions allowed beyond the limit (default 1, max 8)"`
+	DurationMinutes int      `json:"duration_minutes" jsonschema:"How long the override lasts once approved, in minutes (1-1440)"`
+	Reason          string   `json:"reason" jsonschema:"Why you need it, in one or two sentences the user can judge"`
 }
 
 // createOverride validates and stores an override request from chatID ("" over REST)
@@ -58,7 +59,7 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 	}
 	o := store.Override{ChatID: chatID, ScopeKind: strings.TrimSpace(in.Scope), DurationSeconds: in.DurationMinutes * 60, Reason: reason}
 	switch o.ScopeKind {
-	case store.OverrideScopeMachineSlots, store.OverrideScopeMachine:
+	case store.OverrideScopeMachineSlots, store.OverrideScopeMachine, store.OverrideScopePolicy:
 		m := strings.TrimSpace(in.Machine)
 		if m == "" {
 			return store.Override{}, fmt.Errorf("machine is required for scope %s", o.ScopeKind)
@@ -68,6 +69,13 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 			return store.Override{}, fmt.Errorf("unknown machine %q", m)
 		}
 		o.WorkerID = w.ID
+		if o.ScopeKind == store.OverrideScopePolicy {
+			rules, err := overrideRules(in.Rules)
+			if err != nil {
+				return store.Override{}, err
+			}
+			o.Rules = rules
+		}
 		if o.ScopeKind == store.OverrideScopeMachineSlots {
 			o.ExtraSlots = in.ExtraSlots
 			if o.ExtraSlots == 0 {
@@ -105,7 +113,7 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 			return store.Override{}, errors.New("task_id or chat_id is required for scope session")
 		}
 	default:
-		return store.Override{}, fmt.Errorf("unknown scope %q (want machine_slots, hold, session or machine)", in.Scope)
+		return store.Override{}, fmt.Errorf("unknown scope %q (want machine_slots, hold, session, machine or policy)", in.Scope)
 	}
 	o.Consequences = h.overrideConsequences(ctx, o)
 	o, err := h.store.CreateOverride(context.WithoutCancel(ctx), o)
@@ -124,6 +132,14 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 		Summary:  fmt.Sprintf("%s asked to %s for %s (override %s): %s", who, h.overrideScopeLabel(ctx, o), formatMinutes(o.DurationSeconds), o.SID, o.Reason),
 		MetaJSON: auditMeta(map[string]any{"override_sid": o.SID, "scope": o.ScopeKind}),
 	})
+	if chatID != "" && h.overrideSelfApprove(ctx) {
+		// The user let the commander approve its own requests (Settings): the decision
+		// is recorded as the commander's, not the user's.
+		cause := store.Cause{Actor: store.ActorAgent, ActorID: "commander", Source: "override_self_approve", Confidence: store.ConfidenceCertain}
+		if dec, err := h.applyOverrideDecision(ctx, o, true, "self-approved: override_self_approve is on", cause); err == nil {
+			o = dec
+		}
+	}
 	return o, nil
 }
 
@@ -132,6 +148,8 @@ func (h *Hub) createOverride(ctx context.Context, chatID string, in requestOverr
 func (h *Hub) overrideScopeLabel(ctx context.Context, o store.Override) string {
 	where := h.workerLabel(ctx, o.WorkerID)
 	switch o.ScopeKind {
+	case store.OverrideScopePolicy:
+		return fmt.Sprintf("suspend %s on %s", strings.Join(o.Rules, ", "), where)
 	case store.OverrideScopeMachineSlots:
 		return fmt.Sprintf("run %d extra session%s at once on %s", o.ExtraSlots, plural(o.ExtraSlots), where)
 	case store.OverrideScopeHold:
@@ -161,6 +179,9 @@ func (h *Hub) overrideConsequences(ctx context.Context, o store.Override) string
 	where := h.workerLabel(ctx, o.WorkerID)
 	dur := formatMinutes(o.DurationSeconds)
 	switch o.ScopeKind {
+	case store.OverrideScopePolicy:
+		return fmt.Sprintf("For %s, %s may take work its machine policy rules out (%s): the hub and the machine both let it through. The rules apply again when the override expires.",
+			dur, where, strings.Join(o.Rules, ", "))
 	case store.OverrideScopeMachineSlots:
 		limit := 1
 		if w, err := h.store.GetWorker(ctx, o.WorkerID); err == nil && w.MaxConcurrent > 0 {
@@ -220,6 +241,12 @@ func (h *Hub) decideOverride(ctx context.Context, id string, approve bool, note 
 	if !isUserCause(cause) {
 		return o, errors.New("only the user can decide an override request")
 	}
+	return h.applyOverrideDecision(ctx, o, approve, note, cause)
+}
+
+// applyOverrideDecision records a decision on a pending override by cause (the user,
+// or the commander when self-approval is on) and tells the commander.
+func (h *Hub) applyOverrideDecision(ctx context.Context, o store.Override, approve bool, note string, cause store.Cause) (store.Override, error) {
 	if o.Status != store.OverridePending {
 		return o, errOverrideDecided
 	}
@@ -249,8 +276,12 @@ func (h *Hub) decideOverride(ctx context.Context, id string, approve bool, note 
 	h.broadcastFleetUpdate("override", o)
 	scope := h.overrideScopeLabel(ctx, o)
 	var msg string
+	who := "The user"
+	if !isUserCause(cause) {
+		who = "The commander (self-approval is on)"
+	}
 	if approve {
-		msg = fmt.Sprintf("The user approved override %s (%s) for %s, until %s", o.SID, scope, formatMinutes(o.DurationSeconds), o.ExpiresAt.Local().Format("15:04"))
+		msg = fmt.Sprintf("%s approved override %s (%s) for %s, until %s", who, o.SID, scope, formatMinutes(o.DurationSeconds), o.ExpiresAt.Local().Format("15:04"))
 		if note != "" {
 			msg += ` ("` + note + `")`
 		}
@@ -270,6 +301,9 @@ func (h *Hub) decideOverride(ctx context.Context, id string, approve bool, note 
 		Message:  fmt.Sprintf("%s override %s (%s)", capitalize(verb), o.SID, scope),
 		MetaJSON: auditMeta(map[string]any{"override_id": o.ID, "status": status})})
 	if approve {
+		if o.ScopeKind == store.OverrideScopePolicy {
+			h.pushMachineDirectives(ctx, o.WorkerID) // the daemon honours the lift too
+		}
 		// Work waiting for the slot or behind the hold may run now.
 		h.kickScheduler()
 	}
@@ -403,6 +437,9 @@ func (h *Hub) expireOverrides(ctx context.Context, now time.Time) {
 			MetaJSON: auditMeta(map[string]any{"override_sid": cur.SID, "use_count": cur.UseCount}),
 		})
 		h.NotifyDirectiveExpiring(ctx, "", cur.ChatID, fmt.Sprintf("override %s expired", cur.SID))
+		if cur.ScopeKind == store.OverrideScopePolicy {
+			h.pushMachineDirectives(ctx, cur.WorkerID) // the rules apply on the daemon again
+		}
 	}
 }
 

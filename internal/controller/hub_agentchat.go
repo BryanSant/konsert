@@ -948,10 +948,14 @@ func (h *Hub) sendAgentChat(ctx context.Context, cs store.ChatSession, req chatS
 			if cs.TicketID != "" {
 				work = protocol.WorkTicket
 			}
-			if v := h.policyViolation(w, work, h.ActiveTaskCounts()[w.ID]); v != nil {
+			v, by := h.policyViolation(ctx, w, work, h.ActiveTaskCounts()[w.ID], chatSubject(cs.ID))
+			if v != nil {
 				e := protocol.AgentChatError{Kind: protocol.ErrKindOther, Message: fmt.Sprintf("%s: %s", w.Name, v.Message), Retryable: true}
 				h.hubError(ctx, cs.ID, e)
 				return errors.New(e.Message)
+			}
+			if by != nil && cs.TicketID == "" { // a ticket run's use is counted when it is scheduled
+				h.useOverride(ctx, *by)
 			}
 		}
 	}

@@ -14,12 +14,13 @@ import { QuestionInsightsComponent } from '../features/questions/question-insigh
 import { ForgeSettingsComponent } from './forge-settings.component';
 import { StorageSettingsComponent } from './storage-settings.component';
 import { ShellPolicySettingsComponent } from './shell-policy-settings.component';
+import { PolicyReportComponent } from './policy-report.component';
 import { MachineCredentialsSecurityComponent } from './machine-credentials-security.component';
 
 @Component({
   selector: 'app-settings-modal',
   standalone: true,
-  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent],
+  imports: [FormsModule, ModalDialogComponent, QuestionInsightsComponent, MachineCredentialsSecurityComponent, ForgeSettingsComponent, StorageSettingsComponent, ShellPolicySettingsComponent, PolicyReportComponent],
   template: `
     <app-modal-dialog labelledBy="settings-title" panelClass="w-full max-w-lg rounded-[var(--sy-radius-xl)] bg-[var(--sy-surface-2)] backdrop-blur-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto" (close)="close.emit()">
       <div class="flex items-center justify-between">
@@ -210,7 +211,14 @@ import { MachineCredentialsSecurityComponent } from './machine-credentials-secur
           <p class="m-0 text-[11.5px] text-[#8e9098]">
             Tightening (pause, throttle, drain, disable a provider) applies at once, attributed to you via Commander, with Undo on the receipt. Ending a directive or raising a cap still needs your approval. Confirm turns every tightening change into a Needs you card.
           </p>
+          <label class="flex items-start gap-2 pt-1 text-[12px] text-[#d4d4d8]">
+            <input type="checkbox" class="mt-0.5" data-testid="settings-override-self-approve" [ngModel]="overrideSelfApprove()" (ngModelChange)="overrideSelfApprove.set($event)" name="overrideSelfApprove" />
+            <span>Let the Commander approve its own overrides<span class="block text-[11.5px] text-[#8e9098]">Off by default: every break-glass request (more sessions, a lifted hold, a suspended machine rule) waits for you. On, the Commander's requests take effect at once and are reported as its own decision.</span></span>
+          </label>
         </div>
+
+        <!-- Weekly policy report: blocks and the overrides that followed (SYR-ADQZX) -->
+        <sy-policy-report />
 
         <!-- Shells left running by finished sessions (SYR-DCEZV) -->
         <sy-shell-policy-settings />
@@ -394,6 +402,7 @@ export class SettingsModalComponent implements OnInit {
   readonly defaultDeliveryMode = signal<DeliveryMode>('');
   readonly defaultMergeStyle = signal<MergeStyle>('squash');
   readonly commanderPolicyWrites = signal('tighten');
+  readonly overrideSelfApprove = signal(false);
   readonly deliveryModeOptions = DELIVERY_MODE_OPTIONS;
   readonly mergeStyleOptions = MERGE_STYLE_OPTIONS;
 
@@ -421,6 +430,7 @@ export class SettingsModalComponent implements OnInit {
       this.defaultDeliveryMode.set(s.default_delivery_mode || '');
       this.defaultMergeStyle.set(s.default_merge_style || 'squash');
       this.commanderPolicyWrites.set(s.commander_policy_writes || 'tighten');
+      this.overrideSelfApprove.set(!!s.override_self_approve);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Failed to load settings');
     }
@@ -479,6 +489,7 @@ export class SettingsModalComponent implements OnInit {
         default_delivery_mode: this.defaultDeliveryMode(),
         default_merge_style: this.defaultMergeStyle(),
         commander_policy_writes: this.commanderPolicyWrites(),
+        override_self_approve: this.overrideSelfApprove(),
       });
       this.fleet.settings.set(updated);
       this.auth.provider.set(updated.llm_provider);
