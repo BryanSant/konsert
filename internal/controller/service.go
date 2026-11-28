@@ -368,6 +368,12 @@ type DispatchRequest struct {
 	// Shell selects the terminal shell ID (e.g. "git-bash", "pwsh", "powershell",
 	// "zsh", "bash", "fish") for terminal sessions; empty = machine default.
 	Shell string `json:"shell,omitempty" jsonschema:"Terminal shell ID (git-bash, pwsh, powershell, zsh, bash, fish); empty = machine default"`
+	// Kind, WorkKey and Requirements (SYR-2BE8M): the kind of work, appended to the
+	// derived work key; the dispatcher's own work key instead; hard requirements on the
+	// machine, remembered for the work key and inherited by later work of it.
+	Kind         string            `json:"kind,omitempty" jsonschema:"Kind of work (build, test, ml-train, review, …); part of the work key"`
+	WorkKey      string            `json:"work_key,omitempty" jsonschema:"Work key override; default project/epic-or-ticket/repo[/kind]"`
+	Requirements *WorkRequirements `json:"requirements,omitzero" jsonschema:"Hard requirements on the machine (os, arch, min_ram_gb, min_disk_free_gb, tools, auth, virtualization); remembered for the work key"`
 }
 
 type DispatchResult struct {
@@ -557,6 +563,18 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		req.AccountID = placement.AccountID
 		onlineWorkers = filterProviderWorkers(onlineWorkers, req.Agent, idx)
 	}
+	kind, kindOK := normalizeWorkKind(req.Kind)
+	if !kindOK {
+		return DispatchResult{}, fmt.Errorf("kind %q: use letters, digits, - or _ (build, test, ml-train, review, …)", req.Kind)
+	}
+	ticketID := strings.TrimSpace(req.TicketID)
+	if ticketID == "" {
+		ticketID = detectTicket(req.Title, req.Prompt)
+	}
+	workKey := s.hub.taskWorkKey(ctx, "", store.Task{ProjectID: req.ProjectID, RepoID: req.RepoID, Workdir: req.RepoPath, TicketID: ticketID},
+		kind, req.WorkKey)
+	reqs, inherited := s.hub.workRequirements(ctx, workKey, req.Requirements, describeActor(cause))
+	reqs.apply(&req.WorkerSelector)
 	selected, ok := SelectWorker(onlineWorkers, counts, req.WorkerSelector, req.Agent, permMode)
 	if ok {
 		// Never start work on a logged-out account: place it elsewhere if the
@@ -600,9 +618,8 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		}
 	}
 
-	ticketID := strings.TrimSpace(req.TicketID)
-	if ticketID == "" {
-		ticketID = detectTicket(req.Title, req.Prompt)
+	if inherited {
+		warnings = append(warnings, "requirements inherited from work key "+workKey)
 	}
 	task := store.Task{
 		ID:             taskID,
@@ -625,6 +642,8 @@ func (s *FleetService) DispatchTask(ctx context.Context, req DispatchRequest) (D
 		CreatedAt:      time.Now().UTC(),
 		Title:          oneLine(req.Title, 80),
 		TicketID:       ticketID,
+		WorkKey:        workKey,
+		WorkKind:       kind,
 	}
 	if o, fromChat := chatOriginFrom(ctx); fromChat {
 		task.ParentChatID = o.id

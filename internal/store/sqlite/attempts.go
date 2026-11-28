@@ -491,3 +491,21 @@ func (s *SQLiteStore) ListWorkProfiles(ctx context.Context, workKey string) ([]s
 	})
 	return out, rows.Err()
 }
+
+// SetWorkRequirements implements store.Store.
+func (s *SQLiteStore) SetWorkRequirements(ctx context.Context, workKey, requirementsJSON, setBy string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO work_requirements (work_key, requirements_json, set_by, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(work_key) DO UPDATE SET requirements_json = excluded.requirements_json, set_by = excluded.set_by, updated_at = excluded.updated_at`,
+		workKey, requirementsJSON, setBy, formatTime(time.Now().UTC()))
+	return err
+}
+
+// GetWorkRequirements implements store.Store.
+func (s *SQLiteStore) GetWorkRequirements(ctx context.Context, workKey string) (string, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT requirements_json FROM work_requirements WHERE work_key = ?`, workKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", store.ErrNotFound
+	}
+	return raw, err
+}

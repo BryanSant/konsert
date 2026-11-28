@@ -92,7 +92,7 @@ func (h *Hub) sessionEstimate(ctx context.Context, taskID, subject, class string
 		if rows, err := h.store.ListAttempts(ctx, "", taskID); err == nil && len(rows) > 0 {
 			a = rows[len(rows)-1]
 		}
-		e.key = h.workKeyFor(ctx, a, task)
+		e.key = cmpOr(task.WorkKey, h.workKeyFor(ctx, a, task))
 		if profiles, err := h.store.ListWorkProfiles(ctx, e.key); err == nil {
 			var own, any uint64
 			for _, p := range profiles {

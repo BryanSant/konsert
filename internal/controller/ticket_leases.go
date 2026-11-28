@@ -498,6 +498,7 @@ func (h *Hub) scheduleDispatchableTickets(ctx context.Context) {
 			CreatedAt:      now,
 			StartedAt:      &startedAt,
 		}
+		task.WorkKey = h.taskWorkKey(ctx, tk.ID, task, "", "")
 		if err := h.store.CreateTask(ctx, task); err != nil {
 			h.logger.Warn("create task for claimed ticket failed; releasing lease", "ticket_id", tk.ID, "err", err)
 			_, _, _ = h.store.ReleaseTicket(ctx, tk.ID, store.TicketStatusReady)

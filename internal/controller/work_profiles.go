@@ -122,7 +122,7 @@ func (h *Hub) attemptEnded(ctx context.Context, ticketID, taskID string, n int) 
 	if err != nil {
 		return
 	}
-	key, class := h.workKeyFor(ctx, *a, task), h.machineClassFor(ctx, a.WorkerID)
+	key, class := cmpOr(task.WorkKey, h.workKeyFor(ctx, *a, task)), h.machineClassFor(ctx, a.WorkerID)
 	peak, cpu := h.attemptResources(ctx, *a)
 	if peak == 0 && task.PeakRSSMB > 0 {
 		peak = task.PeakRSSMB

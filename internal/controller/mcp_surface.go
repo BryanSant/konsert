@@ -164,6 +164,9 @@ type WorkItemInput struct {
 	RemoteURL     string             `json:"remote_url,omitempty"`
 	DefaultBranch string             `json:"default_branch,omitempty"`
 	DeliveryMode  string             `json:"delivery_mode,omitempty"`
+	// WorkKey and Requirements apply to dispatch (Kind is then the kind of work).
+	WorkKey      string            `json:"work_key,omitempty"`
+	Requirements *WorkRequirements `json:"requirements,omitempty"`
 }
 
 type ManageWorkResult struct {
@@ -262,6 +265,8 @@ var (
 						"remote_url":     map[string]any{"type": "string"},
 						"default_branch": map[string]any{"type": "string"},
 						"delivery_mode":  map[string]any{"type": "string"},
+						"work_key":       map[string]any{"type": "string"},
+						"requirements":   map[string]any{"type": "object", "description": "dispatch: os, arch, min_ram_gb, min_disk_free_gb, tools{name:min_ver}, auth[], virtualization"},
 					},
 				},
 			},
@@ -333,7 +338,7 @@ var (
 const (
 	fleetStatusDesc = "Fleet summary grouped by capability (default) with directives and holds; per-machine facts, policy and current load (per session, agent vs other, user idle) when detail=machines or machine is set; load history of a session or machine with detail=history."
 	backlogDesc     = "Compact table of projects/repos, tickets (sid, title, status, lease, blockers), and ad-hoc tasks."
-	manageWorkDesc  = "Batch create/update/cancel/requeue tickets (incl. blocked_by, repos, hints), dispatch ad-hoc tasks, or create projects/repos."
+	manageWorkDesc  = "Batch create/update/cancel/requeue tickets (incl. blocked_by, repos, hints), dispatch ad-hoc tasks (kind, requirements), or create projects/repos."
 	controlDesc     = "Pause, resume, stop, drain, undrain, suspend, veto, or toggle autopilot at ticket, session, machine, project, or fleet scope. Resume/undrain require user confirmation."
 	replyDesc       = "Steer a running task/session or answer a delegated question (only via answer_question rules)."
 	memoryDesc      = "Save or recall concise fleet/project/session memory entries."
@@ -893,12 +898,15 @@ func (s *FleetService) ManageWork(ctx context.Context, in ManageWorkInput) (Mana
 				return out, err
 			}
 			req := DispatchRequest{
-				ProjectID: projID,
-				Title:     item.Title,
-				Agent:     item.Agent,
-				Model:     item.Model,
-				Prompt:    item.Prompt,
-				Mode:      item.Mode,
+				ProjectID:    projID,
+				Title:        item.Title,
+				Agent:        item.Agent,
+				Model:        item.Model,
+				Prompt:       item.Prompt,
+				Mode:         item.Mode,
+				Kind:         item.Kind,
+				WorkKey:      item.WorkKey,
+				Requirements: item.Requirements,
 			}
 			if m := strings.TrimSpace(item.Machine); m != "" {
 				resolved := s.hub.resolveMachine(ctx, m)
@@ -1497,6 +1505,9 @@ func (c *RemoteFleetClient) ManageWork(ctx context.Context, in ManageWorkInput) 
 				RepoPath:       firstNonEmpty(item.Repo, "~"),
 				Prompt:         item.Prompt,
 				Mode:           item.Mode,
+				Kind:           item.Kind,
+				WorkKey:        item.WorkKey,
+				Requirements:   item.Requirements,
 				WorkerSelector: WorkerSelector{WorkerID: item.Machine},
 			})
 			if err != nil {

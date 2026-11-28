@@ -524,13 +524,13 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, t store.Task) error {
 			agent, model, session_kind, workdir, effective_dir, branch, mode, origin, permission_mode,
 			orphan_policy, prompt, status, summary, git_summary_json, digest_json, exit_code,
 			cause_json, suspended_by, parent_chat_id, title, ticket_id, ticket_title,
-			created_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			created_at, started_at, completed_at, work_key, work_kind
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, t.ID, t.SID, workerID, t.ProjectID, t.RepoID,
 		t.Agent, t.Model, t.SessionKind, t.Workdir, t.EffectiveDir, t.Branch, t.Mode, t.Origin, string(t.PermissionMode),
 		t.OrphanPolicy, t.Prompt, t.Status, t.Summary, t.GitSummaryJSON, t.DigestJSON, t.ExitCode,
 		causeJSON(t.Cause), t.SuspendedBy, t.ParentChatID, t.Title, t.TicketID, t.TicketTitle,
-		formatTime(t.CreatedAt), startedAt, completedAt)
+		formatTime(t.CreatedAt), startedAt, completedAt, t.WorkKey, t.WorkKind)
 	return err
 }
 
@@ -833,7 +833,7 @@ const taskSelectColumns = `id, sid, external_id, worker_id, project_id, repo_id,
 		       orphan_policy, prompt, status, summary, git_summary_json, digest_json, followups_json, worktrees_json, worktrees_cleaned_at, exit_code,
 		       cause_json, suspended_by, parent_chat_id,
 		       title, narration, narration_at, ticket_id, ticket_title,
-		       keep, compacted_at, created_at, started_at, completed_at, peak_rss_mb, peak_cpu_pct`
+		       keep, compacted_at, created_at, started_at, completed_at, peak_rss_mb, peak_cpu_pct, work_key, work_kind`
 
 func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 	var (
@@ -858,7 +858,7 @@ func scanTask(scanner interface{ Scan(...any) error }) (store.Task, error) {
 		&t.OrphanPolicy, &t.Prompt, &t.Status, &t.Summary, &t.GitSummaryJSON, &t.DigestJSON, &followupsJSON, &worktreesJSON, &worktreesCleaned, &exitCode,
 		&cause, &t.SuspendedBy, &t.ParentChatID,
 		&t.Title, &t.Narration, &narrationAt, &t.TicketID, &t.TicketTitle,
-		&keep, &compactedAt, &createdAt, &startedAt, &completedAt, &t.PeakRSSMB, &t.PeakCPUPct,
+		&keep, &compactedAt, &createdAt, &startedAt, &completedAt, &t.PeakRSSMB, &t.PeakCPUPct, &t.WorkKey, &t.WorkKind,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return store.Task{}, store.ErrNotFound

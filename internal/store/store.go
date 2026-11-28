@@ -208,6 +208,12 @@ type Task struct {
 	// reached in a minute of metric history (0: never sampled).
 	PeakRSSMB  uint64  `json:"peak_rss_mb,omitzero"`
 	PeakCPUPct float64 `json:"peak_cpu_pct,omitzero"`
+
+	// WorkKey is "the same kind of work" (project / epic or ticket / repo [/ kind]),
+	// set at dispatch (SYR-2BE8M); WorkKind the dispatcher's kind (build, test,
+	// ml-train, review, …), "" when none was given.
+	WorkKey  string `json:"work_key,omitempty"`
+	WorkKind string `json:"work_kind,omitempty"`
 }
 
 // TaskStartSpec is the persisted placement and launch specification of a task:
@@ -659,6 +665,11 @@ type Store interface {
 	// Work profiles (SYR-VYFYX).
 	SetAttemptProfileFields(ctx context.Context, attemptID, workKey, machineClass string, peakRSSMB uint64, cpuS float64) error
 	ListProfileAttempts(ctx context.Context, workKey, machineClass string, limit int) ([]Attempt, error)
+	// SetWorkRequirements remembers the requirements declared for a work key (JSON of
+	// a worker selector's requirement fields); GetWorkRequirements returns them ("" and
+	// ErrNotFound when none).
+	SetWorkRequirements(ctx context.Context, workKey, requirementsJSON, setBy string) error
+	GetWorkRequirements(ctx context.Context, workKey string) (string, error)
 	UpsertWorkProfile(ctx context.Context, p WorkProfile) error
 	ListWorkProfiles(ctx context.Context, workKey string) ([]WorkProfile, error)
 	// Policy blocks (SYR-ADQZX): hourly counters of work a rule kept off a machine.
