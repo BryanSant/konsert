@@ -413,3 +413,61 @@ func TestBestBaseURL(t *testing.T) {
 		t.Fatalf("wildcard: %s", u)
 	}
 }
+
+// syre open's sign-in codes: issued only to this machine over loopback, valid a minute,
+// and redeemable only from this machine (not through a proxy that relays from loopback).
+func TestLauncherSignInCodeIsLocalOnly(t *testing.T) {
+	srv, base := newAuthTestServer(t)
+	post := func(path, body string, headers map[string]string) (*http.Response, string) {
+		req, _ := http.NewRequest(http.MethodPost, base+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+testRecoveryKey)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp, string(raw)
+	}
+	// Through a proxy (a forwarding header): refused.
+	if resp, raw := post("/api/pairing-codes", `{"launcher":true}`, map[string]string{"X-Forwarded-For": "100.64.0.9"}); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("proxied launcher code: %d %s", resp.StatusCode, raw)
+	}
+	mint := func() PairingCode {
+		resp, raw := post("/api/pairing-codes", `{"launcher":true}`, nil)
+		var pc PairingCode
+		if resp.StatusCode != http.StatusCreated || json.Unmarshal([]byte(raw), &pc) != nil {
+			t.Fatalf("launcher code: %d %s", resp.StatusCode, raw)
+		}
+		return pc
+	}
+	pc := mint()
+	if !strings.HasPrefix(pc.URL, base+"/pair/") || time.Until(pc.ExpiresAt) > auth.LaunchCodeTTL+time.Second {
+		t.Fatalf("launcher code: %+v", pc)
+	}
+	// Redeemed through a proxy: invalid (and not used up).
+	req, _ := http.NewRequest(http.MethodPost, base+"/api/auth/pair", strings.NewReader(`{"code":"`+pc.Code+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "100.64.0.9")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || sessionCookie(resp) != nil {
+		t.Fatalf("proxied redemption: %d", resp.StatusCode)
+	}
+	// From this machine: signed in, audited as the launcher.
+	resp, raw := call(t, http.MethodPost, base+"/api/auth/pair", "", nil, `{"code":"`+pc.Code+`","name":"Launcher"}`, nil)
+	if resp.StatusCode != http.StatusOK || sessionCookie(resp) == nil {
+		t.Fatalf("local redemption: %d %s", resp.StatusCode, raw)
+	}
+	events, _ := srv.store.ListAudit(context.Background(), store.AuditFilter{Action: AuditDevicePaired, Limit: 5})
+	if len(events) != 1 || !strings.Contains(events[0].Message, "via the local launcher") {
+		t.Fatalf("audit: %+v", events)
+	}
+}

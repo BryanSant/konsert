@@ -164,7 +164,7 @@ func (s *SQLiteStore) CreatePairingCode(ctx context.Context, p store.PairingCode
 	if p.CodeHash == "" || p.ExpiresAt.IsZero() {
 		return p, errors.New("pairing code needs a hash and an expiry")
 	}
-	if p.Purpose != store.PairingPurposePair && p.Purpose != store.PairingPurposeLogin {
+	if p.Purpose != store.PairingPurposePair && p.Purpose != store.PairingPurposeLogin && p.Purpose != store.PairingPurposeLaunch {
 		return p, errors.New("invalid pairing code purpose " + p.Purpose)
 	}
 	if err := s.assignIDs(ctx, ids.PairingCode, &p.ID, &p.SID); err != nil {
@@ -225,8 +225,8 @@ func (s *SQLiteStore) RedeemPairingCode(ctx context.Context, codeID string, d st
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx, `UPDATE pairing_codes SET redeemed_at = ?, device_id = ?
 		WHERE id = ? AND redeemed_at IS NULL AND denied_at IS NULL AND expires_at > ?
-		AND (purpose = ? OR approved_at IS NOT NULL)`,
-		formatTime(at), d.ID, codeID, formatTime(at), store.PairingPurposePair)
+		AND (purpose IN (?, ?) OR approved_at IS NOT NULL)`,
+		formatTime(at), d.ID, codeID, formatTime(at), store.PairingPurposePair, store.PairingPurposeLaunch)
 	if err != nil {
 		return d, false, err
 	}

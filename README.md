@@ -18,6 +18,18 @@ Syre cleanly decouples **LLM coordination** from **human observability** across 
 
 ## Quick Start
 
+On a machine with Syre installed, one command starts everything and opens it:
+
+```bash
+syre open
+```
+
+It starts the hub if it isn't running, starts this machine's `syred`, and opens Syre in
+the installed app or your default browser, already signed in. The sign-in link works only
+on this machine and expires in a minute; `syre open --no-browser` prints it instead. Point
+a desktop launcher or dock shortcut at `syre open`; run again, it brings Syre back up front.
+Its log is `<config dir>/logs/open.log`.
+
 ### 1. Build Controller & Worker (with Embedded PWA)
 
 ```bash

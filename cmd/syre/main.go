@@ -45,6 +45,7 @@ func main() {
 		newCancelCmd(),
 		newLogsCmd(),
 		newPolicyCmd(),
+		newOpenCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

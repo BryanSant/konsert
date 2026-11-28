@@ -43,6 +43,9 @@ const (
 	// PairingPurposeLogin is the CLI device-code flow: a signed-in browser approves the
 	// code and the polling CLI receives the credential.
 	PairingPurposeLogin = "login"
+	// PairingPurposeLaunch signs in a browser on the hub's own machine for `syre open`:
+	// short-lived, and only redeemable over loopback.
+	PairingPurposeLaunch = "launch"
 )
 
 // PairingCode is a single-use, short-lived sign-in code. Only hashes are stored.

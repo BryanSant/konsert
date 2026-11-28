@@ -153,6 +153,32 @@ const codeAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 // PairingCodeTTL is how long a pairing or login code stays valid.
 const PairingCodeTTL = 10 * time.Minute
 
+// LaunchCodeTTL is how long a `syre open` sign-in code stays valid: it is opened at
+// once by the same process that asked for it.
+const LaunchCodeTTL = 60 * time.Second
+
+// IsLocalRequest reports whether r comes from this machine and was not relayed by a
+// proxy: its TCP peer is loopback, it names a loopback host, and it carries no
+// forwarding headers (a reverse proxy on this machine, such as `tailscale serve`, makes
+// remote requests arrive from loopback).
+func IsLocalRequest(r *http.Request) bool {
+	if !IsLoopbackRemote(r) {
+		return false
+	}
+	for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip"} {
+		if r.Header.Get(h) != "" {
+			return false
+		}
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+}
+
 // NewPairingCode returns a random XXXX-XXXX code (40 bits) and its hash.
 func NewPairingCode() (code, hash string, err error) {
 	b := make([]byte, 8)

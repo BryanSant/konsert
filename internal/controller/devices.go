@@ -142,6 +142,10 @@ type PairingCode struct {
 // MintPairingCode creates a single-use pairing code for a browser or phone and audits
 // it by its short id (never the code). base is the hub URL for the link.
 func (s *Server) MintPairingCode(ctx context.Context, base, createdBy, ip string) (PairingCode, error) {
+	return s.mintCode(ctx, base, createdBy, ip, store.PairingPurposePair, auth.PairingCodeTTL)
+}
+
+func (s *Server) mintCode(ctx context.Context, base, createdBy, ip, purpose string, ttl time.Duration) (PairingCode, error) {
 	code, hash, err := auth.NewPairingCode()
 	if err != nil {
 		return PairingCode{}, err
@@ -149,17 +153,21 @@ func (s *Server) MintPairingCode(ctx context.Context, base, createdBy, ip string
 	now := s.auth.Now()
 	_ = s.store.PruneAuth(ctx, now.Add(-24*time.Hour))
 	rec, err := s.store.CreatePairingCode(ctx, store.PairingCode{
-		Purpose: store.PairingPurposePair, CodeHash: hash, CreatedBy: createdBy, CreatedIP: ip,
-		CreatedAt: now, ExpiresAt: now.Add(auth.PairingCodeTTL),
+		Purpose: purpose, CodeHash: hash, CreatedBy: createdBy, CreatedIP: ip,
+		CreatedAt: now, ExpiresAt: now.Add(ttl),
 	})
 	if err != nil {
 		return PairingCode{}, err
 	}
 	link := pairURL(strings.TrimRight(base, "/"), code)
 	qr, _ := qrcode.EncodeSVG(link)
+	msg := "Created pairing code " + rec.SID
+	if purpose == store.PairingPurposeLaunch {
+		msg = "Created local launcher sign-in code " + rec.SID + " (syre open)"
+	}
 	s.hub.recordAudit(withDefaultAuditActor(ctx, cmpOr(createdBy, "system"), auditSourceREST), store.AuditEvent{
 		Action:   AuditDevicePairCode,
-		Message:  "Created pairing code " + rec.SID,
+		Message:  msg,
 		MetaJSON: auditMeta(map[string]any{"code_sid": rec.SID, "expires_at": rec.ExpiresAt}),
 	})
 	return PairingCode{Code: code, SID: rec.SID, URL: link, ExpiresAt: rec.ExpiresAt, QR: qr}, nil
@@ -178,8 +186,24 @@ func (s *Server) handleCreatePairingCode(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "authentication is off (--no-auth): there is nothing to sign in to"})
 		return
 	}
+	var body struct {
+		// Launcher asks for a `syre open` code: 60 s, redeemable only over loopback, and
+		// only issued to a request from this machine itself.
+		Launcher bool `json:"launcher"`
+	}
+	if requestHasBody(r) && !decodeJSON(w, r, &body) {
+		return
+	}
 	id := identityFrom(r.Context())
-	pc, err := s.MintPairingCode(r.Context(), s.publicBaseURL(r), id.User, auth.ClientIP(r))
+	purpose, ttl, base := store.PairingPurposePair, auth.PairingCodeTTL, s.publicBaseURL(r)
+	if body.Launcher {
+		if !auth.IsLocalRequest(r) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "a launcher sign-in code is only issued to the hub's own machine over loopback"})
+			return
+		}
+		purpose, ttl, base = store.PairingPurposeLaunch, auth.LaunchCodeTTL, "http://"+r.Host
+	}
+	pc, err := s.mintCode(r.Context(), base, id.User, auth.ClientIP(r), purpose, ttl)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -243,8 +267,13 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, err := s.store.GetPairingCodeByHash(r.Context(), auth.HashPairingCode(canon))
-	if err != nil || rec.Purpose != store.PairingPurposePair {
+	if err != nil || (rec.Purpose != store.PairingPurposePair && rec.Purpose != store.PairingPurposeLaunch) {
 		invalid()
+		return
+	}
+	launch := rec.Purpose == store.PairingPurposeLaunch
+	if launch && !auth.IsLocalRequest(r) {
+		invalid() // a launcher code only signs in a browser on the hub's own machine
 		return
 	}
 	uaRaw := r.UserAgent()
@@ -263,7 +292,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	ctx := withAuditActor(r.Context(), auth.DeviceUser(d), auditSourceREST)
 	s.hub.recordAudit(ctx, store.AuditEvent{
 		Action:   AuditDevicePaired,
-		Message:  "Signed in " + d.Name + " (" + d.SID + ") with pairing code " + rec.SID,
+		Message:  "Signed in " + d.Name + " (" + d.SID + ") with pairing code " + rec.SID + launchNote(launch),
 		MetaJSON: auditMeta(map[string]any{"device_sid": d.SID, "code_sid": rec.SID, "kind": d.Kind, "ip": ip}),
 	})
 	view := s.viewDevice(d, d.ID)
@@ -699,4 +728,11 @@ func (s *Server) handleRotateRecoveryKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func launchNote(launch bool) string {
+	if launch {
+		return " via the local launcher (syre open)"
+	}
+	return ""
 }
