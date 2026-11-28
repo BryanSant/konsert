@@ -85,6 +85,17 @@ func (c *shedCooldowns) active(workerID string, now time.Time) bool {
 	return st != nil && now.Before(st.until)
 }
 
+// until is when the machine's cooldown ends (ok false: none running).
+func (c *shedCooldowns) until(workerID string) (time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := c.m[workerID]
+	if st == nil || !time.Now().Before(st.until) {
+		return time.Time{}, false
+	}
+	return st.until, true
+}
+
 // latest is the end of the last cooldown still running at now.
 func (c *shedCooldowns) latest(now time.Time) (time.Time, bool) {
 	c.mu.Lock()

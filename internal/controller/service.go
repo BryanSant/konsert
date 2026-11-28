@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BryanSant/syre/internal/capacity"
 	"github.com/BryanSant/syre/internal/commander"
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/protocol"
@@ -83,6 +84,9 @@ type WorkerStatusView struct {
 	ReconnectingAfterSleep bool `json:"reconnecting_after_sleep,omitzero"`
 	// Policy is the machine policy the user set (nil: none). Read-only for MCP.
 	Policy *protocol.MachinePolicy `json:"policy,omitzero"`
+	// Headroom is the machine's estimated room for new work (online machines with a
+	// heartbeat; SYR-0AANJ).
+	Headroom *capacity.Headroom `json:"headroom,omitzero"`
 }
 
 // toWorkerView builds the API/WebSocket view of a worker row with its live
@@ -162,6 +166,7 @@ func (s *FleetService) FleetStatus(ctx context.Context) (FleetStatusResult, erro
 		view.Restart = s.hub.workerRestartView(w.ID)
 		if st == "online" {
 			view.Heat = s.hub.workerHeat(w.ID)
+			view.Headroom = s.hub.workerHeadroom(ctx, w)
 		}
 		views = append(views, view)
 	}

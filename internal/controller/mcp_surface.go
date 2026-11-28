@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BryanSant/syre/internal/capacity"
 	"github.com/BryanSant/syre/internal/ids"
 	"github.com/BryanSant/syre/internal/protocol"
 	"github.com/BryanSant/syre/internal/store"
@@ -59,6 +60,8 @@ type MachineDetailRow struct {
 	// Load is the latest split of its processes: per session, agent vs other, the
 	// busiest other processes, how long the user has been idle.
 	Load *protocol.MachineLoad `json:"load,omitzero"`
+	// Headroom is the estimated room for new work (online machines; SYR-0AANJ).
+	Headroom *capacity.Headroom `json:"headroom,omitzero"`
 }
 
 // machineRow is a fleet_status machine row.
@@ -66,7 +69,7 @@ func machineRow(w WorkerStatusView) MachineDetailRow {
 	r := MachineDetailRow{
 		WorkerID: w.ID, WorkerSID: w.SID, WorkerName: w.Name, Status: w.Status,
 		OS: w.OS, Arch: w.Arch, Agents: w.Agents, ActiveTasks: w.ActiveTasks,
-		MaxConcurrent: w.MaxConcurrent, Drained: w.Drained, Facts: w.Facts, Policy: w.Policy,
+		MaxConcurrent: w.MaxConcurrent, Drained: w.Drained, Facts: w.Facts, Policy: w.Policy, Headroom: w.Headroom,
 	}
 	if w.Metrics != nil {
 		r.Load = w.Metrics.Load
