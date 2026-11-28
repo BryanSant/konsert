@@ -174,7 +174,7 @@ var grokAdapter = &acpAdapter{
 	relogin:        func(bin string, _ *acpInitResult) string { return bin + " login" },
 	ReloginNote:    "On a host without a browser run `grok login --device-auth`.",
 	ReloginEnvKeys: []string{"GROK_HOME"},
-	UsageNote:      "Grok shows plan usage only in its TUI (/usage).",
+	usage:          grokUsage,
 	sessionPaths: func(home string, env map[string]string, id, cwd string) []string {
 		root := env["GROK_HOME"]
 		if root == "" {
